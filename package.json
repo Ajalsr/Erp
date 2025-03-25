@@ -1,0 +1,25 @@
+{
+  "name": "erp",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "start:go": "cd backend && go run .",
+    "start:vite": "cd Frontend && npm run dev",
+    "start": "concurrently \"npm run start:go\" \"npm run start:vite\" \"electron .\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^35.0.3",
+    "nodemon": "^3.1.9"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "mongoose": "^8.12.2"
+  }
+}
