@@ -3,4 +3,4 @@ dist/
 *.exe
 *.dll
 *.app
-*.zip
+*.zipnode_modules/electron/
