@@ -4,3 +4,4 @@ dist/
 *.dll
 *.app
 *.zipnode_modules/electron/
+.qodo
