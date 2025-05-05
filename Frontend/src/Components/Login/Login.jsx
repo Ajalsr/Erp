@@ -1,6 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { Link } from 'react-router'
 
 const Login = () => {
+  const [inputs, setInputs] = useState({
+    Id: "",
+    pass: ""
+  })
   return (
       <div class="flex items-center justify-center min-h-screen bg-gray-100">
       <div
@@ -30,6 +35,8 @@ const Login = () => {
               type="text"
               class="w-full p-2 border border-gray-300 rounded-md placeholder:font-light placeholder:text-gray-500"
               name="Id"
+              value={inputs.Id}
+              onChange={(e) => setInputs({...inputs, Id: e.target.value })}
               id="Id"
             />
           </div>
@@ -39,6 +46,8 @@ const Login = () => {
               type="password"
               name="pass"
               id="pass"
+              value={inputs.pass}
+              onChange={(e) => setInputs({...inputs, pass: e.target.value})}
               class="w-full p-2 border border-gray-300 rounded-md placeholder:font-light placeholder:text-gray-500"
             />
           </div>
@@ -50,6 +59,9 @@ const Login = () => {
           >
             Sign in
           </button>
+          <div class='ml-4 mt-8'>
+            <span>Don't have an account? <Link to="/Signup" class='!text-gray-500 cursor-pointer hover:!text-blue-500'>Sign Up</Link></span>
+          </div>
         </div>
       </div>
     </div>
