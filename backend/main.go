@@ -13,6 +13,7 @@ func main() {
 
 	server := gin.Default()
 	routes.StockRoutes(server)
+	routes.AuthRoutes(server)
 
 	server.Run(":8080")
 
