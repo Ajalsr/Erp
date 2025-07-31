@@ -13,3 +13,12 @@ func StockRoutes(router *gin.Engine) {
 
 	}
 }
+
+func AuthRoutes(router *gin.Engine) {
+
+	authRoutes := router.Group("/api/auth")
+	{
+		authRoutes.POST("/signup", controllers.SignUp())
+
+	}
+}
