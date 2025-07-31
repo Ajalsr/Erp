@@ -1,20 +1,8 @@
 package models
 
-import "time"
-
 type Stock struct {
-	ID       int
-	Name     string    `binding:"required"`
-	Price    int       `binding:"required"`
-	DateTime time.Time `binding:"required"`
-}
-
-var stocks = []Stock{}
-
-func (e Stock) Save() {
-	stocks = append(stocks, e)
-}
-
-func GetAllStocks() []Stock {
-	return stocks
+	ID       string `json:"id" bson:"_id"`
+	Name     string `json:"name" bson:"name"`
+	Quantity string `json:"quantity" bson:"quantity"`
+	Price    string `json:"price" bson:"price"`
 }

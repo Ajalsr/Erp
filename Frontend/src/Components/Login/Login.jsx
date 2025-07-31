@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Link } from 'react-router'
+import { Link } from 'react-router-dom'
 
 const Login = () => {
   const [inputs, setInputs] = useState({
@@ -26,7 +26,7 @@ const Login = () => {
 
         <div class="flex flex-col justify-center p-8 md:p-14">
           <span class="mb-3 text-4xl font-bold">Welcome back</span>
-          <span class="font-light text-gray-400 mb-8">
+          <span class="font-light text-gray-800 mb-8">
             Welcom back! Please enter your details
           </span>
           <div class="py-4">
@@ -60,7 +60,7 @@ const Login = () => {
             Sign in
           </button>
           <div class='ml-4 mt-8'>
-            <span>Don't have an account? <Link to="/Signup" class='!text-gray-500 cursor-pointer hover:!text-blue-500'>Sign Up</Link></span>
+            <span>Don't have an account? <Link to="/Signup" class='!text-gray-500 cursor-pointer hover:!text-black'>Sign Up</Link></span>
           </div>
         </div>
       </div>

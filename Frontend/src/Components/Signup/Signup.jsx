@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router";
+import { Link } from "react-router-dom";
 
 const Signup = () => {
   return (
@@ -16,7 +16,7 @@ const Signup = () => {
 
           <div class="flex flex-col justify-center p-8 md:p-14">
             <span class="mb-3 text-4xl font-bold">Welcome</span>
-            <span class="mb-8 font-light text-gray-400">
+            <span class="mb-8 font-light text-gray-800">
               Welcome! Please enter your details
             </span>
             <div class="py-4">
