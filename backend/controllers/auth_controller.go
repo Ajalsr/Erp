@@ -70,15 +70,17 @@ func SignUp() gin.HandlerFunc {
 			})
 		}
 
-		if val, err := utils.HashPassword(user.Password); err != nil {
+		val, err := utils.HashPassword(user.Password)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
 				"message": "err",
 				"error":   "Failed to hash Password",
 			})
-			user.Password = string(val)
+
 			return
 		}
+		user.Password = string(val)
 
 		user.ID = primitive.NewObjectID()
 
