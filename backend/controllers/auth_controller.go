@@ -65,9 +65,10 @@ func SignUp() gin.HandlerFunc {
 
 			c.JSON(http.StatusConflict, gin.H{
 				"status":  http.StatusConflict,
-				"message": "error",
-				"error":   "Email Already Exists!...",
+				"message": "Id Already Exists!...",
+				"error":   "Id Already Exists!...",
 			})
+			return
 		}
 
 		val, err := utils.HashPassword(user.Password)
@@ -106,6 +107,59 @@ func SignUp() gin.HandlerFunc {
 			"status":  http.StatusCreated,
 			"message": "User Created Successfully...",
 			"data":    responseUser,
+		})
+
+	}
+}
+
+func SignIn() gin.HandlerFunc {
+
+	return func(c *gin.Context) {
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+		var user models.Users
+
+		defer cancel()
+
+		if err := c.BindJSON(&user); err != nil {
+
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  http.StatusBadRequest,
+				"message": "error",
+				"error":   err.Error(),
+			})
+
+			return
+		}
+
+		if validationErr := validate.Struct(&user); validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  http.StatusBadRequest,
+				"message": "error",
+				"error":   validationErr.Error(),
+			})
+
+			return
+		}
+
+		count, err := userCollection.CountDocuments(ctx, bson.M{"userId": user.UserID, "password": user.Password})
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+			return
+		}
+
+		if count == 0 {
+
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID or password"})
+			return
+		}
+
+		c.JSON(http.StatusCreated, gin.H{
+			"status":  http.StatusCreated,
+			"message": "Login successful...",
+			"data":    user.UserID,
 		})
 
 	}
