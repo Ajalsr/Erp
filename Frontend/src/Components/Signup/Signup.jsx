@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import useSignup from "../../helper/useSignup";
+import { ToastContainer, toast } from 'react-toastify';
 
 const Signup = () => {
   const {handleSignup} = useSignup();
@@ -9,9 +10,49 @@ const Signup = () => {
     userId: "",
     password: ""
   })
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    
+    if (!inputs.userId || !inputs.password) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      await handleSignup(inputs);
+      
+      setInputs({
+        userId: "",
+        password: ""
+      });
+      setTimeout(() => {
+          navigate("/Home")
+      }, 2000)
+      console.log("its a yes")
+    } catch (error) {
+      toast.error(error.error)
+      return;
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <>
-     
+     <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light"
+      />
       
       <div class="flex min-h-screen items-center justify-center bg-gray-100">
       <div class="absolute pt-10 justify-center ">
@@ -31,6 +72,7 @@ const Signup = () => {
                 type="text"
                 class="w-full rounded-md border border-gray-300 p-2 placeholder:font-light placeholder:text-gray-500"
                 name="userId"
+                value = {inputs.userId}
                 id="userId"
                 onChange = {(e) => setInputs({...inputs, userId: e.target.value})}
               />
@@ -41,14 +83,15 @@ const Signup = () => {
                 type="password"
                 name="password"
                 id="password"
+                value = {inputs.password}
                 onChange = {(e) => setInputs({...inputs, password: e.target.value})}
                 class="w-full rounded-md border border-gray-300 p-2 placeholder:font-light placeholder:text-gray-500"
               />
             </div>
             <button class="mb-6 w-full cursor-pointer rounded-lg bg-black p-2 text-white hover:border hover:border-gray-300 hover:bg-white hover:text-black"
-            onClick={() => handleSignup(inputs) }
+            onClick={() => handleSubmit(inputs) } disabled={loading}
             >
-              Sign up
+             {loading ? "Creating Account..." : "Sign up"}
             </button>
           </div>
         </div>
