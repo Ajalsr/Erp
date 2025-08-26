@@ -143,15 +143,24 @@ func SignIn() gin.HandlerFunc {
 			return
 		}
 
-		count, err := userCollection.CountDocuments(ctx, bson.M{"userId": user.UserID, "password": user.Password})
+		filter := bson.M{"userId": user.UserID}
+		var result bson.M
+
+		err := userCollection.FindOne(ctx, filter).Decode(&result)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-			return
+			if err == mongo.ErrNoDocuments {
+				fmt.Println("No document found matching the filter.")
+				return
+			}
+
 		}
 
-		if count == 0 {
+		fmt.Println("Found document:", result)
 
+		isValid := utils.CheckPasswordHash(user.Password, result["password"].(string))
+
+		if isValid != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID or password"})
 			return
 		}
