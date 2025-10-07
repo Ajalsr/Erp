@@ -1,16 +1,22 @@
-import React from 'react'
+import React, { useState } from 'react'
 
 import { Link } from 'react-router-dom'
+import Navbar from './Navbar'
+import Sidebar from './Sidebar'
 
 const Home = () => {
+  const [sidebarToggle, setSidebarToggle] = useState(false)
   return (
     <>
-    <div class="flex min-h-screen justify-center bg-gray-100">
-    <div>Home</div>
-    <Link to="/" class="ml-80 bg-red">
-        <button class="text-white cursor-pointer bg-black w-20 h-10 rounded-lg">Back</button>
-      </Link>
+    <div class="flex">
+      
+    <Sidebar />
+    <Navbar
+      
+    />
     </div>
+    
+    
     </>
   )
 }
