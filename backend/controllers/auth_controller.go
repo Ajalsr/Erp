@@ -148,9 +148,11 @@ func SignIn() gin.HandlerFunc {
 
 		err := userCollection.FindOne(ctx, filter).Decode(&result)
 
+		fmt.Println(err, "this is valueeee")
+
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				fmt.Println("No document found matching the filter.")
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "No document found matching the filter."})
 				return
 			}
 
@@ -159,6 +161,8 @@ func SignIn() gin.HandlerFunc {
 		fmt.Println("Found document:", result)
 
 		isValid := utils.CheckPasswordHash(user.Password, result["password"].(string))
+
+		fmt.Println("Found is valid:", isValid)
 
 		if isValid != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID or password"})
