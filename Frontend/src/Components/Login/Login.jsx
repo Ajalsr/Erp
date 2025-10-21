@@ -20,8 +20,8 @@ const Login = () => {
     
     setLoading(true);
     try {
-      await handleSignin(inputs);
-      
+      let val = await handleSignin(inputs);
+      console.log(val,"this is inputs")
       setInputs({
         userId: "",
         password: ""
