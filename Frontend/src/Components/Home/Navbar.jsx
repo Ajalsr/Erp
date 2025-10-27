@@ -1,8 +1,15 @@
 import { useState, useRef, useEffect } from "react";
+import { Link,useNavigate } from 'react-router-dom'
 
 const Navbar = ({ onToggleSidebar }) => {
+
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const navigate = useNavigate();
+  const setValue = () => {
+    localStorage.setItem("is_checkout", "true")
+    navigate("/")
+  }
 
   // Close dropdown if click outside
   useEffect(() => {
@@ -63,7 +70,7 @@ const Navbar = ({ onToggleSidebar }) => {
       <ul className="py-1">
         <li className="px-4 py-2 hover:bg-gray-100 cursor-pointer">Profile</li>
         <li className="px-4 py-2 hover:bg-gray-100 cursor-pointer">Settings</li>
-        <li className="px-4 py-2 hover:bg-gray-100 cursor-pointer">Sign Out</li>
+        <li className="px-4 py-2 hover:bg-gray-100 cursor-pointer" onClick={() => setValue() }>Sign Out</li>
       </ul>
     </div>
   )}

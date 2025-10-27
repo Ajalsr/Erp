@@ -2,6 +2,9 @@ import { Route, Routes } from "react-router-dom"
 import Login from "./Components/Login/Login"
 import Home from "./Components/Home/Home"
 import Signup from "./Components/Signup/Signup"
+import Layout from "./Components/Layout"
+import Item from "./Components/Item/Item"
+import New from "./Components/NewItem/New"
 
 
 
@@ -12,8 +15,12 @@ function App() {
     <>
       <Routes>
         <Route path="/" element={<Login/>} />
-        <Route path="/Home" element={<Home/>} />
         <Route path="/Signup" element={<Signup/>}/>
+        <Route element={<Layout/>}>
+          <Route path="/Home" element={<Home />} />
+          <Route path="/Items/Items" element={<Item/>} />
+          <Route path="/Items/Items/New" element={<New/>} />
+        </Route>
       </Routes>
     </>
   )

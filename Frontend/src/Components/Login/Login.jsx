@@ -26,6 +26,7 @@ const Login = () => {
         userId: "",
         password: ""
       });
+      localStorage.setItem("is_checkout", "false")
       setTimeout(() => {
           navigate("/Home")
       }, 2000)

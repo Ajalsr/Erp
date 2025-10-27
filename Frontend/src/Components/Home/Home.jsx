@@ -7,9 +7,8 @@ const Home = () => {
 
   return (
     <div className="flex h-screen bg-gray-100">
-      <Sidebar isCollapsed={sidebarToggle} />
-      <div className="flex-1 flex flex-col min-w-0"> {/* Remove transition classes from here */}
-        <Navbar onToggleSidebar={() => setSidebarToggle(!sidebarToggle)} />
+      
+      <div className="flex-1 flex flex-col min-w-0">
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
