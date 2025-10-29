@@ -11,11 +11,11 @@ const Sidebar = ({ isCollapsed }) => {
   const [activeItem, setActiveItem] = useState(null);
   const navigate = useNavigate();
 
-
   const menuItems = [
-    { icon: <IoHome />, 
+    {
+      icon: <IoHome />,
       label: "Home",
-      route: "/Home"
+      route: "/Home",
     },
     {
       icon: <FaShoppingBag />,
@@ -39,31 +39,29 @@ const Sidebar = ({ isCollapsed }) => {
       icon: <FaCartShopping />,
       label: "Sales",
       subItems: [
-        { name: "Customers", route: "/Sales/Customers"},
-        { name : "Retainer Invoices", route : "/Sales/Customers"},
-        { name : "Sales Orders", route : "/Sales/Customers"},
-        { name : "Invoices", route : "/Sales/Customers"},
-        { name :"Delivery Challans", route : "/Sales/Customers"},
-        { name : "Payments Received", route : "/Sales/Customers"},
-        { name : "Sales Returns", route : "/Sales/Customers"},
-        { name : "Credit Notes", route : "/Sales/Customers"}
+        { name: "Customers", route: "/Sales/Customers" },
+        { name: "Retainer Invoices", route: "/Sales/Customers" },
+        { name: "Sales Orders", route: "/Sales/Customers" },
+        { name: "Invoices", route: "/Sales/Customers" },
+        { name: "Delivery Challans", route: "/Sales/Customers" },
+        { name: "Payments Received", route: "/Sales/Customers" },
+        { name: "Sales Returns", route: "/Sales/Customers" },
+        { name: "Credit Notes", route: "/Sales/Customers" },
       ],
     },
     {
       icon: <GiShoppingBag />,
       label: "Purchases",
       subItems: [
-        {name : "Vendors", route : "/Sales/Customers"},
-        {name :  "Purchase Orders", route  : "/Sales/Customers"},
-        {name : "Bills", route : "/Sales/Customers"},
-        {name : "Purchase Returns", route : "/Sales/Customers"},
-        {name : "Payments Made", route : "/Sales/Customers"},
-        { name : "Vendor Credits", route : "/Sales/Customers"}
+        { name: "Vendors", route: "/Sales/Customers" },
+        { name: "Purchase Orders", route: "/Sales/Customers" },
+        { name: "Bills", route: "/Sales/Customers" },
+        { name: "Purchase Returns", route: "/Sales/Customers" },
+        { name: "Payments Made", route: "/Sales/Customers" },
+        { name: "Vendor Credits", route: "/Sales/Customers" },
       ],
     },
   ];
-
-  
 
   const handleToggle = (item) => {
     if (item.subItems) {
@@ -94,23 +92,34 @@ const Sidebar = ({ isCollapsed }) => {
           {menuItems.map((item, index) => {
             const isOpen = openMenu === item.label;
             const isActive = activeItem === item.label;
+            const hasSubItems = !!item.subItems;
+
             return (
               <li key={index}>
                 <button
                   onClick={() => handleToggle(item)}
-                  className={`w-full flex items-center p-2 rounded-lg transition-colors duration-200 ${
+                  className={`w-full flex items-center justify-between p-2 rounded-lg transition-colors duration-200 ${
                     isActive
                       ? "bg-blue-500 text-white"
                       : "hover:bg-gray-700 hover:text-white"
                   }`}
                 >
-                  <span className="flex items-center justify-center w-6 mr-3">
-                    {item.icon}
-                  </span>
-                  {!isCollapsed && <span>{item.label}</span>}
+                  <div className="flex items-center">
+                    <span className="flex items-center justify-center w-6 mr-3">
+                      {item.icon}
+                    </span>
+                    {!isCollapsed && <span>{item.label}</span>}
+                  </div>
+
+                  {/* Chevron icons for expandable items */}
+                  {!isCollapsed && hasSubItems && (
+                    <span className="ml-auto">
+                      {isOpen ? <IoChevronDown /> : <IoChevronForward />}
+                    </span>
+                  )}
                 </button>
 
-                {!isCollapsed && item.subItems && (
+                {!isCollapsed && hasSubItems && (
                   <div
                     className={`ml-8 overflow-hidden transition-all duration-500 ease-in-out ${
                       isOpen ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0"

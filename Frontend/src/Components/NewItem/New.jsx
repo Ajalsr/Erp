@@ -38,18 +38,18 @@ const New = () => {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen p-6">
+    <div className="bg-gray-50 min-h-screen p-6 pb-24"> {/* Added pb-24 for bottom padding */}
       <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200">
-          <h1 className="text-2xl font-semibold text-gray-900">New Item</h1>
+          <h1 className="text-xl font-semibold text-gray-900">New Item</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-8">
           {/* Type Section */}
-          <div>
+          <div className='flex items-baseline'>
             <h2 className="text-lg font-medium text-gray-900 mb-4">Type</h2>
-            <div className="flex space-x-4">
+            <div className="flex space-x-4 ml-30">
               <label className="flex items-center">
                 <input
                   type="radio"
@@ -76,7 +76,7 @@ const New = () => {
           </div>
 
           {/* Name and SKU Section */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Name *
@@ -102,70 +102,110 @@ const New = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-          </div>
-
-          {/* Unit Section */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Unit *
-            </label>
-            <select
-              name="unit"
-              value={formData.unit}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">Select or type to add</option>
-              <option value="piece">Piece</option>
-              <option value="box">Box</option>
-              <option value="kg">Kg</option>
-              <option value="liter">Liter</option>
-            </select>
+            <div className="relative">
+  <label className="block text-sm font-medium text-gray-700 mb-2">
+    Unit *
+  </label>
+  <select
+    name="unit"
+    value={formData.unit}
+    onChange={handleChange}
+    required
+    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white pr-10"
+  >
+    <option value="">Select or type to add</option>
+    <option value="piece">Piece</option>
+    <option value="box">Box</option>
+    <option value="kg">Kg</option>
+    <option value="liter">Liter</option>
+  </select>
+  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 pt-6">
+    <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+    </svg>
+  </div>
+</div>
           </div>
 
           <hr className="border-gray-200" />
 
-          {/* Dimensions Section */}
-          <div>
-            <h3 className="text-md font-medium text-gray-900 mb-4">Dimensions</h3>
-            <p className="text-sm text-gray-500 mb-4">(Length X Width X Height)</p>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Length</label>
-                <input
-                  type="text"
-                  name="length"
-                  value={formData.length}
-                  onChange={handleChange}
-                  placeholder="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Width</label>
-                <input
-                  type="text"
-                  name="width"
-                  value={formData.width}
-                  onChange={handleChange}
-                  placeholder="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Height</label>
-                <input
-                  type="text"
-                  name="height"
-                  value={formData.height}
-                  onChange={handleChange}
-                  placeholder="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-          </div>
+         {/* Dimensions & Manufacturer Section */}
+<div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+
+  {/* Dimensions */}
+  <div>
+    <label className="block text-sm font-medium text-gray-700 mb-2">
+      Dimensions <span className="text-gray-500 text-xs">(Length × Width × Height)</span>
+    </label>
+    <div className="flex items-center border border-gray-300 rounded-md overflow-hidden shadow-sm bg-white">
+      {/* Length */}
+      <input
+        type="text"
+        name="length"
+        value={formData.length}
+        onChange={handleChange}
+        placeholder="0"
+        className="w-1/4 px-3 py-2 text-center focus:outline-none border-none"
+      />
+
+      <span className="text-gray-400 text-lg px-1">×</span>
+
+      {/* Width */}
+      <input
+        type="text"
+        name="width"
+        value={formData.width}
+        onChange={handleChange}
+        placeholder="0"
+        className="w-1/4 px-3 py-2 text-center focus:outline-none border-none"
+      />
+
+      <span className="text-gray-400 text-lg px-1">×</span>
+
+      {/* Height */}
+      <input
+        type="text"
+        name="height"
+        value={formData.height}
+        onChange={handleChange}
+        placeholder="0"
+        className="w-1/4 px-3 py-2 text-center focus:outline-none border-none"
+      />
+
+      {/* Unit Select */}
+      <select
+        name="dimensionUnit"
+        value={formData.dimensionUnit}
+        onChange={handleChange}
+        className="px-3 py-2 bg-white text-gray-700 focus:outline-none border-l border-gray-300 cursor-pointer"
+      >
+        <option value="cm">cm</option>
+        <option value="in">in</option>
+        <option value="mm">mm</option>
+        <option value="m">m</option>
+      </select>
+    </div>
+  </div>
+
+  {/* Manufacturer */}
+  <div>
+    <label className="block text-sm font-medium text-gray-700 mb-2">
+      Manufacturer
+    </label>
+    <select
+      name="manufacturer"
+      value={formData.manufacturer}
+      onChange={handleChange}
+      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+    >
+      <option value="">Select or Add Manufacturer</option>
+      <option value="manufacturer1">Manufacturer 1</option>
+      <option value="manufacturer2">Manufacturer 2</option>
+    </select>
+  </div>
+</div>
+
+
 
           {/* Manufacturer and Codes Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -183,6 +223,19 @@ const New = () => {
                 <option value="manufacturer1">Manufacturer 1</option>
                 <option value="manufacturer2">Manufacturer 2</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Weight
+              </label>
+              <input
+                type="text"
+                name="weight"
+                value={formData.weight}
+                onChange={handleChange}
+                placeholder="0"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
             </div>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -230,25 +283,6 @@ const New = () => {
                 </div>
               </div>
             </div>
-          </div>
-
-          <hr className="border-gray-200" />
-
-          {/* Action Buttons */}
-          <div className="flex space-x-3 justify-end">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 border border-transparent rounded-md text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Save
-            </button>
           </div>
 
           <hr className="border-gray-200" />
@@ -306,6 +340,26 @@ const New = () => {
             </div>
           </div>
         </form>
+      </div>
+
+      {/* Fixed Buttons - Moved outside the form and main content div */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
+        <div className="max-w-4xl ml-auto flex space-x-3 justify-end">
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            onClick={handleSubmit}
+            className="px-4 py-2 bg-blue-600 border border-transparent rounded-md text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Save
+          </button>
+        </div>
       </div>
     </div>
   );
