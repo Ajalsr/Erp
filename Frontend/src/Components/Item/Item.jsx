@@ -84,7 +84,7 @@ export default function Item() {
           <button className="p-2 border rounded-md hover:bg-gray-100">
             <FaThLarge className="text-gray-600" />
           </button>
-          <button className="bg-blue-600 text-white px-3 py-2 rounded-md flex items-center space-x-2 hover:bg-blue-700" onClick={ () => navigate("/Items/Items/New")} >
+          <button className="bg-blue-600 text-white px-3 py-2 rounded-md flex items-center space-x-2 hover:bg-blue-700 cursor-pointer" onClick={ () => navigate("/Items/Items/New")} >
             <FaPlus />
             <span>New</span>
           </button>
