@@ -1,21 +1,32 @@
 import React, { useState } from 'react';
-
+import { IoMdClose } from "react-icons/io";
+import { useNavigate } from 'react-router-dom'
+import toast, { Toaster } from "react-hot-toast";
+import useAdditem from '../../helper/useAddItem';
 const New = () => {
+  const {handleAdditem} = useAdditem();
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     type: 'goods',
     name: '',
-    sku: '',
+    item_code: '',
     unit: '',
     length: '',
     width: '',
     height: '',
+    dimension_unit: '',
     manufacturer: '',
     upc: '',
     mpn: '',
     ean: '',
     isbn: '',
     weight: '',
-    brand: ''
+    brand: '',
+    preferred_vendor: '',
+    inventory_account: '',
+    opening_stock: '',
+    opening_stock_rate: '',
+    reorder_point: ''
   });
 
  const [salesEnabled, setSalesEnabled] = useState(false);
@@ -24,7 +35,57 @@ const New = () => {
 
   const showInventorySection = salesEnabled && purchaseEnabled;
 
+  const handleClose = () => {
+  toast.custom((t) => (
+    <div
+      className={`fixed inset-0 z-[9999] mt-40 flex items-center justify-center transition-all duration-300 ${
+        t.visible ? "opacity-100 scale-100" : "opacity-0 scale-95"
+      }`}
+    >
+      {/* Background Overlay */}
+      <div
+        className="absolute inset-0 bg-black bg-opacity-40 backdrop-blur-sm"
+        onClick={() => toast.dismiss(t.id)}
+      ></div>
+
+      {/* Toast / Modal Box */}
+      <div className="relative bg-white rounded-lg shadow-2xl p-6 w-80 text-center z-10">
+        <h2 className="text-gray-800 text-lg font-semibold mb-2">
+          Do you want to continue?
+        </h2>
+        <p className="text-sm text-gray-600 mb-5">
+          Unsaved changes will be lost.
+        </p>
+
+        <div className="flex justify-center gap-3">
+          <button
+            onClick={() => {
+              toast.dismiss(t.id);
+              navigate("/items/items");
+            }}
+            className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition"
+          >
+            Yes
+          </button>
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300 transition"
+          >
+            No
+          </button>
+        </div>
+      </div>
+    </div>
+  ), {
+    duration: Infinity,
+    position: "top-center", // position doesn’t matter; we override it
+  });
+};
+
+
+
   const handleChange = (e) => {
+    console.log(e.target,"this is e valueddd")
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
@@ -32,10 +93,53 @@ const New = () => {
     }));
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
+    //e.preventDefault();
     console.log('Form submitted:', formData);
-    // Handle form submission logic here
+    
+    if (!formData.name || !formData.item_code) {
+          toast.error("Please fill in all fields");
+          return;
+        }
+        
+        
+        try {
+          await handleAdditem(formData);
+          
+          setFormData({
+    type: 'goods',
+    name: '',
+    item_code: '',
+    unit: '',
+    length: '',
+    width: '',
+    height: '',
+    dimension_unit: '',
+    manufacturer: '',
+    upc: '',
+    mpn: '',
+    ean: '',
+    isbn: '',
+    weight: '',
+    brand: '',
+    preferred_vendor: '',
+    inventory_account: '',
+    opening_stock: '',
+    opening_stock_rate: '',
+    reorder_point: ''
+  });
+          setTimeout(() => {
+              navigate("/Items/Items")
+          }, 2000)
+          console.log("its a yes")
+        } catch (error) {
+          toast.error(error.error)
+          return;
+        } finally {
+          
+        }
+
+
   };
 
   const handleCancel = () => {
@@ -47,9 +151,17 @@ const New = () => {
     <div className="bg-gray-50 min-h-screen p-6 pb-24"> {/* Added pb-24 for bottom padding */}
       <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h1 className="text-xl font-semibold text-gray-900">New Item</h1>
-        </div>
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+  <h1 className="text-xl font-semibold text-gray-900">New Item</h1>
+  <button
+    type="button"
+    className="text-gray-500 hover:text-gray-700"
+    aria-label="Close"
+  >
+    <IoMdClose size={20} style={{cursor:"pointer"}} onClick ={() => handleClose()} />
+  </button>
+</div>
+
 
         <form onSubmit={handleSubmit} className="p-6">
           {/* Type Section */}
@@ -85,6 +197,18 @@ const New = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 space-y-8">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
+                Item Code
+              </label>
+              <input
+                type="text"
+                name="item_code"
+                value={formData.item_code}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Name *
               </label>
               <input
@@ -96,18 +220,7 @@ const New = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                SKU
-              </label>
-              <input
-                type="text"
-                name="sku"
-                value={formData.sku}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+            
             <div className="relative">
   <label className="block text-sm font-medium text-gray-700 mb-2">
     Unit *
@@ -180,11 +293,12 @@ const New = () => {
 
       {/* Unit Select */}
       <select
-        name="dimensionUnit"
-        value={formData.dimensionUnit}
+        name="dimension_unit"
+        value={formData.dimension_unit}
         onChange={handleChange}
         className="px-3 py-2 bg-white text-gray-700 focus:outline-none border-l border-gray-300 cursor-pointer"
       >
+        <option value="" disabled selected>Select</option>
         <option value="cm">cm</option>
         <option value="in">in</option>
         <option value="mm">mm</option>
@@ -348,12 +462,15 @@ const New = () => {
                   AED
                 </span>
                 <input
-                  type="text"
+                  type="number"
                   disabled={!salesEnabled}
                   className={`w-full px-3 py-2 border border-gray-300 rounded-r-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
                     !salesEnabled ? "bg-gray-100 cursor-not-allowed" : ""
                   }`}
                   placeholder="0.00"
+                  value={formData.selling_price}
+                  onChange={handleChange}
+                  name="selling_price"
                 />
               </div>
             </div>
@@ -369,6 +486,9 @@ const New = () => {
                   className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 appearance-none ${
                     !salesEnabled ? "bg-gray-100 cursor-not-allowed" : ""
                   }`}
+                  value={formData.sales_account}
+                    onChange={handleChange}
+                    name="sales_account"
                 >
                   <option>[ 89707 ] Sales</option>
                 </select>
@@ -400,6 +520,9 @@ const New = () => {
                 className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
                   !salesEnabled ? "bg-gray-100 cursor-not-allowed" : ""
                 }`}
+                value={formData.sales_description}
+                onChange={handleChange}
+                name="sales_description"
               />
             </div>
           </div>
@@ -413,6 +536,7 @@ const New = () => {
               className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
               checked={purchaseEnabled}
               onChange={(e) => setPurchaseEnabled(e.target.checked)}
+              
             />
             <span className="ml-2 text-sm font-medium text-gray-700">
               Purchase Information
@@ -430,12 +554,15 @@ const New = () => {
                   AED
                 </span>
                 <input
-                  type="text"
+                  type="number"
                   disabled={!purchaseEnabled}
                   className={`w-full px-3 py-2 border border-gray-300 rounded-r-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
                     !purchaseEnabled ? "bg-gray-100 cursor-not-allowed" : ""
                   }`}
                   placeholder="0.00"
+                  value={formData.cost_price}
+                    onChange={handleChange}
+                    name="cost_price"
                 />
               </div>
             </div>
@@ -451,6 +578,9 @@ const New = () => {
                   className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 appearance-none ${
                     !purchaseEnabled ? "bg-gray-100 cursor-not-allowed" : ""
                   }`}
+                  value={formData.cost_account}
+                    onChange={handleChange}
+                    name="cost_account"
                 >
                   <option>[ 6683 ] Cost of Goods Sold</option>
                 </select>
@@ -482,6 +612,9 @@ const New = () => {
                 className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
                   !purchaseEnabled ? "bg-gray-100 cursor-not-allowed" : ""
                 }`}
+                value={formData.cost_description}
+                    onChange={handleChange}
+                    name="cost_description"
               />
             </div>
 
@@ -495,6 +628,9 @@ const New = () => {
                 className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 appearance-none ${
                   !purchaseEnabled ? "bg-gray-100 cursor-not-allowed" : ""
                 }`}
+                value={formData.preferred_vendor}
+                    onChange={handleChange}
+                    name="preferred_vendor"
               >
                 <option>Select Vendor</option>
               </select>
@@ -529,7 +665,11 @@ const New = () => {
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Inventory Account<span className="text-red-500">*</span>
                 </label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 appearance-none">
+                <select className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 appearance-none"
+                    value={formData.inventory_account}
+                   onChange={handleChange}
+                   name="inventory_account"
+                >
                   <option>[ 36945 ] Inventory Asset</option>
                 </select>
               </div>
@@ -541,7 +681,10 @@ const New = () => {
                 </label>
                 <input
                   type="text"
+                  name="opening_stock"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                   value={formData.opening_stock}
+                onChange={handleChange}
                 />
               </div>
 
@@ -552,7 +695,10 @@ const New = () => {
                 </label>
                 <input
                   type="text"
+                  name="opening_stock_rate"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                   value={formData.opening_stock_rate}
+                onChange={handleChange}
                 />
               </div>
 
@@ -562,8 +708,11 @@ const New = () => {
                   Reorder Point
                 </label>
                 <input
+                name="reorder_point"
                   type="text"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                   value={formData.reorder_point}
+                onChange={handleChange}
                 />
               </div>
             </div>
@@ -589,13 +738,15 @@ const New = () => {
           </button>
           <button
             type="submit"
-            onClick={handleSubmit}
+            onClick={() => handleSubmit() }
             className="px-4 py-2 bg-blue-600 border border-transparent rounded-md text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer"
           >
             Save
           </button>
         </div>
+        
       </div>
+      
     </div>
   ); 
 };
