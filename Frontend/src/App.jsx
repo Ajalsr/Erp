@@ -5,7 +5,7 @@ import Signup from "./Components/Signup/Signup"
 import Layout from "./Components/Layout"
 import Item from "./Components/Item/Item"
 import New from "./Components/NewItem/New"
-
+import  { Toaster } from "react-hot-toast";
 
 
 function App() {
@@ -13,6 +13,7 @@ function App() {
 
   return (
     <>
+      <Toaster />
       <Routes>
         <Route path="/" element={<Login/>} />
         <Route path="/Signup" element={<Signup/>}/>
