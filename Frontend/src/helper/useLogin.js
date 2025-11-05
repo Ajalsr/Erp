@@ -14,7 +14,7 @@ const useLogin = () => {
             if(response.data === '')
             {
               console.log("Signin Failed:", response)
-            toast.error("Successfully Signed In!!!..", {
+            toast.error("Sign In Failed!!!..", {
         position: "top-right",
         autoClose: 5000,
         hideProgressBar: false,
@@ -26,8 +26,8 @@ const useLogin = () => {
       });
             }
             else {
-                console.log("Signin Successful:", response)
-            toast.success("Signed In Successful!!!..", {
+                console.log("Signin Successfully:", response)
+            toast.success("Signed In Successfully!!!..", {
         position: "top-right",
         autoClose: 5000,
         hideProgressBar: false,

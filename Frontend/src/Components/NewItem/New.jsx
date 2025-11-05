@@ -3,6 +3,7 @@ import { IoMdClose } from "react-icons/io";
 import { useNavigate } from 'react-router-dom'
 import toast, { Toaster } from "react-hot-toast";
 import useAdditem from '../../helper/useAddItem';
+import { ToastContainer } from 'react-toastify';
 const New = () => {
   const {handleAdditem} = useAdditem();
   const navigate = useNavigate();
@@ -26,7 +27,8 @@ const New = () => {
     inventory_account: '',
     opening_stock: '',
     opening_stock_rate: '',
-    reorder_point: ''
+    reorder_point: '',
+    quantity:''
   });
 
  const [salesEnabled, setSalesEnabled] = useState(false);
@@ -98,8 +100,17 @@ const New = () => {
     console.log('Form submitted:', formData);
     
     if (!formData.name || !formData.item_code) {
-          toast.error("Please fill in all fields");
+        if(!formData.name)
+        {
+          toast.error("Please fill name");
           return;
+        }
+        else if(!formData.item_code)
+        {
+          toast.error("Please fill item code");
+          return;
+        }
+          
         }
         
         
@@ -126,11 +137,12 @@ const New = () => {
     inventory_account: '',
     opening_stock: '',
     opening_stock_rate: '',
-    reorder_point: ''
+    reorder_point: '',
+    quantity:''
   });
           setTimeout(() => {
               navigate("/Items/Items")
-          }, 2000)
+          }, 3000)
           console.log("its a yes")
         } catch (error) {
           toast.error(error.error)
@@ -148,7 +160,20 @@ const New = () => {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen p-6 pb-24"> {/* Added pb-24 for bottom padding */}
+    <>  
+      <ToastContainer
+              position="top-right"
+              autoClose={5000}
+              hideProgressBar={false}
+              newestOnTop={false}
+              closeOnClick
+              rtl={false}
+              pauseOnFocusLoss
+              draggable
+              pauseOnHover
+              theme="light"
+            />
+      <div className="bg-gray-50 min-h-screen p-6 pb-24"> {/* Added pb-24 for bottom padding */}
       <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
@@ -194,7 +219,7 @@ const New = () => {
           </div>
 
           {/* Name and SKU Section */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 space-y-8">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Item Code
@@ -215,6 +240,24 @@ const New = () => {
                 type="text"
                 name="name"
                 value={formData.name}
+                onChange={handleChange}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            
+            
+          </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 space-y-8">
+          <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Quantity *
+              </label>
+              <input
+                type="text"
+                name="quantity"
+                value={formData.quantity}
                 onChange={handleChange}
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
@@ -244,7 +287,7 @@ const New = () => {
     </svg>
   </div> */}
 </div>
-          </div>
+        </div>
 
           <hr className="border-gray-200" />
 
@@ -748,6 +791,7 @@ const New = () => {
       </div>
       
     </div>
+  </>
   ); 
 };
 
