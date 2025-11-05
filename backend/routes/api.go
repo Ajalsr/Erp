@@ -9,7 +9,7 @@ func StockRoutes(router *gin.Engine) {
 
 	stockRoutes := router.Group("/api/stocks")
 	{
-		stockRoutes.GET("/", controllers.GetAllStocks())
+		stockRoutes.GET("/getitem", controllers.GetAllStocks())
 		stockRoutes.POST("/additem", controllers.AddItem())
 	}
 }

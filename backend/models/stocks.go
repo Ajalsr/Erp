@@ -29,4 +29,5 @@ type Stock struct {
 	OpeningStock     string             `json:"opening_stock" bson:"opening_stock"`
 	OpeningStockRate string             `json:"opening_stock_rate" bson:"opening_stock_rate"`
 	ReorderPoint     string             `json:"reorder_point" bson:"reorder_point"`
+	Quantity         string             `json:"quantity" bson:"quantity"`
 }
