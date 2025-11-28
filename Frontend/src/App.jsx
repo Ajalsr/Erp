@@ -6,8 +6,12 @@ import Layout from "./Components/Layout"
 import Item from "./Components/Item/Item"
 import New from "./Components/NewItem/New"
 import  { Toaster } from "react-hot-toast";
-
-
+import Customers from "./Components/Customers/Customers"
+import Newcustomers from "./Components/NewCustomers/Newcustomers"
+import Salesorders from "./Components/SalesOrders/Salesorders"
+import Newsalesorders from "./Components/NewSalesOrders/Newsalesorders"
+import Purchaseorders from "./Components/PurchaseOrders/Purchaseorders"
+import Newpurchaseorders from "./Components/NewPurchaseOrders/Newpurchaseorders"
 function App() {
   
 
@@ -21,6 +25,12 @@ function App() {
           <Route path="/Home" element={<Home />} />
           <Route path="/Items/Items" element={<Item/>} />
           <Route path="/Items/Items/New" element={<New/>} />
+          <Route path="/Sales/Customers" element={<Customers/>} />
+          <Route path="/Sales/Customers/Newcustomers" element={<Newcustomers/>}/>
+          <Route path="/Sales/Salesorders" element={<Salesorders/>}/>
+          <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders/>}/>
+          <Route path="/Purchase/Purchaseorders" element={<Purchaseorders/>}/>
+          <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders/>}/>
         </Route>
       </Routes>
     </>

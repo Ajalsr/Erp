@@ -24,6 +24,7 @@ func GetAllStocks() gin.HandlerFunc {
 		defer cancel()
 
 		collection := config.GetCollection(config.DB, "stocks")
+		fmt.Println(collection, "this is the collection")
 		results, err := collection.Find(ctx, bson.M{})
 
 		if err != nil {

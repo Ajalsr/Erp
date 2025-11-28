@@ -41,7 +41,7 @@ const Sidebar = ({ isCollapsed }) => {
       subItems: [
         { name: "Customers", route: "/Sales/Customers" },
         { name: "Retainer Invoices", route: "/Sales/Customers" },
-        { name: "Sales Orders", route: "/Sales/Customers" },
+        { name: "Sales Orders", route: "/Sales/Salesorders" },
         { name: "Invoices", route: "/Sales/Customers" },
         { name: "Delivery Challans", route: "/Sales/Customers" },
         { name: "Payments Received", route: "/Sales/Customers" },
@@ -53,8 +53,8 @@ const Sidebar = ({ isCollapsed }) => {
       icon: <GiShoppingBag />,
       label: "Purchases",
       subItems: [
-        { name: "Vendors", route: "/Sales/Customers" },
-        { name: "Purchase Orders", route: "/Sales/Customers" },
+        { name: "Vendors", route: "/Sales/Vendors" },
+        { name: "Purchase Orders", route: "/Purchase/Purchaseorders" },
         { name: "Bills", route: "/Sales/Customers" },
         { name: "Purchase Returns", route: "/Sales/Customers" },
         { name: "Payments Made", route: "/Sales/Customers" },
@@ -79,15 +79,15 @@ const Sidebar = ({ isCollapsed }) => {
 
   return (
     <div
-      className={`bg-gray-800 text-white flex flex-col h-full fixed md:relative z-10 transition-all duration-300 ${
+      className={`bg-gray-800 text-white flex flex-col fixed md:relative z-10 transition-all duration-300 ${
         isCollapsed ? "w-16" : "w-64"
-      }`}
+      } h-screen`} // Changed h-full to h-screen
     >
       <div className="p-4 border-b border-gray-700 flex items-center justify-between">
         {!isCollapsed && <h2 className="text-xl font-bold">ERP</h2>}
       </div>
 
-      <nav className="flex-1 p-4">
+      <nav className="flex-1 p-4 overflow-y-auto"> {/* Added overflow-y-auto */}
         <ul className="space-y-2">
           {menuItems.map((item, index) => {
             const isOpen = openMenu === item.label;
