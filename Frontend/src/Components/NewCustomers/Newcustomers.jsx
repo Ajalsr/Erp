@@ -1,43 +1,124 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom';
+import useAddCustomer from '../../helper/useAddCustomer';
+import toast, { Toaster } from "react-hot-toast";
+
 
 const Newcustomers = () => {
-  const [customerType, setCustomerType] = useState('');
-  const [salutation, setSalutation] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [companyName, setCompanyName] = useState('');
-  const [customerDisplayName, setCustomerDisplayName] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [workPhone, setWorkPhone] = useState('');
-  const [mobile, setMobile] = useState('');
-  const [activeTab, setActiveTab] = useState('address');
+  const {handleAddcustomer} = useAddCustomer();
+  const [activeTab, setActiveTab] = useState('other-details');
+  const [formData, setFormData] = useState({
+    customerType: 'business',
+    salutation: '',
+    firstName: '',
+    lastName: '',
+    companyName: '',
+    customerDisplayName: '',
+    customerEmail: '',
+    customerPhone: '',
+    workPhone: '',
+    mobile: '',
+    streetAddress: '',
+    city: '',
+    postalCode: '',
+    country: '',
+    contactPersons: [],
+    customFields: {},
+    reportingTags: [],
+    remarks: '',
+    documents: [],
+    currency: 'UAE Dirham',
+    paymentTerms: 'Due on Receipt'
+  });
 
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Handle form submission here
-    console.log('Form submitted');
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    
+    if (type === 'radio') {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    } else if (type === 'checkbox') {
+      setFormData(prev => ({
+        ...prev,
+        [name]: checked
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  const handleSubmit = async () => {
+    //e.preventDefault();
+    console.log('Form submitted:', formData);
+    
+    if (!formData.customerDisplayName) {
+    toast.error("Please fill customer display name");
+    return;
+    }
+        
+        
+        try {
+          await handleAddcustomer(formData);
+          
+          setFormData({
+    customerType: 'business',
+    salutation: '',
+    firstName: '',
+    lastName: '',
+    companyName: '',
+    customerDisplayName: '',
+    customerEmail: '',
+    customerPhone: '',
+    workPhone: '',
+    mobile: '',
+    streetAddress: '',
+    city: '',
+    postalCode: '',
+    country: '',
+    contactPersons: [],
+    customFields: {},
+    reportingTags: [],
+    remarks: '',
+    documents: [],
+    currency: 'UAE Dirham',
+    paymentTerms: 'Due on Receipt'
+  });
+          setTimeout(() => {
+              navigate("/Sales/Customers")
+          }, 3000)
+          console.log("its a yes")
+        } catch (error) {
+          toast.error(error.error)
+          return;
+        } finally {
+          
+        }
+
+
   };
 
   const handleCancel = () => {
-    navigate('/sales/customers')
+    navigate('/sales/customers');
     console.log('Form cancelled');
   };
 
   // Tab content components
   const TabContent = () => {
     switch (activeTab) {
-    
       case 'other-details':
-        return(
-           <div className="space-y-4">
-                <div className="mb-8">
+        return (
+          <div className="space-y-4">
+            <div className="mb-8">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Currency</h2>
               <div className="bg-gray-100 px-4 py-3 rounded-md inline-block">
-                <span className="text-gray-700 font-medium">UAE Dirham</span>
+                <span className="text-gray-700 font-medium">{formData.currency}</span>
               </div>
             </div>
 
@@ -45,7 +126,7 @@ const Newcustomers = () => {
             <div className="mb-8">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Payment Terms</h2>
               <div className="bg-gray-100 px-4 py-3 rounded-md inline-block">
-                <span className="text-gray-700 font-medium">Due on Receipt</span>
+                <span className="text-gray-700 font-medium">{formData.paymentTerms}</span>
               </div>
             </div>
 
@@ -56,6 +137,8 @@ const Newcustomers = () => {
                 <div className="flex items-center justify-center mb-2">
                   <input
                     type="checkbox"
+                    name="uploadFile"
+                    onChange={handleChange}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
                   <span className="ml-2 text-gray-700">Upload File</span>
@@ -75,8 +158,9 @@ const Newcustomers = () => {
                 Add more details
               </button>
             </div>
-           </div> 
-        )  
+          </div>
+        );
+      
       case 'address':
         return (
           <div className="space-y-4">
@@ -84,6 +168,9 @@ const Newcustomers = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
               <input
                 type="text"
+                name="streetAddress"
+                value={formData.streetAddress}
+                onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Enter street address"
               />
@@ -93,6 +180,9 @@ const Newcustomers = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
                 <input
                   type="text"
+                  name="city"
+                  value={formData.city}
+                  onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="City"
                 />
@@ -101,6 +191,9 @@ const Newcustomers = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code</label>
                 <input
                   type="text"
+                  name="postalCode"
+                  value={formData.postalCode}
+                  onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Postal Code"
                 />
@@ -110,6 +203,9 @@ const Newcustomers = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
               <input
                 type="text"
+                name="country"
+                value={formData.country}
+                onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Country"
               />
@@ -125,16 +221,89 @@ const Newcustomers = () => {
               <button
                 type="button"
                 className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                onClick={() => {
+                  const newContact = {
+                    id: Date.now(),
+                    name: '',
+                    email: '',
+                    phone: ''
+                  };
+                  setFormData(prev => ({
+                    ...prev,
+                    contactPersons: [...prev.contactPersons, newContact]
+                  }));
+                }}
               >
                 Add Contact
               </button>
             </div>
-            <div className="border border-gray-200 rounded-lg p-4">
-              <div className="text-center text-gray-500">
-                <p>No contact persons added yet</p>
-                <p className="text-sm mt-1">Click "Add Contact" to add a new contact person</p>
+            {formData.contactPersons.length === 0 ? (
+              <div className="border border-gray-200 rounded-lg p-4">
+                <div className="text-center text-gray-500">
+                  <p>No contact persons added yet</p>
+                  <p className="text-sm mt-1">Click "Add Contact" to add a new contact person</p>
+                </div>
               </div>
-            </div>
+            ) : (
+              formData.contactPersons.map((contact, index) => (
+                <div key={contact.id} className="border border-gray-200 rounded-lg p-4 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                      <input
+                        type="text"
+                        value={contact.name}
+                        onChange={(e) => {
+                          const updatedContacts = [...formData.contactPersons];
+                          updatedContacts[index] = { ...contact, name: e.target.value };
+                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder="Name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={contact.email}
+                        onChange={(e) => {
+                          const updatedContacts = [...formData.contactPersons];
+                          updatedContacts[index] = { ...contact, email: e.target.value };
+                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder="Email"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                      <input
+                        type="tel"
+                        value={contact.phone}
+                        onChange={(e) => {
+                          const updatedContacts = [...formData.contactPersons];
+                          updatedContacts[index] = { ...contact, phone: e.target.value };
+                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder="Phone"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updatedContacts = formData.contactPersons.filter((_, i) => i !== index);
+                      setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
+                    }}
+                    className="text-red-600 hover:text-red-800 text-sm"
+                  >
+                    Remove Contact
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         );
       
@@ -159,20 +328,45 @@ const Newcustomers = () => {
               <button
                 type="button"
                 className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                onClick={() => {
+                  const newTag = prompt('Enter new tag name:');
+                  if (newTag && newTag.trim()) {
+                    setFormData(prev => ({
+                      ...prev,
+                      reportingTags: [...prev.reportingTags, newTag.trim()]
+                    }));
+                  }
+                }}
               >
                 Add Tag
               </button>
             </div>
-            <div className="space-y-2">
-              {['Sales', 'Marketing', 'Support'].map((tag) => (
-                <div key={tag} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                  <span className="text-gray-700">{tag}</span>
-                  <button type="button" className="text-red-600 hover:text-red-800 text-sm">
-                    Remove
-                  </button>
+            {formData.reportingTags.length === 0 ? (
+              <div className="border border-gray-200 rounded-lg p-4">
+                <div className="text-center text-gray-500">
+                  <p>No reporting tags added</p>
+                  <p className="text-sm mt-1">Click "Add Tag" to add reporting tags</p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {formData.reportingTags.map((tag, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                    <span className="text-gray-700">{tag}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updatedTags = formData.reportingTags.filter((_, i) => i !== index);
+                        setFormData(prev => ({ ...prev, reportingTags: updatedTags }));
+                      }}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       
@@ -181,6 +375,9 @@ const Newcustomers = () => {
           <div className="space-y-4">
             <h3 className="text-md font-medium text-gray-700">Remarks</h3>
             <textarea
+              name="remarks"
+              value={formData.remarks}
+              onChange={handleChange}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               rows="4"
               placeholder="Enter any additional remarks or notes about this customer..."
@@ -211,7 +408,7 @@ const Newcustomers = () => {
             <h1 className="text-2xl font-bold text-white">New Customer</h1>
           </div>
 
-          <form onSubmit={handleSubmit} className="px-6 py-6">
+          <form  className="px-6 py-6">
             {/* Customer Type Section */}
             <div className="mb-8">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Customer Type</h2>
@@ -221,8 +418,8 @@ const Newcustomers = () => {
                     type="radio"
                     name="customerType"
                     value="business"
-                    checked={customerType === 'business'}
-                    onChange={(e) => setCustomerType(e.target.value)}
+                    checked={formData.customerType === 'business'}
+                    onChange={handleChange}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                   />
                   <span className="ml-2 text-gray-700">Business</span>
@@ -232,8 +429,8 @@ const Newcustomers = () => {
                     type="radio"
                     name="customerType"
                     value="individual"
-                    checked={customerType === 'individual'}
-                    onChange={(e) => setCustomerType(e.target.value)}
+                    checked={formData.customerType === 'individual'}
+                    onChange={handleChange}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                   />
                   <span className="ml-2 text-gray-700">Individual</span>
@@ -249,13 +446,19 @@ const Newcustomers = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Salutation
                   </label>
-                  <input
-                    type="text"
-                    value={salutation}
-                    onChange={(e) => setSalutation(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Salutation"
-                  />
+                  <select
+                    name="salutation"
+                    value={formData.salutation}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="">Salutation</option>
+                    <option value="Mr.">Mr.</option>
+                    <option value="Mrs.">Mrs.</option>
+                    <option value="Ms.">Ms.</option>
+                    <option value="Miss">Miss</option>
+                    <option value="Dr.">Dr.</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -263,8 +466,9 @@ const Newcustomers = () => {
                   </label>
                   <input
                     type="text"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
+                    name="firstName"
+                    value={formData.firstName}
+                    onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="First Name"
                   />
@@ -275,8 +479,9 @@ const Newcustomers = () => {
                   </label>
                   <input
                     type="text"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
+                    name="lastName"
+                    value={formData.lastName}
+                    onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Last Name"
                   />
@@ -293,8 +498,9 @@ const Newcustomers = () => {
                   </label>
                   <input
                     type="text"
-                    value={customerDisplayName}
-                    onChange={(e) => setCustomerDisplayName(e.target.value)}
+                    name="customerDisplayName"
+                    value={formData.customerDisplayName}
+                    onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Customer Display Name"
                     required
@@ -306,8 +512,9 @@ const Newcustomers = () => {
                   </label>
                   <input
                     type="text"
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
+                    name="companyName"
+                    value={formData.companyName}
+                    onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Company Name"
                   />
@@ -324,8 +531,9 @@ const Newcustomers = () => {
                   </label>
                   <input
                     type="email"
-                    value={customerEmail}
-                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    name="customerEmail"
+                    value={formData.customerEmail}
+                    onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Customer Email"
                   />
@@ -336,8 +544,9 @@ const Newcustomers = () => {
                   </label>
                   <input
                     type="tel"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    name="customerPhone"
+                    value={formData.customerPhone}
+                    onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Customer Phone"
                   />
@@ -348,8 +557,9 @@ const Newcustomers = () => {
                   </label>
                   <input
                     type="tel"
-                    value={mobile}
-                    onChange={(e) => setMobile(e.target.value)}
+                    name="mobile"
+                    value={formData.mobile}
+                    onChange={handleChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Work Phone"
                   />
@@ -359,8 +569,6 @@ const Newcustomers = () => {
 
             {/* Other Details Section with Tabs */}
             <div className="mb-8">
-              
-              
               {/* Tabs Navigation */}
               <div className="border-b border-gray-200">
                 <nav className="-mb-px flex space-x-8 overflow-x-auto">
@@ -387,20 +595,19 @@ const Newcustomers = () => {
               </div>
             </div>
 
-            
-
             {/* Action Buttons */}
             <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
               <button
                 type="button"
                 className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onClick ={() => handleCancel()}
+                onClick={handleCancel}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onClick={handleSubmit}
               >
                 Save
               </button>

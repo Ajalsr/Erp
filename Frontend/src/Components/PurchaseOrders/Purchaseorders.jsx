@@ -78,7 +78,7 @@ const Purchaseorders = () => {
               {/* Header */}
               <div className="flex justify-between items-center mb-4">
                 <div className="flex items-center space-x-2">
-                  <h2 className="text-lg font-semibold">Sales Orders</h2>
+                  <h2 className="text-lg font-semibold">Purchase Orders</h2>
                   <button className="text-gray-500 hover:text-gray-700">
                     <FaFilter />
                   </button>
