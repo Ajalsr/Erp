@@ -32,6 +32,7 @@ func main() {
 	server.Use(CORSMiddleware())
 	routes.StockRoutes(server)
 	routes.AuthRoutes(server)
+	routes.CustomerRoutes(server)
 
 	server.Run(":8080")
 

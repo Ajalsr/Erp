@@ -22,3 +22,12 @@ func AuthRoutes(router *gin.Engine) {
 		authRoutes.POST("/signin", controllers.SignIn())
 	}
 }
+
+func CustomerRoutes(router *gin.Engine) {
+
+	authRoutes := router.Group("/api/customers")
+	{
+		authRoutes.POST("/addcustomers", controllers.AddCustomers())
+		authRoutes.GET("/getcustomers", controllers.GetAllCustomers())
+	}
+}
