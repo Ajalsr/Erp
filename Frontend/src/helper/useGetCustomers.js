@@ -2,27 +2,27 @@ import React, { useState, useCallback } from 'react'
 import axios from 'axios'
 import { toast } from 'react-toastify';
 
-const useGetItem = () => {
+const useGetCustomers = () => {
   const BASE_URL = "http://localhost:8080"
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const handleGetItem = useCallback(async () => {
+  const handleGetCustomers = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await axios.get(`${BASE_URL}/api/stocks/getitem`)
+      const response = await axios.get(`${BASE_URL}/api/customers/getcustomers`)
       console.log("Full API response:", response)
       
       
       const stocksData = response.data.data
-      console.log("Stocks data:", stocksData)
+      console.log("customers data:", stocksData)
       
       setData(stocksData) 
       return stocksData
     } catch (error) {
-      const errorMessage = error.response?.data?.message || "Data item failed..."
+      const errorMessage = error.response?.data?.message || "Data customers failed..."
       setError(errorMessage)
       
       toast.error(errorMessage, {
@@ -42,11 +42,11 @@ const useGetItem = () => {
   }, [])
 
   return { 
-    handleGetItem, 
+    handleGetCustomers, 
     data, 
     loading, 
     error 
   }
 }
 
-export default useGetItem
+export default useGetCustomers

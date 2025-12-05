@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { FaThList, FaThLarge, FaPlus, FaEllipsisV, FaFilter, FaTimes } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
-import useGetItem from '../../helper/useGetItem';
+import useGetCustomers from '../../helper/useGetCustomers';
 
 const Customers = () => {
-  const { handleGetItem, data, loading, error } = useGetItem();
+  const { handleGetCustomers, data, loading, error } = useGetCustomers();
   const navigate = useNavigate();
   
   
@@ -34,11 +34,9 @@ const Customers = () => {
     }
   ]);
 
-  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 200;
 
-  // ✅ Use API data if available and is array, otherwise use fallback
   const displayItems = Array.isArray(data) && data.length > 0 ? data : localItems;
   
   const totalPages = Math.ceil(displayItems.length / itemsPerPage);
@@ -50,24 +48,21 @@ const Customers = () => {
     setCurrentPage(page);
   };
 
-  // Handle item click to open drawer
   const handleItemClick = (item) => {
     setSelectedItem(item);
     setIsDrawerOpen(true);
-    setActiveTab('overview'); // Reset to overview tab when opening drawer
+    setActiveTab('overview'); 
   };
 
-  // Close drawer
   const closeDrawer = () => {
     setIsDrawerOpen(false);
     setSelectedItem(null);
   };
 
   useEffect(() => {
-    handleGetItem();
-  }, [handleGetItem]);
+    handleGetCustomers();
+  }, [handleGetCustomers]);
 
-  // Debug
   console.log("API Data:", data);
   console.log("Display Items:", displayItems);
 
@@ -75,7 +70,7 @@ const Customers = () => {
   if (error) return <div>Error: {error}</div>;
   return (
     <div className="bg-white min-h-screen p-6 text-gray-800">
-          {/* Header */}
+         
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center space-x-2">
               <h2 className="text-lg font-semibold">Customers</h2>
@@ -104,7 +99,7 @@ const Customers = () => {
             </div>
           </div>
     
-          {/* Table */}
+          
           <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase">
@@ -131,26 +126,27 @@ const Customers = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center space-x-3">
-                        <img
+                        {/* <img
                           src={item.image || "https://via.placeholder.com/40"}
                           alt={item.name}
                           className="w-8 h-8 rounded border border-gray-200"
-                        />
+                        /> */}
                         <span 
                           className="text-blue-600 hover:underline font-medium cursor-pointer"
                           onClick={() => handleItemClick(item)}
                         >
-                          {item.name}
+                          {item.customerDisplayName}
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{item.item_code || "N/A"}</td>
-                    <td className="px-4 py-3 text-gray-700">{item.brand || "N/A"}</td>
-                    <td className="px-4 py-3 text-gray-600 ">
-                      <div className="truncate" title={item.quantity}>
-                        {item.quantity || "0" }
+                    <td className="px-4 py-3 text-gray-700">{item.companyName || "N/A"}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.customerEmail || "N/A"}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.customerPhone || "N/A"}</td>
+                    {/* <td className="px-4 py-3 text-gray-600 ">
+                      <div className="truncate" title={item.customerPhone}>
+                        {item.customerPhone}
                       </div>
-                    </td>
+                    </td> */}
                     <td className="px-4 py-3 text-gray-600 max-w-xs">
                       <div className="truncate" title={item.sales_description}>
                         {item.sales_description || "No description"}
@@ -165,7 +161,7 @@ const Customers = () => {
             </table>
           </div>
     
-          {/* Pagination Footer */}
+         
           <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
             <div>
               Showing {startIndex + 1} -{" "}
@@ -205,21 +201,18 @@ const Customers = () => {
             </div>
           </div>
     
-          {/* Drawer with Tabs */}
+ 
           <div
             className={`fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out ${
               isDrawerOpen ? "translate-x-0" : "translate-x-full"
             }`}
           >
-            {/* Glass Backdrop */}
             <div 
               className="absolute inset-0 bg-opacity-20 backdrop-blur-md backdrop-filter"
               onClick={closeDrawer}
             ></div>
             
-            {/* Drawer Panel */}
             <div className="absolute right-0 top-0 h-full w-196 max-w-full bg-white shadow-xl">
-              {/* Drawer Header with Gray Border */}
               <div className="flex items-center justify-between p-4 border-b border-gray-200">
                 <h3 className="text-lg font-semibold">{selectedItem?.name || "Item Details"}</h3>
                 <button 
@@ -230,7 +223,6 @@ const Customers = () => {
                 </button>
               </div>
     
-              {/* Tabs Navigation with Gray Border */}
               <div className="border-b border-gray-200">
                 <div className="flex space-x-1 px-4">
                   <button
@@ -266,11 +258,9 @@ const Customers = () => {
                 </div>
               </div>
               
-              {/* Tab Content */}
               <div className="p-4 overflow-y-auto h-full">
                 {selectedItem && (
                   <div className="space-y-4">
-                    {/* Overview Tab */}
                     {activeTab === 'overview' && (
                       <div className="space-y-4">
                         <div className="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg">
@@ -321,7 +311,6 @@ const Customers = () => {
                       </div>
                     )}
     
-                    {/* Transactions Tab */}
                     {activeTab === 'transactions' && (
                       <div className="text-center py-8">
                         <div className="text-gray-400 mb-2">
@@ -334,7 +323,6 @@ const Customers = () => {
                       </div>
                     )}
     
-                    {/* History Tab */}
                     {activeTab === 'history' && (
                       <div className="text-center py-8">
                         <div className="text-gray-400 mb-2">
