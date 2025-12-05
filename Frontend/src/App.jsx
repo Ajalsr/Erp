@@ -17,7 +17,28 @@ function App() {
 
   return (
     <>
-      <Toaster />
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+          },
+          success: {
+            duration: 3000,
+            style: {
+              background: '#10B981',
+            },
+          },
+          error: {
+            duration: 4000,
+            style: {
+              background: '#EF4444',
+            },
+          },
+        }}
+      />
       <Routes>
         <Route path="/" element={<Login/>} />
         <Route path="/Signup" element={<Signup/>}/>

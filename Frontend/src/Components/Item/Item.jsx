@@ -7,12 +7,10 @@ export default function Item() {
   const { handleGetItem, data, loading, error } = useGetItem();
   const navigate = useNavigate();
   
-  // Drawer state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   
-  // Fallback data in case API fails or returns empty
   const [localItems] = useState([
     {
       id: 1,
@@ -34,11 +32,9 @@ export default function Item() {
     }
   ]);
 
-  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 200;
 
-  // ✅ Use API data if available and is array, otherwise use fallback
   const displayItems = Array.isArray(data) && data.length > 0 ? data : localItems;
   
   const totalPages = Math.ceil(displayItems.length / itemsPerPage);
@@ -50,14 +46,12 @@ export default function Item() {
     setCurrentPage(page);
   };
 
-  // Handle item click to open drawer
   const handleItemClick = (item) => {
     setSelectedItem(item);
     setIsDrawerOpen(true);
-    setActiveTab('overview'); // Reset to overview tab when opening drawer
+    setActiveTab('overview'); 
   };
 
-  // Close drawer
   const closeDrawer = () => {
     setIsDrawerOpen(false);
     setSelectedItem(null);
@@ -67,7 +61,6 @@ export default function Item() {
     handleGetItem();
   }, [handleGetItem]);
 
-  // Debug
   console.log("API Data:", data);
   console.log("Display Items:", displayItems);
 
@@ -76,7 +69,6 @@ export default function Item() {
 
   return (
     <div className="bg-white min-h-screen p-6 text-gray-800">
-      {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center space-x-2">
           <h2 className="text-lg font-semibold">All Items</h2>
@@ -105,7 +97,6 @@ export default function Item() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase">
@@ -166,7 +157,6 @@ export default function Item() {
         </table>
       </div>
 
-      {/* Pagination Footer */}
       <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
         <div>
           Showing {startIndex + 1} -{" "}
@@ -206,21 +196,17 @@ export default function Item() {
         </div>
       </div>
 
-      {/* Drawer with Tabs */}
       <div
         className={`fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out ${
           isDrawerOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        {/* Glass Backdrop */}
         <div 
           className="absolute inset-0 bg-opacity-20 backdrop-blur-md backdrop-filter"
           onClick={closeDrawer}
         ></div>
         
-        {/* Drawer Panel */}
         <div className="absolute right-0 top-0 h-full w-196 max-w-full bg-white shadow-xl">
-          {/* Drawer Header with Gray Border */}
           <div className="flex items-center justify-between p-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold">{selectedItem?.name || "Item Details"}</h3>
             <button 
@@ -231,7 +217,6 @@ export default function Item() {
             </button>
           </div>
 
-          {/* Tabs Navigation with Gray Border */}
           <div className="border-b border-gray-200">
             <div className="flex space-x-1 px-4">
               <button
@@ -267,11 +252,9 @@ export default function Item() {
             </div>
           </div>
           
-          {/* Tab Content */}
           <div className="p-4 overflow-y-auto h-full">
             {selectedItem && (
               <div className="space-y-4">
-                {/* Overview Tab */}
                 {activeTab === 'overview' && (
                   <div className="space-y-4">
                     <div className="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg">
@@ -322,7 +305,6 @@ export default function Item() {
                   </div>
                 )}
 
-                {/* Transactions Tab */}
                 {activeTab === 'transactions' && (
                   <div className="text-center py-8">
                     <div className="text-gray-400 mb-2">
@@ -335,7 +317,6 @@ export default function Item() {
                   </div>
                 )}
 
-                {/* History Tab */}
                 {activeTab === 'history' && (
                   <div className="text-center py-8">
                     <div className="text-gray-400 mb-2">
