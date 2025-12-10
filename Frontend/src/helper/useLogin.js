@@ -7,10 +7,12 @@ const useLogin = () => {
     const BASE_URL = "http://localhost:8080"
 
     const handleSignin = async (inputs) => {
+      
         try {
           console.log(inputs,"this is for inputs")
             const response = await axios.post(`${BASE_URL}/api/auth/signin`, inputs)
-            console.log(response,"this is my resposne")
+            console.log(response.data,"this is my resposne")
+            localStorage.setItem('userData',JSON.stringify(response.data.data));
             if(response.data === '')
             {
               console.log("Signin Failed:", response)

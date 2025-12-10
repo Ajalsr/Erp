@@ -13,31 +13,11 @@ const Customers = () => {
   const [activeTab, setActiveTab] = useState('overview');
   
   
-  const [localItems] = useState([
-    {
-      id: 1,
-      name: "Storage Cabinet",
-      sku: "Item 37 sku",
-      type: "Service",
-      description: "A versatile storage cabinet with adjustable shelves.",
-      rate: "AED4610.00",
-      image: "https://via.placeholder.com/40",
-    },
-    {
-      id: 2,
-      name: "Area Rug",
-      sku: "Item 38 sku",
-      type: "Service",
-      description: "A soft, high-quality area rug to add warmth to any room.",
-      rate: "AED2990.00",
-      image: "https://via.placeholder.com/40",
-    }
-  ]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 200;
 
-  const displayItems = Array.isArray(data) && data.length > 0 ? data : localItems;
+  const displayItems = data || [];
   
   const totalPages = Math.ceil(displayItems.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;

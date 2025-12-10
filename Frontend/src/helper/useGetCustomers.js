@@ -15,12 +15,23 @@ const useGetCustomers = () => {
       const response = await axios.get(`${BASE_URL}/api/customers/getcustomers`)
       console.log("Full API response:", response)
       
-      
-      const stocksData = response.data.data
-      console.log("customers data:", stocksData)
-      
-      setData(stocksData) 
-      return stocksData
+
+      if (response.data && response.data.data) {
+        localStorage.setItem('counter', response.data.data.length);
+        
+        const stocksData = response.data.data
+        console.log("customers data:", stocksData)
+        
+        setData(stocksData) 
+        return stocksData
+      } else {
+        
+        console.warn("No customers data received from API")
+        localStorage.setItem('counter', '0');
+        
+        setData([]) 
+        return []
+      }
     } catch (error) {
       const errorMessage = error.response?.data?.message || "Data customers failed..."
       setError(errorMessage)

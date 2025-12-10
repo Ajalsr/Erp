@@ -8,6 +8,7 @@ import (
 
 type Customer struct {
 	ID                  primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	CustomerCode        string             `json:"customerCode" bson:"customerCode"`
 	CustomerType        string             `json:"customerType" bson:"customerType"`
 	Salutation          string             `json:"salutation" bson:"salutation"`
 	FirstName           string             `json:"firstName" bson:"firstName"`
@@ -40,7 +41,7 @@ type Customer struct {
 	ReportingTags       []string           `json:"reporting_tags,omitempty" bson:"reporting_tags,omitempty"`
 	CustomFields        string             `json:"custom_fields,omitempty" bson:"custom_fields,omitempty"`
 	Documents           []string           `json:"documents,omitempty" bson:"documents,omitempty"`
-	Status              string             `json:"status,omitempty" bson:"status,omitempty"` // e.g., "active", "inactive"
+	Status              string             `json:"status,omitempty" bson:"status,omitempty"`
 	CreatedAt           time.Time          `json:"created_at,omitempty" bson:"created_at,omitempty"`
 	UpdatedAt           time.Time          `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
 	CreatedBy           string             `json:"created_by,omitempty" bson:"created_by,omitempty"`
