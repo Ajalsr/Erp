@@ -8,6 +8,7 @@ const Navbar = ({ onToggleSidebar }) => {
   const navigate = useNavigate();
   const setValue = () => {
     localStorage.setItem("is_checkout", "true")
+    localStorage.setItem("userData", "")
     navigate("/")
   }
 

@@ -14,9 +14,11 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var userCollection *mongo.Collection = config.GetCollection(config.DB, "users")
+var companyCollection *mongo.Collection = config.GetCollection(config.DB, "company")
 var validate = Validations.GetValidator()
 
 func SignUp() gin.HandlerFunc {
@@ -26,6 +28,9 @@ func SignUp() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
 		var user models.Users
+		var company models.Company
+
+		fmt.Println(company, "thsi si company")
 
 		defer cancel()
 
@@ -71,6 +76,24 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 
+		//company.ID = primitive.NewObjectID()
+		company = models.Company{
+			ID:          primitive.NewObjectID(),
+			CompanyName: user.CompanyName,
+		}
+
+		newresult, err := companyCollection.InsertOne(ctx, company)
+
+		fmt.Println(newresult)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"message": "Failed to create company",
+				"error":   err.Error(),
+			})
+			return
+		}
+
 		val, err := utils.HashPassword(user.Password)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -81,8 +104,9 @@ func SignUp() gin.HandlerFunc {
 
 			return
 		}
-		user.Password = string(val)
+		user.CompanyName = string(val)
 
+		user.OrgID = company.ID
 		user.ID = primitive.NewObjectID()
 
 		result, err := userCollection.InsertOne(ctx, user)
@@ -144,9 +168,13 @@ func SignIn() gin.HandlerFunc {
 		}
 
 		filter := bson.M{"userId": user.UserID}
-		var result bson.M
+		var fullUser bson.M
+		// projection := bson.M{
+		// 	"userId":      1,
+		// 	"companyName": 1,
+		// }
 
-		err := userCollection.FindOne(ctx, filter).Decode(&result)
+		err := userCollection.FindOne(ctx, filter).Decode(&fullUser)
 
 		fmt.Println(err, "this is valueeee")
 
@@ -158,9 +186,9 @@ func SignIn() gin.HandlerFunc {
 
 		}
 
-		fmt.Println("Found document:", result)
+		fmt.Println("Found document:", fullUser)
 
-		isValid := utils.CheckPasswordHash(user.Password, result["password"].(string))
+		isValid := utils.CheckPasswordHash(user.Password, fullUser["password"].(string))
 
 		fmt.Println("Found is valid:", isValid)
 
@@ -169,11 +197,20 @@ func SignIn() gin.HandlerFunc {
 			return
 		}
 
+		projection := bson.M{
+			"userId":      1,
+			"companyName": 1,
+		}
+
+		var result bson.M
+		err = userCollection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Login successful...",
-			"data":    user.UserID,
+			"data":    result,
 		})
 
 	}
+
 }

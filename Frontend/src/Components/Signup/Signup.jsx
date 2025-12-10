@@ -7,6 +7,7 @@ const Signup = () => {
   const {handleSignup} = useSignup();
   
   const[inputs, setInputs] = useState({
+    companyName: "",
     userId: "",
     password: ""
   })
@@ -14,6 +15,8 @@ const Signup = () => {
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
+
+    console.log(inputs, "this is inputs");
     
     if (!inputs.userId || !inputs.password) {
       toast.error("Please fill in all fields");
@@ -25,6 +28,7 @@ const Signup = () => {
       await handleSignup(inputs);
       
       setInputs({
+        companyName: "",
         userId: "",
         password: ""
       });
@@ -56,7 +60,7 @@ const Signup = () => {
       
       <div class="flex min-h-screen items-center justify-center bg-gray-100">
       <div class="absolute pt-10 justify-center ">
-      <Link to="/" class="ml-80 bg-red">
+      <Link to="/" class="ml-110 bg-red">
         <button class="text-white cursor-pointer bg-black w-20 h-10 rounded-lg">Back</button>
       </Link>
         <div class="relative m-6 flex flex-col space-y-8 rounded-2xl bg-white shadow-2xl md:flex-row md:space-y-0">
@@ -66,6 +70,17 @@ const Signup = () => {
             <span class="mb-8 font-light text-gray-800">
               Welcome! Please enter your details
             </span>
+            <div class="py-4">
+              <span class="text-md mb-2">Organization/Company Name</span>
+              <input
+                type="text"
+                class="w-full rounded-md border border-gray-300 p-2 placeholder:font-light placeholder:text-gray-500"
+                name="companyName"
+                value = {inputs.companyName}
+                id="companyName"
+                onChange = {(e) => setInputs({...inputs, companyName: e.target.value})}
+              />
+            </div>
             <div class="py-4">
               <span class="text-md mb-2">Id</span>
               <input

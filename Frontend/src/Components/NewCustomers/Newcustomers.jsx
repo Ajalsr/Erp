@@ -20,6 +20,7 @@ const Newcustomers = () => {
 
   const [formData, setFormData] = useState({
     customerType: 'business',
+    customerCode:'',
     salutation: '',
     firstName: '',
     lastName: '',
@@ -95,6 +96,7 @@ const Newcustomers = () => {
       
       setFormData({
         customerType: 'business',
+        customerCode: '',
         salutation: '',
         firstName: '',
         lastName: '',
@@ -603,6 +605,7 @@ const Newcustomers = () => {
                     Customer Phone
                   </label>
                   <PhoneInput
+                    prefix='+'
                     country={'ae'} 
                     value={phoneNumbers.customerPhone}
                     onChange={(value, country, e, formattedValue) => 
@@ -640,6 +643,7 @@ const Newcustomers = () => {
                     Mobile
                   </label>
                   <PhoneInput
+                    prefix='+'
                     country={'ae'} 
                     value={phoneNumbers.mobile}
                     onChange={(value, country, e, formattedValue) => 
@@ -677,11 +681,19 @@ const Newcustomers = () => {
                     Work Phone (Optional)
                   </label>
                   <PhoneInput
+                    prefix='+'
+                    countryCodeEditable={true}
+                    enableAreaCodes={true}
+                    disableCountryCode={false}
                     country={'ae'}
                     value={phoneNumbers.workPhone}
-                    onChange={(value, country, e, formattedValue) => 
-                      handlePhoneChange(value, country, 'workPhone')
-                    }
+                    onChange={(value, country) => {
+                    const finalValue = value.startsWith('+') 
+              ? value 
+      : `+${value.replace('.', '')}`;
+
+    handlePhoneChange(finalValue, country, 'workPhone');
+  }}
                     inputProps={{
                       name: 'workPhone',
                       required: false,
