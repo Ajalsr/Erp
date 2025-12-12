@@ -6,7 +6,7 @@ const useGenerateCustomerCode = () => {
     const now = new Date()
     const month = (now.getMonth() + 1).toString().padStart(2, '0')
     const year = now.getFullYear().toString().slice(-2)
-    const monthYear = month + year
+    const monthYear = year + month
     
     const storedCounter = localStorage.getItem('counter')
     let counter = 0
@@ -19,7 +19,7 @@ const useGenerateCustomerCode = () => {
     }
     
     const newCounter = counter + 1
-    const paddedCounter = newCounter.toString().padStart(4, '0')
+    const paddedCounter = newCounter.toString().padStart(2, '0')
     const customerCode = monthYear + paddedCounter
     
     localStorage.setItem('counter', newCounter.toString())

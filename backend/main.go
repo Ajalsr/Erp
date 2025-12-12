@@ -33,6 +33,7 @@ func main() {
 	routes.StockRoutes(server)
 	routes.AuthRoutes(server)
 	routes.CustomerRoutes(server)
+	//routes.DashboardRoutes(server)
 
 	server.Run(":8080")
 
