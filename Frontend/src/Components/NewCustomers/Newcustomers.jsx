@@ -79,64 +79,136 @@ const Newcustomers = () => {
     }));
   };
 
+  // const handleSubmit = async (e) => { 
+  //   e.preventDefault(); 
+    
+  //   console.log('Form submitted:', formData);
+    
+  //   if (!formData.customerDisplayName.trim()) {
+  //     toast.error("Please fill customer display name");
+  //     return;
+  //   }
+    
+  //   setIsSubmitting(true);
+    
+  //   try {
+  //     await handleAddcustomer(formData);
+      
+  //     setFormData({
+  //       customerType: 'business',
+  //       customerCode: '',
+  //       salutation: '',
+  //       firstName: '',
+  //       lastName: '',
+  //       companyName: '',
+  //       customerDisplayName: '',
+  //       customerEmail: '',
+  //       customerPhone: '',
+  //       workPhone: '',
+  //       mobile: '',
+  //       streetAddress: '',
+  //       city: '',
+  //       postalCode: '',
+  //       country: '',
+  //       contactPersons: [],
+  //       customFields: {},
+  //       reportingTags: [],
+  //       remarks: '',
+  //       documents: [],
+  //       currency: 'UAE Dirham',
+  //       paymentTerms: 'Due on Receipt'
+  //     });
+      
+  //     setPhoneNumbers({
+  //       customerPhone: '',
+  //       workPhone: '',
+  //       mobile: ''
+  //     });
+      
+      
+  //     setTimeout(() => {
+  //       navigate("/sales/customers"); 
+  //     }, 2000);
+      
+  //   } catch (error) {
+  //     toast.error("Error adding customer");
+  //     console.error("Error adding customer:", error);
+  //   } finally {
+  //     setIsSubmitting(false);
+  //   }
+  // };
+
+
   const handleSubmit = async (e) => { 
-    e.preventDefault(); 
+  e.preventDefault(); 
+  
+  console.log('Form submitted:', formData);
+  
+  if (!formData.customerDisplayName.trim()) {
+    toast.error("Please fill customer display name");
+    return;
+  }
+  
+  setIsSubmitting(true);
+  
+  try {
+    // Format phone numbers properly
+    const formattedData = {
+      ...formData,
+      customerPhone: phoneNumbers.customerPhone,
+      workPhone: phoneNumbers.workPhone,
+      mobile: phoneNumbers.mobile
+    };
     
-    console.log('Form submitted:', formData);
+    await handleAddCustomer(formattedData);
     
-    if (!formData.customerDisplayName.trim()) {
-      toast.error("Please fill customer display name");
-      return;
-    }
+    // Reset form
+    setFormData({
+      customerType: 'business',
+      customerCode: '',
+      salutation: '',
+      firstName: '',
+      lastName: '',
+      companyName: '',
+      customerDisplayName: '',
+      customerEmail: '',
+      customerPhone: '',
+      workPhone: '',
+      mobile: '',
+      streetAddress: '',
+      city: '',
+      postalCode: '',
+      country: '',
+      contactPersons: [],
+      customFields: {},
+      reportingTags: [],
+      remarks: '',
+      documents: [],
+      currency: 'UAE Dirham',
+      paymentTerms: 'Due on Receipt'
+    });
     
-    setIsSubmitting(true);
+    setPhoneNumbers({
+      customerPhone: '',
+      workPhone: '',
+      mobile: ''
+    });
     
-    try {
-      await handleAddcustomer(formData);
-      
-      setFormData({
-        customerType: 'business',
-        customerCode: '',
-        salutation: '',
-        firstName: '',
-        lastName: '',
-        companyName: '',
-        customerDisplayName: '',
-        customerEmail: '',
-        customerPhone: '',
-        workPhone: '',
-        mobile: '',
-        streetAddress: '',
-        city: '',
-        postalCode: '',
-        country: '',
-        contactPersons: [],
-        customFields: {},
-        reportingTags: [],
-        remarks: '',
-        documents: [],
-        currency: 'UAE Dirham',
-        paymentTerms: 'Due on Receipt'
-      });
-      
-      setPhoneNumbers({
-        customerPhone: '',
-        workPhone: '',
-        mobile: ''
-      });
-      
-      
-      setTimeout(() => {
-        navigate("/sales/customers"); 
-      }, 2000);
-      
-    } catch (error) {
-      toast.error("Error adding customer");
-      console.error("Error adding customer:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    // Show success message
+    toast.success("Customer created successfully!");
+    
+    // Redirect after 2 seconds
+    setTimeout(() => {
+      navigate("/sales/customers"); 
+    }, 2000);
+    
+  } catch (error) {
+    console.error("Error adding customer:", error);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
 
   const handleCancel = () => {
     navigate('/sales/customers'); 
@@ -195,7 +267,7 @@ const Newcustomers = () => {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
-              <input
+              <textarea
                 type="text"
                 name="streetAddress"
                 value={formData.streetAddress}
@@ -366,10 +438,58 @@ const Newcustomers = () => {
         return (
           <div className="space-y-4">
             <h3 className="text-md font-medium text-gray-700">Custom Fields</h3>
-            <div className="border border-gray-200 rounded-lg p-4">
+            {/* <div className="border border-gray-200 rounded-lg p-4">
               <div className="text-center text-gray-500">
                 <p>No custom fields defined</p>
                 <p className="text-sm mt-1">Custom fields can be configured in settings</p>
+              </div>
+            </div> */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Trade License Number</label>
+                <input
+                  type="text"
+                  name="city"
+                  value={formData.city}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Trade License Number"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">TRL Number</label>
+                <input
+                  type="text"
+                  name="postalCode"
+                  value={formData.postalCode}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="TRL Number"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Company Registration Date</label>
+                <input
+                  type="date"
+                  name="city"
+                  value={formData.city}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Company Registration Date"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">License Expiry Date</label>
+                <input
+                  type="date"
+                  name="postalCode"
+                  value={formData.postalCode}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="License Expiry Date"
+                />
               </div>
             </div>
           </div>
