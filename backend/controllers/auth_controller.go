@@ -205,10 +205,18 @@ func SignIn() gin.HandlerFunc {
 		var result bson.M
 		err = userCollection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
 
+		token, err := utils.GenerateToken(user.UserID)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not authenticate user."})
+			return
+		}
+
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Login successful...",
 			"data":    result,
+			"token":   token,
 		})
 
 	}

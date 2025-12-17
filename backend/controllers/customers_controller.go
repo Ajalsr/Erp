@@ -9,6 +9,8 @@ import (
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+
+	// "github.com/backend/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -61,6 +63,21 @@ var customersCollection *mongo.Collection = config.GetCollection(config.DB, "cus
 func AddCustomers() gin.HandlerFunc {
 
 	return func(c *gin.Context) {
+
+		// token := c.Request.Header.Get("Authorization")
+
+		// if token == "" {
+		// 	c.JSON(http.StatusUnauthorized, gin.H{"message": "Not authorized."})
+		// 	return
+		// }
+
+		// err := utils.VerifyToken(token)
+
+		// if err != nil {
+		// 	c.JSON(http.StatusUnauthorized,gin.H{"mesage" : "Not authorized."})
+		// 	return
+		// }
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
 		var item models.Customer

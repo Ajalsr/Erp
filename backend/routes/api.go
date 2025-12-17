@@ -25,21 +25,22 @@ func AuthRoutes(router *gin.Engine) {
 
 func CustomerRoutes(router *gin.Engine) {
 
-	authRoutes := router.Group("/api/customers")
-	{
-		authRoutes.POST("/addcustomers", controllers.AddCustomers())
-		authRoutes.GET("/getcustomers", controllers.GetAllCustomers())
-		authRoutes.GET("/search", controllers.SearchCustomers())
-		authRoutes.GET("/suggestions", controllers.GetCustomerSuggestions())
-		authRoutes.GET("/status/:status", controllers.GetCustomersByStatus())
-		authRoutes.GET("/stats", controllers.GetCustomerStats())
-		authRoutes.GET("/:id", controllers.GetCustomerByID())
-		authRoutes.PUT("/:id", controllers.UpdateCustomer())
-		authRoutes.DELETE("/:id", controllers.DeleteCustomer())
-		authRoutes.GET("/export/csv", controllers.ExportCustomersCSV())
-		authRoutes.GET("/:id/transactions", controllers.GetCustomerTransactions())
-		authRoutes.GET("/:id/history", controllers.GetCustomerHistory())
-	}
+	custRoutes := router.Group("/api/customers")
+	// custRoutes.Use(middlewares.Authenticate)
+
+	custRoutes.POST("/addcustomers", controllers.AddCustomers())
+	custRoutes.GET("/getcustomers", controllers.GetAllCustomers())
+	custRoutes.GET("/search", controllers.SearchCustomers())
+	custRoutes.GET("/suggestions", controllers.GetCustomerSuggestions())
+	custRoutes.GET("/status/:status", controllers.GetCustomersByStatus())
+	custRoutes.GET("/stats", controllers.GetCustomerStats())
+	custRoutes.GET("/:id", controllers.GetCustomerByID())
+	custRoutes.PUT("/:id", controllers.UpdateCustomer())
+	custRoutes.DELETE("/:id", controllers.DeleteCustomer())
+	custRoutes.GET("/export/csv", controllers.ExportCustomersCSV())
+	custRoutes.GET("/:id/transactions", controllers.GetCustomerTransactions())
+	custRoutes.GET("/:id/history", controllers.GetCustomerHistory())
+
 }
 
 // func DashboardRoutes(router *gin.Engine) {
