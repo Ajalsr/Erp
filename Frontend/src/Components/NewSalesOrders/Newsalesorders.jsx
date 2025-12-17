@@ -1,9 +1,31 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom'
+
 const Newsalesorders = () => {
   const [items, setItems] = useState([{ id: 1, details: '', quantity: '', rate: '', discount: '', amount: '' }]);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [salesType, setSalesType] = useState('SO');
+  const [lpoDate, setLpoDate] = useState('');
+  const [lpoValue, setLpoValue] = useState('');
+  const [vatAmount, setVatAmount] = useState(0);
 
   const navigate = useNavigate();
+
+  // Sample customer data
+  const customers = [
+    { id: 1, code: 'CUST001', name: 'ABC Corporation', type: 'Business' },
+    { id: 2, code: 'CUST002', name: 'XYZ Enterprises', type: 'Business' },
+    { id: 3, code: 'CUST003', name: 'John Smith', type: 'Individual' },
+    { id: 4, code: 'CUST004', name: 'Global Traders', type: 'Business' },
+    { id: 5, code: 'CUST005', name: 'Sarah Johnson', type: 'Individual' },
+  ];
+
+  const salesTypeOptions = [
+    { value: 'SO', label: 'SO (Standard Sale Order)' },
+    { value: 'MOA', label: 'MOA (Material on Approval)' },
+    { value: 'MOA_COLLECT', label: 'MOA Collect (Material on Approval Collect)' },
+    { value: 'FREE_DELIVERY', label: 'Free Delivery' },
+  ];
 
   const addNewRow = () => {
     setItems([...items, { 
@@ -14,6 +36,20 @@ const Newsalesorders = () => {
       discount: '', 
       amount: '' 
     }]);
+  };
+
+  // Calculate VAT (5% of LPO VALUE)
+  const calculateVAT = (value) => {
+    const numericValue = parseFloat(value) || 0;
+    const vat = numericValue * 0.05;
+    setVatAmount(vat);
+    return vat;
+  };
+
+  const handleLpoValueChange = (e) => {
+    const value = e.target.value;
+    setLpoValue(value);
+    calculateVAT(value);
   };
 
   const handleCancel = () => {
@@ -36,17 +72,36 @@ const Newsalesorders = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Customer Name<span className="text-red-500">*</span>
               </label>
-              <select
-                name="unit" 
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-              >
-                <option value="" disabled selected>Select or type to add</option>
-                <option value="piece">Piece</option>
-                <option value="box">Box</option>
-                <option value="kg">Kg</option>
-                <option value="liter">Liter</option>
-              </select>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Search by name or type..."
+                />
+                {customerSearch && (
+                  <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {customers
+                      .filter(customer => 
+                        customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+                        customer.code.toLowerCase().includes(customerSearch.toLowerCase())
+                      )
+                      .map(customer => (
+                        <div 
+                          key={customer.id}
+                          className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          onClick={() => setCustomerSearch(`${customer.code} - ${customer.name}`)}
+                        >
+                          <div className="font-medium">{customer.name}</div>
+                          <div className="text-sm text-gray-500">
+                            Code: {customer.code} | Type: {customer.type}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -62,12 +117,20 @@ const Newsalesorders = () => {
           <div className="grid grid-cols-2 gap-6 mt-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Reference#
+                Sales Type<span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
+              <select
+                value={salesType}
+                onChange={(e) => setSalesType(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+              >
+                {salesTypeOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -77,6 +140,61 @@ const Newsalesorders = () => {
                 type="date"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                LPO Number<span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Enter LPO Number"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                LPO Date
+              </label>
+              <input
+                type="date"
+                value={lpoDate}
+                onChange={(e) => setLpoDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6 mt-4">
+            <div className="col-span-2">
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    LPO VALUE (AED)<span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={lpoValue}
+                    onChange={handleLpoValueChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter LPO Value"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    VAT 5% (AED)
+                  </label>
+                  <input
+                    type="text"
+                    value={vatAmount.toFixed(2)}
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-700"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -95,15 +213,14 @@ const Newsalesorders = () => {
                 Payment Terms<span className="text-red-500">*</span>
               </label>
               <select
-                name="unit" 
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
               >
                 <option value="" disabled selected>Select or type to add</option>
-                <option value="piece">Piece</option>
-                <option value="box">Box</option>
-                <option value="kg">Kg</option>
-                <option value="liter">Liter</option>
+                <option value="due_on_receipt">Due on Receipt</option>
+                <option value="net_15">Net 15</option>
+                <option value="net_30">Net 30</option>
+                <option value="net_60">Net 60</option>
               </select>
             </div>
           </div>
@@ -111,36 +228,28 @@ const Newsalesorders = () => {
           <div className="grid grid-cols-2 gap-6 mt-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Delivery Method<span className="text-red-500">*</span>
-              </label>
-              <select
-                name="unit" 
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-              >
-                <option value="" disabled selected>Select a delivery method or type to add</option>
-                <option value="piece">Piece</option>
-                <option value="box">Box</option>
-                <option value="kg">Kg</option>
-                <option value="liter">Liter</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Salesperson<span className="text-red-500">*</span>
               </label>
               <select
-                name="unit" 
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
               >
                 <option value="" disabled selected>Select or Add Salesperson</option>
-                <option value="piece">Piece</option>
-                <option value="box">Box</option>
-                <option value="kg">Kg</option>
-                <option value="liter">Liter</option>
+                <option value="john_doe">John Doe</option>
+                <option value="jane_smith">Jane Smith</option>
+                <option value="mike_johnson">Mike Johnson</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Customer Code<span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Customer code will auto-fill after selecting customer"
+                readOnly
+              />
             </div>
           </div>
         </div>
@@ -235,9 +344,13 @@ const Newsalesorders = () => {
                 <span className="text-gray-600">Round Off</span>
                 <span className="font-medium">0.000</span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600">VAT 5%</span>
+                <span className="font-medium">{vatAmount.toFixed(3)}</span>
+              </div>
               <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                 <span className="text-lg font-semibold">Total (AED)</span>
-                <span className="text-lg font-semibold">0.000</span>
+                <span className="text-lg font-semibold">{(parseFloat(lpoValue) || 0).toFixed(3)}</span>
               </div>
             </div>
 

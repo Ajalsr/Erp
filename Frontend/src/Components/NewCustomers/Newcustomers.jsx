@@ -5,7 +5,8 @@ import toast, {Toaster} from "react-hot-toast";
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { IoIosClose } from "react-icons/io";
-
+import { AiOutlineFileAdd, AiOutlineDelete } from "react-icons/ai";
+import { FaFilePdf, FaFileImage, FaFileWord, FaFileExcel, FaFile } from "react-icons/fa";
 
 const Newcustomers = () => {
   const { handleAddcustomer } = useAddCustomer();
@@ -45,6 +46,16 @@ const Newcustomers = () => {
 
   const navigate = useNavigate();
 
+  // Define document types
+  const documentTypes = [
+    { id: 'trade_license', label: 'Trade License Copy', required: true },
+    { id: 'trl_copy', label: 'TRL Copy', required: true },
+    { id: 'owners_passport', label: 'Owner\'s Passport Copy', required: true },
+    { id: 'eid_copy', label: 'EID Copy', required: true },
+    { id: 'power_of_attorney', label: 'Power of Attorney', required: false },
+    { id: 'other', label: 'Other Documents', required: false }
+  ];
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     
@@ -66,7 +77,6 @@ const Newcustomers = () => {
     }
   };
 
-
   const handlePhoneChange = (value, country, name) => {
     setPhoneNumbers(prev => ({
       ...prev,
@@ -79,136 +89,156 @@ const Newcustomers = () => {
     }));
   };
 
-  // const handleSubmit = async (e) => { 
-  //   e.preventDefault(); 
+  const handleFileUpload = (documentType, e) => {
+    const files = Array.from(e.target.files);
     
-  //   console.log('Form submitted:', formData);
-    
-  //   if (!formData.customerDisplayName.trim()) {
-  //     toast.error("Please fill customer display name");
-  //     return;
-  //   }
-    
-  //   setIsSubmitting(true);
-    
-  //   try {
-  //     await handleAddcustomer(formData);
-      
-  //     setFormData({
-  //       customerType: 'business',
-  //       customerCode: '',
-  //       salutation: '',
-  //       firstName: '',
-  //       lastName: '',
-  //       companyName: '',
-  //       customerDisplayName: '',
-  //       customerEmail: '',
-  //       customerPhone: '',
-  //       workPhone: '',
-  //       mobile: '',
-  //       streetAddress: '',
-  //       city: '',
-  //       postalCode: '',
-  //       country: '',
-  //       contactPersons: [],
-  //       customFields: {},
-  //       reportingTags: [],
-  //       remarks: '',
-  //       documents: [],
-  //       currency: 'UAE Dirham',
-  //       paymentTerms: 'Due on Receipt'
-  //     });
-      
-  //     setPhoneNumbers({
-  //       customerPhone: '',
-  //       workPhone: '',
-  //       mobile: ''
-  //     });
-      
-      
-  //     setTimeout(() => {
-  //       navigate("/sales/customers"); 
-  //     }, 2000);
-      
-  //   } catch (error) {
-  //     toast.error("Error adding customer");
-  //     console.error("Error adding customer:", error);
-  //   } finally {
-  //     setIsSubmitting(false);
-  //   }
-  // };
+    if (files.length > 0) {
+      const newDocuments = files.map(file => ({
+        id: Date.now() + Math.random(),
+        type: documentType,
+        name: file.name,
+        file: file,
+        size: file.size,
+        uploadDate: new Date().toISOString(),
+        status: 'uploaded'
+      }));
 
+      setFormData(prev => ({
+        ...prev,
+        documents: [...prev.documents, ...newDocuments]
+      }));
+
+      toast.success(`${files.length} file(s) uploaded for ${documentType}`);
+    }
+    
+    // Reset file input
+    e.target.value = '';
+  };
+
+  const removeDocument = (documentId) => {
+    setFormData(prev => ({
+      ...prev,
+      documents: prev.documents.filter(doc => doc.id !== documentId)
+    }));
+    toast.success('Document removed');
+  };
+
+  const getFileIcon = (fileName) => {
+    const extension = fileName.split('.').pop().toLowerCase();
+    switch(extension) {
+      case 'pdf':
+        return <FaFilePdf className="text-red-500" />;
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+        return <FaFileImage className="text-green-500" />;
+      case 'doc':
+      case 'docx':
+        return <FaFileWord className="text-blue-500" />;
+      case 'xls':
+      case 'xlsx':
+        return <FaFileExcel className="text-green-600" />;
+      default:
+        return <FaFile className="text-gray-500" />;
+    }
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
 
   const handleSubmit = async (e) => { 
-  e.preventDefault(); 
-  
-  console.log('Form submitted:', formData);
-  
-  if (!formData.customerDisplayName.trim()) {
-    toast.error("Please fill customer display name");
-    return;
-  }
-  
-  setIsSubmitting(true);
-  
-  try {
-    // Format phone numbers properly
-    const formattedData = {
-      ...formData,
-      customerPhone: phoneNumbers.customerPhone,
-      workPhone: phoneNumbers.workPhone,
-      mobile: phoneNumbers.mobile
-    };
+    e.preventDefault(); 
     
-    await handleAddCustomer(formattedData);
+    console.log('Form submitted:', formData);
     
-    // Reset form
-    setFormData({
-      customerType: 'business',
-      customerCode: '',
-      salutation: '',
-      firstName: '',
-      lastName: '',
-      companyName: '',
-      customerDisplayName: '',
-      customerEmail: '',
-      customerPhone: '',
-      workPhone: '',
-      mobile: '',
-      streetAddress: '',
-      city: '',
-      postalCode: '',
-      country: '',
-      contactPersons: [],
-      customFields: {},
-      reportingTags: [],
-      remarks: '',
-      documents: [],
-      currency: 'UAE Dirham',
-      paymentTerms: 'Due on Receipt'
-    });
+    if (!formData.customerDisplayName.trim()) {
+      toast.error("Please fill customer display name");
+      return;
+    }
     
-    setPhoneNumbers({
-      customerPhone: '',
-      workPhone: '',
-      mobile: ''
-    });
+    // Validate required documents for business customers
+    if (formData.customerType === 'business') {
+      const requiredDocs = documentTypes.filter(doc => doc.required);
+      const missingDocs = requiredDocs.filter(doc => 
+        !formData.documents.some(d => d.type === doc.id)
+      );
+      
+      if (missingDocs.length > 0) {
+        toast.error(`Please upload required documents: ${missingDocs.map(d => d.label).join(', ')}`);
+        return;
+      }
+    }
     
-    // Show success message
-    toast.success("Customer created successfully!");
+    setIsSubmitting(true);
     
-    // Redirect after 2 seconds
-    setTimeout(() => {
-      navigate("/sales/customers"); 
-    }, 2000);
-    
-  } catch (error) {
-    console.error("Error adding customer:", error);
-  } finally {
-    setIsSubmitting(false);
-  }
-};
-
+    try {
+      // Format phone numbers properly
+      const formattedData = {
+        ...formData,
+        customerPhone: phoneNumbers.customerPhone,
+        workPhone: phoneNumbers.workPhone,
+        mobile: phoneNumbers.mobile
+      };
+      
+      // Here you would typically upload files to server
+      // For now, we'll just pass the file objects
+      // In production, you should upload files first and get URLs
+      
+      await handleAddcustomer(formattedData);
+      
+      // Reset form
+      setFormData({
+        customerType: 'business',
+        customerCode: '',
+        salutation: '',
+        firstName: '',
+        lastName: '',
+        companyName: '',
+        customerDisplayName: '',
+        customerEmail: '',
+        customerPhone: '',
+        workPhone: '',
+        mobile: '',
+        streetAddress: '',
+        city: '',
+        postalCode: '',
+        country: '',
+        contactPersons: [],
+        customFields: {},
+        reportingTags: [],
+        remarks: '',
+        documents: [],
+        currency: 'UAE Dirham',
+        paymentTerms: 'Due on Receipt'
+      });
+      
+      setPhoneNumbers({
+        customerPhone: '',
+        workPhone: '',
+        mobile: ''
+      });
+      
+      // Show success message
+      toast.success("Customer created successfully!");
+      
+      // Redirect after 2 seconds
+      setTimeout(() => {
+        navigate("/sales/customers"); 
+      }, 2000);
+      
+    } catch (error) {
+      console.error("Error adding customer:", error);
+      toast.error("Error adding customer");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleCancel = () => {
     navigate('/sales/customers'); 
@@ -232,33 +262,108 @@ const Newcustomers = () => {
                 <span className="text-gray-700 font-medium">{formData.paymentTerms}</span>
               </div>
             </div>
-
-            <div className="mb-8">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Documents</h2>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                <div className="flex items-center justify-center mb-2">
-                  <input
-                    type="checkbox"
-                    name="uploadFile"
-                    onChange={handleChange}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="ml-2 text-gray-700">Upload File</span>
+          </div>
+        );
+      
+      case 'documents':
+        return (
+          <div className="space-y-6">
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-4">
+                Upload required documents for customer verification. Maximum file size: 5MB per file.
+              </p>
+            </div>
+            
+            {documentTypes.map((docType) => (
+              <div key={docType.id} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex justify-between items-center mb-3">
+                  <div>
+                    <h3 className="font-medium text-gray-800">
+                      {docType.label}
+                      {docType.required && <span className="text-red-500 ml-1">*</span>}
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      {docType.required ? 'Required document' : 'Optional document'}
+                    </p>
+                  </div>
+                  <label className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 cursor-pointer">
+                    <AiOutlineFileAdd className="inline mr-2" />
+                    Upload File
+                    <input
+                      type="file"
+                      className="hidden"
+                      multiple
+                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                      onChange={(e) => handleFileUpload(docType.id, e)}
+                    />
+                  </label>
                 </div>
-                <p className="text-sm text-gray-500">
-                  You can upload a maximum of 10 files, 5MB each
-                </p>
+                
+                {/* Uploaded files for this document type */}
+                {formData.documents.filter(doc => doc.type === docType.id).length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {formData.documents
+                      .filter(doc => doc.type === docType.id)
+                      .map((doc) => (
+                        <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                          <div className="flex items-center space-x-3">
+                            <div className="text-xl">
+                              {getFileIcon(doc.name)}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-800">{doc.name}</p>
+                              <p className="text-xs text-gray-500">
+                                {formatFileSize(doc.size)} • Uploaded: {new Date(doc.uploadDate).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeDocument(doc.id)}
+                            className="text-red-600 hover:text-red-800 p-1"
+                            title="Remove document"
+                          >
+                            <AiOutlineDelete size={20} />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
+            ))}
+            
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+              <h4 className="font-medium text-blue-800 mb-2">Upload Guidelines:</h4>
+              <ul className="text-sm text-blue-700 space-y-1">
+                <li>• Maximum 10 files total, 5MB each</li>
+                <li>• Accepted formats: PDF, JPG, PNG, DOC, DOCX, XLS, XLSX</li>
+                <li>• Required documents are marked with *</li>
+                <li>• Clear, readable scans are recommended</li>
+              </ul>
             </div>
-
-            <div className="mb-8">
-              <button
-                type="button"
-                className="text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Add more details
-              </button>
-            </div>
+            
+            {/* Summary of uploaded documents */}
+            {formData.documents.length > 0 && (
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-800 mb-2">Upload Summary:</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {documentTypes.map(docType => {
+                    const count = formData.documents.filter(doc => doc.type === docType.id).length;
+                    if (count > 0) {
+                      return (
+                        <div key={docType.id} className="flex items-center justify-between p-2 bg-white rounded border">
+                          <span className="text-sm text-gray-700">{docType.label}</span>
+                          <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">
+                            {count} file{count !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }).filter(Boolean)}
+                </div>
+              </div>
+            )}
           </div>
         );
       
@@ -348,87 +453,86 @@ const Newcustomers = () => {
             ) : (
               formData.contactPersons.map((contact, index) => (
                 <div key={contact.id} className="border border-gray-200 rounded-lg p-4">
-  <div className="grid grid-cols-12 gap-4 items-end">
-    <div className="col-span-12 md:col-span-3">
-      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-      <input
-        type="text"
-        value={contact.name}
-        onChange={(e) => {
-          const updatedContacts = [...formData.contactPersons];
-          updatedContacts[index] = { ...contact, name: e.target.value };
-          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
-        }}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-        placeholder="Name"
-      />
-    </div>
-    
-    <div className="col-span-12 md:col-span-3">
-      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-      <input
-        type="email"
-        value={contact.email}
-        onChange={(e) => {
-          const updatedContacts = [...formData.contactPersons];
-          updatedContacts[index] = { ...contact, email: e.target.value };
-          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
-        }}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-        placeholder="Email"
-      />
-    </div>
-    
-   
-    <div className="col-span-12 md:col-span-4">
-      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-      <PhoneInput
-        country={'ae'}
-        value={contact.phone || ''}
-        autoFormat={false}
-        onChange={(value, country, e, formattedValue) => {
-          const updatedContacts = [...formData.contactPersons];
-          updatedContacts[index] = { ...contact, phone: value };
-          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
-        }}
-        inputProps={{
-          name: 'contactPhone',
-          required: false,
-        }}
-        inputStyle={{
-          width: '100%',
-          height: '38px',
-          paddingLeft: '48px'
-        }}
-        buttonStyle={{
-          padding: '0 8px',
-          background: '#f9fafb',
-          border: '1px solid #d1d5db',
-          borderRight: 'none',
-          borderRadius: '6px 0 0 6px'
-        }}
-        containerStyle={{
-          width: '100%'
-        }}
-        placeholder="Phone"
-      />
-    </div>
-    
-    <div className="col-span-12 md:col-span-2 flex items-center justify-center md:justify-end">
-      <button
-        type="button"
-        onClick={() => {
-          const updatedContacts = formData.contactPersons.filter((_, i) => i !== index);
-          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
-        }}
-        className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded-full transition-colors mt-5 md:mt-0"
-        title="Remove Contact"
-      >
-        <IoIosClose size='25px'/>
-      </button>
-    </div>
-  </div>
-</div>
+                  <div className="grid grid-cols-12 gap-4 items-end">
+                    <div className="col-span-12 md:col-span-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                      <input
+                        type="text"
+                        value={contact.name}
+                        onChange={(e) => {
+                          const updatedContacts = [...formData.contactPersons];
+                          updatedContacts[index] = { ...contact, name: e.target.value };
+                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder="Name"
+                      />
+                    </div>
+                    
+                    <div className="col-span-12 md:col-span-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={contact.email}
+                        onChange={(e) => {
+                          const updatedContacts = [...formData.contactPersons];
+                          updatedContacts[index] = { ...contact, email: e.target.value };
+                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder="Email"
+                      />
+                    </div>
+                    
+                    <div className="col-span-12 md:col-span-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                      <PhoneInput
+                        country={'ae'}
+                        value={contact.phone || ''}
+                        autoFormat={false}
+                        onChange={(value, country, e, formattedValue) => {
+                          const updatedContacts = [...formData.contactPersons];
+                          updatedContacts[index] = { ...contact, phone: value };
+                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
+                        }}
+                        inputProps={{
+                          name: 'contactPhone',
+                          required: false,
+                        }}
+                        inputStyle={{
+                          width: '100%',
+                          height: '38px',
+                          paddingLeft: '48px'
+                        }}
+                        buttonStyle={{
+                          padding: '0 8px',
+                          background: '#f9fafb',
+                          border: '1px solid #d1d5db',
+                          borderRight: 'none',
+                          borderRadius: '6px 0 0 6px'
+                        }}
+                        containerStyle={{
+                          width: '100%'
+                        }}
+                        placeholder="Phone"
+                      />
+                    </div>
+                    
+                    <div className="col-span-12 md:col-span-2 flex items-center justify-center md:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updatedContacts = formData.contactPersons.filter((_, i) => i !== index);
+                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
+                        }}
+                        className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded-full transition-colors mt-5 md:mt-0"
+                        title="Remove Contact"
+                      >
+                        <IoIosClose size='25px'/>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ))
             )}
           </div>
@@ -438,20 +542,20 @@ const Newcustomers = () => {
         return (
           <div className="space-y-4">
             <h3 className="text-md font-medium text-gray-700">Custom Fields</h3>
-            {/* <div className="border border-gray-200 rounded-lg p-4">
-              <div className="text-center text-gray-500">
-                <p>No custom fields defined</p>
-                <p className="text-sm mt-1">Custom fields can be configured in settings</p>
-              </div>
-            </div> */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Trade License Number</label>
                 <input
                   type="text"
-                  name="city"
-                  value={formData.city}
-                  onChange={handleChange}
+                  name="tradeLicenseNumber"
+                  value={formData.customFields?.tradeLicenseNumber || ''}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    customFields: {
+                      ...prev.customFields,
+                      tradeLicenseNumber: e.target.value
+                    }
+                  }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Trade License Number"
                 />
@@ -460,9 +564,15 @@ const Newcustomers = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">TRL Number</label>
                 <input
                   type="text"
-                  name="postalCode"
-                  value={formData.postalCode}
-                  onChange={handleChange}
+                  name="trlNumber"
+                  value={formData.customFields?.trlNumber || ''}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    customFields: {
+                      ...prev.customFields,
+                      trlNumber: e.target.value
+                    }
+                  }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="TRL Number"
                 />
@@ -473,22 +583,32 @@ const Newcustomers = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Company Registration Date</label>
                 <input
                   type="date"
-                  name="city"
-                  value={formData.city}
-                  onChange={handleChange}
+                  name="registrationDate"
+                  value={formData.customFields?.registrationDate || ''}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    customFields: {
+                      ...prev.customFields,
+                      registrationDate: e.target.value
+                    }
+                  }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Company Registration Date"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">License Expiry Date</label>
                 <input
                   type="date"
-                  name="postalCode"
-                  value={formData.postalCode}
-                  onChange={handleChange}
+                  name="licenseExpiryDate"
+                  value={formData.customFields?.licenseExpiryDate || ''}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    customFields: {
+                      ...prev.customFields,
+                      licenseExpiryDate: e.target.value
+                    }
+                  }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="License Expiry Date"
                 />
               </div>
             </div>
@@ -567,6 +687,7 @@ const Newcustomers = () => {
 
   const tabs = [
     { id: 'other-details', label: 'Other Details' },
+    { id: 'documents', label: 'Documents' },
     { id: 'address', label: 'Address' },
     { id: 'contact-persons', label: 'Contact Persons' },
     { id: 'custom-fields', label: 'Custom Fields' },
@@ -576,17 +697,6 @@ const Newcustomers = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      {/* <Toaster 
-        position="top-right"
-        toastOptions={{
-          duration: 3000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-          },
-        }}
-      /> */}
-      
       <div className="max-w-3xl mx-auto">
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
           <div className="bg-blue-600 px-6 py-4">
@@ -808,12 +918,11 @@ const Newcustomers = () => {
                     country={'ae'}
                     value={phoneNumbers.workPhone}
                     onChange={(value, country) => {
-                    const finalValue = value.startsWith('+') 
-              ? value 
-      : `+${value.replace('.', '')}`;
-
-    handlePhoneChange(finalValue, country, 'workPhone');
-  }}
+                      const finalValue = value.startsWith('+') 
+                        ? value 
+                        : `+${value.replace('.', '')}`;
+                      handlePhoneChange(finalValue, country, 'workPhone');
+                    }}
                     inputProps={{
                       name: 'workPhone',
                       required: false,
@@ -858,6 +967,11 @@ const Newcustomers = () => {
                       }`}
                     >
                       {tab.label}
+                      {tab.id === 'documents' && formData.documents.length > 0 && (
+                        <span className="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
+                          {formData.documents.length}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </nav>
@@ -882,7 +996,7 @@ const Newcustomers = () => {
                 className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 cursor-pointer"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Saving...' : 'Save'}
+                {isSubmitting ? 'Saving...' : 'Save Customer'}
               </button>
             </div>
           </form>
