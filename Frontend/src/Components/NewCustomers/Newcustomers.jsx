@@ -246,20 +246,53 @@ const Newcustomers = () => {
 
   const TabContent = () => {
     switch (activeTab) {
-      case 'other-details':
+      case 'finance':
         return (
           <div className="space-y-4">
-            <div className="mb-8">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Currency</h2>
-              <div className="bg-gray-100 px-4 py-3 rounded-md inline-block">
-                <span className="text-gray-700 font-medium">{formData.currency}</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Credit Limit</label>
+                <input
+                  type="text"
+                  name="credit_limit"
+                  value={formData.credit_limit}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Creedit Limit"
+                />
               </div>
-            </div>
-
-            <div className="mb-8">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Payment Terms</h2>
-              <div className="bg-gray-100 px-4 py-3 rounded-md inline-block">
-                <span className="text-gray-700 font-medium">{formData.paymentTerms}</span>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Terms</label>
+                <input
+                  type="text"
+                  name="postalCode"
+                  value={formData.postalCode}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Postal Code"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Credit Used</label>
+                <input
+                  type="text"
+                  name="credit_limit"
+                  value={formData.credit_limit}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Creedit Limit"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">No of Days</label>
+                <input
+                  type="text"
+                  name="postalCode"
+                  value={formData.postalCode}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Postal Code"
+                />
               </div>
             </div>
           </div>
@@ -686,7 +719,7 @@ const Newcustomers = () => {
   };
 
   const tabs = [
-    { id: 'other-details', label: 'Other Details' },
+    { id: 'finance', label: 'Finance' },
     { id: 'documents', label: 'Documents' },
     { id: 'address', label: 'Address' },
     { id: 'contact-persons', label: 'Contact Persons' },

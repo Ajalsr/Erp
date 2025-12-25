@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { FaThList, FaThLarge, FaPlus, FaEllipsisV, FaFilter, FaTimes, FaSearch } from "react-icons/fa";
+import { useEffect, useState, useRef } from "react";
+import { FaThList, FaThLarge, FaPlus, FaEllipsisV, FaFilter, FaTimes, FaSearch, FaChevronDown, FaChevronUp } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetItem from '../../helper/useGetItem';
 
@@ -11,7 +11,10 @@ export default function Item() {
   const [selectedItem, setSelectedItem] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
   const [filteredItems, setFilteredItems] = useState([]);
+  const [selectedSearchItem, setSelectedSearchItem] = useState(null);
+  const searchRef = useRef(null);
   
   const [localItems] = useState([
     {
@@ -72,32 +75,52 @@ export default function Item() {
   const itemsPerPage = 200;
 
   // Merge API data with local items for display
-  const displayItems = Array.isArray(data) && data.length > 0 ? data : localItems;
+  const allItems = Array.isArray(data) && data.length > 0 ? data : localItems;
   
-  // Apply search filter
+  // Apply search filter for dropdown
   useEffect(() => {
     if (searchTerm.trim() === '') {
-      setFilteredItems(displayItems);
+      setFilteredItems([]);
+      setShowDropdown(false);
     } else {
-      const filtered = displayItems.filter(item => 
+      const filtered = allItems.filter(item => 
         (item.item_code && item.item_code.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (item.name && item.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (item.brand && item.brand.toLowerCase().includes(searchTerm.toLowerCase()))
       );
       setFilteredItems(filtered);
+      setShowDropdown(true);
     }
-  }, [searchTerm, displayItems]);
+  }, [searchTerm, allItems]);
 
-  const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Items to display in table (show all or filtered items)
+  const displayItems = selectedSearchItem ? [selectedSearchItem] : allItems;
+  
+  const totalPages = Math.ceil(displayItems.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentItems = filteredItems.slice(startIndex, startIndex + itemsPerPage);
+  const currentItems = displayItems.slice(startIndex, startIndex + itemsPerPage);
 
   const handlePageChange = (page) => {
     if (page < 1 || page > totalPages) return;
     setCurrentPage(page);
   };
 
+  // This function opens the drawer with the selected item details
   const handleItemClick = (item) => {
     setSelectedItem(item);
     setIsDrawerOpen(true);
@@ -109,21 +132,34 @@ export default function Item() {
     setSelectedItem(null);
   };
 
-  const handleSearch = (e) => {
+  const handleSearchChange = (e) => {
     setSearchTerm(e.target.value);
-    setCurrentPage(1); // Reset to first page when searching
+    setCurrentPage(1);
+  };
+
+  const handleSelectItemFromDropdown = (item) => {
+    setSelectedSearchItem(item);
+    setSearchTerm(`${item.item_code} - ${item.name}`);
+    setShowDropdown(false);
+    setCurrentPage(1);
   };
 
   const clearSearch = () => {
     setSearchTerm('');
+    setSelectedSearchItem(null);
+    setShowDropdown(false);
+    setCurrentPage(1);
+  };
+
+  const toggleDropdown = () => {
+    if (searchTerm.trim()) {
+      setShowDropdown(!showDropdown);
+    }
   };
 
   useEffect(() => {
     handleGetItem();
   }, [handleGetItem]);
-
-  console.log("API Data:", data);
-  console.log("Display Items:", displayItems);
 
   if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error}</div>;
@@ -139,23 +175,73 @@ export default function Item() {
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* Search Bar */}
-          <div className="relative">
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={handleSearch}
-              className="pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
-              placeholder="Search by item code, name..."
-            />
-            <FaSearch className="absolute left-3 top-3 text-gray-400" />
-            {searchTerm && (
+          {/* Enhanced Search Bar with Dropdown */}
+          <div className="relative" ref={searchRef}>
+            <div className="relative">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={handleSearchChange}
+                onFocus={() => searchTerm.trim() && setShowDropdown(true)}
+                className="pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
+                placeholder="Search items..."
+              />
+              <FaSearch className="absolute left-3 top-3 text-gray-400" />
               <button
-                onClick={clearSearch}
-                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                onClick={toggleDropdown}
+                className="absolute right-10 top-3 text-gray-400 hover:text-gray-600 cursor-pointer"
               >
-                <FaTimes />
+                {showDropdown ? <FaChevronUp /> : <FaChevronDown />}
               </button>
+              {searchTerm && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 cursor-pointer"
+                >
+                  <FaTimes />
+                </button>
+              )}
+            </div>
+
+            {/* Search Dropdown */}
+            {showDropdown && filteredItems.length > 0 && (
+              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                <div className="py-1">
+                  <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-b">
+                    {filteredItems.length} item(s) found
+                  </div>
+                  {filteredItems.map((item) => (
+                    <div
+                      key={item._id || item.id}
+                      className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex items-center space-x-3 border-b border-gray-100 last:border-b-0"
+                      onClick={() => handleItemClick(item)}
+                    >
+                      <img
+                        src={item.image || "https://via.placeholder.com/30"}
+                        alt={item.name}
+                        className="w-6 h-6 rounded border border-gray-200"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">{item.name}</div>
+                        <div className="text-xs text-gray-500 truncate">
+                          {item.item_code} • {item.brand || 'No brand'} • AED {item.selling_price || '0.00'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* No Results Message */}
+            {showDropdown && searchTerm.trim() && filteredItems.length === 0 && (
+              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg">
+                <div className="px-3 py-4 text-center text-gray-500">
+                  <FaSearch className="mx-auto mb-2 text-gray-400" />
+                  <p>No items found for "{searchTerm}"</p>
+                  <p className="text-xs mt-1">Try different search terms</p>
+                </div>
+              </div>
             )}
           </div>
 
@@ -178,10 +264,33 @@ export default function Item() {
         </div>
       </div>
 
-      {/* Search Results Summary */}
-      {searchTerm && (
-        <div className="mb-4 text-sm text-gray-600">
-          Found {filteredItems.length} item(s) matching "{searchTerm}"
+      {/* Search Status */}
+      {selectedSearchItem && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-md flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <img
+              src={selectedSearchItem.image || "https://via.placeholder.com/30"}
+              alt={selectedSearchItem.name}
+              className="w-8 h-8 rounded border border-gray-200"
+            />
+            <div>
+              <span className="font-medium text-blue-700">
+                Showing: {selectedSearchItem.item_code} - {selectedSearchItem.name}
+              </span>
+              <p className="text-sm text-blue-600">
+                Brand: {selectedSearchItem.brand || 'N/A'} • 
+                Price: AED {selectedSearchItem.selling_price || '0.00'} • 
+                Quantity: {selectedSearchItem.quantity || '0'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={clearSearch}
+            className="text-blue-600 hover:text-blue-800 text-sm flex items-center space-x-1 cursor-pointer"
+          >
+            <FaTimes />
+            <span>Clear filter</span>
+          </button>
         </div>
       )}
 
@@ -220,7 +329,7 @@ export default function Item() {
                       />
                       <span 
                         className="text-blue-600 hover:underline font-medium cursor-pointer"
-                        onClick={() => handleItemClick(item)}
+                        onClick={() => handleItemClick(item)} // This opens the drawer
                       >
                         {item.name}
                       </span>
@@ -270,7 +379,8 @@ export default function Item() {
         <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
           <div>
             Showing {startIndex + 1} -{" "}
-            {Math.min(startIndex + itemsPerPage, filteredItems.length)} of {filteredItems.length}
+            {Math.min(startIndex + itemsPerPage, displayItems.length)} of {displayItems.length}
+            {selectedSearchItem && " (Filtered)"}
           </div>
 
           <div className="flex items-center space-x-2">
@@ -307,6 +417,7 @@ export default function Item() {
         </div>
       )}
 
+      {/* Drawer Component - This remains exactly as before */}
       <div
         className={`fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out ${
           isDrawerOpen ? "translate-x-0" : "translate-x-full"
@@ -456,7 +567,6 @@ export default function Item() {
               <button 
                 className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
                 onClick={() => {
-                  // Add edit functionality here
                   console.log("Edit item:", selectedItem);
                   navigate(`/Items/Items/Edit/${selectedItem.id || selectedItem._id}`);
                 }}

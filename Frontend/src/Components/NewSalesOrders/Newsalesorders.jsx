@@ -1,14 +1,34 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import useGetItem from '../../helper/useGetItem'; // Adjust path as needed
+import { debounce } from 'lodash'; // Install lodash if not installed
 
 const Newsalesorders = () => {
-  const [items, setItems] = useState([{ id: 1, details: '', quantity: '', rate: '', discount: '', amount: '' }]);
+  const [items, setItems] = useState([{ 
+    id: 1, 
+    itemId: '', // Store the actual item ID
+    details: '', 
+    sku: '',
+    quantity: 1, 
+    rate: '', 
+    discount: '', 
+    amount: '', 
+    unit: '' // Store unit from item data
+  }]);
+  
+  const [showItemDropdown, setShowItemDropdown] = useState(null); // Track which row is open
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredItems, setFilteredItems] = useState([]);
+  
   const [customerSearch, setCustomerSearch] = useState('');
   const [salesType, setSalesType] = useState('SO');
   const [lpoDate, setLpoDate] = useState('');
   const [lpoValue, setLpoValue] = useState('');
   const [vatAmount, setVatAmount] = useState(0);
-
+  
+  const { handleGetItem, data, loading } = useGetItem();
+  const dropdownRef = useRef(null);
+  
   const navigate = useNavigate();
 
   // Sample customer data
@@ -27,18 +47,95 @@ const Newsalesorders = () => {
     { value: 'FREE_DELIVERY', label: 'Free Delivery' },
   ];
 
+  // Fetch inventory items on component mount
+  useEffect(() => {
+    handleGetItem();
+    console.log(data, "this is data")
+  }, []);
+
+  // Filter items based on search term
+  useEffect(() => {
+    if (!data) return;
+    
+    if (!searchTerm) {
+      setFilteredItems(data); // Show only 5 items initially
+    } else {
+      const filtered = data.filter(item => 
+        item.itemName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.itemId?.toString().includes(searchTerm) ||
+        item.sku?.toLowerCase().includes(searchTerm.toLowerCase())
+      ).slice(0, 5); // Limit to 5 items for dropdown
+      setFilteredItems(filtered);
+    }
+  }, [searchTerm, data]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowItemDropdown(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const addNewRow = () => {
     setItems([...items, { 
       id: items.length + 1, 
+      itemId: '',
       details: '', 
-      quantity: '', 
+      sku: '',
+      quantity: 1, // Default quantity to 1
       rate: '', 
       discount: '', 
-      amount: '' 
+      amount: '', 
+      unit: ''
     }]);
   };
 
-  // Calculate VAT (5% of LPO VALUE)
+  const handleItemSelect = (index, selectedItem) => {
+    const updatedItems = [...items];
+    updatedItems[index] = {
+      ...updatedItems[index],
+      itemId: selectedItem.itemId,
+      details: selectedItem.name || 'No name',
+      sku: selectedItem.sku || 'No SKU',
+      rate: selectedItem.selling_price || selectedItem.price || 0,
+      unit: selectedItem.Unit || 'pcs',
+      quantity: 1,
+      amount: (1 * (selectedItem.sellingPrice || selectedItem.price || 0))
+    };
+    setItems(updatedItems);
+    setShowItemDropdown(null);
+    setSearchTerm('');
+  };
+
+  const handleQuantityChange = (index, value) => {
+    const quantity = parseFloat(value) || 1;
+    const updatedItems = [...items];
+    updatedItems[index].quantity = quantity;
+    
+    if (updatedItems[index].rate) {
+      updatedItems[index].amount = (quantity * parseFloat(updatedItems[index].rate)).toFixed(2);
+    }
+    
+    setItems(updatedItems);
+  };
+
+  const handleRateChange = (index, value) => {
+    const rate = parseFloat(value) || 0;
+    const updatedItems = [...items];
+    updatedItems[index].rate = rate;
+    
+    if (updatedItems[index].quantity) {
+      updatedItems[index].amount = (updatedItems[index].quantity * rate).toFixed(2);
+    }
+    
+    setItems(updatedItems);
+  };
+
   const calculateVAT = (value) => {
     const numericValue = parseFloat(value) || 0;
     const vat = numericValue * 0.05;
@@ -57,15 +154,26 @@ const Newsalesorders = () => {
     console.log('Form cancelled');
   };
 
+  const calculateTotal = () => {
+    return items.reduce((total, item) => {
+      return total + (parseFloat(item.amount) || 0);
+    }, 0).toFixed(3);
+  };
+
+  const debouncedSearch = useCallback(
+    debounce((term) => {
+      setSearchTerm(term);
+    }, 300),
+    []
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200 mb-10">
-        {/* Header */}
         <div className="px-8 py-6 border-b border-gray-200">
           <h1 className="text-2xl font-bold text-gray-800">New Sales Order</h1>
         </div>
 
-        {/* Customer & Order Details */}
         <div className="px-8 py-6">
           <div className="grid grid-cols-2 gap-6">
             <div>
@@ -254,11 +362,9 @@ const Newsalesorders = () => {
           </div>
         </div>
 
-        {/* Item Table Section */}
         <div className="px-8 py-6 border-t border-gray-200">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">Item Table</h2>
 
-          {/* Table Header */}
           <div className="grid grid-cols-12 gap-4 bg-gray-100 px-4 py-3 rounded-t-md border border-gray-300 border-b-0 text-sm font-medium text-gray-700">
             <div className="col-span-5">ITEM DETAILS</div>
             <div className="col-span-2">QUANTITY</div>
@@ -267,46 +373,129 @@ const Newsalesorders = () => {
             <div className="col-span-1">AMOUNT</div>
           </div>
 
-          {/* Table Rows */}
           {items.map((item, index) => (
-            <div key={item.id} className="grid grid-cols-12 gap-4 px-4 py-3 border border-gray-300 border-b-0 last:border-b">
-              {/* ITEM DETAILS */}
-              <div className="col-span-5">
-                <input className=" w-full border border-gray-300 rounded px-3 py-2 bg-gray-50 text-gray-500 text-sm h-[42px] flex items-center"  placeholder="Type or click to select an item."  />
-                 
+            <div key={item.id} className="grid grid-cols-12 gap-4 px-4 py-3 border border-gray-300 border-b-0 last:border-b relative">
+              <div className="col-span-5" ref={index === showItemDropdown ? dropdownRef : null}>
+                <input 
+                  className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Type or click to select an item."
+                  value={item.details}
+                  onChange={(e) => {
+                    const updatedItems = [...items];
+                    updatedItems[index].details = e.target.value;
+                    setItems(updatedItems);
+                    debouncedSearch(e.target.value);
+                  }}
+                  onFocus={() => {
+                    setShowItemDropdown(index);
+                    if (!item.details) {
+                      setSearchTerm('');
+                    }
+                  }}
+                />
+                
+                {showItemDropdown === index && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto top-full left-0">
+                    {loading ? (
+                      <div className="px-3 py-2 text-gray-500">Loading items...</div>
+                    ) : filteredItems.length === 0 ? (
+                      <div className="px-3 py-2 text-gray-500">
+                        {searchTerm ? 'No items found' : 'Start typing to search items'}
+                      </div>
+                    ) : (
+                      <>
+                        {filteredItems.map(inventoryItem => (
+                          <div
+                            key={inventoryItem.itemId}
+                            className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                            onClick={() => handleItemSelect(index, inventoryItem)}
+                          >
+                            <div className="font-medium text-gray-800">{inventoryItem.name}</div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              SKU: {inventoryItem.sku || 'N/A'} | Rate: AED{inventoryItem.selling_price || inventoryItem.price || 0}
+                            </div>
+                          </div>
+                        ))}
+                        
+                       
+                        <div
+                          className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0 text-blue-600"
+                          onClick={() => {
+                            console.log('Add new item clicked');
+                            setShowItemDropdown(null);
+                          }}
+                        >
+                          <span className="font-medium">+ Add New Item</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                
+               
+                {item.sku && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    SKU: {item.sku} | Unit: {item.unit}
+                  </div>
+                )}
               </div>
               
-              {/* QUANTITY */}
+             
               <div className="col-span-2">
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="0"
-                />
+                <div className="flex">
+                  <input
+                    type="number"
+                    value={item.quantity}
+                    onChange={(e) => handleQuantityChange(index, e.target.value)}
+                    className="w-full border border-gray-300 rounded-l px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  {item.unit && (
+                    <div className="border border-gray-300 border-l-0 rounded-r px-3 py-2 bg-gray-50 text-gray-500 text-sm h-[42px] flex items-center justify-center min-w-[60px]">
+                      {item.unit}
+                    </div>
+                  )}
+                </div>
               </div>
               
               {/* RATE */}
               <div className="col-span-2">
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="0.00"
-                />
+                <div className="flex items-center">
+                  <span className="mr-1 text-gray-500">AED</span>
+                  <input
+                    type="number"
+                    value={item.rate}
+                    onChange={(e) => handleRateChange(index, e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
               </div>
               
               {/* DISCOUNT */}
               <div className="col-span-2">
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="0%"
-                />
+                <div className="flex items-center">
+                  <input
+                    type="number"
+                    value={item.discount}
+                    onChange={(e) => {
+                      const updatedItems = [...items];
+                      updatedItems[index].discount = e.target.value;
+                      setItems(updatedItems);
+                    }}
+                    className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="0%"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
               </div>
               
               {/* AMOUNT */}
               <div className="col-span-1">
-                <div className="w-full border border-gray-300 rounded px-3 py-2 bg-gray-50 text-gray-500 text-sm h-[42px] flex items-center justify-center">
-                  0.00
+                <div className="w-full border border-gray-300 rounded px-3 py-2 bg-gray-50 text-gray-700 text-sm h-[42px] flex items-center justify-center">
+                  AED {item.amount || '0.00'}
                 </div>
               </div>
             </div>
@@ -330,7 +519,7 @@ const Newsalesorders = () => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Sub Total</span>
-                <span className="font-medium">0.000</span>
+                <span className="font-medium">AED {calculateTotal()}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Shipping Charges</span>
@@ -350,7 +539,9 @@ const Newsalesorders = () => {
               </div>
               <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                 <span className="text-lg font-semibold">Total (AED)</span>
-                <span className="text-lg font-semibold">{(parseFloat(lpoValue) || 0).toFixed(3)}</span>
+                <span className="text-lg font-semibold">
+                  {(parseFloat(calculateTotal()) + vatAmount).toFixed(3)}
+                </span>
               </div>
             </div>
 
