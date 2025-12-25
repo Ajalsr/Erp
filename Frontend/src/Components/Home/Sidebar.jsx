@@ -42,6 +42,7 @@ const Sidebar = ({ isCollapsed }) => {
         { name: "Customers", route: "/Sales/Customers" },
         { name: "Retainer Invoices", route: "/Sales/Customers" },
         { name: "Sales Orders", route: "/Sales/Salesorders" },
+        { name: "Outbound", route: "/Sales/Outbound" },
         { name: "Invoices", route: "/Sales/Customers" },
         { name: "Delivery Challans", route: "/Sales/Customers" },
         { name: "Payments Received", route: "/Sales/Customers" },
