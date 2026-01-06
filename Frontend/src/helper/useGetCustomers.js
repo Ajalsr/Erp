@@ -1,10 +1,9 @@
-import React, { useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import axios from 'axios'
-import { toast } from 'react-toastify';
 
 const useGetCustomers = () => {
   const BASE_URL = "http://localhost:8080"
-  const [data, setData] = useState(null)
+  const [data, setData] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -13,39 +12,23 @@ const useGetCustomers = () => {
     setError(null)
     try {
       const response = await axios.get(`${BASE_URL}/api/customers/getcustomers`)
-      console.log("Full API response:", response)
+      console.log("Customers API response:", response.data)
       
-
       if (response.data && response.data.data) {
-        localStorage.setItem('counter', response.data.data.length);
+        const customersData = response.data.data
+        console.log("Customers data:", customersData)
         
-        const stocksData = response.data.data
-        console.log("customers data:", stocksData)
-        
-        setData(stocksData) 
-        return stocksData
+        setData(customersData)
+        return customersData
       } else {
-        
         console.warn("No customers data received from API")
-        localStorage.setItem('counter', '0');
-        
-        setData([]) 
+        setData([])
         return []
       }
     } catch (error) {
-      const errorMessage = error.response?.data?.message || "Data customers failed..."
-      setError(errorMessage)
-      
-      toast.error(errorMessage, {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "light",
-      })
+      console.error("Error fetching customers:", error)
+      setError(error.response?.data?.message || "Failed to fetch customers")
+      setData([])
       throw error
     } finally {
       setLoading(false)

@@ -5,10 +5,10 @@ import useGenerateCustomerCode from './useGenerateCustomerCode';
 
 const useAddCustomer = () => {
   const BASE_URL = "http://localhost:8080"
-  const { generateCode } = useGenerateCustomerCode()
+  //const { generateCode } = useGenerateCustomerCode()
     const handleAddcustomer = async (inputs) => {
         try {
-            inputs.customerCode = generateCode() 
+            //inputs.customerCode = generateCode() 
             const response = await axios.post(`${BASE_URL}/api/customers/addcustomers`, inputs)
             console.log("Added customer successful:", response.data)
             toast.success("Customer Added successfully!", {
