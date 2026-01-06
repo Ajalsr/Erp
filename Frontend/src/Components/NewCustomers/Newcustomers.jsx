@@ -10,7 +10,7 @@ import { FaFilePdf, FaFileImage, FaFileWord, FaFileExcel, FaFile } from "react-i
 
 const Newcustomers = () => {
   const { handleAddcustomer } = useAddCustomer();
-  const [activeTab, setActiveTab] = useState('other-details');
+  const [activeTab, setActiveTab] = useState('finance');
   const [isSubmitting, setIsSubmitting] = useState(false); 
   
   const [phoneNumbers, setPhoneNumbers] = useState({
@@ -169,10 +169,10 @@ const Newcustomers = () => {
         !formData.documents.some(d => d.type === doc.id)
       );
       
-      if (missingDocs.length > 0) {
-        toast.error(`Please upload required documents: ${missingDocs.map(d => d.label).join(', ')}`);
-        return;
-      }
+      // if (missingDocs.length > 0) {
+      //   toast.error(`Please upload required documents: ${missingDocs.map(d => d.label).join(', ')}`);
+      //   return;
+      // }
     }
     
     setIsSubmitting(true);

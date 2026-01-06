@@ -95,7 +95,19 @@ func AddCustomers() gin.HandlerFunc {
 			return
 		}
 
+		customerCode, err := generateCustomerCodeContinuous(ctx)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status":  http.StatusInternalServerError,
+				"message": "Failed to generate customer code",
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		item.CustomerCode = customerCode
 		item.ID = primitive.NewObjectID()
+		item.CreatedAt = time.Now()
 
 		result, err := customersCollection.InsertOne(ctx, item)
 
@@ -121,6 +133,65 @@ func AddCustomers() gin.HandlerFunc {
 		})
 
 	}
+}
+
+func generateCustomerCodeContinuous(ctx context.Context) (string, error) {
+	now := time.Now()
+	currentMonth := int(now.Month())
+	currentYear := now.Year() % 100
+
+	// Find the last customer code for THIS month-year only
+	monthYearPrefix := fmt.Sprintf("%02d%02d", currentMonth, currentYear)
+
+	// Create regex pattern to match codes starting with current month-year
+	filter := bson.M{
+		"customerCode": bson.M{
+			"$regex": "^" + monthYearPrefix,
+		},
+	}
+
+	options := options.FindOne().
+		SetSort(bson.D{{Key: "customerCode", Value: -1}})
+
+	var lastCustomer bson.M
+	err := customersCollection.FindOne(ctx, filter, options).Decode(&lastCustomer)
+
+	var nextSequence int
+
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			// No customers for this month-year yet, start from 01
+			nextSequence = 1
+		} else {
+			return "", err
+		}
+	} else {
+		// Extract sequence from last customer code
+		lastCode := lastCustomer["customerCode"].(string)
+
+		if len(lastCode) == 6 {
+			// Extract the last 2 digits (sequence part)
+			lastSeqStr := lastCode[4:]
+			lastSeq, err := strconv.Atoi(lastSeqStr)
+			if err != nil {
+				// If can't parse, start from 01
+				nextSequence = 1
+			} else {
+				// Continue the sequence
+				nextSequence = lastSeq + 1
+
+				// If sequence exceeds 99, reset to 01
+				if nextSequence > 99 {
+					nextSequence = 1
+				}
+			}
+		} else {
+			nextSequence = 1
+		}
+	}
+
+	// Format: MM(2) + YY(2) + sequence(2)
+	return fmt.Sprintf("%02d%02d%02d", currentMonth, currentYear, nextSequence), nil
 }
 
 func GetCustomerSuggestions() gin.HandlerFunc {

@@ -1,44 +1,42 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import useGetItem from '../../helper/useGetItem'; // Adjust path as needed
-import { debounce } from 'lodash'; // Install lodash if not installed
+import useGetItem from '../../helper/useGetItem';
+import useGetCustomers from '../../helper/useGetCustomers';
+import { debounce } from 'lodash';
 
 const Newsalesorders = () => {
   const [items, setItems] = useState([{ 
     id: 1, 
-    itemId: '', // Store the actual item ID
+    itemId: '',
     details: '', 
     sku: '',
     quantity: 1, 
     rate: '', 
     discount: '', 
     amount: '', 
-    unit: '' // Store unit from item data
+    unit: ''
   }]);
   
-  const [showItemDropdown, setShowItemDropdown] = useState(null); // Track which row is open
+  const [showItemDropdown, setShowItemDropdown] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredItems, setFilteredItems] = useState([]);
   
   const [customerSearch, setCustomerSearch] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [filteredCustomers, setFilteredCustomers] = useState([]);
+  
   const [salesType, setSalesType] = useState('SO');
   const [lpoDate, setLpoDate] = useState('');
   const [lpoValue, setLpoValue] = useState('');
-  const [vatAmount, setVatAmount] = useState(0);
   
-  const { handleGetItem, data, loading } = useGetItem();
+  const { handleGetItem, data: inventoryData, loading: inventoryLoading } = useGetItem();
+  const { handleGetCustomers, data: customersData, loading: customersLoading } = useGetCustomers();
+  
   const dropdownRef = useRef(null);
+  const customerDropdownRef = useRef(null);
   
   const navigate = useNavigate();
-
-  // Sample customer data
-  const customers = [
-    { id: 1, code: 'CUST001', name: 'ABC Corporation', type: 'Business' },
-    { id: 2, code: 'CUST002', name: 'XYZ Enterprises', type: 'Business' },
-    { id: 3, code: 'CUST003', name: 'John Smith', type: 'Individual' },
-    { id: 4, code: 'CUST004', name: 'Global Traders', type: 'Business' },
-    { id: 5, code: 'CUST005', name: 'Sarah Johnson', type: 'Individual' },
-  ];
 
   const salesTypeOptions = [
     { value: 'SO', label: 'SO (Standard Sale Order)' },
@@ -47,33 +45,96 @@ const Newsalesorders = () => {
     { value: 'FREE_DELIVERY', label: 'Free Delivery' },
   ];
 
-  // Fetch inventory items on component mount
+  // Calculate amount for an item
+  const calculateItemAmount = (quantity, rate, discount = 0) => {
+    const qty = parseFloat(quantity) || 0;
+    const rte = parseFloat(rate) || 0;
+    const disc = parseFloat(discount) || 0;
+    
+    // If discount is percentage (contains %)
+    if (discount.toString().includes('%')) {
+      const discPercent = parseFloat(discount) || 0;
+      const amount = qty * rte;
+      const discountAmount = amount * (discPercent / 100);
+      return (amount - discountAmount).toFixed(2);
+    } else {
+      // Discount is fixed amount
+      const amount = qty * rte;
+      return (amount - disc).toFixed(2);
+    }
+  };
+
+  // Calculate Sub Total
+  const calculateSubTotal = () => {
+    return items.reduce((total, item) => {
+      const amount = parseFloat(item.amount) || 0;
+      return total + amount;
+    }, 0);
+  };
+
+  // Calculate VAT 5% based on Sub Total
+  const calculateVAT = () => {
+    const subTotal = calculateSubTotal();
+    return subTotal * 0.05;
+  };
+
+  // Calculate Total (Sub Total + VAT)
+  const calculateTotal = () => {
+    const subTotal = calculateSubTotal();
+    const vat = calculateVAT();
+    return subTotal + vat;
+  };
+
+  // Update all calculations whenever items change
+  useEffect(() => {
+    // This effect will automatically update VAT and totals when items change
+  }, [items]);
+
   useEffect(() => {
     handleGetItem();
-    console.log(data, "this is data")
+    handleGetCustomers();
   }, []);
 
-  // Filter items based on search term
   useEffect(() => {
-    if (!data) return;
+    if (!inventoryData) return;
     
     if (!searchTerm) {
-      setFilteredItems(data); // Show only 5 items initially
+      setFilteredItems(inventoryData.slice(0, 5));
     } else {
-      const filtered = data.filter(item => 
+      const filtered = inventoryData.filter(item => 
         item.itemName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.itemId?.toString().includes(searchTerm) ||
         item.sku?.toLowerCase().includes(searchTerm.toLowerCase())
-      ).slice(0, 5); // Limit to 5 items for dropdown
+      ).slice(0, 5);
       setFilteredItems(filtered);
     }
-  }, [searchTerm, data]);
+  }, [searchTerm, inventoryData]);
 
-  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!customersData) return;
+    
+    if (!customerSearch) {
+      setFilteredCustomers(customersData.slice(0, 10));
+    } else {
+      const filtered = customersData.filter(customer => 
+        customer.customerDisplayName?.toLowerCase().includes(customerSearch.toLowerCase()) ||
+        customer.companyName?.toLowerCase().includes(customerSearch.toLowerCase()) ||
+        customer.customerEmail?.toLowerCase().includes(customerSearch.toLowerCase()) ||
+        customer.customerPhone?.includes(customerSearch) ||
+        customer.customerCode?.toLowerCase().includes(customerSearch.toLowerCase())
+      ).slice(0, 10);
+      setFilteredCustomers(filtered);
+    }
+  }, [customerSearch, customersData]);
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setShowItemDropdown(null);
+      }
+      
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target)) {
+        setShowCustomerDropdown(false);
       }
     };
 
@@ -81,13 +142,19 @@ const Newsalesorders = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const handleCustomerSelect = (customer) => {
+    setSelectedCustomer(customer);
+    setCustomerSearch(`${customer.customerCode} - ${customer.customerDisplayName}${customer.companyName ? ` (${customer.companyName})` : ''}`);
+    setShowCustomerDropdown(false);
+  };
+
   const addNewRow = () => {
     setItems([...items, { 
       id: items.length + 1, 
       itemId: '',
       details: '', 
       sku: '',
-      quantity: 1, // Default quantity to 1
+      quantity: 1,
       rate: '', 
       discount: '', 
       amount: '', 
@@ -97,16 +164,21 @@ const Newsalesorders = () => {
 
   const handleItemSelect = (index, selectedItem) => {
     const updatedItems = [...items];
+    const rate = selectedItem.selling_price || selectedItem.price || 0;
+    const quantity = 1;
+    const amount = calculateItemAmount(quantity, rate, updatedItems[index].discount);
+    
     updatedItems[index] = {
       ...updatedItems[index],
       itemId: selectedItem.itemId,
       details: selectedItem.name || 'No name',
       sku: selectedItem.sku || 'No SKU',
-      rate: selectedItem.selling_price || selectedItem.price || 0,
+      rate: rate,
       unit: selectedItem.Unit || 'pcs',
-      quantity: 1,
-      amount: (1 * (selectedItem.sellingPrice || selectedItem.price || 0))
+      quantity: quantity,
+      amount: amount
     };
+    
     setItems(updatedItems);
     setShowItemDropdown(null);
     setSearchTerm('');
@@ -117,8 +189,13 @@ const Newsalesorders = () => {
     const updatedItems = [...items];
     updatedItems[index].quantity = quantity;
     
+    // Recalculate amount when quantity changes
     if (updatedItems[index].rate) {
-      updatedItems[index].amount = (quantity * parseFloat(updatedItems[index].rate)).toFixed(2);
+      updatedItems[index].amount = calculateItemAmount(
+        quantity, 
+        updatedItems[index].rate, 
+        updatedItems[index].discount
+      );
     }
     
     setItems(updatedItems);
@@ -129,35 +206,41 @@ const Newsalesorders = () => {
     const updatedItems = [...items];
     updatedItems[index].rate = rate;
     
+    // Recalculate amount when rate changes
     if (updatedItems[index].quantity) {
-      updatedItems[index].amount = (updatedItems[index].quantity * rate).toFixed(2);
+      updatedItems[index].amount = calculateItemAmount(
+        updatedItems[index].quantity, 
+        rate, 
+        updatedItems[index].discount
+      );
     }
     
     setItems(updatedItems);
   };
 
-  const calculateVAT = (value) => {
-    const numericValue = parseFloat(value) || 0;
-    const vat = numericValue * 0.05;
-    setVatAmount(vat);
-    return vat;
+  const handleDiscountChange = (index, value) => {
+    const updatedItems = [...items];
+    updatedItems[index].discount = value;
+    
+    // Recalculate amount when discount changes
+    if (updatedItems[index].quantity && updatedItems[index].rate) {
+      updatedItems[index].amount = calculateItemAmount(
+        updatedItems[index].quantity, 
+        updatedItems[index].rate, 
+        value
+      );
+    }
+    
+    setItems(updatedItems);
   };
 
   const handleLpoValueChange = (e) => {
     const value = e.target.value;
     setLpoValue(value);
-    calculateVAT(value);
   };
 
   const handleCancel = () => {
-    navigate('/sales/salesorders')
-    console.log('Form cancelled');
-  };
-
-  const calculateTotal = () => {
-    return items.reduce((total, item) => {
-      return total + (parseFloat(item.amount) || 0);
-    }, 0).toFixed(3);
+    navigate('/sales/salesorders');
   };
 
   const debouncedSearch = useCallback(
@@ -176,7 +259,7 @@ const Newsalesorders = () => {
 
         <div className="px-8 py-6">
           <div className="grid grid-cols-2 gap-6">
-            <div>
+            <div ref={customerDropdownRef}>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Customer Name<span className="text-red-500">*</span>
               </label>
@@ -184,33 +267,174 @@ const Newsalesorders = () => {
                 <input
                   type="text"
                   value={customerSearch}
-                  onChange={(e) => setCustomerSearch(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Search by name or type..."
+                  onChange={(e) => {
+                    setCustomerSearch(e.target.value);
+                    setShowCustomerDropdown(true);
+                  }}
+                  onFocus={() => setShowCustomerDropdown(true)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                  placeholder="Search customer by name, company, email, or code..."
                 />
-                {customerSearch && (
-                  <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                    {customers
-                      .filter(customer => 
-                        customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-                        customer.code.toLowerCase().includes(customerSearch.toLowerCase())
-                      )
-                      .map(customer => (
-                        <div 
-                          key={customer.id}
-                          className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
-                          onClick={() => setCustomerSearch(`${customer.code} - ${customer.name}`)}
-                        >
-                          <div className="font-medium">{customer.name}</div>
-                          <div className="text-sm text-gray-500">
-                            Code: {customer.code} | Type: {customer.type}
-                          </div>
+                
+                <div 
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 cursor-pointer"
+                  onClick={() => setShowCustomerDropdown(!showCustomerDropdown)}
+                >
+                  ▼
+                </div>
+                
+                {showCustomerDropdown && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-80 overflow-y-auto">
+                    {customersLoading ? (
+                      <div className="px-3 py-4 text-center">
+                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-500"></div>
+                        <p className="mt-2 text-sm text-gray-500">Loading customers...</p>
+                      </div>
+                    ) : filteredCustomers.length === 0 ? (
+                      <div className="px-3 py-4 text-center">
+                        <p className="text-gray-500">
+                          {customerSearch ? 'No customers found' : 'Start typing to search customers'}
+                        </p>
+                        {!customerSearch && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            Total customers: {customersData?.length || 0}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs text-gray-500">
+                          {filteredCustomers.length} customer(s) found
                         </div>
-                      ))}
+                        
+                        {filteredCustomers.map(customer => (
+                          <div
+                            key={customer._id || customer.id}
+                            className={`px-3 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors ${
+                              selectedCustomer?._id === customer._id ? 'bg-blue-50' : ''
+                            }`}
+                            onClick={() => handleCustomerSelect(customer)}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0 mt-1">
+                                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                                  <span className="text-blue-600 text-xs font-medium">
+                                    {customer.customerDisplayName?.charAt(0) || 'C'}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2">
+                                  <div className="font-medium text-gray-900 truncate">
+                                    {customer.customerDisplayName || 'Unnamed Customer'}
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span className="px-2 py-1 text-xs font-mono bg-blue-100 text-blue-800 rounded">
+                                      {customer.customerCode || 'N/A'}
+                                    </span>
+                                    <span className={`px-2 py-1 text-xs rounded ${
+                                      customer.status === 'active' 
+                                        ? 'bg-green-100 text-green-800' 
+                                        : customer.status === 'pending'
+                                        ? 'bg-yellow-100 text-yellow-800'
+                                        : 'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {customer.status || 'active'}
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                                  {customer.companyName && (
+                                    <div className="flex items-center gap-1">
+                                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H4a1 1 0 110-2V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" clipRule="evenodd" />
+                                      </svg>
+                                      <span className="truncate">{customer.companyName}</span>
+                                    </div>
+                                  )}
+                                  
+                                  {customer.customerEmail && (
+                                    <div className="flex items-center gap-1">
+                                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                                        <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                                      </svg>
+                                      <span className="truncate">{customer.customerEmail}</span>
+                                    </div>
+                                  )}
+                                  
+                                  {customer.customerPhone && (
+                                    <div className="flex items-center gap-1">
+                                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                                      </svg>
+                                      <span>{customer.customerPhone}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        
+                        <div 
+                          className="px-3 py-3 hover:bg-gray-50 cursor-pointer border-t border-gray-200 bg-gray-50"
+                          onClick={() => {
+                            navigate('/sales/customers/newcustomers');
+                            setShowCustomerDropdown(false);
+                          }}
+                        >
+                          <div className="flex items-center gap-2 text-blue-600 font-medium">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            <span>Add New Customer</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Create a new customer record
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
+              
+              {selectedCustomer && (
+                <div className="mt-2 p-3 bg-blue-50 rounded-md border border-blue-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-blue-800">
+                        {selectedCustomer.customerDisplayName}
+                      </div>
+                      <div className="text-sm text-blue-600 mt-1">
+                        {selectedCustomer.companyName && (
+                          <span className="mr-3">Company: {selectedCustomer.companyName}</span>
+                        )}
+                        {selectedCustomer.customerEmail && (
+                          <span className="mr-3">Email: {selectedCustomer.customerEmail}</span>
+                        )}
+                        {selectedCustomer.customerPhone && (
+                          <span>Phone: {selectedCustomer.customerPhone}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCustomer(null);
+                        setCustomerSearch('');
+                      }}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
+            
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Sales Order#<span className="text-red-500">*</span>
@@ -291,17 +515,6 @@ const Newsalesorders = () => {
                     step="0.01"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    VAT 5% (AED)
-                  </label>
-                  <input
-                    type="text"
-                    value={vatAmount.toFixed(2)}
-                    readOnly
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-700"
-                  />
-                </div>
               </div>
             </div>
           </div>
@@ -348,17 +561,6 @@ const Newsalesorders = () => {
                 <option value="mike_johnson">Mike Johnson</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Customer Code<span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Customer code will auto-fill after selecting customer"
-                readOnly
-              />
-            </div>
           </div>
         </div>
 
@@ -396,7 +598,7 @@ const Newsalesorders = () => {
                 
                 {showItemDropdown === index && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto top-full left-0">
-                    {loading ? (
+                    {inventoryLoading ? (
                       <div className="px-3 py-2 text-gray-500">Loading items...</div>
                     ) : filteredItems.length === 0 ? (
                       <div className="px-3 py-2 text-gray-500">
@@ -417,7 +619,6 @@ const Newsalesorders = () => {
                           </div>
                         ))}
                         
-                       
                         <div
                           className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0 text-blue-600"
                           onClick={() => {
@@ -432,7 +633,6 @@ const Newsalesorders = () => {
                   </div>
                 )}
                 
-               
                 {item.sku && (
                   <div className="text-xs text-gray-500 mt-1">
                     SKU: {item.sku} | Unit: {item.unit}
@@ -440,7 +640,6 @@ const Newsalesorders = () => {
                 )}
               </div>
               
-             
               <div className="col-span-2">
                 <div className="flex">
                   <input
@@ -457,7 +656,6 @@ const Newsalesorders = () => {
                 </div>
               </div>
               
-              {/* RATE */}
               <div className="col-span-2">
                 <div className="flex items-center">
                   <span className="mr-1 text-gray-500">AED</span>
@@ -473,26 +671,18 @@ const Newsalesorders = () => {
                 </div>
               </div>
               
-              {/* DISCOUNT */}
               <div className="col-span-2">
                 <div className="flex items-center">
                   <input
-                    type="number"
+                    type="text"
                     value={item.discount}
-                    onChange={(e) => {
-                      const updatedItems = [...items];
-                      updatedItems[index].discount = e.target.value;
-                      setItems(updatedItems);
-                    }}
+                    onChange={(e) => handleDiscountChange(index, e.target.value)}
                     className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     placeholder="0%"
-                    step="0.01"
-                    min="0"
                   />
                 </div>
               </div>
               
-              {/* AMOUNT */}
               <div className="col-span-1">
                 <div className="w-full border border-gray-300 rounded px-3 py-2 bg-gray-50 text-gray-700 text-sm h-[42px] flex items-center justify-center">
                   AED {item.amount || '0.00'}
@@ -501,7 +691,6 @@ const Newsalesorders = () => {
             </div>
           ))}
 
-          {/* Add New Row Button */}
           <div className="mt-4">
             <button 
               onClick={addNewRow}
@@ -512,14 +701,13 @@ const Newsalesorders = () => {
           </div>
         </div>
 
-        {/* Totals Section */}
+        {/* Totals Section with Auto-calculated VAT */}
         <div className="px-8 py-6 border-t border-gray-200">
           <div className="grid grid-cols-2 gap-8">
-            {/* Left Side - Totals */}
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Sub Total</span>
-                <span className="font-medium">AED {calculateTotal()}</span>
+                <span className="font-medium">AED {calculateSubTotal().toFixed(3)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Shipping Charges</span>
@@ -535,19 +723,17 @@ const Newsalesorders = () => {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">VAT 5%</span>
-                <span className="font-medium">{vatAmount.toFixed(3)}</span>
+                <span className="font-medium">{calculateVAT().toFixed(3)}</span>
               </div>
               <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                 <span className="text-lg font-semibold">Total (AED)</span>
                 <span className="text-lg font-semibold">
-                  {(parseFloat(calculateTotal()) + vatAmount).toFixed(3)}
+                  {calculateTotal().toFixed(3)}
                 </span>
               </div>
             </div>
 
-            {/* Right Side - Notes & Terms */}
             <div className="space-y-6">
-              {/* Customer Notes */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Customer Notes
@@ -557,7 +743,6 @@ const Newsalesorders = () => {
                 </div>
               </div>
 
-              {/* Terms & Conditions */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Terms & Conditions
@@ -570,7 +755,6 @@ const Newsalesorders = () => {
           </div>
         </div>
 
-        {/* File Upload Section */}
         <div className="px-8 py-6 border-t border-gray-200">
           <h3 className="text-sm font-medium text-gray-700 mb-2">
             Attach File(s) to Sales Order
@@ -583,15 +767,13 @@ const Newsalesorders = () => {
           </div>
         </div>
 
-        {/* Additional Fields Note */}
         <div className="px-8 py-6 border-t border-gray-200">
           <div className="text-sm text-gray-500">
             Additional Fields: Add custom fields to your sales orders by going to Settings → Sales → Sales orders → Field Customization.
           </div>
         </div>
-
-        
       </div>
+      
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
         <div className="max-w-4xl ml-auto flex space-x-3 justify-end">
           <button className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100">
@@ -600,11 +782,10 @@ const Newsalesorders = () => {
           <button className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
             Save and Send
           </button>
-          <button className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 cursor-pointer" onClick ={() => handleCancel()}>
+          <button className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 cursor-pointer" onClick={handleCancel}>
             Cancel
           </button>
         </div>
-        
       </div>
     </div>
   );
