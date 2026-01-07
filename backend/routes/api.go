@@ -43,6 +43,20 @@ func CustomerRoutes(router *gin.Engine) {
 
 }
 
+func SaleOrderRoutes(router *gin.Engine) {
+	salesOrderRoutes := router.Group("/api/sales-orders")
+	{
+		salesOrderRoutes.POST("/", controllers.CreateSalesOrder())
+		salesOrderRoutes.GET("/getsaleorder", controllers.GetAllSalesOrders())
+		salesOrderRoutes.GET("/search", controllers.SearchSalesOrders())
+		salesOrderRoutes.GET("/stats", controllers.GetSalesOrderStats())
+		salesOrderRoutes.GET("/:id", controllers.GetSalesOrderByID())
+		salesOrderRoutes.PUT("/:id", controllers.UpdateSalesOrder())
+		salesOrderRoutes.PATCH("/:id/status", controllers.UpdateSalesOrderStatus())
+		salesOrderRoutes.DELETE("/:id", controllers.DeleteSalesOrder())
+	}
+}
+
 // func DashboardRoutes(router *gin.Engine) {
 // 	authRoutes := router.Group("/api/dashboard")
 // 	{
