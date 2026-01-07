@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useGetItem from '../../helper/useGetItem';
 import useGetCustomers from '../../helper/useGetCustomers';
+import useAddSalesOrder from '../../helper/useAddSalesOrder'; // Import the new hook
 import { debounce } from 'lodash';
 
 const Newsalesorders = () => {
@@ -27,11 +28,26 @@ const Newsalesorders = () => {
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   
   const [salesType, setSalesType] = useState('SO');
+  const [orderDate, setOrderDate] = useState('');
   const [lpoDate, setLpoDate] = useState('');
+  const [lpoNumber, setLpoNumber] = useState('');
   const [lpoValue, setLpoValue] = useState('');
+  const [expectedShipmentDate, setExpectedShipmentDate] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState('due_on_receipt');
+  const [salesperson, setSalesperson] = useState('');
+  const [orderNumber, setOrderNumber] = useState('');
+  
+  // New state variables for shipping and adjustment
+  const [shippingCharges, setShippingCharges] = useState('0');
+  const [adjustment, setAdjustment] = useState('0');
+  
+  // New state variables for customer notes and terms
+  const [customerNotes, setCustomerNotes] = useState('');
+  const [termsAndConditions, setTermsAndConditions] = useState('');
   
   const { handleGetItem, data: inventoryData, loading: inventoryLoading } = useGetItem();
   const { handleGetCustomers, data: customersData, loading: customersLoading } = useGetCustomers();
+  const { handleAddSalesOrder } = useAddSalesOrder(); // Initialize the hook
   
   const dropdownRef = useRef(null);
   const customerDropdownRef = useRef(null);
@@ -43,6 +59,19 @@ const Newsalesorders = () => {
     { value: 'MOA', label: 'MOA (Material on Approval)' },
     { value: 'MOA_COLLECT', label: 'MOA Collect (Material on Approval Collect)' },
     { value: 'FREE_DELIVERY', label: 'Free Delivery' },
+  ];
+
+  const paymentTermsOptions = [
+    { value: 'due_on_receipt', label: 'Due on Receipt' },
+    { value: 'net_15', label: 'Net 15' },
+    { value: 'net_30', label: 'Net 30' },
+    { value: 'net_60', label: 'Net 60' },
+  ];
+
+  const salespersonOptions = [
+    { value: 'john_doe', label: 'John Doe' },
+    { value: 'jane_smith', label: 'Jane Smith' },
+    { value: 'mike_johnson', label: 'Mike Johnson' },
   ];
 
   // Calculate amount for an item
@@ -78,11 +107,13 @@ const Newsalesorders = () => {
     return subTotal * 0.05;
   };
 
-  // Calculate Total (Sub Total + VAT)
+  // Calculate Total (Sub Total + VAT + Shipping + Adjustment)
   const calculateTotal = () => {
     const subTotal = calculateSubTotal();
     const vat = calculateVAT();
-    return subTotal + vat;
+    const shipping = parseFloat(shippingCharges) || 0;
+    const adjustmentValue = parseFloat(adjustment) || 0;
+    return subTotal + vat + shipping + adjustmentValue;
   };
 
   // Update all calculations whenever items change
@@ -162,6 +193,21 @@ const Newsalesorders = () => {
     }]);
   };
 
+  const handleRemoveItem = (indexToRemove) => {
+    if (items.length <= 1) {
+      // Don't remove the last row
+      return;
+    }
+    
+    const updatedItems = items.filter((_, index) => index !== indexToRemove);
+    setItems(updatedItems);
+    
+    // If the removed item had the dropdown open, close it
+    if (showItemDropdown === indexToRemove) {
+      setShowItemDropdown(null);
+    }
+  };
+
   const handleItemSelect = (index, selectedItem) => {
     const updatedItems = [...items];
     const rate = selectedItem.selling_price || selectedItem.price || 0;
@@ -170,11 +216,11 @@ const Newsalesorders = () => {
     
     updatedItems[index] = {
       ...updatedItems[index],
-      itemId: selectedItem.itemId,
-      details: selectedItem.name || 'No name',
+      itemId: selectedItem._id || selectedItem.itemId,
+      details: selectedItem.name || selectedItem.itemName || 'No name',
       sku: selectedItem.sku || 'No SKU',
       rate: rate,
-      unit: selectedItem.Unit || 'pcs',
+      unit: selectedItem.unit || selectedItem.Unit || 'pcs',
       quantity: quantity,
       amount: amount
     };
@@ -239,8 +285,105 @@ const Newsalesorders = () => {
     setLpoValue(value);
   };
 
+  const handleLpoNumberChange = (e) => {
+    setLpoNumber(e.target.value);
+  };
+
+  // New handler functions for shipping and adjustment
+  const handleShippingChange = (e) => {
+    const value = e.target.value;
+    setShippingCharges(value);
+  };
+
+  const handleAdjustmentChange = (e) => {
+    const value = e.target.value;
+    setAdjustment(value);
+  };
+
+  // New handler functions for customer notes and terms
+  const handleCustomerNotesChange = (e) => {
+    setCustomerNotes(e.target.value);
+  };
+
+  const handleTermsChange = (e) => {
+    setTermsAndConditions(e.target.value);
+  };
+
   const handleCancel = () => {
     navigate('/sales/salesorders');
+  };
+
+  // Handle Save as Draft
+  const handleSaveAsDraft = async () => {
+    try {
+      const salesOrderData = prepareSalesOrderData('draft');
+      const result = await handleAddSalesOrder(salesOrderData);
+      
+      if (result && result.data && result.data.id) {
+        navigate(`/sales/salesorders/${result.data.id}`);
+      }
+    } catch (error) {
+      console.error('Failed to save as draft:', error);
+    }
+  };
+
+  // Handle Save and Send
+  const handleSaveAndSend = async () => {
+    try {
+      const salesOrderData = prepareSalesOrderData('pending');
+      const result = await handleAddSalesOrder(salesOrderData);
+      
+      if (result && result.data && result.data.id) {
+        navigate(`/sales/salesorders/${result.data.id}`);
+      }
+    } catch (error) {
+      console.error('Failed to save and send:', error);
+    }
+  };
+
+  // Prepare sales order data for API
+  const prepareSalesOrderData = (status) => {
+    const subTotal = calculateSubTotal();
+    const vat = calculateVAT();
+    const shipping = parseFloat(shippingCharges) || 0;
+    const adjustmentValue = parseFloat(adjustment) || 0;
+    const total = subTotal + vat + shipping + adjustmentValue;
+
+    // Prepare items for API
+    const apiItems = items
+      .filter(item => item.itemId && item.quantity > 0)
+      .map(item => ({
+        itemId: item.itemId,
+        quantity: parseFloat(item.quantity) || 0,
+        discount: item.discount || '0'
+      }));
+
+    if (apiItems.length === 0) {
+      throw new Error('Please add at least one item to the sales order');
+    }
+
+    if (!selectedCustomer) {
+      throw new Error('Please select a customer');
+    }
+
+    return {
+      orderNumber: orderNumber,
+      customerId: selectedCustomer._id,
+      salesType: salesType,
+      orderDate: orderDate ? new Date(orderDate).toISOString() : new Date().toISOString(),
+      lpoNumber: lpoNumber,
+      lpoDate: lpoDate ? new Date(lpoDate).toISOString() : null,
+      lpoValue: parseFloat(lpoValue) || 0,
+      expectedShipmentDate: expectedShipmentDate ? new Date(expectedShipmentDate).toISOString() : null,
+      paymentTerms: paymentTerms,
+      salesperson: salesperson,
+      items: apiItems,
+      shippingCharges: shipping,
+      adjustment: adjustmentValue,
+      customerNotes: customerNotes,
+      termsAndConditions: termsAndConditions,
+      status: status
+    };
   };
 
   const debouncedSearch = useCallback(
@@ -249,6 +392,12 @@ const Newsalesorders = () => {
     }, 300),
     []
   );
+
+  // Set default order date to today
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    setOrderDate(today);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -441,7 +590,10 @@ const Newsalesorders = () => {
               </label>
               <input
                 type="text"
+                value={orderNumber}
+                onChange={(e) => setOrderNumber(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Will be auto-generated"
               />
             </div>
           </div>
@@ -470,6 +622,8 @@ const Newsalesorders = () => {
               </label>
               <input
                 type="date"
+                value={orderDate}
+                onChange={(e) => setOrderDate(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -482,6 +636,8 @@ const Newsalesorders = () => {
               </label>
               <input
                 type="text"
+                value={lpoNumber}
+                onChange={handleLpoNumberChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Enter LPO Number"
               />
@@ -526,6 +682,8 @@ const Newsalesorders = () => {
               </label>
               <input
                 type="date"
+                value={expectedShipmentDate}
+                onChange={(e) => setExpectedShipmentDate(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -534,14 +692,17 @@ const Newsalesorders = () => {
                 Payment Terms<span className="text-red-500">*</span>
               </label>
               <select
+                value={paymentTerms}
+                onChange={(e) => setPaymentTerms(e.target.value)}
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
               >
-                <option value="" disabled selected>Select or type to add</option>
-                <option value="due_on_receipt">Due on Receipt</option>
-                <option value="net_15">Net 15</option>
-                <option value="net_30">Net 30</option>
-                <option value="net_60">Net 60</option>
+                <option value="" disabled>Select or type to add</option>
+                {paymentTermsOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -552,13 +713,17 @@ const Newsalesorders = () => {
                 Salesperson<span className="text-red-500">*</span>
               </label>
               <select
+                value={salesperson}
+                onChange={(e) => setSalesperson(e.target.value)}
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
               >
-                <option value="" disabled selected>Select or Add Salesperson</option>
-                <option value="john_doe">John Doe</option>
-                <option value="jane_smith">Jane Smith</option>
-                <option value="mike_johnson">Mike Johnson</option>
+                <option value="" disabled>Select or Add Salesperson</option>
+                {salespersonOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -568,7 +733,7 @@ const Newsalesorders = () => {
           <h2 className="text-lg font-semibold text-gray-800 mb-4">Item Table</h2>
 
           <div className="grid grid-cols-12 gap-4 bg-gray-100 px-4 py-3 rounded-t-md border border-gray-300 border-b-0 text-sm font-medium text-gray-700">
-            <div className="col-span-5">ITEM DETAILS</div>
+            <div className="col-span-4">ITEM DETAILS</div>
             <div className="col-span-2">QUANTITY</div>
             <div className="col-span-2">RATE</div>
             <div className="col-span-2">DISCOUNT</div>
@@ -577,65 +742,67 @@ const Newsalesorders = () => {
 
           {items.map((item, index) => (
             <div key={item.id} className="grid grid-cols-12 gap-4 px-4 py-3 border border-gray-300 border-b-0 last:border-b relative">
-              <div className="col-span-5" ref={index === showItemDropdown ? dropdownRef : null}>
-                <input 
-                  className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Type or click to select an item."
-                  value={item.details}
-                  onChange={(e) => {
-                    const updatedItems = [...items];
-                    updatedItems[index].details = e.target.value;
-                    setItems(updatedItems);
-                    debouncedSearch(e.target.value);
-                  }}
-                  onFocus={() => {
-                    setShowItemDropdown(index);
-                    if (!item.details) {
-                      setSearchTerm('');
-                    }
-                  }}
-                />
-                
-                {showItemDropdown === index && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto top-full left-0">
-                    {inventoryLoading ? (
-                      <div className="px-3 py-2 text-gray-500">Loading items...</div>
-                    ) : filteredItems.length === 0 ? (
-                      <div className="px-3 py-2 text-gray-500">
-                        {searchTerm ? 'No items found' : 'Start typing to search items'}
-                      </div>
-                    ) : (
-                      <>
-                        {filteredItems.map(inventoryItem => (
-                          <div
-                            key={inventoryItem.itemId}
-                            className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
-                            onClick={() => handleItemSelect(index, inventoryItem)}
-                          >
-                            <div className="font-medium text-gray-800">{inventoryItem.name}</div>
-                            <div className="text-xs text-gray-500 mt-1">
-                              SKU: {inventoryItem.sku || 'N/A'} | Rate: AED{inventoryItem.selling_price || inventoryItem.price || 0}
-                            </div>
-                          </div>
-                        ))}
-                        
-                        <div
-                          className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0 text-blue-600"
-                          onClick={() => {
-                            console.log('Add new item clicked');
-                            setShowItemDropdown(null);
-                          }}
-                        >
-                          <span className="font-medium">+ Add New Item</span>
+              <div className="col-span-4" ref={index === showItemDropdown ? dropdownRef : null}>
+                <div>
+                  <input 
+                    className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Type or click to select an item."
+                    value={item.details}
+                    onChange={(e) => {
+                      const updatedItems = [...items];
+                      updatedItems[index].details = e.target.value;
+                      setItems(updatedItems);
+                      debouncedSearch(e.target.value);
+                    }}
+                    onFocus={() => {
+                      setShowItemDropdown(index);
+                      if (!item.details) {
+                        setSearchTerm('');
+                      }
+                    }}
+                  />
+                  
+                  {showItemDropdown === index && (
+                    <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto top-full left-0">
+                      {inventoryLoading ? (
+                        <div className="px-3 py-2 text-gray-500">Loading items...</div>
+                      ) : filteredItems.length === 0 ? (
+                        <div className="px-3 py-2 text-gray-500">
+                          {searchTerm ? 'No items found' : 'Start typing to search items'}
                         </div>
-                      </>
-                    )}
-                  </div>
-                )}
+                      ) : (
+                        <>
+                          {filteredItems.map(inventoryItem => (
+                            <div
+                              key={inventoryItem._id || inventoryItem.itemId}
+                              className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                              onClick={() => handleItemSelect(index, inventoryItem)}
+                            >
+                              <div className="font-medium text-gray-800">{inventoryItem.name || inventoryItem.itemName}</div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                SKU: {inventoryItem.sku || 'N/A'} | Rate: AED{inventoryItem.selling_price || inventoryItem.price || 0}
+                              </div>
+                            </div>
+                          ))}
+                          
+                          <div
+                            className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0 text-blue-600"
+                            onClick={() => {
+                              console.log('Add new item clicked');
+                              setShowItemDropdown(null);
+                            }}
+                          >
+                            <span className="font-medium">+ Add New Item</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
                 
                 {item.sku && (
                   <div className="text-xs text-gray-500 mt-1">
-                    SKU: {item.sku} | Unit: {item.unit}
+                    SKU: {item.sku} {item.unit && `| Unit: ${item.unit}`}
                   </div>
                 )}
               </div>
@@ -646,10 +813,12 @@ const Newsalesorders = () => {
                     type="number"
                     value={item.quantity}
                     onChange={(e) => handleQuantityChange(index, e.target.value)}
-                    className="w-full border border-gray-300 rounded-l px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-gray-300 rounded-l px-3 py-2 bg-white text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    min="1"
+                    step="1"
                   />
                   {item.unit && (
-                    <div className="border border-gray-300 border-l-0 rounded-r px-3 py-2 bg-gray-50 text-gray-500 text-sm h-[42px] flex items-center justify-center min-w-[60px]">
+                    <div className="border border-gray-300 border-l-0 rounded-r px-3 py-2 bg-gray-50 text-gray-500 text-sm flex items-center justify-center min-w-[60px]">
                       {item.unit}
                     </div>
                   )}
@@ -663,7 +832,7 @@ const Newsalesorders = () => {
                     type="number"
                     value={item.rate}
                     onChange={(e) => handleRateChange(index, e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     placeholder="0.00"
                     step="0.01"
                     min="0"
@@ -677,16 +846,31 @@ const Newsalesorders = () => {
                     type="text"
                     value={item.discount}
                     onChange={(e) => handleDiscountChange(index, e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm h-[42px] focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     placeholder="0%"
                   />
                 </div>
               </div>
               
               <div className="col-span-1">
-                <div className="w-full border border-gray-300 rounded px-3 py-2 bg-gray-50 text-gray-700 text-sm h-[42px] flex items-center justify-center">
+                <div className="w-full border border-gray-300 rounded px-3 py-2 bg-gray-50 text-gray-700 text-sm flex items-center justify-center">
                   AED {item.amount || '0.00'}
                 </div>
+              </div>
+              
+              {/* Cross button placed in a new column */}
+              <div className="col-span-1 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(index)}
+                  disabled={items.length <= 1}
+                  className={`text-sm font-bold ${items.length <= 1 
+                    ? 'text-gray-300 cursor-not-allowed' 
+                    : 'text-red-500 hover:text-red-700 cursor-pointer'}`}
+                  title={items.length <= 1 ? "Cannot remove the only item" : "Remove item"}
+                >
+                  ✖
+                </button>
               </div>
             </div>
           ))}
@@ -707,15 +891,30 @@ const Newsalesorders = () => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Sub Total</span>
-                <span className="font-medium">AED {calculateSubTotal().toFixed(3)}</span>
+                <span className="font-medium">AED {calculateSubTotal().toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Shipping Charges</span>
-                <span className="font-medium">0.000</span>
+                <input 
+                  type='number' 
+                  value={shippingCharges}
+                  onChange={handleShippingChange}
+                  className="w-30 border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-right"
+                  placeholder="0.00"
+                  step="0.01"
+                  min="0"
+                />
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Adjustment</span>
-                <span className="font-medium">0.000</span>
+                <input 
+                  type='number' 
+                  value={adjustment}
+                  onChange={handleAdjustmentChange}
+                  className="w-30 border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-right"
+                  placeholder="0.00"
+                  step="0.01"
+                />
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Round Off</span>
@@ -723,12 +922,12 @@ const Newsalesorders = () => {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">VAT 5%</span>
-                <span className="font-medium">{calculateVAT().toFixed(3)}</span>
+                <span className="font-medium">{calculateVAT().toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                 <span className="text-lg font-semibold">Total (AED)</span>
                 <span className="text-lg font-semibold">
-                  {calculateTotal().toFixed(3)}
+                  {calculateTotal().toFixed(2)}
                 </span>
               </div>
             </div>
@@ -738,18 +937,24 @@ const Newsalesorders = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Customer Notes
                 </label>
-                <div className="border border-gray-300 rounded-md px-3 py-2 bg-gray-50 text-gray-500 h-20">
-                  Enter any notes to be displayed in your transaction
-                </div>
+                <textarea
+                  value={customerNotes}
+                  onChange={handleCustomerNotesChange}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 h-20 resize-none"
+                  placeholder="Enter any notes to be displayed in your transaction"
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Terms & Conditions
                 </label>
-                <div className="border border-gray-300 rounded-md px-3 py-2 bg-gray-50 text-gray-500 h-20">
-                  Enter the terms and conditions of your business to be displayed in your transaction
-                </div>
+                <textarea
+                  value={termsAndConditions}
+                  onChange={handleTermsChange}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 h-20 resize-none"
+                  placeholder="Enter the terms and conditions of your business to be displayed in your transaction"
+                />
               </div>
             </div>
           </div>
@@ -776,13 +981,22 @@ const Newsalesorders = () => {
       
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
         <div className="max-w-4xl ml-auto flex space-x-3 justify-end">
-          <button className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100">
+          <button 
+            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 cursor-pointer"
+            onClick={handleSaveAsDraft}
+          >
             Save as Draft
           </button>
-          <button className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+          <button 
+            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer"
+            onClick={handleSaveAndSend}
+          >
             Save and Send
           </button>
-          <button className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 cursor-pointer" onClick={handleCancel}>
+          <button 
+            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 cursor-pointer" 
+            onClick={handleCancel}
+          >
             Cancel
           </button>
         </div>
