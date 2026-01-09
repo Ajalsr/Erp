@@ -13,6 +13,7 @@ import Newsalesorders from "./Components/NewSalesOrders/Newsalesorders"
 import Purchaseorders from "./Components/PurchaseOrders/Purchaseorders"
 import Newpurchaseorders from "./Components/NewPurchaseOrders/Newpurchaseorders"
 import EditCustomer from "./Components/Customers/EditCustomer"
+import Outbound from "./Components/Outbound/Outbound"
 function App() {
   
 
@@ -51,6 +52,7 @@ function App() {
           <Route path="/Sales/Customers/Newcustomers" element={<Newcustomers/>}/>
           <Route path="/sales/customers/edit/:id" element={<EditCustomer />} />
           <Route path="/Sales/Salesorders" element={<Salesorders/>}/>
+          <Route path="/Sales/Outbound" element={<Outbound/>}/>
           <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders/>}/>
           <Route path="/Purchase/Purchaseorders" element={<Purchaseorders/>}/>
           <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders/>}/>

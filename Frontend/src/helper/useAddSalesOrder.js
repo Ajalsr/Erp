@@ -7,7 +7,7 @@ const useAddSalesOrder = () => {
   
   const handleAddSalesOrder = async (salesOrderData) => {
     try {
-      const response = await axios.post(`${BASE_URL}/api/sales-orders`, salesOrderData)
+      const response = await axios.post(`${BASE_URL}/api/sales-orders/`, salesOrderData)
       console.log("Added sales order successful:", response.data)
       toast.success("Sales order created successfully!", {
         duration: 4000, 

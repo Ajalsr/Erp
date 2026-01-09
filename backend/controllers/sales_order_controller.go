@@ -17,7 +17,7 @@ import (
 )
 
 var salesOrdersCollection *mongo.Collection = config.GetCollection(config.DB, "sales_orders")
-var itemsCollection *mongo.Collection = config.GetCollection(config.DB, "items")
+var itemsCollection *mongo.Collection = config.GetCollection(config.DB, "stocks")
 
 //var customersCollection *mongo.Collection = config.GetCollection(config.DB, "customers")
 
@@ -50,7 +50,11 @@ func CreateSalesOrder() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		var req models.CreateSalesOrderRequest
+		var newReq models.SalesOrder
+		fmt.Println(newReq, "new req")
+
+		var req models.SalesOrder
+		//fmt.Println(req, "this is the values from request")
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
@@ -60,16 +64,26 @@ func CreateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
+		fmt.Println(req, "this is the new request values")
+		// if err := c.BindJSON(&req); err != nil {
+		// 	c.JSON(http.StatusBadRequest, gin.H{
+		// 		"status":  http.StatusBadRequest,
+		// 		"message": "Invalid request body",
+		// 		"error":   err.Error(),
+		// 	})
+		// 	return
+		// }
+
 		// Convert customer ID
 		customerObjectID, err := primitive.ObjectIDFromHex(req.CustomerID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid customer ID format",
-				"error":   err.Error(),
-			})
-			return
-		}
+		// if err != nil {
+		// 	c.JSON(http.StatusBadRequest, gin.H{
+		// 		"status":  http.StatusBadRequest,
+		// 		"message": "Invalid customer ID format",
+		// 		"error":   err.Error(),
+		// 	})
+		// 	return
+		// }
 
 		// Get customer details
 		var customer models.Customer
@@ -96,7 +110,9 @@ func CreateSalesOrder() gin.HandlerFunc {
 
 		for _, itemReq := range req.Items {
 			// Convert item ID
+			fmt.Printf("Item Request Data: %+v\n", itemReq)
 			itemObjectID, err := primitive.ObjectIDFromHex(itemReq.ItemID)
+			fmt.Println(itemObjectID, "item object id")
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"status":  http.StatusBadRequest,
@@ -108,6 +124,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 
 			// Get item details
 			var inventoryItem models.Stock
+			fmt.Println(inventoryItem, "this is inventory item")
 			err = itemsCollection.FindOne(ctx, bson.M{"_id": itemObjectID}).Decode(&inventoryItem)
 			if err != nil {
 				if err == mongo.ErrNoDocuments {
@@ -138,12 +155,12 @@ func CreateSalesOrder() gin.HandlerFunc {
 			// Create sales order item
 			orderItem := models.SalesOrderItem{
 				ID:       primitive.NewObjectID(),
-				ItemID:   itemObjectID,
+				ItemID:   itemReq.ItemID,
 				Details:  inventoryItem.Name,
 				Quantity: itemReq.Quantity,
-				Rate:     rate,
+				Rate:     itemReq.Rate,
 				Discount: itemReq.Discount,
-				Amount:   amount,
+				Amount:   itemReq.Amount,
 				Unit:     inventoryItem.Unit,
 			}
 
@@ -152,10 +169,10 @@ func CreateSalesOrder() gin.HandlerFunc {
 		}
 
 		// Calculate VAT (5%)
-		vat := subTotal * 0.05
+		//vat := req.VAT
 
 		// Calculate total
-		total := subTotal + vat + req.ShippingCharges + req.Adjustment
+		//total := req.SubTotal
 
 		// Generate order number if not provided
 		if req.OrderNumber == "" {
@@ -166,7 +183,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
 			OrderNumber:          req.OrderNumber,
-			CustomerID:           customerObjectID,
+			CustomerID:           req.CustomerID,
 			CustomerName:         customer.CustomerDisplayName,
 			CustomerCode:         customer.CustomerCode,
 			SalesType:            req.SalesType,
@@ -178,14 +195,14 @@ func CreateSalesOrder() gin.HandlerFunc {
 			PaymentTerms:         req.PaymentTerms,
 			Salesperson:          req.Salesperson,
 			Items:                orderItems,
-			SubTotal:             subTotal,
+			SubTotal:             req.SubTotal,
 			ShippingCharges:      req.ShippingCharges,
 			Adjustment:           req.Adjustment,
-			VAT:                  vat,
-			Total:                total,
+			VAT:                  req.VAT,
+			Total:                req.Total,
 			CustomerNotes:        req.CustomerNotes,
 			TermsAndConditions:   req.TermsAndConditions,
-			Status:               "draft",
+			Status:               "open",
 			CreatedAt:            time.Now(),
 			UpdatedAt:            time.Now(),
 		}
@@ -352,7 +369,7 @@ func GetAllSalesOrders() gin.HandlerFunc {
 			response = append(response, models.SalesOrderResponse{
 				ID:                   order.ID.Hex(),
 				OrderNumber:          order.OrderNumber,
-				CustomerID:           order.CustomerID.Hex(),
+				CustomerID:           order.CustomerID,
 				CustomerName:         order.CustomerName,
 				CustomerCode:         order.CustomerCode,
 				SalesType:            order.SalesType,
@@ -434,7 +451,7 @@ func GetSalesOrderByID() gin.HandlerFunc {
 		response := models.SalesOrderResponse{
 			ID:                   salesOrder.ID.Hex(),
 			OrderNumber:          salesOrder.OrderNumber,
-			CustomerID:           salesOrder.CustomerID.Hex(),
+			CustomerID:           salesOrder.CustomerID,
 			CustomerName:         salesOrder.CustomerName,
 			CustomerCode:         salesOrder.CustomerCode,
 			SalesType:            salesOrder.SalesType,

@@ -9,7 +9,7 @@ import (
 type SalesOrder struct {
 	ID                   primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	OrderNumber          string             `json:"orderNumber" bson:"orderNumber" binding:"required"`
-	CustomerID           primitive.ObjectID `json:"customerId" bson:"customerId" binding:"required"`
+	CustomerID           string             `json:"customerId" bson:"customerId" binding:"required"`
 	CustomerName         string             `json:"customerName" bson:"customerName"`
 	CustomerCode         string             `json:"customerCode" bson:"customerCode"`
 	SalesType            string             `json:"salesType" bson:"salesType" binding:"required,oneof=SO MOA MOA_COLLECT FREE_DELIVERY"`
@@ -38,7 +38,7 @@ type SalesOrder struct {
 
 type SalesOrderItem struct {
 	ID      primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	ItemID  primitive.ObjectID `json:"itemId" bson:"itemId" binding:"required"`
+	ItemID  string             `json:"itemId" bson:"itemId" binding:"required"`
 	Details string             `json:"details" bson:"details"`
 	//SKU      string             `json:"sku" bson:"sku"`
 	Quantity float64 `json:"quantity" bson:"quantity" binding:"required,min=1"`
@@ -59,21 +59,21 @@ type Attachment struct {
 }
 
 type CreateSalesOrderRequest struct {
-	OrderNumber          string                  `json:"orderNumber" binding:"required"`
-	CustomerID           string                  `json:"customerId" binding:"required"`
-	SalesType            string                  `json:"salesType" binding:"required,oneof=SO MOA MOA_COLLECT FREE_DELIVERY"`
-	OrderDate            time.Time               `json:"orderDate" binding:"required"`
-	LpoNumber            string                  `json:"lpoNumber" binding:"required"`
-	LpoDate              *time.Time              `json:"lpoDate,omitempty"`
-	LpoValue             float64                 `json:"lpoValue" binding:"required,min=0"`
-	ExpectedShipmentDate *time.Time              `json:"expectedShipmentDate,omitempty"`
-	PaymentTerms         string                  `json:"paymentTerms" binding:"required"`
-	Salesperson          string                  `json:"salesperson" binding:"required"`
-	Items                []SalesOrderItemRequest `json:"items" binding:"required,min=1,dive"`
-	ShippingCharges      float64                 `json:"shippingCharges"`
-	Adjustment           float64                 `json:"adjustment"`
-	CustomerNotes        string                  `json:"customerNotes,omitempty"`
-	TermsAndConditions   string                  `json:"termsAndConditions,omitempty"`
+	OrderNumber          string           `json:"orderNumber" binding:"required"`
+	CustomerID           string           `json:"customerId" binding:"required"`
+	SalesType            string           `json:"salesType" binding:"required,oneof=SO MOA MOA_COLLECT FREE_DELIVERY"`
+	OrderDate            time.Time        `json:"orderDate" binding:"required"`
+	LpoNumber            string           `json:"lpoNumber" binding:"required"`
+	LpoDate              *time.Time       `json:"lpoDate,omitempty"`
+	LpoValue             float64          `json:"lpoValue" binding:"required,min=0"`
+	ExpectedShipmentDate *time.Time       `json:"expectedShipmentDate,omitempty"`
+	PaymentTerms         string           `json:"paymentTerms" binding:"required"`
+	Salesperson          string           `json:"salesperson"`
+	Items                []SalesOrderItem `json:"items" binding:"required,min=1,dive"`
+	ShippingCharges      float64          `json:"shippingCharges"`
+	Adjustment           float64          `json:"adjustment"`
+	CustomerNotes        string           `json:"customerNotes,omitempty"`
+	TermsAndConditions   string           `json:"termsAndConditions,omitempty"`
 }
 
 type SalesOrderItemRequest struct {
