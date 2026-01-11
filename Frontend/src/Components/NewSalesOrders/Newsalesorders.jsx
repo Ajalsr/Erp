@@ -28,7 +28,9 @@ import {
   FaBarcode,
   FaWarehouse,
   FaMoneyBill,
-  FaTag
+  FaTag,
+  FaPercent,
+  FaMoneyBillWave
 } from 'react-icons/fa';
 import ReactDOM from 'react-dom';
 
@@ -37,7 +39,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 
 // Portal component for dropdown
 const DropdownPortal = ({ children, targetRef, isVisible }) => {
-  const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
+  const [position, setPosition] = useState({ top: 0, left: 500, width: 0 });
   const portalRef = useRef(null);
 
   useEffect(() => {
@@ -317,6 +319,7 @@ const Newsalesorders = () => {
     quantity: 1, 
     rate: '', 
     discount: '', 
+    discountType: 'percentage', // 'percentage' or 'fixed'
     amount: '', 
     unit: ''
   }]);
@@ -351,6 +354,7 @@ const Newsalesorders = () => {
   const { handleAddSalesOrder, loading: addSalesOrderLoading } = useAddSalesOrder();
 
   const itemInputRefs = useRef([]);
+  const discountTypeRefs = useRef([]);
   const customerDropdownRef = useRef(null);
   const fileInputRef = useRef(null);
   
@@ -377,20 +381,19 @@ const Newsalesorders = () => {
   ];
 
   // Calculate amount for an item
-  const calculateItemAmount = (quantity, rate, discount = 0) => {
+  const calculateItemAmount = (quantity, rate, discount = 0, discountType = 'percentage') => {
     const qty = parseFloat(quantity) || 0;
     const rte = parseFloat(rate) || 0;
     const disc = parseFloat(discount) || 0;
     
-    if (discount.toString().includes('%')) {
-      const discPercent = parseFloat(discount) || 0;
-      const amount = qty * rte;
-      const discountAmount = amount * (discPercent / 100);
-      return (amount - discountAmount).toFixed(2);
+    const baseAmount = qty * rte;
+    
+    if (discountType === 'percentage') {
+      const discountAmount = baseAmount * (disc / 100);
+      return (baseAmount - discountAmount).toFixed(2);
     } else {
       // Discount is fixed amount
-      const amount = qty * rte;
-      return (amount - disc).toFixed(2);
+      return (baseAmount - disc).toFixed(2);
     }
   };
 
@@ -512,6 +515,7 @@ const Newsalesorders = () => {
       quantity: 1,
       rate: '', 
       discount: '', 
+      discountType: 'percentage',
       amount: '', 
       unit: ''
     }]);
@@ -530,6 +534,7 @@ const Newsalesorders = () => {
         quantity: 1,
         rate: '',
         discount: '',
+        discountType: 'percentage',
         amount: '',
         unit: ''
       };
@@ -550,7 +555,7 @@ const Newsalesorders = () => {
     const updatedItems = [...items];
     const rate = selectedItem.selling_price || selectedItem.price || 0;
     const quantity = 1;
-    const amount = calculateItemAmount(quantity, rate, updatedItems[index].discount);
+    const amount = calculateItemAmount(quantity, rate, updatedItems[index].discount, updatedItems[index].discountType);
     
     updatedItems[index] = {
       ...updatedItems[index],
@@ -579,7 +584,8 @@ const Newsalesorders = () => {
       updatedItems[index].amount = calculateItemAmount(
         quantity, 
         updatedItems[index].rate, 
-        updatedItems[index].discount
+        updatedItems[index].discount,
+        updatedItems[index].discountType
       );
     }
     
@@ -597,12 +603,12 @@ const Newsalesorders = () => {
       updatedItems[index].amount = calculateItemAmount(
         updatedItems[index].quantity, 
         rate, 
-        updatedItems[index].discount
+        updatedItems[index].discount,
+        updatedItems[index].discountType
       );
     }
     
     setItems(updatedItems);
-    console.log(items,"items for rate change")
   };
 
   // Handle discount change
@@ -615,12 +621,30 @@ const Newsalesorders = () => {
       updatedItems[index].amount = calculateItemAmount(
         updatedItems[index].quantity, 
         updatedItems[index].rate, 
-        value
+        value,
+        updatedItems[index].discountType
       );
     }
     
     setItems(updatedItems);
-    console.log(items,"items for discount change")
+  };
+
+  // Handle discount type change
+  const handleDiscountTypeChange = (index, type) => {
+    const updatedItems = [...items];
+    updatedItems[index].discountType = type;
+    
+    // Recalculate amount when discount type changes
+    if (updatedItems[index].quantity && updatedItems[index].rate && updatedItems[index].discount) {
+      updatedItems[index].amount = calculateItemAmount(
+        updatedItems[index].quantity, 
+        updatedItems[index].rate, 
+        updatedItems[index].discount,
+        type
+      );
+    }
+    
+    setItems(updatedItems);
   };
 
   // Handle LPO value change
@@ -700,7 +724,7 @@ const Newsalesorders = () => {
     }
   };
 
-  // Handle Save and Send
+
   const handleSaveAndSend = async () => {
     try {
       const salesOrderData = prepareSalesOrderData('open');
@@ -735,6 +759,7 @@ const Newsalesorders = () => {
         quantity: parseFloat(item.quantity) || 0,
         rate: parseFloat(item.rate) || 0,
         discount: item.discount || '0',
+        discountType: item.discountType,
         amount: parseFloat(item.amount) || 0,
         unit: item.unit || 'pcs'
       }));
@@ -1140,7 +1165,7 @@ const Newsalesorders = () => {
                 </span>
                 <button 
                   onClick={addNewRow}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   <FaPlus /> Add New Row
                 </button>
@@ -1163,40 +1188,42 @@ const Newsalesorders = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {items.map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div 
-                          ref={el => itemInputRefs.current[index] = el}
-                          className="relative"
-                        >
-                          <input 
-                            className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="Type or click to select an item"
-                            value={item.details}
-                            onChange={(e) => {
-                              const updatedItems = [...items];
-                              updatedItems[index].details = e.target.value;
-                              setItems(updatedItems);
-                              debouncedSearch(e.target.value);
-                              setShowItemDropdown(index);
-                            }}
-                            onFocus={() => {
-                              setShowItemDropdown(index);
-                              if (!item.details) {
-                                setSearchTerm('');
-                              }
-                            }}
-                          />
-                          
-                          {/* SKU and Unit info */}
-                          {item.sku && (
-                            <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                              <FaBarcode className="text-gray-400" />
-                              <span>SKU: {item.sku}</span>
-                              {item.unit && <span className="ml-2">| Unit: {item.unit}</span>}
-                            </div>
-                          )}
-                        </div>
-                      </td>
+                      <td className="px-6 py-6">
+  <div className="relative">
+    <div 
+      ref={el => itemInputRefs.current[index] = el}
+      className="relative"
+    >
+      <input 
+        className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        placeholder="Type or click to select an item"
+        value={item.details}
+        onChange={(e) => {
+          const updatedItems = [...items];
+          updatedItems[index].details = e.target.value;
+          setItems(updatedItems);
+          debouncedSearch(e.target.value);
+          setShowItemDropdown(index);
+        }}
+        onFocus={() => {
+          setShowItemDropdown(index);
+          if (!item.details) {
+            setSearchTerm('');
+          }
+        }}
+      />
+    </div>
+    
+    {/* SKU and Unit info - position absolutely so it doesn't affect layout */}
+    {item.sku && (
+      <div className="absolute bottom-0 left-0 right-0 transform translate-y-full mt-1 text-xs text-gray-500 flex items-center gap-2">
+        <FaBarcode className="text-gray-400" />
+        <span>SKU: {item.sku}</span>
+        {item.unit && <span className="ml-2">| Unit: {item.unit}</span>}
+      </div>
+    )}
+  </div>
+</td>
                       
                       <td className="px-6 py-4">
                         <div className="flex items-center">
@@ -1230,15 +1257,42 @@ const Newsalesorders = () => {
                       </td>
                       
                       <td className="px-6 py-4">
-                        <input
-                          type="text"
-                          value={item.discount}
-                          onChange={(e) => handleDiscountChange(index, e.target.value)}
-                          className="w-24 border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="0% or 0.00"
-                        />
-                        <div className="text-xs text-gray-500 mt-1">
-                          {item.discount && item.discount.includes('%') ? 'Percentage discount' : 'Fixed amount discount'}
+                        <div className="flex items-center space-x-2">
+                          
+                          
+                          <input
+                            type="text"
+                            value={item.discount}
+                            onChange={(e) => handleDiscountChange(index, e.target.value)}
+                            className="w-24 border border-gray-300 rounded-r px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder={item.discountType === 'percentage' ? "0%" : "0.00"}
+                          />
+                          <div className="relative" ref={el => discountTypeRefs.current[index] = el}>
+                            <button
+                              type="button"
+                              className="flex items-center px-3 py-2 border border-gray-300 rounded-l bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              onClick={() => {
+                                
+                                const newType = item.discountType === 'percentage' ? 'fixed' : 'percentage';
+                                handleDiscountTypeChange(index, newType);
+                              }}
+                            >
+                              {item.discountType === 'percentage' ? (
+                                <>
+                                  <FaPercent className="text-gray-600 mr-1" />
+                                  <span className="text-xs">%</span>
+                                </>
+                              ) : (
+                                <>
+                                  <FaMoneyBillWave className="text-gray-600 mr-1" />
+                                  <span className="text-xs">AED</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="absolute text-xs text-gray-500 mt-1">
+                          {item.discountType === 'percentage' ? 'Percentage discount' : 'Fixed amount discount'}
                         </div>
                       </td>
                       
@@ -1252,7 +1306,7 @@ const Newsalesorders = () => {
                         <button
                           type="button"
                           onClick={() => handleRemoveItem(index)}
-                          className="text-red-500 hover:text-red-700 transition-colors"
+                          className="text-red-500 hover:text-red-700 transition-colors cursor-pointer"
                           title="Remove item"
                         >
                           <FaTrash />
