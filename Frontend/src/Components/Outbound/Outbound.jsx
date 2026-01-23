@@ -6,9 +6,11 @@ import {
 } from "react-icons/fa";
 import { useNavigate, useLocation } from "react-router-dom";
 import useGetItem from '../../helper/useGetItem';
+import useGetAllSalesOrder from '../../helper/useGetAllSalesOrder';
 
 export default function Outbound() {
-  const { handleGetItem, data, loading, error } = useGetItem();
+  const { handleGetItem, data: itemsData, loading: itemsLoading, error: itemsError } = useGetItem();
+  const { handleGetSalesorder, data: salesOrdersData, loading: salesOrdersLoading, error: salesOrdersError } = useGetAllSalesOrder();
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -33,77 +35,174 @@ export default function Outbound() {
   const [approvedItems, setApprovedItems] = useState(new Set());
   const [approvalNote, setApprovalNote] = useState("");
 
-  // Get items from sale order or API
-  const allItems = Array.isArray(data) && data.length > 0 ? data : [
-    {
-      _id: "688b09cb4c5900a2c0bf16eb",
-      name: "Storage Cabinet",
-      item_code: "ITM001",
-      sku: "Item 37 sku",
-      type: "Product",
-      unit: "Piece",
-      description: "A versatile storage cabinet with adjustable shelves.",
-      selling_price: "4610.00",
-      quantity: 50,
-      availableQuantity: 50,
-      brand: "FurnitureCo",
-      image: "https://via.placeholder.com/40",
-      outboundQuantity: 5,
-      maxQuantity: 50,
-      status: "pending"
-    },
-    {
-      _id: "688b09cb4c5900a2c0bf16ec",
-      name: "Area Rug",
-      item_code: "ITM002",
-      sku: "Item 38 sku",
-      type: "Product",
-      unit: "Piece",
-      description: "A soft, high-quality area rug to add warmth to any room.",
-      selling_price: "2990.00",
-      quantity: 30,
-      availableQuantity: 30,
-      brand: "HomeDecor",
-      image: "https://via.placeholder.com/40",
-      outboundQuantity: 3,
-      maxQuantity: 30,
-      status: "pending"
-    },
-    {
-      _id: "688b09cb4c5900a2c0bf16ed",
-      name: "Office Chair",
-      item_code: "ITM003",
-      sku: "Item 39 sku",
-      type: "Product",
-      unit: "Piece",
-      description: "Ergonomic office chair with lumbar support",
-      selling_price: "1890.00",
-      quantity: 25,
-      availableQuantity: 25,
-      brand: "OfficePro",
-      image: "https://via.placeholder.com/40",
-      outboundQuantity: 2,
-      maxQuantity: 25,
-      status: "pending"
+  // Function to parse quantity from API response
+  const parseQuantity = (value) => {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      // Handle empty string
+      if (value.trim() === '') return 0;
+      const parsed = parseInt(value);
+      return isNaN(parsed) ? 0 : parsed;
     }
-  ];
+    return 0;
+  };
 
-  // Initialize outbound items from sale order or all items
-  useEffect(() => {
-    // In real app, you would get selected items from sale order
-    // For demo, we'll mark first 2 items as selected
-    const initialSelected = new Set([allItems[0]?._id, allItems[1]?._id,  allItems[2]?._id]);
-    setSelectedItems(initialSelected);
+  // Function to parse amount from API response
+  const parseAmount = (value) => {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      // Handle empty string
+      if (value.trim() === '') return 0;
+      // Remove currency symbols and commas
+      const cleaned = value.replace(/[^\d.-]/g, '');
+      const parsed = parseFloat(cleaned);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  };
+
+  // Function to find item details from items API by itemId
+  const findItemDetails = (itemId) => {
+    if (!itemsData || !Array.isArray(itemsData)) return null;
+    return itemsData.find(i => i._id === itemId);
+  };
+
+  // Transform sales order items to outbound items format
+  const transformSalesOrderItems = () => {
+    if (!salesOrdersData?.salesOrders) return [];
     
-    // Initialize outbound items with default quantities
-    const initializedItems = allItems.map(item => ({
-      ...item,
-      outboundQuantity: item.outboundQuantity || 1,
-      isSelected: initialSelected.has(item._id),
-      status: "pending"
-    }));
-    setOutboundItems(initializedItems);
-  }, [data]);
+    const allOutboundItems = [];
+    
+    salesOrdersData.salesOrders.forEach(salesOrder => {
+      if (salesOrder.items && Array.isArray(salesOrder.items)) {
+        salesOrder.items.forEach(orderItem => {
+          const inventoryItem = findItemDetails(orderItem.itemId);
+          
+          // Parse quantities
+          const orderedQuantity = parseQuantity(orderItem.quantity);
+          
+          // Parse available quantity - if empty, return 0
+          let availableQuantity = 0;
+          if (inventoryItem) {
+            availableQuantity = parseQuantity(inventoryItem.quantity);
+          }
+          
+          // Initial outbound quantity should be ordered quantity
+          const initialOutboundQuantity = orderedQuantity > 0 ? orderedQuantity : 1;
+          
+          // Parse prices and discount
+          const rate = parseAmount(orderItem.rate) || 0;
+          const discount = parseAmount(orderItem.discount) || 0;
+          
+          // Calculate actual selling price after discount
+          // Based on the example: Qty: 4 × AED 5,263.00, Discount: 123, Total: AED 20,929.00
+          // This suggests discount is per unit, not total
+          const sellingPricePerUnit = rate;
+          const totalDiscount = discount; // This appears to be total discount, not per unit
+          
+          // Calculate final unit price after discount
+          const finalUnitPrice = rate - (discount / orderedQuantity);
+          
+          // Use item name from inventory or details from sales order
+          const itemName = orderItem.details || inventoryItem?.name || `Item ${orderItem.itemId}`;
+          const itemCode = inventoryItem?.item_code || orderItem.itemId;
+          
+          allOutboundItems.push({
+            _id: orderItem._id || orderItem.itemId,
+            itemId: orderItem.itemId,
+            name: itemName,
+            item_code: itemCode,
+            sku: "",
+            type: "Product",
+            unit: orderItem.unit || inventoryItem?.Unit || "Piece",
+            description: orderItem.details || "",
+            rate: rate, // Original rate before discount
+            discount: discount, // Total discount
+            selling_price: finalUnitPrice.toFixed(2), // Price per unit after discount
+            quantity: availableQuantity,
+            availableQuantity: availableQuantity,
+            brand: inventoryItem?.brand || "",
+            image: "https://via.placeholder.com/40",
+            outboundQuantity: initialOutboundQuantity, // Set to ordered quantity
+            maxQuantity: availableQuantity, // Available stock (could be 0)
+            orderedQuantity: orderedQuantity,
+            status: "pending",
+            salesOrderNumber: salesOrder.orderNumber,
+            salesOrderId: salesOrder.id
+          });
+        });
+      }
+    });
+    
+    console.log("Transformed outbound items:", allOutboundItems);
+    return allOutboundItems;
+  };
+
+  // Get all items - combine from both sources
+  const getAllItems = () => {
+    const salesOrderItems = transformSalesOrderItems();
+    
+    // If we have sales order items, use them
+    if (salesOrderItems.length > 0) {
+      return salesOrderItems;
+    }
+    
+    // Otherwise use the items from items API (fallback)
+    if (itemsData && Array.isArray(itemsData)) {
+      return itemsData.map(item => ({
+        _id: item._id,
+        itemId: item._id,
+        name: item.name || "Unnamed Item",
+        item_code: item.item_code || item._id,
+        sku: "",
+        type: "Product",
+        unit: item.Unit || "Piece",
+        description: "",
+        rate: parseAmount(item.selling_price) || 0,
+        discount: 0,
+        selling_price: item.selling_price || "0.00",
+        quantity: parseQuantity(item.quantity),
+        availableQuantity: parseQuantity(item.quantity),
+        brand: item.brand || "",
+        image: "https://via.placeholder.com/40",
+        outboundQuantity: 1,
+        maxQuantity: parseQuantity(item.quantity),
+        orderedQuantity: 1,
+        status: "pending"
+      }));
+    }
+    
+    return [];
+  };
+
+  useEffect(() => {
+    // Fetch both data sources
+    handleGetItem();
+    handleGetSalesorder();
+  }, []);
+
+  // Update outbound items when data is loaded
+  useEffect(() => {
+    const allItems = getAllItems();
+    
+    if (allItems.length > 0) {
+      // Select all items by default
+      const initialSelected = new Set(allItems.map(item => item._id));
+      setSelectedItems(initialSelected);
+      
+      // Initialize outbound items
+      const initializedItems = allItems.map(item => ({
+        ...item,
+        isSelected: initialSelected.has(item._id),
+        status: "pending"
+      }));
+      setOutboundItems(initializedItems);
+      
+      console.log("Initialized outbound items:", initializedItems);
+    }
+  }, [itemsData, salesOrdersData]);
 
   // Search filter
   useEffect(() => {
@@ -114,7 +213,8 @@ export default function Outbound() {
       const filtered = outboundItems.filter(item => 
         (item.item_code && item.item_code.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (item.name && item.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase()))
+        (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (item.salesOrderNumber && item.salesOrderNumber.toLowerCase().includes(searchTerm.toLowerCase()))
       );
       setFilteredItems(filtered);
       setShowDropdown(true);
@@ -175,8 +275,15 @@ export default function Outbound() {
     const item = outboundItems.find(i => i._id === itemId);
     if (!item) return;
     
-    const maxQty = item.maxQuantity || item.availableQuantity || item.quantity;
-    const quantity = Math.min(Math.max(1, newQuantity), maxQty);
+    // Ensure newQuantity is a number
+    const numericQuantity = parseInt(newQuantity) || 1;
+    
+    // Max cannot exceed ordered quantity
+    const maxQty = Math.min(item.orderedQuantity, item.availableQuantity);
+    
+    // Ensure quantity is between 1 and max (if max > 0, otherwise max is ordered quantity)
+    const effectiveMax = maxQty > 0 ? maxQty : item.orderedQuantity;
+    const quantity = Math.max(1, Math.min(numericQuantity, effectiveMax));
     
     setOutboundItems(prev => prev.map(item => 
       item._id === itemId ? { ...item, outboundQuantity: quantity } : item
@@ -192,16 +299,28 @@ export default function Outbound() {
         name: item.name,
         itemCode: item.item_code,
         quantity: item.outboundQuantity,
-        maxQuantity: item.maxQuantity || item.quantity,
+        orderedQuantity: item.orderedQuantity,
+        availableQuantity: item.availableQuantity,
         unit: item.unit,
-        price: item.selling_price,
-        status: requiresApproval ? "pending_approval" : "approved"
+        rate: item.rate,
+        discount: item.discount,
+        price: item.selling_price, // This is the price per unit after discount
+        status: requiresApproval ? "pending_approval" : "approved",
+        salesOrderNumber: item.salesOrderNumber,
+        salesOrderId: item.salesOrderId
       }));
 
     console.log("Saving outbound items:", selectedOutboundItems);
     
-    // Show success message
-    alert(`Outbound saved for ${selectedOutboundItems.length} items${requiresApproval ? ' (Pending Approval)' : ''}`);
+    // Calculate totals
+    const totalItems = selectedOutboundItems.length;
+    const totalQuantity = selectedOutboundItems.reduce((sum, item) => sum + item.quantity, 0);
+    const totalValue = selectedOutboundItems.reduce((sum, item) => 
+      sum + (item.quantity * parseFloat(item.price || 0)), 0);
+    const totalDiscount = selectedOutboundItems.reduce((sum, item) => 
+      sum + parseFloat(item.discount || 0), 0);
+    
+    alert(`Outbound saved for ${totalItems} items (Total Qty: ${totalQuantity}, Value: AED ${totalValue.toFixed(2)}, Discount: AED ${totalDiscount.toFixed(2)})${requiresApproval ? ' (Pending Approval)' : ''}`);
     
     // In real app, you would make API call here
     // navigate("/outbound/history");
@@ -307,8 +426,80 @@ export default function Outbound() {
     setSelectedItem(null);
   };
 
-  if (loading) return <div className="p-6">Loading...</div>;
-  if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
+  // Combine loading and error states
+  const loading = itemsLoading || salesOrdersLoading;
+  const error = itemsError || salesOrdersError;
+
+  // Debug: Log current state
+  useEffect(() => {
+    if (outboundItems.length > 0) {
+      console.log("Current outbound items:", outboundItems.map(item => ({
+        name: item.name,
+        orderedQuantity: item.orderedQuantity,
+        outboundQuantity: item.outboundQuantity,
+        availableQuantity: item.availableQuantity,
+        maxQuantity: item.maxQuantity,
+        rate: item.rate,
+        discount: item.discount,
+        selling_price: item.selling_price
+      })));
+    }
+  }, [outboundItems]);
+
+  // Loading state
+  if (loading) return (
+    <div className="bg-white min-h-screen flex flex-col items-center justify-center">
+      <div className="relative">
+        {/* Animated spinner */}
+        <div className="w-20 h-20 border-4 border-blue-100 rounded-full"></div>
+        <div className="absolute top-0 left-0 w-20 h-20 border-4 border-blue-600 rounded-full animate-spin border-t-transparent"></div>
+        
+        {/* Inner spinner */}
+        <div className="absolute top-2 left-2 w-16 h-16 border-2 border-blue-200 rounded-full animate-spin border-b-transparent" 
+             style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}>
+        </div>
+      </div>
+      
+      <div className="mt-6 text-center">
+        <h3 className="text-lg font-medium text-gray-700">Preparing Outbound Items</h3>
+        <p className="text-gray-500 mt-2">Fetching items and sales orders...</p>
+        
+        <div className="mt-4 w-48 bg-gray-200 rounded-full h-1.5 mx-auto">
+          <div className="bg-blue-600 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+        </div>
+        
+        <div className="mt-4 flex space-x-2 justify-center">
+          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+          <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Error state
+  if (error) return (
+    <div className="bg-white min-h-screen flex items-center justify-center">
+      <div className="text-center max-w-md p-6">
+        <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
+          <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-medium text-gray-700">Error Loading Data</h3>
+        <p className="text-gray-500 mt-2">{error}</p>
+        <button 
+          onClick={() => {
+            handleGetItem();
+            handleGetSalesorder();
+          }}
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="bg-white min-h-screen p-6 text-gray-800">
@@ -331,7 +522,7 @@ export default function Outbound() {
                 onChange={handleSearchChange}
                 onFocus={() => searchTerm.trim() && setShowDropdown(true)}
                 className="pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
-                placeholder="Search outbound items..."
+                placeholder="Search by item name, code, or sales order..."
               />
               <FaSearch className="absolute left-3 top-3 text-gray-400" />
               <button
@@ -371,7 +562,8 @@ export default function Outbound() {
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm truncate">{item.name}</div>
                         <div className="text-xs text-gray-500 truncate">
-                          {item.item_code} • Qty: {item.outboundQuantity} • {item.status}
+                          {item.item_code} • Available: {item.availableQuantity} • Ordered: {item.orderedQuantity}
+                          {item.salesOrderNumber && ` • SO: ${item.salesOrderNumber}`}
                         </div>
                       </div>
                     </div>
@@ -474,8 +666,10 @@ export default function Outbound() {
               </th>
               <th className="px-4 py-3 text-left font-medium">Item</th>
               <th className="px-4 py-3 text-left font-medium">Available Qty</th>
+              <th className="px-4 py-3 text-left font-medium">Ordered Qty</th>
               <th className="px-4 py-3 text-left font-medium">Outbound Qty</th>
               <th className="px-4 py-3 text-left font-medium">Status</th>
+              <th className="px-4 py-3 text-left font-medium">Sales Order</th>
               <th className="px-4 py-3 text-left font-medium">Actions</th>
               <th className="px-4 py-3 text-right font-medium">Price</th>
             </tr>
@@ -507,11 +701,25 @@ export default function Outbound() {
                           {item.name}
                         </span>
                         <div className="text-xs text-gray-500">{item.item_code}</div>
+                        {item.description && (
+                          <div className="text-xs text-gray-400 truncate max-w-xs">{item.description}</div>
+                        )}
+                        {item.discount > 0 && (
+                          <div className="text-xs text-red-500 mt-1">
+                            Discount: AED {parseFloat(item.discount).toFixed(2)}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="font-medium">{item.availableQuantity || item.quantity}</span>
+                    <span className={`font-medium ${item.availableQuantity === 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                      {item.availableQuantity}
+                    </span>
+                    <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="font-medium">{item.orderedQuantity}</span>
                     <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
                   </td>
                   <td className="px-4 py-3">
@@ -519,16 +727,27 @@ export default function Outbound() {
                       <input
                         type="number"
                         min="1"
-                        max={item.maxQuantity || item.availableQuantity || item.quantity}
+                        max={Math.min(item.orderedQuantity, item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity)}
                         value={item.outboundQuantity}
                         onChange={(e) => updateQuantity(item._id, parseInt(e.target.value) || 1)}
                         className="w-20 p-1 border border-gray-300 rounded text-center"
                       />
-                      <span className="text-xs text-gray-500">of {item.maxQuantity || item.availableQuantity || item.quantity}</span>
+                      <span className="text-xs text-gray-500">
+                        max {Math.min(item.orderedQuantity, item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity)}
+                      </span>
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={item.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    {item.salesOrderNumber ? (
+                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                        {item.salesOrderNumber}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400">N/A</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex space-x-2">
@@ -557,18 +776,33 @@ export default function Outbound() {
                       </button>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-right font-medium text-gray-800">
-                    AED {parseFloat(item.selling_price || 0).toFixed(2)}
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex flex-col items-end">
+                      {item.rate > parseFloat(item.selling_price) ? (
+                        <>
+                          <span className="text-xs text-gray-500 line-through">
+                            AED {parseFloat(item.rate).toFixed(2)}
+                          </span>
+                          <span className="font-medium text-gray-800">
+                            AED {parseFloat(item.selling_price).toFixed(2)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="font-medium text-gray-800">
+                          AED {parseFloat(item.selling_price).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
+                <td colSpan="9" className="px-4 py-8 text-center text-gray-500">
                   <div className="flex flex-col items-center justify-center">
                     <FaBoxOpen className="text-gray-400 text-3xl mb-2" />
-                    <p className="text-lg">No outbound items</p>
-                    <p className="text-sm mt-1">Add items from sale order to create outbound</p>
+                    <p className="text-lg">No outbound items found</p>
+                    <p className="text-sm mt-1">No sales order items or inventory items available for outbound</p>
                   </div>
                 </td>
               </tr>
@@ -587,11 +821,16 @@ export default function Outbound() {
               <div className="text-lg font-bold">{selectedItems.size}</div>
             </div>
             <div className="bg-white p-3 rounded border">
-              <div className="text-sm text-gray-500">Total Quantity</div>
+              <div className="text-sm text-gray-500">Total Outbound Qty</div>
               <div className="text-lg font-bold">
                 {outboundItems
                   .filter(item => selectedItems.has(item._id))
                   .reduce((sum, item) => sum + (item.outboundQuantity || 0), 0)}
+                <span className="text-sm text-gray-500 ml-1">
+                  / {outboundItems
+                    .filter(item => selectedItems.has(item._id))
+                    .reduce((sum, item) => sum + (item.orderedQuantity || 0), 0)} ordered
+                </span>
               </div>
             </div>
             <div className="bg-white p-3 rounded border">
@@ -605,10 +844,21 @@ export default function Outbound() {
               </div>
             </div>
             <div className="bg-white p-3 rounded border">
-              <div className="text-sm text-gray-500">Approval Status</div>
-              <div className="text-lg font-bold">
-                {requiresApproval ? "Required" : "Not Required"}
+              <div className="text-sm text-gray-500">Total Discount</div>
+              <div className="text-lg font-bold text-red-600">
+                AED {outboundItems
+                  .filter(item => selectedItems.has(item._id))
+                  .reduce((sum, item) => sum + parseFloat(item.discount || 0), 0)
+                  .toFixed(2)}
               </div>
+            </div>
+          </div>
+          
+          {/* Additional info */}
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="text-sm text-gray-600">
+              <strong>Note:</strong> Outbound quantity is initially set to ordered quantity. 
+              If available quantity is 0, it will be shown in red. You can adjust outbound quantity down if needed.
             </div>
           </div>
         </div>
@@ -650,7 +900,7 @@ export default function Outbound() {
         </div>
       )}
 
-      {/* Drawer Component (similar to Item.jsx) */}
+      {/* Drawer Component */}
       <div
         className={`fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out ${
           isDrawerOpen ? "translate-x-0" : "translate-x-full"
@@ -661,9 +911,98 @@ export default function Outbound() {
           onClick={closeDrawer}
         ></div>
         
-        <div className="absolute right-0 top-0 h-full w-196 max-w-full bg-white shadow-xl">
-          {/* Drawer content from Item.jsx */}
-          {/* ... (same drawer implementation as Item.jsx) ... */}
+        <div className="absolute right-0 top-0 h-full w-full sm:w-96 md:w-128 bg-white shadow-xl flex flex-col">
+          <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-gray-200">
+            <div>
+              <h3 className="text-xl font-bold text-gray-900">{selectedItem?.name || "Item Details"}</h3>
+              <p className="text-sm text-gray-500 mt-1">{selectedItem?.item_code}</p>
+            </div>
+            <button 
+              onClick={closeDrawer}
+              className="p-2 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              <FaTimes className="text-gray-500 text-lg" />
+            </button>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="h-full overflow-y-auto p-6">
+              {selectedItem && (
+                <div className="space-y-6">
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h4 className="font-medium text-gray-800 mb-3">Item Information</h4>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-sm text-gray-500">Item Name</div>
+                          <div className="font-medium text-gray-800 mt-1">{selectedItem.name}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-500">Item Code</div>
+                          <div className="font-medium text-gray-800 mt-1">{selectedItem.item_code}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-500">Available Quantity</div>
+                          <div className={`font-medium ${selectedItem.availableQuantity === 0 ? 'text-red-600' : 'text-gray-800'} mt-1`}>
+                            {selectedItem.availableQuantity} {selectedItem.unit}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-500">Ordered Quantity</div>
+                          <div className="font-medium text-gray-800 mt-1">{selectedItem.orderedQuantity} {selectedItem.unit}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {selectedItem.salesOrderNumber && (
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                      <h4 className="font-medium text-gray-800 mb-3">Sales Order Information</h4>
+                      <div className="space-y-2">
+                        <div>
+                          <div className="text-sm text-gray-500">Sales Order Number</div>
+                          <div className="font-medium text-gray-800 mt-1">{selectedItem.salesOrderNumber}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h4 className="font-medium text-gray-800 mb-3">Outbound Information</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Outbound Quantity</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-medium">{selectedItem.outboundQuantity}</span>
+                          <span className="text-sm text-gray-500">of {selectedItem.orderedQuantity} ordered</span>
+                        </div>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Original Rate</span>
+                        <span className="font-medium">AED {parseFloat(selectedItem.rate || 0).toFixed(2)}</span>
+                      </div>
+                      {selectedItem.discount > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Discount</span>
+                          <span className="font-medium text-red-600">- AED {parseFloat(selectedItem.discount || 0).toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Selling Price (per unit)</span>
+                        <span className="font-medium">AED {parseFloat(selectedItem.selling_price || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between pt-2 border-t border-gray-200">
+                        <span className="font-medium text-gray-800">Total Value</span>
+                        <span className="font-bold text-gray-800">
+                          AED {((selectedItem.outboundQuantity || 1) * parseFloat(selectedItem.selling_price || 0)).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

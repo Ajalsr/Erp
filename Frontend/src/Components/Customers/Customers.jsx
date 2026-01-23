@@ -2,7 +2,8 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { 
   FaThList, FaThLarge, FaPlus, FaEllipsisV, FaFilter, FaTimes, 
   FaSearch, FaUser, FaBuilding, FaEnvelope, FaPhone, FaIdCard,
-  FaDownload, FaUpload, FaUsers, FaCheckCircle, FaClock, FaCreditCard 
+  FaDownload, FaUpload, FaUsers, FaCheckCircle, FaClock, FaCreditCard,
+  FaChevronLeft, FaChevronRight, FaBoxOpen
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetCustomers from '../../helper/useGetCustomers';
@@ -18,7 +19,6 @@ const Customers = () => {
   
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
-  const [filteredItems, setFilteredItems] = useState([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -27,26 +27,47 @@ const Customers = () => {
   
   const searchRef = useRef(null);
 
+  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const displayItems = data || [];
-  const totalCustomers = displayItems.length;
-  
-  useEffect(() => {
-    let filtered = [...displayItems];
+  // Calculate stats
+  const getStats = () => {
+    if (!data) return { total: 0, active: 0, pending: 0, receivables: 0 };
     
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(item => 
-        (item.customerDisplayName && item.customerDisplayName.toLowerCase().includes(term)) ||
-        (item.companyName && item.companyName.toLowerCase().includes(term)) ||
-        (item.customerEmail && item.customerEmail.toLowerCase().includes(term)) ||
-        (item.customerPhone && item.customerPhone.toLowerCase().includes(term)) ||
-        (item.customerCode && item.customerCode.toLowerCase().includes(term))
-      );
-    }
+    const total = data.length;
+    const active = data.filter(item => (item.status || 'active') === 'active').length;
+    const pending = data.filter(item => (item.status || 'active') === 'pending').length;
+    const receivables = data.reduce((sum, item) => sum + (parseFloat(item.selling_price) || 0), 0);
     
+    return { total, active, pending, receivables };
+  };
+
+  const stats = getStats();
+
+  const getCustomerCode = (item) => {
+    if (item.customerCode) return item.customerCode;
+    
+    const name = item.customerDisplayName || '';
+    const initials = name
+      .split(' ')
+      .map(word => word.charAt(0))
+      .join('')
+      .toUpperCase()
+      .slice(0, 3);
+    
+    const idSuffix = item._id ? item._id.slice(-4).toUpperCase() : '0000';
+    return `${initials}${idSuffix}`;
+  };
+
+  // Filter and sort items (for table only - doesn't include search filter)
+  const getFilteredAndSortedItems = () => {
+    if (!data) return [];
+    
+    let filtered = [...data];
+    
+    // Apply status filter only (no search filter here)
     if (selectedStatus !== 'all') {
       filtered = filtered.filter(item => {
         const status = item.status || 'active';
@@ -54,6 +75,7 @@ const Customers = () => {
       });
     }
     
+    // Apply sorting
     filtered.sort((a, b) => {
       let aValue, bValue;
       
@@ -86,16 +108,96 @@ const Customers = () => {
       }
     });
     
-    setFilteredItems(filtered);
-  }, [displayItems, searchTerm, selectedStatus, sortBy, sortOrder]);
+    return filtered;
+  };
 
-  const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentItems = filteredItems.slice(startIndex, startIndex + itemsPerPage);
+  const filteredItems = getFilteredAndSortedItems();
 
+  // Update total pages when filtered items change
+  useEffect(() => {
+    if (!filteredItems || filteredItems.length === 0) {
+      setTotalPages(1);
+      return;
+    }
+    
+    const pages = Math.ceil(filteredItems.length / itemsPerPage);
+    setTotalPages(pages > 0 ? pages : 1);
+    
+    // Adjust current page if it's out of bounds
+    if (currentPage > pages && pages > 0) {
+      setCurrentPage(pages);
+    }
+  }, [filteredItems, itemsPerPage, currentPage]);
+
+  // Get current page items (for table display)
+  const getCurrentItems = () => {
+    if (!filteredItems || filteredItems.length === 0) return [];
+    
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, filteredItems.length);
+    
+    return filteredItems.slice(startIndex, endIndex);
+  };
+
+  const currentItems = getCurrentItems();
+
+  // Handle page change
   const handlePageChange = (page) => {
     if (page < 1 || page > totalPages) return;
     setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Generate page numbers for pagination
+  const getPageNumbers = () => {
+    const pageNumbers = [];
+    const maxPagesToShow = 5;
+    
+    if (totalPages <= maxPagesToShow) {
+      // Show all pages if total pages is less than or equal to maxPagesToShow
+      for (let i = 1; i <= totalPages; i++) {
+        pageNumbers.push(i);
+      }
+    } else {
+      // Always show first page
+      pageNumbers.push(1);
+      
+      // Calculate start and end of middle pages
+      let start = Math.max(2, currentPage - 1);
+      let end = Math.min(totalPages - 1, currentPage + 1);
+      
+      // Adjust if we're at the beginning
+      if (currentPage <= 3) {
+        end = 4;
+      }
+      
+      // Adjust if we're at the end
+      if (currentPage >= totalPages - 2) {
+        start = totalPages - 3;
+      }
+      
+      // Add ellipsis if needed after first page
+      if (start > 2) {
+        pageNumbers.push('...');
+      }
+      
+      // Add middle pages
+      for (let i = start; i <= end; i++) {
+        pageNumbers.push(i);
+      }
+      
+      // Add ellipsis if needed before last page
+      if (end < totalPages - 1) {
+        pageNumbers.push('...');
+      }
+      
+      // Always show last page
+      if (totalPages > 1) {
+        pageNumbers.push(totalPages);
+      }
+    }
+    
+    return pageNumbers;
   };
 
   const handleItemClick = (item) => {
@@ -111,7 +213,8 @@ const Customers = () => {
 
   const handleSearchChange = useCallback(
     debounce((term) => {
-      setSearchTerm(term);
+      // Only update search term for suggestions, not for table filtering
+      // The table remains unchanged
     }, 300),
     []
   );
@@ -134,22 +237,41 @@ const Customers = () => {
     setIsSearchFocused(false);
   };
 
+  // Fetch suggestions for dropdown only
   const fetchSuggestions = async (query) => {
-    if (!query.trim()) return;
+    if (!query.trim() || !data) return;
     
     const term = query.toLowerCase();
-    const suggestions = displayItems.filter(item => 
-      (item.customerDisplayName && item.customerDisplayName.toLowerCase().includes(term)) ||
-      (item.companyName && item.companyName.toLowerCase().includes(term)) ||
-      (item.customerEmail && item.customerEmail.toLowerCase().includes(term)) ||
-      (item.customerPhone && item.customerPhone.toLowerCase().includes(term))
-    ).slice(0, 5); 
+    const suggestions = data.filter(item => {
+      const name = (item.customerDisplayName || '').toLowerCase();
+      const company = (item.companyName || '').toLowerCase();
+      const email = (item.customerEmail || '').toLowerCase();
+      const phone = (item.customerPhone || '').toLowerCase();
+      const code = (getCustomerCode(item) || '').toLowerCase();
+      
+      return name.includes(term) || 
+             company.includes(term) || 
+             email.includes(term) || 
+             phone.includes(term) || 
+             code.includes(term);
+    }).slice(0, 10); // Increased to show more results
     
     setSearchSuggestions(suggestions);
   };
 
   const handleSuggestionClick = (item) => {
-    setSearchTerm(item.customerDisplayName);
+    // When a suggestion is clicked, you could:
+    // 1. Navigate to the customer detail page
+    // 2. Open the drawer with the customer details
+    // 3. Or just clear the search and focus on that item
+    
+    // For now, let's open the drawer with the selected customer
+    setSelectedItem(item);
+    setIsDrawerOpen(true);
+    setActiveTab('overview');
+    
+    // Clear search
+    setSearchTerm('');
     setSearchSuggestions([]);
     setIsSearchFocused(false);
   };
@@ -166,23 +288,13 @@ const Customers = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const getCustomerCode = (item) => {
-    if (item.customerCode) return item.customerCode;
-    
-    const name = item.customerDisplayName || '';
-    const initials = name
-      .split(' ')
-      .map(word => word.charAt(0))
-      .join('')
-      .toUpperCase()
-      .slice(0, 3);
-    
-    const idSuffix = item._id ? item._id.slice(-4).toUpperCase() : '0000';
-    return `${initials}${idSuffix}`;
-  };
-
   const handleExportCustomers = () => {
-    const exportData = displayItems.map(item => ({
+    if (!data || data.length === 0) {
+      alert('No customers to export');
+      return;
+    }
+
+    const exportData = data.map(item => ({
       'Customer Code': getCustomerCode(item),
       'Customer Name': item.customerDisplayName || 'Unnamed Customer',
       'Company Name': item.companyName || 'N/A',
@@ -205,16 +317,15 @@ const Customers = () => {
     a.click();
   };
 
-  const activeCustomers = displayItems.filter(item => (item.status || 'active') === 'active').length;
-  const pendingCustomers = displayItems.filter(item => (item.status || 'active') === 'pending').length;
-  const totalReceivables = displayItems.reduce((sum, item) => sum + (parseFloat(item.selling_price) || 0), 0);
-
   useEffect(() => {
     handleGetCustomers();
   }, [handleGetCustomers]);
 
   if (loading) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   if (error) return <div className="text-red-500 p-4">Error: {error}</div>;
+
+  const startIndex = (currentPage - 1) * itemsPerPage + 1;
+  const endIndex = Math.min(currentPage * itemsPerPage, filteredItems.length);
 
   return (
     <div className="bg-white min-h-screen p-6 text-gray-800">
@@ -229,6 +340,7 @@ const Customers = () => {
             <button
               onClick={handleExportCustomers}
               className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              disabled={!data || data.length === 0}
             >
               <FaDownload />
               <span className="hidden sm:inline">Export</span>
@@ -258,7 +370,7 @@ const Customers = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Total Customers</p>
-                <p className="text-2xl font-bold text-gray-900">{totalCustomers}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
               </div>
               <div className="p-2 bg-blue-100 rounded-lg">
                 <FaUsers className="text-blue-600 text-xl" />
@@ -271,7 +383,7 @@ const Customers = () => {
               <div>
                 <p className="text-sm text-gray-600">Active</p>
                 <p className="text-2xl font-bold text-green-600">
-                  {activeCustomers}
+                  {stats.active}
                 </p>
               </div>
               <div className="p-2 bg-green-100 rounded-lg">
@@ -285,7 +397,7 @@ const Customers = () => {
               <div>
                 <p className="text-sm text-gray-600">Pending</p>
                 <p className="text-2xl font-bold text-yellow-600">
-                  {pendingCustomers}
+                  {stats.pending}
                 </p>
               </div>
               <div className="p-2 bg-yellow-100 rounded-lg">
@@ -299,7 +411,7 @@ const Customers = () => {
               <div>
                 <p className="text-sm text-gray-600">Total Receivables</p>
                 <p className="text-2xl font-bold text-purple-600">
-                  AED {totalReceivables.toLocaleString()}
+                  AED {stats.receivables.toLocaleString()}
                 </p>
               </div>
               <div className="p-2 bg-purple-100 rounded-lg">
@@ -322,7 +434,7 @@ const Customers = () => {
               value={searchTerm}
               onChange={handleSearchInput}
               onFocus={() => setIsSearchFocused(true)}
-              placeholder="Search by customer name, company, email, phone, or customer code..."
+              placeholder="Search customers by name, company, email, phone, or code..."
               className="w-full pl-10 pr-10 py-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
             />
             
@@ -337,18 +449,19 @@ const Customers = () => {
             )}
           </form>
 
+          {/* Search Suggestions Dropdown */}
           {isSearchFocused && searchSuggestions.length > 0 && (
             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
               <div className="p-2 border-b border-gray-100 bg-gray-50">
                 <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Quick Results ({searchSuggestions.length})
+                  Search Results ({searchSuggestions.length})
                 </div>
               </div>
               
               {searchSuggestions.map((item, index) => (
                 <div
                   key={item._id || index}
-                  onClick={() => handleItemClick(item)}
+                  onClick={() => handleSuggestionClick(item)}
                   className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 transition-colors"
                 >
                   <div className="flex items-start gap-3">
@@ -356,7 +469,7 @@ const Customers = () => {
                       <FaUser className="text-blue-500" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline  gap-2">
+                      <div className="flex items-baseline gap-2">
                         <div className="font-medium text-gray-900 truncate">
                           {item.customerDisplayName || 'Unnamed Customer'}
                         </div>
@@ -364,31 +477,46 @@ const Customers = () => {
                           <span className="px-2 py-1 text-xs font-mono bg-blue-100 text-blue-800 rounded">
                             {getCustomerCode(item)}
                           </span>
+                          {item.status && item.status !== 'active' && (
+                            <span className={`px-2 py-1 text-xs rounded ${
+                              item.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                              item.status === 'inactive' ? 'bg-gray-100 text-gray-800' : 
+                              'bg-blue-100 text-blue-800'
+                            }`}>
+                              {item.status}
+                            </span>
+                          )}
                         </div>
                       </div>
                       
                       <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-gray-600">
                         {item.companyName && item.companyName !== 'N/A' && (
                           <div className="flex items-center gap-1">
-                            <FaBuilding />
+                            <FaBuilding className="text-xs" />
                             <span className="truncate">{item.companyName}</span>
                           </div>
                         )}
                         
                         {item.customerEmail && item.customerEmail !== 'N/A' && (
                           <div className="flex items-center gap-1">
-                            <FaEnvelope />
+                            <FaEnvelope className="text-xs" />
                             <span className="truncate">{item.customerEmail}</span>
                           </div>
                         )}
                         
                         {item.customerPhone && item.customerPhone !== 'N/A' && (
                           <div className="flex items-center gap-1">
-                            <FaPhone />
+                            <FaPhone className="text-xs" />
                             <span>{item.customerPhone}</span>
                           </div>
                         )}
                       </div>
+                      
+                      {item.selling_price && parseFloat(item.selling_price) > 0 && (
+                        <div className="mt-1 text-xs font-medium text-purple-600">
+                          Receivables: AED {item.selling_price}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -396,8 +524,18 @@ const Customers = () => {
               
               <div className="p-2 border-t border-gray-100 bg-gray-50">
                 <div className="text-xs text-gray-500">
-                  Press Enter to search for "{searchTerm}"
+                  Click on a customer to view details
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Show message when searching but no results */}
+          {isSearchFocused && searchTerm.trim().length >= 2 && searchSuggestions.length === 0 && (
+            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+              <div className="p-4 text-center">
+                <FaUser className="text-gray-400 text-xl mx-auto mb-2" />
+                <p className="text-gray-500">No customers found for "{searchTerm}"</p>
               </div>
             </div>
           )}
@@ -405,13 +543,10 @@ const Customers = () => {
 
         <div className="flex items-center justify-between mt-3">
           <div className="text-sm text-gray-600">
-            {searchTerm ? (
-              <span>
-                Found <span className="font-semibold">{filteredItems.length}</span> customers matching "{searchTerm}"
-              </span>
-            ) : (
-              <span>
-                Total <span className="font-semibold">{displayItems.length}</span> customers
+            Total <span className="font-semibold">{data?.length || 0}</span> customers
+            {searchTerm && searchSuggestions.length > 0 && (
+              <span className="ml-2">
+                • <span className="font-semibold">{searchSuggestions.length}</span> search results for "{searchTerm}"
               </span>
             )}
           </div>
@@ -431,7 +566,10 @@ const Customers = () => {
             <span className="text-sm text-gray-600">Filter by:</span>
             <select
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => {
+                setSelectedStatus(e.target.value);
+                setCurrentPage(1); // Reset to first page when filtering
+              }}
               className="px-3 py-2 text-sm border border-gray-300 rounded-lg"
             >
               <option value="all">All Status</option>
@@ -445,7 +583,10 @@ const Customers = () => {
             <span className="text-sm text-gray-600">Sort by:</span>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
+              onChange={(e) => {
+                setSortBy(e.target.value);
+                setCurrentPage(1); // Reset to first page when sorting
+              }}
               className="px-3 py-2 text-sm border border-gray-300 rounded-lg"
             >
               <option value="name">Name</option>
@@ -455,7 +596,10 @@ const Customers = () => {
             </select>
             
             <button
-              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+              onClick={() => {
+                setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                setCurrentPage(1); // Reset to first page when changing sort order
+              }}
               className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               {sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
@@ -464,11 +608,11 @@ const Customers = () => {
         </div>
         
         <div className="text-sm text-gray-600">
-          Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredItems.length)} of {filteredItems.length} customers
+          Showing {startIndex}-{endIndex} of {filteredItems.length} customers
         </div>
       </div>
 
-      <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
+      <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm mb-4">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase">
             <tr>
@@ -479,128 +623,136 @@ const Customers = () => {
               <th className="px-4 py-3 text-left font-medium">Company Name</th>
               <th className="px-4 py-3 text-left font-medium">Email</th>
               <th className="px-4 py-3 text-left font-medium">Work Phone</th>
-              <th className="px-4 py-3 text-left font-medium">Receivables</th>
-              <th className="px-4 py-3 text-right font-medium">Unused Credits</th>
+              <th className="px-4 py-3 text-left font-medium">Description</th>
+              <th className="px-4 py-3 text-right font-medium">Receivables</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {currentItems.map((item, index) => (
-              <tr key={item._id || item.id || index} className="hover:bg-gray-50">
-                <td className="px-4 py-3">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-                  />
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="flex-shrink-0 h-8 w-8 bg-blue-100 rounded-md flex items-center justify-center">
-                      <FaUser className="text-blue-600" />
-                    </div>
-                    <div>
-                      <div className="flex items-baseline gap-2">
-                        <span 
-                          className="text-blue-600 hover:underline font-medium cursor-pointer"
-                          onClick={() => handleItemClick(item)}
-                        >
-                          {item.customerDisplayName || 'Unnamed Customer'}
-                        </span>
-                        <span className="text-xs font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
-                          {getCustomerCode(item)}
-                        </span>
+            {currentItems.length > 0 ? (
+              currentItems.map((item, index) => (
+                <tr key={item._id || item.id || index} className="hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded"
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex-shrink-0 h-8 w-8 bg-blue-100 rounded-md flex items-center justify-center">
+                        <FaUser className="text-blue-600" />
                       </div>
-                      {item.companyName && item.companyName !== 'N/A' && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          {item.companyName}
+                      <div>
+                        <div className="flex items-baseline gap-2">
+                          <span 
+                            className="text-blue-600 hover:underline font-medium cursor-pointer"
+                            onClick={() => handleItemClick(item)}
+                          >
+                            {item.customerDisplayName || 'Unnamed Customer'}
+                          </span>
+                          <span className="text-xs font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                            {getCustomerCode(item)}
+                          </span>
+                          {item.status && item.status !== 'active' && (
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              item.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                              item.status === 'inactive' ? 'bg-gray-100 text-gray-800' : 
+                              'bg-blue-100 text-blue-800'
+                            }`}>
+                              {item.status}
+                            </span>
+                          )}
                         </div>
-                      )}
+                        {item.companyName && item.companyName !== 'N/A' && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {item.companyName}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {item.companyName && item.companyName !== 'N/A' ? item.companyName : 'N/A'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {item.customerEmail && item.customerEmail !== 'N/A' ? (
+                      <div className="flex items-center gap-1">
+                        <FaEnvelope className="text-gray-400 text-xs" />
+                        <span>{item.customerEmail}</span>
+                      </div>
+                    ) : 'N/A'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {item.customerPhone && item.customerPhone !== 'N/A' ? (
+                      <div className="flex items-center gap-1">
+                        <FaPhone className="text-gray-400 text-xs" />
+                        <span>{item.customerPhone}</span>
+                      </div>
+                    ) : 'N/A'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 max-w-xs">
+                    <div className="truncate" title={item.sales_description}>
+                      {item.sales_description || "No description"}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium text-gray-800">
+                    {item.selling_price ? `AED ${item.selling_price}` : "N/A"}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="7" className="px-4 py-12 text-center">
+                  <div className="flex flex-col items-center justify-center">
+                    <FaBoxOpen className="text-gray-400 text-3xl mb-2" />
+                    <p className="text-lg font-medium text-gray-900 mb-2">No customers found</p>
+                    <p className="text-gray-500 mb-4">
+                      {selectedStatus !== 'all' 
+                        ? `No customers with status "${selectedStatus}"` 
+                        : 'Start by adding your first customer'}
+                    </p>
+                    <button 
+                      className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                      onClick={() => navigate("/Sales/Customers/Newcustomers")}
+                    >
+                      Add Customer
+                    </button>
                   </div>
-                </td>
-                <td className="px-4 py-3 text-gray-700">
-                  {item.companyName && item.companyName !== 'N/A' ? item.companyName : 'N/A'}
-                </td>
-                <td className="px-4 py-3 text-gray-700">
-                  {item.customerEmail && item.customerEmail !== 'N/A' ? (
-                    <div className="flex items-center gap-1">
-                      <FaEnvelope className="text-gray-400 text-xs" />
-                      <span>{item.customerEmail}</span>
-                    </div>
-                  ) : 'N/A'}
-                </td>
-                <td className="px-4 py-3 text-gray-700">
-                  {item.customerPhone && item.customerPhone !== 'N/A' ? (
-                    <div className="flex items-center gap-1">
-                      <FaPhone className="text-gray-400 text-xs" />
-                      <span>{item.customerPhone}</span>
-                    </div>
-                  ) : 'N/A'}
-                </td>
-                <td className="px-4 py-3 text-gray-600 max-w-xs">
-                  <div className="truncate" title={item.sales_description}>
-                    {item.sales_description || "No description"}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-right font-medium text-gray-800">
-                  {item.selling_price ? `AED ${item.selling_price}` : "N/A"}
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
-
-        {currentItems.length === 0 && (
-          <div className="text-center py-12">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
-              <FaUser className="text-gray-400 text-2xl" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No customers found</h3>
-            <p className="text-gray-500 mb-4">
-              {searchTerm ? `No results for "${searchTerm}"` : 'Start by adding your first customer'}
-            </p>
-            <button 
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-              onClick={() => navigate("/Sales/Customers/Newcustomers")}
-            >
-              Add Customer
-            </button>
-          </div>
-        )}
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-6">
+      {/* Pagination Controls */}
+      {filteredItems.length > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
           <div className="text-sm text-gray-700">
-            Page {currentPage} of {totalPages}
+            Showing {startIndex}-{endIndex} of {filteredItems.length} customers
           </div>
           
           <div className="flex items-center gap-2">
             <button
               onClick={() => handlePageChange(currentPage - 1)}
               disabled={currentPage === 1}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
+              <FaChevronLeft />
               Previous
             </button>
             
             <div className="flex items-center gap-1">
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let pageNum;
-                if (totalPages <= 5) {
-                  pageNum = i + 1;
-                } else if (currentPage <= 3) {
-                  pageNum = i + 1;
-                } else if (currentPage >= totalPages - 2) {
-                  pageNum = totalPages - 4 + i;
-                } else {
-                  pageNum = currentPage - 2 + i;
-                }
-                
-                return (
+              {getPageNumbers().map((pageNum, index) => (
+                pageNum === '...' ? (
+                  <span key={`ellipsis-${index}`} className="px-3 py-2 text-sm text-gray-500">
+                    ...
+                  </span>
+                ) : (
                   <button
                     key={pageNum}
                     onClick={() => handlePageChange(pageNum)}
-                    className={`px-3 py-2 text-sm rounded-lg ${
+                    className={`px-3 py-1 text-sm rounded ${
                       currentPage === pageNum
                         ? 'bg-blue-600 text-white'
                         : 'border border-gray-300 hover:bg-gray-50'
@@ -608,16 +760,17 @@ const Customers = () => {
                   >
                     {pageNum}
                   </button>
-                );
-              })}
+                )
+              ))}
             </div>
             
             <button
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               Next
+              <FaChevronRight />
             </button>
           </div>
           
@@ -627,20 +780,21 @@ const Customers = () => {
               value={itemsPerPage}
               onChange={(e) => {
                 setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
+                setCurrentPage(1); // Reset to first page when changing items per page
               }}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg"
+              className="px-3 py-1 text-sm border border-gray-300 rounded-lg"
             >
+              <option value={5}>5</option>
               <option value={10}>10</option>
               <option value={20}>20</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
-              <option value={200}>200</option>
             </select>
           </div>
         </div>
       )}
 
+      {/* Drawer Component */}
       <div
         className={`fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out ${
           isDrawerOpen ? "translate-x-0" : "translate-x-full"
@@ -713,6 +867,15 @@ const Customers = () => {
                             {getCustomerCode(selectedItem)}
                           </span>
                           <span>Customer Code</span>
+                          {selectedItem.status && selectedItem.status !== 'active' && (
+                            <span className={`px-2 py-0.5 text-xs rounded ${
+                              selectedItem.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                              selectedItem.status === 'inactive' ? 'bg-gray-100 text-gray-800' : 
+                              'bg-blue-100 text-blue-800'
+                            }`}>
+                              {selectedItem.status}
+                            </span>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -785,14 +948,13 @@ const Customers = () => {
             )}
           </div>
           
-         
           <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
             <div className="flex space-x-2">
               <button 
                 className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
                 onClick={() => {
                   console.log("Edit customer:", selectedItem);
-                 
+                  // Add edit functionality here
                 }}
               >
                 Edit Customer
