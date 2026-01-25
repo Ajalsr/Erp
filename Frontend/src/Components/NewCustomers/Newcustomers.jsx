@@ -1,24 +1,120 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
-import toast, {Toaster} from "react-hot-toast";
-import PhoneInput from 'react-phone-input-2';
-import 'react-phone-input-2/lib/style.css';
+import toast, { Toaster } from "react-hot-toast";
+import PhoneInput from 'react-phone-number-input';
+import 'react-phone-number-input/style.css';
 import { IoIosClose } from "react-icons/io";
 import { AiOutlineFileAdd, AiOutlineDelete } from "react-icons/ai";
 import { FaFilePdf, FaFileImage, FaFileWord, FaFileExcel, FaFile } from "react-icons/fa";
+
+// Contact Persons Component with its own state
+const ContactPersonsTab = ({ contactPersons, setContactPersons }) => {
+  const handleAddContact = useCallback(() => {
+    const newContact = {
+      id: Date.now(),
+      name: '',
+      email: '',
+      phone: ''
+    };
+    setContactPersons(prev => [...prev, newContact]);
+  }, [setContactPersons]);
+
+  const handleUpdateContact = useCallback((index, field, value) => {
+    setContactPersons(prev => {
+      const updatedContacts = [...prev];
+      updatedContacts[index] = { ...updatedContacts[index], [field]: value };
+      return updatedContacts;
+    });
+  }, [setContactPersons]);
+
+  const handleRemoveContact = useCallback((index) => {
+    setContactPersons(prev => prev.filter((_, i) => i !== index));
+  }, [setContactPersons]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-md font-medium text-gray-700">Contact Persons</h3>
+        <button
+          type="button"
+          className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+          onClick={handleAddContact}
+        >
+          Add Contact
+        </button>
+      </div>
+      {contactPersons.length === 0 ? (
+        <div className="border border-gray-200 rounded-lg p-4">
+          <div className="text-center text-gray-500">
+            <p>No contact persons added yet</p>
+            <p className="text-sm mt-1">Click "Add Contact" to add a new contact person</p>
+          </div>
+        </div>
+      ) : (
+        contactPersons.map((contact, index) => (
+          <div key={contact.id} className="border border-gray-200 rounded-lg p-4">
+            <div className="grid grid-cols-12 gap-4 items-end">
+              <div className="col-span-12 md:col-span-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input
+                  type="text"
+                  value={contact.name}
+                  onChange={(e) => handleUpdateContact(index, 'name', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="Name"
+                />
+              </div>
+              
+              <div className="col-span-12 md:col-span-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={contact.email}
+                  onChange={(e) => handleUpdateContact(index, 'email', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="Email"
+                />
+              </div>
+              
+              <div className="col-span-12 md:col-span-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <PhoneInput
+                  international
+                  countryCallingCodeEditable={false}
+                  defaultCountry="AE"
+                  value={contact.phone || ''}
+                  onChange={(value) => handleUpdateContact(index, 'phone', value || '')}
+                  className="w-full contact-phone-input"
+                />
+              </div>
+              
+              <div className="col-span-12 md:col-span-2 flex items-center justify-center md:justify-end">
+                <button
+                  type="button"
+                  onClick={() => handleRemoveContact(index)}
+                  className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded-full transition-colors mt-5 md:mt-0"
+                  title="Remove Contact"
+                >
+                  <IoIosClose size='25px'/>
+                </button>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
 
 const Newcustomers = () => {
   const { handleAddcustomer } = useAddCustomer();
   const [activeTab, setActiveTab] = useState('finance');
   const [isSubmitting, setIsSubmitting] = useState(false); 
   
-  const [phoneNumbers, setPhoneNumbers] = useState({
-    customerPhone: '',
-    workPhone: '',
-    mobile: ''
-  });
-
+  // Separate state for contact persons to prevent re-renders
+  const [contactPersons, setContactPersons] = useState([]);
+  
   const [formData, setFormData] = useState({
     customerType: 'business',
     customerCode:'',
@@ -35,7 +131,6 @@ const Newcustomers = () => {
     city: '',
     postalCode: '',
     country: '',
-    contactPersons: [],
     customFields: {},
     reportingTags: [],
     remarks: '',
@@ -56,40 +151,28 @@ const Newcustomers = () => {
     { id: 'other', label: 'Other Documents', required: false }
   ];
 
-  const handleChange = (e) => {
+  const handleChange = useCallback((e) => {
     const { name, value, type, checked } = e.target;
     
-    if (type === 'radio') {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
-    } else if (type === 'checkbox') {
-      setFormData(prev => ({
-        ...prev,
-        [name]: checked
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
-    }
-  };
+    setFormData(prev => {
+      if (type === 'radio') {
+        return { ...prev, [name]: value };
+      } else if (type === 'checkbox') {
+        return { ...prev, [name]: checked };
+      } else {
+        return { ...prev, [name]: value };
+      }
+    });
+  }, []);
 
-  const handlePhoneChange = (value, country, name) => {
-    setPhoneNumbers(prev => ({
-      ...prev,
-      [name]: value
-    }));
-    
+  const handlePhoneChange = useCallback((value, fieldName) => {
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [fieldName]: value || ''
     }));
-  };
+  }, []);
 
-  const handleFileUpload = (documentType, e) => {
+  const handleFileUpload = useCallback((documentType, e) => {
     const files = Array.from(e.target.files);
     
     if (files.length > 0) {
@@ -113,17 +196,17 @@ const Newcustomers = () => {
     
     // Reset file input
     e.target.value = '';
-  };
+  }, []);
 
-  const removeDocument = (documentId) => {
+  const removeDocument = useCallback((documentId) => {
     setFormData(prev => ({
       ...prev,
       documents: prev.documents.filter(doc => doc.id !== documentId)
     }));
     toast.success('Document removed');
-  };
+  }, []);
 
-  const getFileIcon = (fileName) => {
+  const getFileIcon = useCallback((fileName) => {
     const extension = fileName.split('.').pop().toLowerCase();
     switch(extension) {
       case 'pdf':
@@ -142,55 +225,36 @@ const Newcustomers = () => {
       default:
         return <FaFile className="text-gray-500" />;
     }
-  };
+  }, []);
 
-  const formatFileSize = (bytes) => {
+  const formatFileSize = useCallback((bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  }, []);
 
   const handleSubmit = async (e) => { 
     e.preventDefault(); 
     
-    console.log('Form submitted:', formData);
+    // Combine formData with contactPersons for submission
+    const completeFormData = {
+      ...formData,
+      contactPersons: contactPersons
+    };
+    
+    console.log('Form submitted:', completeFormData);
     
     if (!formData.customerDisplayName.trim()) {
       toast.error("Please fill customer display name");
       return;
     }
     
-    // Validate required documents for business customers
-    if (formData.customerType === 'business') {
-      const requiredDocs = documentTypes.filter(doc => doc.required);
-      const missingDocs = requiredDocs.filter(doc => 
-        !formData.documents.some(d => d.type === doc.id)
-      );
-      
-      // if (missingDocs.length > 0) {
-      //   toast.error(`Please upload required documents: ${missingDocs.map(d => d.label).join(', ')}`);
-      //   return;
-      // }
-    }
-    
     setIsSubmitting(true);
     
     try {
-      // Format phone numbers properly
-      const formattedData = {
-        ...formData,
-        customerPhone: phoneNumbers.customerPhone,
-        workPhone: phoneNumbers.workPhone,
-        mobile: phoneNumbers.mobile
-      };
-      
-      // Here you would typically upload files to server
-      // For now, we'll just pass the file objects
-      // In production, you should upload files first and get URLs
-      
-      await handleAddcustomer(formattedData);
+      await handleAddcustomer(completeFormData);
       
       // Reset form
       setFormData({
@@ -209,7 +273,6 @@ const Newcustomers = () => {
         city: '',
         postalCode: '',
         country: '',
-        contactPersons: [],
         customFields: {},
         reportingTags: [],
         remarks: '',
@@ -218,11 +281,7 @@ const Newcustomers = () => {
         paymentTerms: 'Due on Receipt'
       });
       
-      setPhoneNumbers({
-        customerPhone: '',
-        workPhone: '',
-        mobile: ''
-      });
+      setContactPersons([]);
       
       // Show success message
       toast.success("Customer created successfully!");
@@ -240,9 +299,9 @@ const Newcustomers = () => {
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     navigate('/sales/customers'); 
-  };
+  }, [navigate]);
 
   const TabContent = () => {
     switch (activeTab) {
@@ -255,10 +314,10 @@ const Newcustomers = () => {
                 <input
                   type="text"
                   name="credit_limit"
-                  value={formData.credit_limit}
+                  value={formData.credit_limit || ''}
                   onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Creedit Limit"
+                  placeholder="Credit Limit"
                 />
               </div>
               <div>
@@ -277,10 +336,10 @@ const Newcustomers = () => {
                 <input
                   type="text"
                   name="credit_limit"
-                  value={formData.credit_limit}
+                  value={formData.credit_limit || ''}
                   onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Creedit Limit"
+                  placeholder="Credit Limit"
                 />
               </div>
               <div>
@@ -454,121 +513,10 @@ const Newcustomers = () => {
       
       case 'contact-persons':
         return (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-md font-medium text-gray-700">Contact Persons</h3>
-              <button
-                type="button"
-                className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
-                onClick={() => {
-                  const newContact = {
-                    id: Date.now(),
-                    name: '',
-                    email: '',
-                    phone: ''
-                  };
-                  setFormData(prev => ({
-                    ...prev,
-                    contactPersons: [...prev.contactPersons, newContact]
-                  }));
-                }}
-              >
-                Add Contact
-              </button>
-            </div>
-            {formData.contactPersons.length === 0 ? (
-              <div className="border border-gray-200 rounded-lg p-4">
-                <div className="text-center text-gray-500">
-                  <p>No contact persons added yet</p>
-                  <p className="text-sm mt-1">Click "Add Contact" to add a new contact person</p>
-                </div>
-              </div>
-            ) : (
-              formData.contactPersons.map((contact, index) => (
-                <div key={contact.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="grid grid-cols-12 gap-4 items-end">
-                    <div className="col-span-12 md:col-span-3">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                      <input
-                        type="text"
-                        value={contact.name}
-                        onChange={(e) => {
-                          const updatedContacts = [...formData.contactPersons];
-                          updatedContacts[index] = { ...contact, name: e.target.value };
-                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        placeholder="Name"
-                      />
-                    </div>
-                    
-                    <div className="col-span-12 md:col-span-3">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <input
-                        type="email"
-                        value={contact.email}
-                        onChange={(e) => {
-                          const updatedContacts = [...formData.contactPersons];
-                          updatedContacts[index] = { ...contact, email: e.target.value };
-                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        placeholder="Email"
-                      />
-                    </div>
-                    
-                    <div className="col-span-12 md:col-span-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <PhoneInput
-                        country={'ae'}
-                        value={contact.phone || ''}
-                        autoFormat={false}
-                        onChange={(value, country, e, formattedValue) => {
-                          const updatedContacts = [...formData.contactPersons];
-                          updatedContacts[index] = { ...contact, phone: value };
-                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
-                        }}
-                        inputProps={{
-                          name: 'contactPhone',
-                          required: false,
-                        }}
-                        inputStyle={{
-                          width: '100%',
-                          height: '38px',
-                          paddingLeft: '48px'
-                        }}
-                        buttonStyle={{
-                          padding: '0 8px',
-                          background: '#f9fafb',
-                          border: '1px solid #d1d5db',
-                          borderRight: 'none',
-                          borderRadius: '6px 0 0 6px'
-                        }}
-                        containerStyle={{
-                          width: '100%'
-                        }}
-                        placeholder="Phone"
-                      />
-                    </div>
-                    
-                    <div className="col-span-12 md:col-span-2 flex items-center justify-center md:justify-end">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updatedContacts = formData.contactPersons.filter((_, i) => i !== index);
-                          setFormData(prev => ({ ...prev, contactPersons: updatedContacts }));
-                        }}
-                        className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded-full transition-colors mt-5 md:mt-0"
-                        title="Remove Contact"
-                      >
-                        <IoIosClose size='25px'/>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <ContactPersonsTab 
+            contactPersons={contactPersons}
+            setContactPersons={setContactPersons}
+          />
         );
       
       case 'custom-fields':
@@ -728,8 +676,53 @@ const Newcustomers = () => {
     { id: 'remarks', label: 'Remarks' }
   ];
 
+  // Custom CSS for react-phone-number-input
+  const phoneInputStyle = `
+    .PhoneInput {
+      width: 100%;
+    }
+    .PhoneInputInput {
+      width: 100%;
+      height: 38px;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+      background-color: white;
+    }
+    .PhoneInputInput:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    }
+    .PhoneInputCountry {
+      border: 1px solid #d1d5db;
+      border-right: none;
+      border-radius: 0.375rem 0 0 0.375rem;
+      background-color: #f9fafb;
+      padding: 0 8px;
+      height: 38px;
+    }
+    .PhoneInputCountrySelect {
+      padding: 8px;
+    }
+    .PhoneInputCountrySelectArrow {
+      border-top-color: #6b7280;
+    }
+    
+    /* Specific styling for contact person phone inputs */
+    .contact-phone-input .PhoneInputInput {
+      height: 38px;
+    }
+    .contact-phone-input .PhoneInputCountry {
+      height: 38px;
+    }
+  `;
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+      <style>{phoneInputStyle}</style>
       <div className="max-w-3xl mx-auto">
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
           <div className="bg-blue-600 px-6 py-4">
@@ -868,35 +861,12 @@ const Newcustomers = () => {
                     Customer Phone
                   </label>
                   <PhoneInput
-                    prefix='+'
-                    country={'ae'} 
-                    value={phoneNumbers.customerPhone}
-                    onChange={(value, country, e, formattedValue) => 
-                      handlePhoneChange(value, country, 'customerPhone')
-                    }
-                    inputProps={{
-                      name: 'customerPhone',
-                      required: false,
-                    }}
-                    inputStyle={{
-                      width: '100%',
-                      height: '42px',
-                      paddingLeft: '48px',
-                      fontSize: '14px'
-                    }}
-                    buttonStyle={{
-                      padding: '0 8px',
-                      background: '#f9fafb',
-                      border: '1px solid #d1d5db',
-                      borderRight: 'none',
-                      borderRadius: '6px 0 0 6px'
-                    }}
-                    dropdownStyle={{
-                      fontSize: '14px'
-                    }}
-                    containerStyle={{
-                      width: '100%'
-                    }}
+                    international
+                    countryCallingCodeEditable={false}
+                    defaultCountry="AE"
+                    value={formData.customerPhone}
+                    onChange={(value) => handlePhoneChange(value, 'customerPhone')}
+                    className="w-full"
                     placeholder="Customer Phone"
                   />
                 </div>
@@ -906,35 +876,12 @@ const Newcustomers = () => {
                     Mobile
                   </label>
                   <PhoneInput
-                    prefix='+'
-                    country={'ae'} 
-                    value={phoneNumbers.mobile}
-                    onChange={(value, country, e, formattedValue) => 
-                      handlePhoneChange(value, country, 'mobile')
-                    }
-                    inputProps={{
-                      name: 'mobile',
-                      required: false,
-                    }}
-                    inputStyle={{
-                      width: '100%',
-                      height: '42px',
-                      paddingLeft: '48px',
-                      fontSize: '14px'
-                    }}
-                    buttonStyle={{
-                      padding: '0 8px',
-                      background: '#f9fafb',
-                      border: '1px solid #d1d5db',
-                      borderRight: 'none',
-                      borderRadius: '6px 0 0 6px'
-                    }}
-                    dropdownStyle={{
-                      fontSize: '14px'
-                    }}
-                    containerStyle={{
-                      width: '100%'
-                    }}
+                    international
+                    countryCallingCodeEditable={false}
+                    defaultCountry="AE"
+                    value={formData.mobile}
+                    onChange={(value) => handlePhoneChange(value, 'mobile')}
+                    className="w-full"
                     placeholder="Mobile Number"
                   />
                 </div>
@@ -944,41 +891,12 @@ const Newcustomers = () => {
                     Work Phone (Optional)
                   </label>
                   <PhoneInput
-                    prefix='+'
-                    countryCodeEditable={true}
-                    enableAreaCodes={true}
-                    disableCountryCode={false}
-                    country={'ae'}
-                    value={phoneNumbers.workPhone}
-                    onChange={(value, country) => {
-                      const finalValue = value.startsWith('+') 
-                        ? value 
-                        : `+${value.replace('.', '')}`;
-                      handlePhoneChange(finalValue, country, 'workPhone');
-                    }}
-                    inputProps={{
-                      name: 'workPhone',
-                      required: false,
-                    }}
-                    inputStyle={{
-                      width: '100%',
-                      height: '42px',
-                      paddingLeft: '48px',
-                      fontSize: '14px'
-                    }}
-                    buttonStyle={{
-                      padding: '0 8px',
-                      background: '#f9fafb',
-                      border: '1px solid #d1d5db',
-                      borderRight: 'none',
-                      borderRadius: '6px 0 0 6px'
-                    }}
-                    dropdownStyle={{
-                      fontSize: '14px'
-                    }}
-                    containerStyle={{
-                      width: '100%'
-                    }}
+                    international
+                    countryCallingCodeEditable={false}
+                    defaultCountry="AE"
+                    value={formData.workPhone}
+                    onChange={(value) => handlePhoneChange(value, 'workPhone')}
+                    className="w-full"
                     placeholder="Work Phone"
                   />
                 </div>
@@ -1035,6 +953,7 @@ const Newcustomers = () => {
           </form>
         </div>
       </div>
+      <Toaster />
     </div>
   );
 };
