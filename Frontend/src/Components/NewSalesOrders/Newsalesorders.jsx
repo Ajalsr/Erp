@@ -30,12 +30,151 @@ import {
   FaMoneyBill,
   FaTag,
   FaPercent,
-  FaMoneyBillWave
+  FaMoneyBillWave,
+  FaExclamationTriangle,
+  FaInfoCircle,
+  FaCheckCircle,
+  FaExclamationCircle
 } from 'react-icons/fa';
 import ReactDOM from 'react-dom';
 
 // Import date picker styles
 import 'react-datepicker/dist/react-datepicker.css';
+
+// Toaster Component
+const Toaster = ({ message, type = 'info', onConfirm, onCancel, isVisible }) => {
+  if (!isVisible) return null;
+
+  const typeConfig = {
+    info: {
+      bgColor: 'bg-blue-50',
+      borderColor: 'border-blue-200',
+      textColor: 'text-blue-800',
+      iconColor: 'text-blue-500',
+      icon: FaInfoCircle
+    },
+    warning: {
+      bgColor: 'bg-yellow-50',
+      borderColor: 'border-yellow-200',
+      textColor: 'text-yellow-800',
+      iconColor: 'text-yellow-500',
+      icon: FaExclamationTriangle
+    },
+    success: {
+      bgColor: 'bg-green-50',
+      borderColor: 'border-green-200',
+      textColor: 'text-green-800',
+      iconColor: 'text-green-500',
+      icon: FaCheckCircle
+    },
+    error: {
+      bgColor: 'bg-red-50',
+      borderColor: 'border-red-200',
+      textColor: 'text-red-800',
+      iconColor: 'text-red-500',
+      icon: FaExclamationCircle
+    }
+  };
+
+  const config = typeConfig[type];
+  const Icon = config.icon;
+
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-50 p-4">
+      <div 
+        className={`${config.bgColor} border ${config.borderColor} rounded-xl shadow-2xl max-w-md w-full transform transition-all duration-300 scale-100 opacity-100`}
+      >
+        <div className="p-6">
+          <div className="flex items-start gap-4">
+            <div className={`flex-shrink-0 ${config.iconColor}`}>
+              <Icon className="w-6 h-6" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-lg text-gray-900 mb-2">
+                {type === 'warning' ? 'Confirm Action' : 'Notification'}
+              </h3>
+              <p className={`${config.textColor} text-sm`}>
+                {message}
+              </p>
+            </div>
+          </div>
+          
+          <div className="mt-6 flex justify-end gap-3">
+            {onCancel && (
+              <button
+                onClick={onCancel}
+                className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              onClick={onConfirm}
+              className={`px-4 py-2.5 text-sm font-medium text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors ${
+                type === 'warning' 
+                  ? 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500' 
+                  : type === 'error'
+                  ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
+                  : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+              }`}
+            >
+              {type === 'warning' ? 'Yes, Cancel Order' : 'OK'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// Success Toaster Component
+const SuccessToaster = ({ message, isVisible, onClose }) => {
+  const [isExiting, setIsExiting] = useState(false);
+
+  useEffect(() => {
+    if (isVisible) {
+      const timer = setTimeout(() => {
+        setIsExiting(true);
+        setTimeout(() => {
+          if (onClose) onClose();
+          setIsExiting(false);
+        }, 300);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible, onClose]);
+
+  if (!isVisible && !isExiting) return null;
+
+  return ReactDOM.createPortal(
+    <div className="fixed top-4 right-4 z-[10000]">
+      <div 
+        className={`bg-green-50 border border-green-200 rounded-lg shadow-lg p-4 flex items-center gap-3 min-w-[300px] transform transition-all duration-300 ${
+          isExiting ? 'translate-x-full opacity-0' : 'translate-x-0 opacity-100'
+        }`}
+      >
+        <FaCheckCircle className="text-green-500 flex-shrink-0" />
+        <div className="flex-1">
+          <p className="text-green-800 font-medium text-sm">{message}</p>
+        </div>
+        <button
+          onClick={() => {
+            setIsExiting(true);
+            setTimeout(() => {
+              if (onClose) onClose();
+              setIsExiting(false);
+            }, 300);
+          }}
+          className="text-green-600 hover:text-green-800 transition-colors"
+        >
+          <FaTimes />
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+};
 
 // Portal component for dropdown
 const DropdownPortal = ({ children, targetRef, isVisible }) => {
@@ -360,6 +499,11 @@ const Newsalesorders = () => {
   
   const navigate = useNavigate();
 
+  // Add new state for toasters
+  const [showCancelToaster, setShowCancelToaster] = useState(false);
+  const [showSuccessToaster, setShowSuccessToaster] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+
   const salesTypeOptions = [
     { value: 'SO', label: 'SO (Standard Sale Order)' },
     { value: 'MOA', label: 'MOA (Material on Approval)' },
@@ -681,7 +825,8 @@ const Newsalesorders = () => {
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
     if (attachedFiles.length + files.length > 10) {
-      alert('Maximum 10 files allowed');
+      setSuccessMessage('Maximum 10 files allowed');
+      setShowSuccessToaster(true);
       return;
     }
     
@@ -701,11 +846,21 @@ const Newsalesorders = () => {
     setAttachedFiles(attachedFiles.filter(file => file.id !== fileId));
   };
 
-  // Handle cancel button
+  // Handle cancel button - UPDATED
   const handleCancel = () => {
-    if (window.confirm('Are you sure you want to cancel? Any unsaved changes will be lost.')) {
-      navigate('/sales/salesorders');
-    }
+    // Show custom toaster instead of browser confirm
+    setShowCancelToaster(true);
+  };
+
+  // Confirm cancellation - UPDATED
+  const confirmCancel = () => {
+    setShowCancelToaster(false);
+    navigate('/sales/salesorders');
+  };
+
+  // Cancel cancellation - UPDATED
+  const cancelCancel = () => {
+    setShowCancelToaster(false);
   };
 
   // Handle Save as Draft
@@ -715,16 +870,20 @@ const Newsalesorders = () => {
       const result = await handleAddSalesOrder(salesOrderData);
       
       if (result && result.data && result.data.id) {
-        alert('Sales order saved as draft successfully!');
-        navigate(`/sales/salesorders/${result.data.id}`);
+        setSuccessMessage('Sales order saved as draft successfully!');
+        setShowSuccessToaster(true);
+        setTimeout(() => {
+          navigate(`/sales/salesorders/${result.data.id}`);
+        }, 1500);
       }
     } catch (error) {
       console.error('Failed to save as draft:', error);
-      alert('Failed to save as draft. Please try again.');
+      setSuccessMessage('Failed to save as draft. Please try again.');
+      setShowSuccessToaster(true);
     }
   };
 
-
+  // Handle Save and Send
   const handleSaveAndSend = async () => {
     try {
       const salesOrderData = prepareSalesOrderData('open');
@@ -732,16 +891,25 @@ const Newsalesorders = () => {
       const result = await handleAddSalesOrder(salesOrderData);
       
       if (result && result.data && result.data.id) {
-        alert('Sales order created and sent successfully!');
-        navigate("/sales/salesorders");
+        setSuccessMessage('Sales order created and sent successfully!');
+        setShowSuccessToaster(true);
+        setTimeout(() => {
+          navigate("/sales/salesorders");
+        }, 1500);
       }
     } catch (error) {
       console.error('Failed to save and send:', error);
-      alert(error.message || 'Failed to save and send. Please check all required fields.');
+      setSuccessMessage(error.message || 'Failed to save and send. Please check all required fields.');
+      setShowSuccessToaster(true);
     }
   };
 
-  // Prepare sales order data for API
+  // Close success toaster
+  const closeSuccessToaster = () => {
+    setShowSuccessToaster(false);
+  };
+
+  // Prepare sales order data for API - UPDATED to include discountType
   const prepareSalesOrderData = (status) => {
     const subTotal = calculateSubTotal();
     const vat = calculateVAT();
@@ -749,22 +917,28 @@ const Newsalesorders = () => {
     const adjustmentValue = parseFloat(adjustment) || 0;
     const total = subTotal + vat + shipping + adjustmentValue;
 
-    // Prepare items for API - keep all fields
+    // Prepare items for API - keep all fields INCLUDING DISCOUNT TYPE
     const apiItems = items
       .filter(item => item.details && item.quantity > 0)
-      .map(item => ({
-        itemId: item.itemId,
-        name: item.details,
-        sku: item.sku,
-        quantity: parseFloat(item.quantity) || 0,
-        rate: parseFloat(item.rate) || 0,
-        discount: item.discount || '0',
-        discountType: item.discountType,
-        amount: parseFloat(item.amount) || 0,
-        unit: item.unit || 'pcs'
-      }));
+      .map(item => {
+        // Parse discount value based on type
+        const discountValue = item.discount ? parseFloat(item.discount) || 0 : 0;
+        
+        return {
+          itemId: item.itemId,
+          name: item.details,
+          sku: item.sku,
+          quantity: parseFloat(item.quantity) || 0,
+          rate: parseFloat(item.rate) || 0,
+          discount: discountValue,
+          discountType: item.discountType || 'percentage', // 'percentage' or 'fixed'
+          discountUnit: item.discountType === 'percentage' ? '%' : 'AED', // Add unit for clarity
+          amount: parseFloat(item.amount) || 0,
+          unit: item.unit || 'pcs'
+        };
+      });
 
-    console.log(apiItems,"api items")
+    console.log("API Items with discount type:", apiItems);
 
     if (apiItems.length === 0) {
       throw new Error('Please add at least one item to the sales order');
@@ -826,6 +1000,21 @@ const Newsalesorders = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+      {/* Toaster Components */}
+      <Toaster
+        message="Are you sure you want to cancel? Any unsaved changes will be lost."
+        type="warning"
+        isVisible={showCancelToaster}
+        onConfirm={confirmCancel}
+        onCancel={cancelCancel}
+      />
+      
+      <SuccessToaster
+        message={successMessage}
+        isVisible={showSuccessToaster}
+        onClose={closeSuccessToaster}
+      />
+
       <div className="max-w-6xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 mb-16">
         {/* Header */}
         <div className="px-6 md:px-8 py-6 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
@@ -1189,41 +1378,41 @@ const Newsalesorders = () => {
                   {items.map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-6 py-6">
-  <div className="relative">
-    <div 
-      ref={el => itemInputRefs.current[index] = el}
-      className="relative"
-    >
-      <input 
-        className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        placeholder="Type or click to select an item"
-        value={item.details}
-        onChange={(e) => {
-          const updatedItems = [...items];
-          updatedItems[index].details = e.target.value;
-          setItems(updatedItems);
-          debouncedSearch(e.target.value);
-          setShowItemDropdown(index);
-        }}
-        onFocus={() => {
-          setShowItemDropdown(index);
-          if (!item.details) {
-            setSearchTerm('');
-          }
-        }}
-      />
-    </div>
-    
-    {/* SKU and Unit info - position absolutely so it doesn't affect layout */}
-    {item.sku && (
-      <div className="absolute bottom-0 left-0 right-0 transform translate-y-full mt-1 text-xs text-gray-500 flex items-center gap-2">
-        <FaBarcode className="text-gray-400" />
-        <span>SKU: {item.sku}</span>
-        {item.unit && <span className="ml-2">| Unit: {item.unit}</span>}
-      </div>
-    )}
-  </div>
-</td>
+                        <div className="relative">
+                          <div 
+                            ref={el => itemInputRefs.current[index] = el}
+                            className="relative"
+                          >
+                            <input 
+                              className="w-full border border-gray-300 rounded px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Type or click to select an item"
+                              value={item.details}
+                              onChange={(e) => {
+                                const updatedItems = [...items];
+                                updatedItems[index].details = e.target.value;
+                                setItems(updatedItems);
+                                debouncedSearch(e.target.value);
+                                setShowItemDropdown(index);
+                              }}
+                              onFocus={() => {
+                                setShowItemDropdown(index);
+                                if (!item.details) {
+                                  setSearchTerm('');
+                                }
+                              }}
+                            />
+                          </div>
+                          
+                          {/* SKU and Unit info - position absolutely so it doesn't affect layout */}
+                          {item.sku && (
+                            <div className="absolute bottom-0 left-0 right-0 transform translate-y-full mt-1 text-xs text-gray-500 flex items-center gap-2">
+                              <FaBarcode className="text-gray-400" />
+                              <span>SKU: {item.sku}</span>
+                              {item.unit && <span className="ml-2">| Unit: {item.unit}</span>}
+                            </div>
+                          )}
+                        </div>
+                      </td>
                       
                       <td className="px-6 py-4">
                         <div className="flex items-center">
@@ -1258,21 +1447,11 @@ const Newsalesorders = () => {
                       
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
-                          
-                          
-                          <input
-                            type="text"
-                            value={item.discount}
-                            onChange={(e) => handleDiscountChange(index, e.target.value)}
-                            className="w-24 border border-gray-300 rounded-r px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder={item.discountType === 'percentage' ? "0%" : "0.00"}
-                          />
                           <div className="relative" ref={el => discountTypeRefs.current[index] = el}>
                             <button
                               type="button"
                               className="flex items-center px-3 py-2 border border-gray-300 rounded-l bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                               onClick={() => {
-                                
                                 const newType = item.discountType === 'percentage' ? 'fixed' : 'percentage';
                                 handleDiscountTypeChange(index, newType);
                               }}
@@ -1290,8 +1469,15 @@ const Newsalesorders = () => {
                               )}
                             </button>
                           </div>
+                          <input
+                            type="text"
+                            value={item.discount}
+                            onChange={(e) => handleDiscountChange(index, e.target.value)}
+                            className="w-24 border border-gray-300 rounded-r px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder={item.discountType === 'percentage' ? "0%" : "0.00"}
+                          />
                         </div>
-                        <div className="absolute text-xs text-gray-500 mt-1">
+                        <div className="text-xs text-gray-500 mt-1">
                           {item.discountType === 'percentage' ? 'Percentage discount' : 'Fixed amount discount'}
                         </div>
                       </td>
