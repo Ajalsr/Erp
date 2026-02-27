@@ -41,11 +41,13 @@ type SalesOrderItem struct {
 	ItemID  string             `json:"itemId" bson:"itemId" binding:"required"`
 	Details string             `json:"details" bson:"details"`
 	//SKU      string             `json:"sku" bson:"sku"`
-	Quantity float64 `json:"quantity" bson:"quantity" binding:"required,min=1"`
-	Rate     float64 `json:"rate" bson:"rate" binding:"required,min=0"`
-	Discount string  `json:"discount" bson:"discount"`
-	Amount   float64 `json:"amount" bson:"amount"`
-	Unit     string  `json:"unit" bson:"unit"`
+	Quantity     float64 `json:"quantity" bson:"quantity" binding:"required,min=1"`
+	Rate         float64 `json:"rate" bson:"rate" binding:"required,min=0"`
+	Discount     string  `json:"discount" bson:"discount"`
+	DiscountType string  `json:"discountType" bson:"discountType"`
+	DiscountUnit string  `json:"discountUnit" bson:"discountUnit"`
+	Amount       float64 `json:"amount" bson:"amount"`
+	Unit         string  `json:"unit" bson:"unit"`
 }
 
 type Attachment struct {
