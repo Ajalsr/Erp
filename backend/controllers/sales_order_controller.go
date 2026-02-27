@@ -154,14 +154,16 @@ func CreateSalesOrder() gin.HandlerFunc {
 
 			// Create sales order item
 			orderItem := models.SalesOrderItem{
-				ID:       primitive.NewObjectID(),
-				ItemID:   itemReq.ItemID,
-				Details:  inventoryItem.Name,
-				Quantity: itemReq.Quantity,
-				Rate:     itemReq.Rate,
-				Discount: itemReq.Discount,
-				Amount:   itemReq.Amount,
-				Unit:     inventoryItem.Unit,
+				ID:           primitive.NewObjectID(),
+				ItemID:       itemReq.ItemID,
+				Details:      inventoryItem.Name,
+				Quantity:     itemReq.Quantity,
+				Rate:         itemReq.Rate,
+				Discount:     itemReq.Discount,
+				DiscountType: itemReq.DiscountType,
+				DiscountUnit: itemReq.DiscountUnit,
+				Amount:       itemReq.Amount,
+				Unit:         inventoryItem.Unit,
 			}
 
 			orderItems = append(orderItems, orderItem)

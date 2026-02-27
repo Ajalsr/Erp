@@ -272,59 +272,113 @@ export default function Outbound() {
 
   // Update outbound quantity
   const updateQuantity = (itemId, newQuantity) => {
-    const item = outboundItems.find(i => i._id === itemId);
-    if (!item) return;
-    
-    // Ensure newQuantity is a number
-    const numericQuantity = parseInt(newQuantity) || 1;
-    
-    // Max cannot exceed ordered quantity
-    const maxQty = Math.min(item.orderedQuantity, item.availableQuantity);
-    
-    // Ensure quantity is between 1 and max (if max > 0, otherwise max is ordered quantity)
-    const effectiveMax = maxQty > 0 ? maxQty : item.orderedQuantity;
-    const quantity = Math.max(1, Math.min(numericQuantity, effectiveMax));
-    
-    setOutboundItems(prev => prev.map(item => 
-      item._id === itemId ? { ...item, outboundQuantity: quantity } : item
-    ));
-  };
+  const item = outboundItems.find(i => i._id === itemId);
+  if (!item) return;
+  
+  // Ensure newQuantity is a number
+  const numericQuantity = parseInt(newQuantity) || 1;
+  
+  // Allow up to available stock if we have it
+  const maxQty = item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity;
+  
+  // Ensure quantity is between 1 and max
+  const quantity = Math.max(1, Math.min(numericQuantity, maxQty));
+  
+  console.log(`Updating ${item.name}: ordered=${item.orderedQuantity}, available=${item.availableQuantity}, max=${maxQty}, new=${quantity}`);
+  
+  setOutboundItems(prev => prev.map(item => 
+    item._id === itemId ? { ...item, outboundQuantity: quantity } : item
+  ));
+};
 
   // Handle outbound save
-  const handleSaveOutbound = () => {
-    const selectedOutboundItems = outboundItems
-      .filter(item => selectedItems.has(item._id))
-      .map(item => ({
-        itemId: item._id,
-        name: item.name,
-        itemCode: item.item_code,
-        quantity: item.outboundQuantity,
-        orderedQuantity: item.orderedQuantity,
-        availableQuantity: item.availableQuantity,
-        unit: item.unit,
-        rate: item.rate,
-        discount: item.discount,
-        price: item.selling_price, // This is the price per unit after discount
-        status: requiresApproval ? "pending_approval" : "approved",
-        salesOrderNumber: item.salesOrderNumber,
-        salesOrderId: item.salesOrderId
-      }));
+  // In your Outbound component, update the handleSaveOutbound function:
+const handleSaveOutbound = () => {
+  const selectedOutboundItems = outboundItems
+    .filter(item => selectedItems.has(item._id))
+    .map(item => ({
+      _id: item._id,
+      itemId: item.itemId,
+      name: item.name,
+      item_code: item.item_code,
+      quantity: item.outboundQuantity,
+      orderedQuantity: item.orderedQuantity,
+      availableQuantity: item.availableQuantity,
+      unit: item.unit,
+      rate: item.rate,
+      discount: item.discount,
+      selling_price: item.selling_price,
+      status: requiresApproval ? "pending_approval" : "approved",
+      salesOrderNumber: item.salesOrderNumber,
+      salesOrderId: item.salesOrderId,
+      description: item.description,
+      sku: item.sku || item.item_code,
+      brand: item.brand
+    }));
 
-    console.log("Saving outbound items:", selectedOutboundItems);
-    
-    // Calculate totals
-    const totalItems = selectedOutboundItems.length;
-    const totalQuantity = selectedOutboundItems.reduce((sum, item) => sum + item.quantity, 0);
-    const totalValue = selectedOutboundItems.reduce((sum, item) => 
-      sum + (item.quantity * parseFloat(item.price || 0)), 0);
-    const totalDiscount = selectedOutboundItems.reduce((sum, item) => 
-      sum + parseFloat(item.discount || 0), 0);
-    
-    alert(`Outbound saved for ${totalItems} items (Total Qty: ${totalQuantity}, Value: AED ${totalValue.toFixed(2)}, Discount: AED ${totalDiscount.toFixed(2)})${requiresApproval ? ' (Pending Approval)' : ''}`);
-    
-    // In real app, you would make API call here
-    // navigate("/outbound/history");
+  // Get customer information from sales order (assuming first item has it)
+  const firstItem = selectedOutboundItems[0];
+  const salesOrder = salesOrdersData?.salesOrders?.find(so => 
+    so.id === firstItem?.salesOrderId || so.orderNumber === firstItem?.salesOrderNumber
+  );
+
+  // Calculate totals
+  const totalItems = selectedOutboundItems.length;
+  const totalQuantity = selectedOutboundItems.reduce((sum, item) => sum + item.quantity, 0);
+  const totalValue = selectedOutboundItems.reduce((sum, item) => 
+    sum + (item.quantity * parseFloat(item.selling_price || 0)), 0);
+  const totalDiscount = selectedOutboundItems.reduce((sum, item) => 
+    sum + parseFloat(item.discount || 0), 0);
+  
+  // Calculate subtotal (before discount)
+  const subtotal = selectedOutboundItems.reduce((sum, item) => 
+    sum + (item.quantity * parseFloat(item.rate || 0)), 0);
+
+  // Prepare delivery note data
+  const deliveryNoteData = {
+    items: selectedOutboundItems,
+    summary: {
+      totalItems,
+      totalQuantity,
+      totalValue,
+      totalDiscount,
+      subtotal
+    },
+    customerInfo: {
+      name: salesOrder?.customerName || salesOrder?.customer?.name || "John Smith",
+      orderNumber: firstItem?.salesOrderNumber || salesOrder?.orderNumber || 'N/A',
+      orderId: firstItem?.salesOrderId || salesOrder?.id
+    },
+    note: outboundNote,
+    requiresApproval,
+    approvalNote: requiresApproval ? approvalNote : ""
   };
+
+  // Generate delivery note number (in real app, this would come from API)
+  const deliveryNoteNumber = `DN-${Date.now().toString().slice(-6).padStart(6, '0')}`;
+
+  // Navigate to delivery note page with data
+  navigate("/sales/deliverynote", {
+    state: {
+      outboundData: deliveryNoteData,
+      deliveryNote: {
+        number: deliveryNoteNumber,
+        date: new Date().toLocaleDateString('en-US', { 
+          month: '2-digit', 
+          day: '2-digit', 
+          year: 'numeric' 
+        }),
+        orderNumber: deliveryNoteData.customerInfo.orderNumber,
+        customer: deliveryNoteData.customerInfo.name,
+        status: "Shipped",
+        note: outboundNote
+      }
+    }
+  });
+
+  // In real app, you would make API call here to save the delivery note
+  console.log("Delivery note created:", deliveryNoteNumber, deliveryNoteData);
+};
 
   // Handle cancellation
   const handleCancelRequest = (itemId) => {
@@ -727,13 +781,13 @@ export default function Outbound() {
                       <input
                         type="number"
                         min="1"
-                        max={Math.min(item.orderedQuantity, item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity)}
+                        max={Math.max(item.orderedQuantity, item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity)}
                         value={item.outboundQuantity}
                         onChange={(e) => updateQuantity(item._id, parseInt(e.target.value) || 1)}
                         className="w-20 p-1 border border-gray-300 rounded text-center"
                       />
                       <span className="text-xs text-gray-500">
-                        max {Math.min(item.orderedQuantity, item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity)}
+                        max {Math.max(item.orderedQuantity, item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity)}
                       </span>
                     </div>
                   </td>

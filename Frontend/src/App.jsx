@@ -14,6 +14,7 @@ import Purchaseorders from "./Components/PurchaseOrders/Purchaseorders"
 import Newpurchaseorders from "./Components/NewPurchaseOrders/Newpurchaseorders"
 import EditCustomer from "./Components/Customers/EditCustomer"
 import Outbound from "./Components/Outbound/Outbound"
+import DeliveryNote from "./Components/DeliveryNote/Deliverynote"
 function App() {
   
 
@@ -53,6 +54,7 @@ function App() {
           <Route path="/sales/customers/edit/:id" element={<EditCustomer />} />
           <Route path="/Sales/Salesorders" element={<Salesorders/>}/>
           <Route path="/Sales/Outbound" element={<Outbound/>}/>
+          <Route path="/Sales/Deliverynote" element={<DeliveryNote/>} />
           <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders/>}/>
           <Route path="/Purchase/Purchaseorders" element={<Purchaseorders/>}/>
           <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders/>}/>
