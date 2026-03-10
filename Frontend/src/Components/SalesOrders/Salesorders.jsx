@@ -1,595 +1,690 @@
-import { useEffect, useState } from "react";
-import { FaThList, FaThLarge, FaPlus, FaEllipsisV, FaFilter, FaTimes } from "react-icons/fa";
+import { useEffect, useState , useRef, useCallback} from "react";
+import {
+  FaPlus, FaTimes, FaSearch, FaShoppingCart,
+  FaChevronLeft, FaChevronRight, FaBoxOpen,
+  FaFileInvoiceDollar, FaEdit, FaBan,
+  FaSortAmountDown, FaSortAmountUp, FaDownload,
+  FaCheckCircle, FaClock, FaTimesCircle, FaSpinner
+} from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
-import useGetAllSalesOrder from '../../helper/useGetAllSalesOrder';
+import { createPortal } from "react-dom";
+import useGetAllSalesOrder from "../../helper/useGetAllSalesOrder";
+import useThemeStore, { getTheme } from "../../store/useThemeStore";
+
+
+const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWidth = 120 }) => {
+  const [open,    setOpen]    = useState(false);
+  const [ready,   setReady]   = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const rafRef     = useRef(null);
+
+  // options: [{ label, value }] or plain strings
+  const opts     = options.map(o => typeof o === "string" ? { label: o, value: o } : o);
+  const selected = opts.find(o => o.value === value);
+
+  const measurePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const dropH = Math.min(opts.length * 40 + 12, 220);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
+    setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, minWidth) });
+    setReady(true);
+  }, [opts.length, minWidth]);
+
+  const handleOpen = () => {
+    if (open) { setOpen(false); setReady(false); return; }
+    setReady(false); setOpen(true);
+    rafRef.current = requestAnimationFrame(() =>
+      rafRef.current = requestAnimationFrame(() => measurePos())
+    );
+  };
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const upd = () => measurePos();
+    window.addEventListener("scroll", upd, true);
+    window.addEventListener("resize", upd);
+    return () => { window.removeEventListener("scroll", upd, true); window.removeEventListener("resize", upd); };
+  }, [open, measurePos]);
+
+  useEffect(() => {
+    const h = e => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+          dropRef.current    && !dropRef.current.contains(e.target))
+        { setOpen(false); setReady(false); }
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  // Grab T from the nearest theme store — read directly so this stays stateless
+  const isDarkNow = (() => { try { return JSON.parse(localStorage.getItem("nexus-theme") || "{}").state?.isDark ?? true; } catch { return true; } })();
+  const bg      = isDarkNow ? "#111d30" : "#ffffff";
+  const border  = isDarkNow ? "rgba(255,255,255,0.07)" : "#e2e8f0";
+  const textPri = isDarkNow ? "#e2e8f0" : "#1e293b";
+  const textSec = isDarkNow ? "#64748b" : "#94a3b8";
+  const hoverBg = isDarkNow ? "rgba(59,130,246,0.08)" : "#eff6ff";
+  const activeBg= isDarkNow ? "rgba(59,130,246,0.15)" : "#eff6ff";
+  const activeC = isDarkNow ? "#60a5fa" : "#1d4ed8";
+  const focusBorder = isDarkNow ? "rgba(59,130,246,0.5)" : "#93c5fd";
+
+  const dropdown = (
+    <div ref={dropRef} style={{
+      position: "absolute", top: dropPos.top, left: dropPos.left, width: dropPos.width,
+      zIndex: 99999, background: bg, border: `1.5px solid ${border}`, borderRadius: "11px",
+      boxShadow: isDarkNow ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 32px rgba(0,0,0,0.12)",
+      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+      boxSizing: "border-box", visibility: ready ? "visible" : "hidden",
+      opacity: ready ? 1 : 0, transition: "opacity 0.12s ease",
+    }}>
+      <div style={{ padding: "5px" }}>
+        {opts.map((opt, i) => {
+          const isAct = opt.value === value;
+          return (
+            <div key={i} onClick={() => { onChange(opt.value); setOpen(false); setReady(false); }}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "8px 11px", borderRadius: "7px", cursor: "pointer", fontSize: "12px",
+                fontWeight: isAct ? "600" : "400", color: isAct ? activeC : textPri,
+                background: isAct ? activeBg : "transparent", transition: "background 0.1s",
+              }}
+              onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+              {opt.label}
+              {isAct && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={activeC} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div ref={triggerRef} onClick={handleOpen} style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      height: "34px", padding: "0 11px", minWidth,
+      border: `1px solid ${open ? focusBorder : border}`, borderRadius: "7px",
+      background: bg, cursor: "pointer", userSelect: "none",
+      boxShadow: open ? `0 0 0 3px ${isDarkNow ? "rgba(59,130,246,0.15)" : "rgba(147,197,253,0.25)"}` : "none",
+      transition: "border-color 0.15s, box-shadow 0.15s", boxSizing: "border-box", gap: "8px",
+    }}>
+      <span style={{ fontSize: "12px", fontWeight: "500", color: selected ? textPri : textSec,
+        fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif", whiteSpace: "nowrap" }}>
+        {selected ? selected.label : placeholder}
+      </span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? activeC : textSec}
+        strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+        style={{ transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "rotate(0deg)", flexShrink: 0 }}>
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+      {open && createPortal(dropdown, document.body)}
+    </div>
+  );
+};
+
+// ── Helpers ──────────────────────────────────────────────────────
+const formatCurrency = (amount) =>
+  new Intl.NumberFormat("en-AE", { style: "currency", currency: "AED", minimumFractionDigits: 2 }).format(amount || 0);
+
+const formatDate = (d) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return dt.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" });
+};
+
+const formatStatus = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : "Unknown";
+
+const transformOrders = (apiData) => {
+  if (!apiData?.salesOrders) return [];
+  return apiData.salesOrders.map(o => ({
+    id:                  o.id,
+    saleOrderNumber:     o.orderNumber,
+    status:              formatStatus(o.status),
+    rawStatus:           (o.status || "").toLowerCase(),
+    customer:            o.customerName || "N/A",
+    customerCode:        o.customerCode,
+    lpoNumber:           o.lpoNumber || "—",
+    lpoValue:            o.lpoValue || 0,
+    total:               o.total || 0,
+    orderDate:           o.orderDate,
+    lpoDate:             o.lpoDate,
+    expectedShipmentDate:o.expectedShipmentDate,
+    paymentTerms:        o.paymentTerms,
+    salesperson:         o.salesperson,
+    items:               o.items || [],
+    subTotal:            o.subTotal || 0,
+    shippingCharges:     o.shippingCharges || 0,
+    adjustment:          o.adjustment || 0,
+    vat:                 o.vat || 0,
+    createdAt:           o.createdAt,
+  }));
+};
+
+const STATUS_CFG = {
+  draft:      { color: "#f59e0b", dim: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "Draft"       },
+  confirmed:  { color: "#10b981", dim: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  label: "Confirmed"   },
+  open:       { color: "#3b82f6", dim: "rgba(59,130,246,0.12)",  border: "rgba(59,130,246,0.25)",  label: "Open"        },
+  "in progress":{ color:"#8b5cf6",dim:"rgba(139,92,246,0.12)",   border:"rgba(139,92,246,0.25)",   label:"In Progress"  },
+  completed:  { color: "#10b981", dim: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  label: "Completed"   },
+  closed:     { color: "#64748b", dim: "rgba(100,116,139,0.12)", border: "rgba(100,116,139,0.25)", label: "Closed"      },
+  cancelled:  { color: "#ef4444", dim: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.25)",   label: "Cancelled"   },
+};
+const getStatus = (raw) => STATUS_CFG[raw?.toLowerCase()] || STATUS_CFG.closed;
 
 const Salesorders = () => {
   const { handleGetSalesorder, data, loading, error } = useGetAllSalesOrder();
-  const navigate = useNavigate();
-  
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
-  
-  // Format currency
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-AE', {
-      style: 'currency',
-      currency: 'AED',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(amount);
+  const navigate  = useNavigate();
+  const isDark    = useThemeStore((s) => s.isDark);
+  const T         = getTheme(isDark);
+
+  const [drawer,        setDrawer]       = useState(false);
+  const [selected,      setSelected]     = useState(null);
+  const [activeTab,     setActiveTab]    = useState("overview");
+  const [search,        setSearch]       = useState("");
+  const [statusFilter,  setStatusFilter] = useState("all");
+  const [sortBy,        setSortBy]       = useState("date");
+  const [sortDir,       setSortDir]      = useState("desc");
+  const [page,          setPage]         = useState(1);
+  const perPage = 10;
+
+  useEffect(() => { handleGetSalesorder(); }, [handleGetSalesorder]);
+
+  const allOrders = data ? transformOrders(data) : [];
+
+  // filter + sort
+  const filtered = allOrders
+    .filter(o => statusFilter === "all" || o.rawStatus === statusFilter)
+    .filter(o => {
+      const q = search.toLowerCase();
+      return !q || o.saleOrderNumber?.toLowerCase().includes(q) ||
+        o.customer?.toLowerCase().includes(q) || o.lpoNumber?.toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      let av, bv;
+      if (sortBy === "date")     { av = new Date(a.orderDate||0); bv = new Date(b.orderDate||0); }
+      else if (sortBy === "total"){ av = a.total; bv = b.total; }
+      else                       { av = (a.saleOrderNumber||"").toLowerCase(); bv = (b.saleOrderNumber||"").toLowerCase(); }
+      return sortDir === "asc" ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+    });
+
+  const totalPages   = Math.max(1, Math.ceil(filtered.length / perPage));
+  const currentItems = filtered.slice((page - 1) * perPage, page * perPage);
+
+  const stats = {
+    total:    allOrders.length,
+    open:     allOrders.filter(o => ["open","confirmed","in progress"].includes(o.rawStatus)).length,
+    pending:  allOrders.filter(o => o.rawStatus === "draft").length,
+    value:    allOrders.reduce((s, o) => s + o.total, 0),
   };
 
-  // Get status color based on status
-  const getStatusColor = (status) => {
-    switch(status?.toLowerCase()) {
-      case 'draft':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'confirmed':
-      case 'open':
-        return 'bg-green-100 text-green-800';
-      case 'in progress':
-        return 'bg-blue-100 text-blue-800';
-      case 'completed':
-      case 'closed':
-        return 'bg-gray-100 text-gray-800';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
+  const openDrawer = (item) => { setSelected(item); setDrawer(true); setActiveTab("overview"); };
+  const closeDrawer = () => { setDrawer(false); setSelected(null); };
 
-  // Format status display text
-  const formatStatus = (status) => {
-    if (!status) return 'Unknown';
-    return status.charAt(0).toUpperCase() + status.slice(1);
-  };
+  // ── Dynamic CSS ───────────────────────────────────────────────
+  const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
+    .so-root * { box-sizing: border-box; }
+    .so-root { font-family: 'Inter', sans-serif; }
+    .so-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
 
-  // Format date for display
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toISOString().split('T')[0]; // Returns YYYY-MM-DD
-  };
+    html, body, * { scrollbar-width: thin; scrollbar-color: ${isDark ? "rgba(255,255,255,0.12) transparent" : "rgba(0,0,0,0.14) transparent"}; }
+    html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { width: 5px; height: 5px; }
+    html::-webkit-scrollbar-track, body::-webkit-scrollbar-track, *::-webkit-scrollbar-track { background: transparent; }
+    html::-webkit-scrollbar-thumb, body::-webkit-scrollbar-thumb, *::-webkit-scrollbar-thumb { background: ${isDark ? "rgba(255,255,255,0.11)" : "rgba(0,0,0,0.13)"}; border-radius: 999px; transition: background 0.2s; }
+    html::-webkit-scrollbar-thumb:hover, body::-webkit-scrollbar-thumb:hover, *::-webkit-scrollbar-thumb:hover { background: ${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.24)"}; }
+    html::-webkit-scrollbar-corner, body::-webkit-scrollbar-corner, *::-webkit-scrollbar-corner { background: transparent; }
 
-  // Calculate pending value
-  const calculatePendingValue = (item) => {
-    if (!item) return 0;
-    // Assuming pending value is total minus any payments made
-    // You might need to adjust this based on your actual business logic
-    return item.total;
-  };
+    .so-stat { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+    .so-stat:hover { transform: translateY(-2px); box-shadow: ${isDark ? "0 8px 32px rgba(0,0,0,0.4)" : "0 8px 24px rgba(0,0,0,0.1)"} !important; }
 
-  // Transform API data to match your table structure
-  const transformSalesOrders = (apiData) => {
-    if (!apiData?.salesOrders) return [];
-    
-    return apiData.salesOrders.map(order => ({
-      id: order.id,
-      saleOrderNumber: order.orderNumber,
-      status: formatStatus(order.status),
-      statusColor: getStatusColor(order.status),
-      customer: order.customerName || 'N/A',
-      customerCode: order.customerCode,
-      customerEmail: '', // You might need to fetch this separately or include it in API
-      customerPhone: '', // You might need to fetch this separately or include it in API
-      lpoNumber: order.lpoNumber || 'N/A',
-      lpoValue: formatCurrency(order.lpoValue || 0),
-      invoiceValue: formatCurrency(0), // You might need to calculate this from invoices
-      pendingValue: formatCurrency(calculatePendingValue(order)),
-      total: formatCurrency(order.total || 0),
-      orderDate: formatDate(order.orderDate),
-      lpoDate: formatDate(order.lpoDate),
-      expectedShipmentDate: formatDate(order.expectedShipmentDate),
-      paymentTerms: order.paymentTerms,
-      salesperson: order.salesperson,
-      items: order.items || [],
-      subTotal: order.subTotal,
-      shippingCharges: order.shippingCharges,
-      adjustment: order.adjustment,
-      vat: order.vat,
-      createdAt: order.createdAt,
-      updatedAt: order.updatedAt
-    }));
-  };
+    .so-row { transition: background 0.1s; }
+    .so-row:hover { background: ${isDark ? "rgba(255,255,255,0.025)" : "#f8fafc"} !important; }
+    .so-row:hover .so-order-num { color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
 
-  // Get sales orders from API data
-  const salesOrders = data ? transformSalesOrders(data) : [];
+    .so-pill { transition: all 0.15s; cursor: pointer; }
+    .so-pill:hover { border-color: ${isDark ? "rgba(59,130,246,0.3)" : "#bfdbfe"} !important; color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
+    .so-pill-active { background: ${isDark ? "rgba(59,130,246,0.15)" : "#eff6ff"} !important; color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; border-color: ${isDark ? "rgba(59,130,246,0.35)" : "#bfdbfe"} !important; font-weight: 600 !important; }
 
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+    .so-tbl-btn { transition: all 0.12s; }
+    .so-tbl-btn:hover { background: ${isDark ? "rgba(255,255,255,0.07)" : "#f1f5f9"} !important; color: ${isDark ? "#e2e8f0" : "#0f172a"} !important; }
 
-  const displayItems = salesOrders;
-  
-  const totalPages = Math.ceil(displayItems.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentItems = displayItems.slice(startIndex, startIndex + itemsPerPage);
+    .so-page-btn { transition: all 0.12s; }
+    .so-page-btn:hover { border-color: ${isDark ? "rgba(59,130,246,0.3)" : "#bfdbfe"} !important; color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
 
-  const handlePageChange = (page) => {
-    if (page < 1 || page > totalPages) return;
-    setCurrentPage(page);
-  };
+    .so-action-btn { transition: all 0.15s; }
+    .so-action-btn:hover { opacity: 0.85; transform: translateY(-1px); }
 
-  // Calculate totals for stats cards
-  const calculateStats = () => {
-    if (!data?.salesOrders) return {
-      totalOrders: 0,
-      totalValue: 0,
-      pendingValue: 0,
-      paidValue: 0
-    };
+    .drawer-tab { transition: all 0.15s; border-bottom: 2px solid transparent; }
+    .drawer-tab:hover { color: ${isDark ? "#94a3b8" : "#374151"} !important; }
+    .drawer-tab-active { color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; border-bottom-color: ${isDark ? "#3b82f6" : "#2563eb"} !important; }
 
-    const orders = data.salesOrders;
-    const totalOrders = orders.length;
-    const totalValue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
-    
-    // Assuming pending value is total (adjust based on your business logic)
-    const pendingValue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
-    
-    // Assuming paid value is 0 initially (you'll need to calculate from invoices)
-    const paidValue = 0;
+    .detail-row { transition: background 0.1s; }
+    .detail-row:hover { background: ${isDark ? "rgba(255,255,255,0.04)" : "#f8fafc"} !important; }
 
-    return {
-      totalOrders,
-      totalValue,
-      pendingValue,
-      paidValue
-    };
-  };
+    .fin-row { transition: background 0.1s; }
+    .fin-row:hover { background: ${isDark ? "rgba(255,255,255,0.03)" : "#f8fafc"} !important; }
 
-  const stats = calculateStats();
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeUp  { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes spin    { to { transform: rotate(360deg); } }
 
-  // Handle item click to open drawer
-  const handleItemClick = (item) => {
-    setSelectedItem(item);
-    setIsDrawerOpen(true);
-    setActiveTab('overview'); // Reset to overview tab when opening drawer
-  };
+    .so-drawer-anim  { animation: slideIn 0.25s cubic-bezier(0.16,1,0.3,1) forwards; }
+    .so-overlay-anim { animation: fadeIn 0.2s ease forwards; }
+    .so-fade-up      { animation: fadeUp 0.3s ease both; }
+    .so-fade-up-1    { animation: fadeUp 0.3s 0.05s ease both; }
+    .so-fade-up-2    { animation: fadeUp 0.3s 0.10s ease both; }
+    .so-spin         { animation: spin 0.8s linear infinite; }
 
-  // Close drawer
-  const closeDrawer = () => {
-    setIsDrawerOpen(false);
-    setSelectedItem(null);
-  };
+    .sort-sel option { background: ${T.surface2}; color: ${T.textPri}; }
+  `;
 
-  useEffect(() => {
-    handleGetSalesorder();
-  }, [handleGetSalesorder]);
+  const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: "14px", transition: "background 0.25s, border-color 0.25s" };
 
-  // Loading state
+  // ── Loading ───────────────────────────────────────────────────
   if (loading) return (
-    <div className="bg-white min-h-screen flex flex-col items-center justify-center">
-      <div className="relative">
-        {/* Animated spinner */}
-        <div className="w-20 h-20 border-4 border-blue-100 rounded-full"></div>
-        <div className="absolute top-0 left-0 w-20 h-20 border-4 border-blue-600 rounded-full animate-spin border-t-transparent"></div>
-        
-        {/* Inner spinner */}
-        <div className="absolute top-2 left-2 w-16 h-16 border-2 border-blue-200 rounded-full animate-spin border-b-transparent" 
-             style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}>
-        </div>
-      </div>
-      
-      <div className="mt-6 text-center">
-        <h3 className="text-lg font-medium text-gray-700">Loading Sales Orders</h3>
-        <p className="text-gray-500 mt-2">Fetching sales order data...</p>
-        
-        <div className="mt-4 w-48 bg-gray-200 rounded-full h-1.5 mx-auto">
-          <div className="bg-blue-600 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }}></div>
-        </div>
-        
-        <div className="mt-4 flex space-x-2 justify-center">
-          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-          <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-        </div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: T.bg }}>
+      <style>{css}</style>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
+        <div className="so-spin" style={{ width: "36px", height: "36px", border: `3px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%" }} />
+        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "Inter, sans-serif" }}>Loading sales orders…</span>
       </div>
     </div>
   );
 
-  // Error state
   if (error) return (
-    <div className="bg-white min-h-screen flex items-center justify-center">
-      <div className="text-center max-w-md p-6">
-        <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
-          <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-        <h3 className="text-lg font-medium text-gray-700">Error Loading Sales Orders</h3>
-        <p className="text-gray-500 mt-2">{error}</p>
-        <button 
-          onClick={handleGetSalesorder}
-          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          Retry
-        </button>
-      </div>
+    <div style={{ padding: "20px", color: T.red, background: T.redDim, borderRadius: "12px", margin: "24px", border: `1px solid rgba(239,68,68,0.2)`, fontFamily: "Inter, sans-serif" }}>
+      Error: {error}
     </div>
   );
-  
+
   return (
-    <div className="bg-white min-h-screen p-6 text-gray-800">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center space-x-2">
-          <h2 className="text-2xl font-bold text-gray-900">Sales Orders</h2>
-          <button className="text-gray-500 hover:text-gray-700">
-            <FaFilter />
-          </button>
+    <>
+      <style>{css}</style>
+      <div className="so-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+
+        {/* ── HEADER ──────────────────────────────────────────── */}
+        <div className="so-fade-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+          <div>
+            <h1 className="so-jakarta" style={{ fontSize: "20px", fontWeight: "700", color: T.textPri, margin: 0 }}>Sales Orders</h1>
+            <p style={{ color: T.textSec, fontSize: "13px", marginTop: "4px" }}>Manage and track all your sales orders</p>
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button className="so-action-btn"
+              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", borderRadius: "9px", fontSize: "13px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit", background: "transparent", color: T.textSec, border: `1px solid ${T.border}` }}>
+              <FaDownload size={11} /> Export
+            </button>
+            <button className="so-action-btn" onClick={() => navigate("/Sales/Salesorders/Newsalesorders")}
+              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", background: T.blue, color: "white", border: "none" }}>
+              <FaPlus size={11} /> New Sales Order
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <button className="p-2 border rounded-md hover:bg-gray-100">
-            <FaThList className="text-gray-600" />
-          </button>
-          <button className="p-2 border rounded-md hover:bg-gray-100">
-            <FaThLarge className="text-gray-600" />
-          </button>
-          <button 
-            className="bg-blue-600 text-white px-4 py-2.5 rounded-md flex items-center space-x-2 hover:bg-blue-700 cursor-pointer transition-colors" 
-            onClick={() => navigate("/Sales/Salesorders/Newsalesorders")}
-          >
-            <FaPlus />
-            <span>New Sales Order</span>
-          </button>
-          <button className="p-2 border rounded-md hover:bg-gray-100">
-            <FaEllipsisV className="text-gray-600" />
-          </button>
+        {/* ── STAT CARDS ──────────────────────────────────────── */}
+        <div className="so-fade-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "14px", marginBottom: "20px" }}>
+          {[
+            { label: "Total Orders",  value: stats.total,              icon: <FaShoppingCart />,     color: T.blue,   dim: T.blueDim   },
+            { label: "Active Orders", value: stats.open,               icon: <FaCheckCircle />,      color: T.green,  dim: T.greenDim  },
+            { label: "Drafts",        value: stats.pending,            icon: <FaClock />,            color: T.amber,  dim: T.amberDim  },
+            { label: "Total Value",   value: formatCurrency(stats.value), icon: <FaFileInvoiceDollar />, color: T.purple, dim: T.purpleDim, small: true },
+          ].map((c, i) => (
+            <div key={i} className="so-stat" style={{ ...card, padding: "18px 20px", position: "relative", overflow: "hidden", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ position: "absolute", top: 0, left: "16px", right: "16px", height: "1px", background: `linear-gradient(90deg, transparent, ${c.color}${isDark ? "50" : "60"}, transparent)` }} />
+              <div>
+                <p style={{ fontSize: "11px", color: T.textSec, fontWeight: "500", margin: "0 0 8px" }}>{c.label}</p>
+                <p className="so-jakarta" style={{ fontSize: c.small ? "15px" : "24px", fontWeight: "700", color: T.textPri, margin: 0, lineHeight: 1 }}>{c.value}</p>
+              </div>
+              <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: c.dim, color: c.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px" }}>{c.icon}</div>
+            </div>
+          ))}
         </div>
-      </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-          <div className="text-sm text-blue-600 font-medium">Total Orders</div>
-          <div className="text-2xl font-bold text-gray-800 mt-1">{stats.totalOrders}</div>
-          <div className="text-xs text-gray-500 mt-2">All time sales orders</div>
-        </div>
-        <div className="bg-green-50 p-4 rounded-lg border border-green-100">
-          <div className="text-sm text-green-600 font-medium">Total Value</div>
-          <div className="text-2xl font-bold text-gray-800 mt-1">{formatCurrency(stats.totalValue)}</div>
-          <div className="text-xs text-gray-500 mt-2">Sum of all order values</div>
-        </div>
-        <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-100">
-          <div className="text-sm text-yellow-600 font-medium">Pending Value</div>
-          <div className="text-2xl font-bold text-gray-800 mt-1">{formatCurrency(stats.pendingValue)}</div>
-          <div className="text-xs text-gray-500 mt-2">Awaiting payment</div>
-        </div>
-        <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-          <div className="text-sm text-purple-600 font-medium">Paid Value</div>
-          <div className="text-2xl font-bold text-gray-800 mt-1">{formatCurrency(stats.paidValue)}</div>
-          <div className="text-xs text-gray-500 mt-2">Received payments</div>
-        </div>
-      </div>
+        {/* ── TOOLBAR ─────────────────────────────────────────── */}
+        <div className="so-fade-up-2" style={{ ...card, padding: "12px 16px", marginBottom: "12px" }}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            {/* Search */}
+            <div style={{ position: "relative", flex: 1, minWidth: "220px" }}>
+              <FaSearch style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: T.textSec, fontSize: "11px", pointerEvents: "none" }} />
+              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+                placeholder="Search by order #, customer, LPO…"
+                style={{ width: "100%", padding: "8px 32px", border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", background: T.surface2, color: T.textPri, outline: "none", fontFamily: "inherit" }} />
+              {search && (
+                <button onClick={() => setSearch("")} style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 0 }}>
+                  <FaTimes size={11} />
+                </button>
+              )}
+            </div>
 
-      {/* Table */}
-      <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase">
-            <tr>
-              <th className="px-6 py-4 text-left w-8">
-                <input type="checkbox" className="w-4 h-4 text-blue-600 border-gray-300 rounded" />
-              </th>
-              <th className="px-6 py-4 text-left font-medium">Sale Order #</th>
-              <th className="px-6 py-4 text-left font-medium">Status</th>
-              <th className="px-6 py-4 text-left font-medium">Customer</th>
-              <th className="px-6 py-4 text-left font-medium">Customer Code</th>
-              <th className="px-6 py-4 text-left font-medium">LPO Number</th>
-              <th className="px-6 py-4 text-left font-medium">LPO Value</th>
-              <th className="px-6 py-4 text-left font-medium">Total Value</th>
-              <th className="px-6 py-4 text-left font-medium">Date</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {currentItems.length > 0 ? (
-              currentItems.map((item, index) => (
-                <tr key={item.id || index} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-                    />
-                  </td>
-                  <td className="px-6 py-4">
-                    <span 
-                      className="text-blue-600 hover:underline font-medium cursor-pointer"
-                      onClick={() => handleItemClick(item)}
-                    >
-                      {item.saleOrderNumber}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.statusColor}`}>
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div>
-                      <div className="font-medium text-gray-800">{item.customer}</div>
-                      <div className="text-xs text-gray-500">{item.customerEmail || 'No email'}</div>
+            {/* Status pills */}
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+              {["all", "open", "confirmed", "draft", "in progress", "completed", "cancelled"].map(s => (
+                <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
+                  className={`so-pill${statusFilter === s ? " so-pill-active" : ""}`}
+                  style={{ padding: "5px 11px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", background: "transparent", color: T.textSec, border: `1px solid ${T.border}`, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  {s === "all" ? "All" : formatStatus(s)}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort */}
+            <div style={{ display: "flex", gap: "6px", marginLeft: "auto" }}>
+              <CustomSelect
+                value={sortBy}
+                onChange={v => { setSortBy(v); setCurrentPage(1); }}
+                options={[
+                  { label: "Date",        value: "date"        },
+                  { label: "Value",     value: "total"     },
+                  { label: "Order #",        value: "order"        },
+                
+                ]}
+                minWidth={130}
+              />
+              {/* <select value={sortBy} onChange={e => { setSortBy(e.target.value); setPage(1); }} className="sort-sel"
+                style={{ padding: "6px 12px", border: `1px solid ${T.border}`, borderRadius: "7px", fontSize: "12px", color: T.textSec, background: T.surface2, fontFamily: "inherit", outline: "none", cursor: "pointer" }}>
+                <option value="date">Date</option>
+                <option value="total">Value</option>
+                <option value="order">Order #</option>
+              </select> */}
+              <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}
+                style={{ padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: T.surface2, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center" }}>
+                {sortDir === "asc" ? <FaSortAmountDown size={12} /> : <FaSortAmountUp size={12} />}
+              </button>
+            </div>
+
+            <span style={{ fontSize: "12px", color: T.textSec, whiteSpace: "nowrap" }}>{filtered.length} order{filtered.length !== 1 ? "s" : ""}</span>
+          </div>
+        </div>
+
+        {/* ── TABLE ───────────────────────────────────────────── */}
+        <div style={{ ...card, overflow: "hidden", marginBottom: "12px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+            <thead>
+              <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
+                <th style={{ padding: "11px 16px", width: "32px" }}>
+                  <input type="checkbox" style={{ accentColor: T.blue }} />
+                </th>
+                {["Order #", "Status", "Customer", "LPO Number", "LPO Value", "Total", "Date", ""].map((h, i) => (
+                  <th key={i} style={{ padding: "11px 16px", textAlign: i >= 4 && i <= 5 ? "right" : "left", fontSize: "11px", fontWeight: "600", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {currentItems.length > 0 ? currentItems.map((item, idx) => {
+                const sc = getStatus(item.rawStatus);
+                return (
+                  <tr key={item.id || idx} className="so-row" style={{ borderBottom: `1px solid ${T.border2}` }}>
+                    <td style={{ padding: "13px 16px" }}><input type="checkbox" style={{ accentColor: T.blue }} /></td>
+
+                    {/* Order # */}
+                    <td style={{ padding: "13px 16px" }}>
+                      <span className="so-order-num so-jakarta" onClick={() => openDrawer(item)}
+                        style={{ fontWeight: "700", fontSize: "13px", color: T.blue, cursor: "pointer", transition: "color 0.15s" }}>
+                        {item.saleOrderNumber}
+                      </span>
+                    </td>
+
+                    {/* Status badge */}
+                    <td style={{ padding: "13px 16px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "11px", fontWeight: "600", padding: "3px 10px", borderRadius: "999px", background: sc.dim, color: sc.color, border: `1px solid ${sc.border}` }}>
+                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: sc.color, display: "inline-block", flexShrink: 0 }} />
+                        {item.status}
+                      </span>
+                    </td>
+
+                    {/* Customer */}
+                    <td style={{ padding: "13px 16px" }}>
+                      <p style={{ fontWeight: "600", color: T.textPri, margin: 0, fontSize: "13px" }}>{item.customer}</p>
+                      {item.customerCode && <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0", fontFamily: "monospace" }}>{item.customerCode}</p>}
+                    </td>
+
+                    {/* LPO */}
+                    <td style={{ padding: "13px 16px", color: T.textSec, fontSize: "12px" }}>{item.lpoNumber}</td>
+
+                    {/* LPO Value */}
+                    <td style={{ padding: "13px 16px", textAlign: "right" }}>
+                      <span className="so-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "13px" }}>{formatCurrency(item.lpoValue)}</span>
+                    </td>
+
+                    {/* Total */}
+                    <td style={{ padding: "13px 16px", textAlign: "right" }}>
+                      <span className="so-jakarta" style={{ fontWeight: "700", color: T.textPri, fontSize: "13px" }}>{formatCurrency(item.total)}</span>
+                    </td>
+
+                    {/* Date */}
+                    <td style={{ padding: "13px 16px", color: T.textSec, fontSize: "12px", whiteSpace: "nowrap" }}>{formatDate(item.orderDate)}</td>
+
+                    {/* Actions */}
+                    <td style={{ padding: "13px 12px" }}>
+                      <div style={{ display: "flex", gap: "5px", justifyContent: "flex-end" }}>
+                        <button className="so-tbl-btn" onClick={() => openDrawer(item)}
+                          style={{ padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.textSec, cursor: "pointer", fontFamily: "inherit", fontWeight: "500" }}>
+                          View
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td colSpan="9" style={{ padding: "64px 20px", textAlign: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px", color: T.textMuted }}>
+                        <FaBoxOpen />
+                      </div>
+                      <p className="so-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "15px", margin: 0 }}>No sales orders found</p>
+                      <p style={{ color: T.textSec, fontSize: "13px", margin: 0 }}>
+                        {statusFilter !== "all" ? `No orders with status "${formatStatus(statusFilter)}"` : "Create your first sales order to get started"}
+                      </p>
+                      <button onClick={() => navigate("/Sales/Salesorders/Newsalesorders")}
+                        style={{ marginTop: "4px", padding: "8px 20px", background: T.blue, color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                        New Sales Order
+                      </button>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-gray-700 font-medium">{item.customerCode}</td>
-                  <td className="px-6 py-4 text-gray-700 font-medium">{item.lpoNumber}</td>
-                  <td className="px-6 py-4 text-gray-700 font-medium">{item.lpoValue}</td>
-                  <td className="px-6 py-4 text-gray-700 font-medium">{item.total}</td>
-                  <td className="px-6 py-4 text-gray-600">{item.orderDate}</td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan="9" className="px-6 py-8 text-center text-gray-500">
-                  No sales orders found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── PAGINATION ──────────────────────────────────────── */}
+        {filtered.length > 0 && (
+          <div style={{ ...card, padding: "11px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: "12px", color: T.textSec }}>
+              Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, filtered.length)} of {filtered.length}
+            </span>
+            <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                style={{ padding: "5px 11px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "12px", color: page === 1 ? T.textMuted : T.textSec, cursor: page === 1 ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "4px", fontFamily: "inherit" }}>
+                <FaChevronLeft size={10} /> Prev
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                .reduce((acc, p, i, arr) => { if (i > 0 && p - arr[i - 1] > 1) acc.push("..."); acc.push(p); return acc; }, [])
+                .map((p, i) => p === "..." ? (
+                  <span key={`e${i}`} style={{ padding: "5px 8px", color: T.textSec, fontSize: "12px" }}>…</span>
+                ) : (
+                  <button key={p} onClick={() => setPage(p)} className="so-page-btn"
+                    style={{ padding: "5px 10px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", border: `1px solid ${page === p ? "rgba(59,130,246,0.35)" : T.border}`, background: page === p ? T.blueDim : "transparent", color: page === p ? T.blueLight : T.textSec }}>
+                    {p}
+                  </button>
+                ))}
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                style={{ padding: "5px 11px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "12px", color: page === totalPages ? T.textMuted : T.textSec, cursor: page === totalPages ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "4px", fontFamily: "inherit" }}>
+                Next <FaChevronRight size={10} />
+              </button>
+            </div>
+            <span style={{ fontSize: "12px", color: T.textSec }}>{totalPages} page{totalPages !== 1 ? "s" : ""}</span>
+          </div>
+        )}
       </div>
 
-      {/* Pagination Footer - Only show if there are items */}
-      {displayItems.length > 0 && (
-        <div className="flex justify-between items-center mt-6 text-sm text-gray-600">
-          <div>
-            Showing {startIndex + 1} -{" "}
-            {Math.min(startIndex + itemsPerPage, displayItems.length)} of {displayItems.length} sales orders
-          </div>
+      {/* ── DRAWER ──────────────────────────────────────────────── */}
+      {drawer && (
+        <>
+          <div className="so-overlay-anim" onClick={closeDrawer}
+            style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.7)" : "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)", zIndex: 50 }} />
 
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 border rounded-md hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Previous
-            </button>
+          <div className="so-drawer-anim"
+            style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "440px", maxWidth: "100vw", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
 
-            {[...Array(totalPages)].map((_, index) => (
-              <button
-                key={index}
-                onClick={() => handlePageChange(index + 1)}
-                className={`px-3 py-1.5 border rounded-md transition-colors ${
-                  currentPage === index + 1
-                    ? "bg-blue-500 text-white border-blue-500"
-                    : "hover:bg-gray-100"
-                }`}
-              >
-                {index + 1}
-              </button>
-            ))}
+            {/* Drawer Header */}
+            {selected && (() => {
+              const sc = getStatus(selected.rawStatus);
+              return (
+                <div style={{ padding: "20px 20px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "16px" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                        <h3 className="so-jakarta" style={{ fontSize: "16px", fontWeight: "700", color: T.textPri, margin: 0 }}>
+                          {selected.saleOrderNumber}
+                        </h3>
+                        <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 10px", borderRadius: "999px", background: sc.dim, color: sc.color, border: `1px solid ${sc.border}`, display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
+                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />
+                          {selected.status}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: "13px", color: T.textSec, margin: 0 }}>{selected.customer}
+                        {selected.customerCode && <span style={{ fontFamily: "monospace", fontSize: "11px", color: T.textMuted, marginLeft: "6px" }}>({selected.customerCode})</span>}
+                      </p>
+                    </div>
+                    <button onClick={closeDrawer}
+                      style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "8px", padding: "6px", cursor: "pointer", color: T.textSec, display: "flex", flexShrink: 0, marginLeft: "12px" }}>
+                      <FaTimes size={12} />
+                    </button>
+                  </div>
 
-            <button
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1.5 border rounded-md hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+                  {/* Tabs */}
+                  <div style={{ display: "flex" }}>
+                    {["overview", "items", "history"].map(tab => (
+                      <button key={tab} onClick={() => setActiveTab(tab)}
+                        className={`drawer-tab${activeTab === tab ? " drawer-tab-active" : ""}`}
+                        style={{ padding: "9px 16px", background: "none", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: "500", fontFamily: "inherit", color: T.textSec, textTransform: "capitalize" }}>
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
-      {/* Drawer with Tabs */}
-      <div
-        className={`fixed inset-0 z-50 ${isDrawerOpen ? 'block' : 'hidden'}`}
-      >
-        {/* Glass Backdrop */}
-        <div 
-          className="absolute inset-0 bg-opacity-20 backdrop-blur-md backdrop-filter"
-          onClick={closeDrawer}
-        ></div>
-        
-        {/* Drawer Panel */}
-        <div className={`absolute right-0 top-0 h-full w-full sm:w-96 md:w-128 bg-white shadow-xl transform transition-transform duration-300 ease-in-out ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-          <div className="h-full flex flex-col">
-            {/* Drawer Header with Gray Border */}
-            <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-gray-200">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">{selectedItem?.saleOrderNumber || "Sales Order Details"}</h3>
-                <p className="text-sm text-gray-500 mt-1">{selectedItem?.customer || ""} ({selectedItem?.customerCode})</p>
-              </div>
-              <button 
-                onClick={closeDrawer}
-                className="p-2 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
-              >
-                <FaTimes className="text-gray-500 text-lg" />
-              </button>
-            </div>
+            {/* Drawer Body */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
+              {selected && activeTab === "overview" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {/* Key info rows */}
+                  {[
+                    { label: "LPO Number",    value: selected.lpoNumber,          color: T.blue   },
+                    { label: "Order Date",     value: formatDate(selected.orderDate), color: T.purple },
+                    { label: "LPO Date",       value: formatDate(selected.lpoDate),  color: T.cyan   },
+                    { label: "Expected Ship",  value: formatDate(selected.expectedShipmentDate), color: T.green },
+                    { label: "Payment Terms",  value: selected.paymentTerms || "—", color: T.amber  },
+                    { label: "Salesperson",    value: selected.salesperson || "—",  color: T.purple },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="detail-row"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", background: T.surface2, borderRadius: "10px", border: `1px solid ${T.border2}` }}>
+                      <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>{label}</span>
+                      <span style={{ fontSize: "13px", fontWeight: "600", color: T.textPri }}>{value}</span>
+                    </div>
+                  ))}
 
-            {/* Tabs Navigation with Gray Border */}
-            <div className="flex-shrink-0 border-b border-gray-200">
-              <div className="flex space-x-1 px-6">
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                    activeTab === 'overview'
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  Overview
-                </button>
-                <button
-                  onClick={() => setActiveTab('transactions')}
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                    activeTab === 'transactions'
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  Transactions
-                </button>
-                <button
-                  onClick={() => setActiveTab('history')}
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                    activeTab === 'history'
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  History
-                </button>
-              </div>
-            </div>
-            
-            {/* Tab Content - Scrollable Area */}
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <div className="h-full overflow-y-auto">
-                <div className="p-6">
-                  {selectedItem && (
-                    <div className="space-y-6">
-                      {/* Overview Tab */}
-                      {activeTab === 'overview' && (
-                        <div className="space-y-6">
-                          {/* Status Card */}
-                          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <div className="text-sm text-gray-500">Status</div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${selectedItem.statusColor}`}>
-                                    {selectedItem.status}
-                                  </span>
-                                  <div className="text-gray-700">{selectedItem.orderDate}</div>
-                                </div>
-                              </div>
-                              <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">
-                                Change Status
-                              </button>
+                  {/* Financial summary */}
+                  <div style={{ background: T.surface2, borderRadius: "12px", border: `1px solid ${T.border2}`, overflow: "hidden", marginTop: "4px" }}>
+                    <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border2}` }}>
+                      <p className="so-jakarta" style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Financial Summary</p>
+                    </div>
+                    {[
+                      { label: "LPO Value",        value: formatCurrency(selected.lpoValue)         },
+                      { label: "Subtotal",          value: formatCurrency(selected.subTotal)         },
+                      { label: "Shipping",          value: formatCurrency(selected.shippingCharges)  },
+                      { label: "Adjustment",        value: formatCurrency(selected.adjustment)       },
+                      { label: "VAT (5%)",          value: formatCurrency(selected.vat)              },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="fin-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.border2}` }}>
+                        <span style={{ fontSize: "12px", color: T.textSec }}>{label}</span>
+                        <span style={{ fontSize: "13px", fontWeight: "500", color: T.textPri }}>{value}</span>
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: isDark ? "rgba(59,130,246,0.06)" : "#eff6ff" }}>
+                      <span className="so-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri }}>Total</span>
+                      <span className="so-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.blue }}>{formatCurrency(selected.total)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {selected && activeTab === "items" && (
+                <div>
+                  {selected.items?.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      {selected.items.map((item, i) => (
+                        <div key={i} style={{ background: T.surface2, borderRadius: "11px", border: `1px solid ${T.border2}`, padding: "13px 14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, margin: 0 }}>{item.details || `Item ${i + 1}`}</p>
+                              <p style={{ fontSize: "12px", color: T.textSec, margin: "4px 0 0" }}>
+                                Qty {item.quantity} × {formatCurrency(item.rate)}
+                                {item.discount && <span style={{ marginLeft: "8px", color: T.amber }}> -{item.discount}</span>}
+                              </p>
                             </div>
-                          </div>
-                          
-                          {/* Customer Details */}
-                          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                            <h4 className="font-medium text-gray-800 mb-3">Customer Details</h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div>
-                                <div className="text-sm text-gray-500">Customer Name</div>
-                                <div className="font-medium text-gray-800 mt-1">{selectedItem.customer}</div>
-                              </div>
-                              <div>
-                                <div className="text-sm text-gray-500">Customer Code</div>
-                                <div className="font-medium text-gray-800 mt-1">{selectedItem.customerCode}</div>
-                              </div>
-                              <div>
-                                <div className="text-sm text-gray-500">LPO Number</div>
-                                <div className="font-medium text-gray-800 mt-1">{selectedItem.lpoNumber}</div>
-                              </div>
-                              <div>
-                                <div className="text-sm text-gray-500">Salesperson</div>
-                                <div className="font-medium text-gray-800 mt-1">{selectedItem.salesperson || 'N/A'}</div>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Financial Details */}
-                          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                            <h4 className="font-medium text-gray-800 mb-3">Financial Summary</h4>
-                            <div className="space-y-3">
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">LPO Value</span>
-                                <span className="font-medium">{selectedItem.lpoValue}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Subtotal</span>
-                                <span className="font-medium">{formatCurrency(selectedItem.subTotal || 0)}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Shipping Charges</span>
-                                <span className="font-medium">{formatCurrency(selectedItem.shippingCharges || 0)}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Adjustment</span>
-                                <span className="font-medium">{formatCurrency(selectedItem.adjustment || 0)}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">VAT</span>
-                                <span className="font-medium">{formatCurrency(selectedItem.vat || 0)}</span>
-                              </div>
-                              <div className="flex justify-between pt-3 border-t border-gray-200">
-                                <span className="font-medium text-gray-800">Total Value</span>
-                                <span className="font-bold text-gray-800">{selectedItem.total}</span>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Order Items */}
-                          {selectedItem.items && selectedItem.items.length > 0 && (
-                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                              <h4 className="font-medium text-gray-800 mb-3">Order Items</h4>
-                              <div className="space-y-3">
-                                {selectedItem.items.map((item, index) => (
-                                  <div key={index} className="flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 bg-white rounded border">
-                                    <div className="mb-2 sm:mb-0">
-                                      <div className="font-medium">{item.details || `Item ${index + 1}`}</div>
-                                      <div className="text-sm text-gray-500">Qty: {item.quantity} × {formatCurrency(item.rate)}</div>
-                                      {item.discount && (
-                                        <div className="text-sm text-gray-500">Discount: {item.discount}</div>
-                                      )}
-                                    </div>
-                                    <div className="text-left sm:text-right">
-                                      <div className="font-medium">{formatCurrency(item.amount)}</div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          
-                          {/* Actions */}
-                          <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 pt-4">
-                            <button className="flex-1 bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium">
-                              Generate Invoice
-                            </button>
-                            <button className="flex-1 bg-gray-200 text-gray-800 py-2.5 px-4 rounded-md hover:bg-gray-300 transition-colors text-sm font-medium">
-                              Edit Order
-                            </button>
-                            <button className="flex-1 bg-red-50 text-red-600 py-2.5 px-4 rounded-md hover:bg-red-100 transition-colors text-sm font-medium">
-                              Cancel Order
-                            </button>
+                            <span className="so-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: T.textPri, marginLeft: "12px", flexShrink: 0 }}>{formatCurrency(item.amount)}</span>
                           </div>
                         </div>
-                      )}
-
-                      {/* Transactions Tab */}
-                      {activeTab === 'transactions' && (
-                        <div className="text-center py-8">
-                          <div className="text-gray-400 mb-4">
-                            <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </div>
-                          <p className="text-gray-600 text-lg">No transactions found</p>
-                          <p className="text-gray-400 text-sm mt-2">There are no transactions for this sales order yet.</p>
-                        </div>
-                      )}
-
-                      {/* History Tab */}
-                      {activeTab === 'history' && (
-                        <div className="text-center py-8">
-                          <div className="text-gray-400 mb-4">
-                            <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </div>
-                          <p className="text-gray-600 text-lg">No Recent History</p>
-                          <p className="text-gray-400 text-sm mt-2">There is no recent history for this sales order.</p>
-                        </div>
-                      )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", gap: "12px" }}>
+                      <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
+                        <FaBoxOpen />
+                      </div>
+                      <p className="so-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No items</p>
+                      <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>No line items found for this order.</p>
                     </div>
                   )}
                 </div>
-              </div>
+              )}
+
+              {selected && activeTab === "history" && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", gap: "12px" }}>
+                  <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
+                    <FaClock />
+                  </div>
+                  <p className="so-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No history yet</p>
+                  <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>Activity will appear here once recorded.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Drawer Footer */}
+            <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "8px" }}>
+              <button className="so-action-btn"
+                style={{ flex: 1, padding: "10px", background: T.blue, color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
+                <FaFileInvoiceDollar size={12} /> Generate Invoice
+              </button>
+              <button className="so-action-btn"
+                style={{ flex: 1, padding: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
+                <FaEdit size={12} /> Edit
+              </button>
+              <button className="so-action-btn"
+                style={{ padding: "10px 14px", background: T.redDim, color: T.red, border: `1px solid ${isDark ? "rgba(239,68,68,0.2)" : "#fca5a5"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <FaBan size={12} />
+              </button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  )
-}
+        </>
+      )}
+    </>
+  );
+};
 
 export default Salesorders;

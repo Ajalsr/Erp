@@ -1,1064 +1,822 @@
 import { useState, useEffect, useRef } from "react";
-import { 
-  FaThList, FaThLarge, FaPlus, FaEllipsisV, FaFilter, 
-  FaTimes, FaSearch, FaChevronDown, FaChevronUp, FaCheck,
-  FaEdit, FaTrash, FaClipboardCheck, FaBoxOpen, FaShippingFast
+import {
+  FaTimes, FaSearch, FaShippingFast, FaBoxOpen,
+  FaChevronLeft, FaChevronRight, FaCheck, FaBan,
+  FaClipboardCheck, FaExclamationTriangle, FaTag,
+  FaWarehouse, FaTruck, FaFileAlt
 } from "react-icons/fa";
-import { useNavigate, useLocation } from "react-router-dom";
-import useGetItem from '../../helper/useGetItem';
-import useGetAllSalesOrder from '../../helper/useGetAllSalesOrder';
+import { useNavigate } from "react-router-dom";
+import useGetItem from "../../helper/useGetItem";
+import useGetAllSalesOrder from "../../helper/useGetAllSalesOrder";
+import useThemeStore, { getTheme } from "../../store/useThemeStore";
+
+// ── Helpers ───────────────────────────────────────────────────────
+const parseQty = (v) => {
+  if (v === undefined || v === null) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const p = parseInt(v); return isNaN(p) ? 0 : p; }
+  return 0;
+};
+const parseAmt = (v) => {
+  if (v === undefined || v === null) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const p = parseFloat(v.replace(/[^\d.-]/g, "")); return isNaN(p) ? 0 : p; }
+  return 0;
+};
+const fmtAED = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const STATUS_CFG = {
+  pending:          { color: "#f59e0b", dim: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "Pending"          },
+  approved:         { color: "#10b981", dim: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  label: "Approved"         },
+  rejected:         { color: "#ef4444", dim: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.25)",   label: "Rejected"         },
+  cancelled:        { color: "#64748b", dim: "rgba(100,116,139,0.12)", border: "rgba(100,116,139,0.25)", label: "Cancelled"        },
+  pending_approval: { color: "#8b5cf6", dim: "rgba(139,92,246,0.12)",  border: "rgba(139,92,246,0.25)",  label: "Awaiting Approval"},
+};
+const getStatus = (s) => STATUS_CFG[s] || STATUS_CFG.pending;
 
 export default function Outbound() {
   const { handleGetItem, data: itemsData, loading: itemsLoading, error: itemsError } = useGetItem();
-  const { handleGetSalesorder, data: salesOrdersData, loading: salesOrdersLoading, error: salesOrdersError } = useGetAllSalesOrder();
-  const navigate = useNavigate();
-  const location = useLocation();
-  
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [filteredItems, setFilteredItems] = useState([]);
-  const [selectedSearchItem, setSelectedSearchItem] = useState(null);
-  const searchRef = useRef(null);
-  
-  // Outbound specific state
-  const [outboundItems, setOutboundItems] = useState([]);
-  const [selectedItems, setSelectedItems] = useState(new Set());
-  const [isBulkSelect, setIsBulkSelect] = useState(false);
-  const [outboundNote, setOutboundNote] = useState("");
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [itemToCancel, setItemToCancel] = useState(null);
-  const [cancelReason, setCancelReason] = useState("");
+  const { handleGetSalesorder, data: salesOrdersData, loading: soLoading, error: soError } = useGetAllSalesOrder();
+  const navigate  = useNavigate();
+  const isDark    = useThemeStore((s) => s.isDark);
+  const T         = getTheme(isDark);
+
+  const [drawer,           setDrawer]           = useState(false);
+  const [selected,         setSelected]         = useState(null);
+  const [searchTerm,       setSearchTerm]       = useState("");
+  const [showDrop,         setShowDrop]         = useState(false);
+  const [filteredItems,    setFilteredItems]    = useState([]);
+  const [outboundItems,    setOutboundItems]    = useState([]);
+  const [selectedIds,      setSelectedIds]      = useState(new Set());
+  const [outboundNote,     setOutboundNote]     = useState("");
+  const [showCancelModal,  setShowCancelModal]  = useState(false);
+  const [itemToCancel,     setItemToCancel]     = useState(null);
+  const [cancelReason,     setCancelReason]     = useState("");
   const [requiresApproval, setRequiresApproval] = useState(false);
-  const [approvedItems, setApprovedItems] = useState(new Set());
-  const [approvalNote, setApprovalNote] = useState("");
+  const [approvedItems,    setApprovedItems]    = useState(new Set());
+  const [page,             setPage]             = useState(1);
+  const perPage = 8;
+  const searchRef = useRef(null);
 
-  // Function to parse quantity from API response
-  const parseQuantity = (value) => {
-    if (value === undefined || value === null) return 0;
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      // Handle empty string
-      if (value.trim() === '') return 0;
-      const parsed = parseInt(value);
-      return isNaN(parsed) ? 0 : parsed;
-    }
-    return 0;
-  };
+  // ── Data transform ───────────────────────────────────────────
+  const findItem = (id) => Array.isArray(itemsData) ? itemsData.find(i => i._id === id) : null;
 
-  // Function to parse amount from API response
-  const parseAmount = (value) => {
-    if (value === undefined || value === null) return 0;
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      // Handle empty string
-      if (value.trim() === '') return 0;
-      // Remove currency symbols and commas
-      const cleaned = value.replace(/[^\d.-]/g, '');
-      const parsed = parseFloat(cleaned);
-      return isNaN(parsed) ? 0 : parsed;
-    }
-    return 0;
-  };
-
-  // Function to find item details from items API by itemId
-  const findItemDetails = (itemId) => {
-    if (!itemsData || !Array.isArray(itemsData)) return null;
-    return itemsData.find(i => i._id === itemId);
-  };
-
-  // Transform sales order items to outbound items format
-  const transformSalesOrderItems = () => {
-    if (!salesOrdersData?.salesOrders) return [];
-    
-    const allOutboundItems = [];
-    
-    salesOrdersData.salesOrders.forEach(salesOrder => {
-      if (salesOrder.items && Array.isArray(salesOrder.items)) {
-        salesOrder.items.forEach(orderItem => {
-          const inventoryItem = findItemDetails(orderItem.itemId);
-          
-          // Parse quantities
-          const orderedQuantity = parseQuantity(orderItem.quantity);
-          
-          // Parse available quantity - if empty, return 0
-          let availableQuantity = 0;
-          if (inventoryItem) {
-            availableQuantity = parseQuantity(inventoryItem.quantity);
-          }
-          
-          // Initial outbound quantity should be ordered quantity
-          const initialOutboundQuantity = orderedQuantity > 0 ? orderedQuantity : 1;
-          
-          // Parse prices and discount
-          const rate = parseAmount(orderItem.rate) || 0;
-          const discount = parseAmount(orderItem.discount) || 0;
-          
-          // Calculate actual selling price after discount
-          // Based on the example: Qty: 4 × AED 5,263.00, Discount: 123, Total: AED 20,929.00
-          // This suggests discount is per unit, not total
-          const sellingPricePerUnit = rate;
-          const totalDiscount = discount; // This appears to be total discount, not per unit
-          
-          // Calculate final unit price after discount
-          const finalUnitPrice = rate - (discount / orderedQuantity);
-          
-          // Use item name from inventory or details from sales order
-          const itemName = orderItem.details || inventoryItem?.name || `Item ${orderItem.itemId}`;
-          const itemCode = inventoryItem?.item_code || orderItem.itemId;
-          
-          allOutboundItems.push({
-            _id: orderItem._id || orderItem.itemId,
-            itemId: orderItem.itemId,
-            name: itemName,
-            item_code: itemCode,
-            sku: "",
-            type: "Product",
-            unit: orderItem.unit || inventoryItem?.Unit || "Piece",
-            description: orderItem.details || "",
-            rate: rate, // Original rate before discount
-            discount: discount, // Total discount
-            selling_price: finalUnitPrice.toFixed(2), // Price per unit after discount
-            quantity: availableQuantity,
-            availableQuantity: availableQuantity,
-            brand: inventoryItem?.brand || "",
-            image: "https://via.placeholder.com/40",
-            outboundQuantity: initialOutboundQuantity, // Set to ordered quantity
-            maxQuantity: availableQuantity, // Available stock (could be 0)
-            orderedQuantity: orderedQuantity,
-            status: "pending",
-            salesOrderNumber: salesOrder.orderNumber,
-            salesOrderId: salesOrder.id
+  const transformItems = () => {
+    if (salesOrdersData?.salesOrders?.length) {
+      const result = [];
+      salesOrdersData.salesOrders.forEach(so => {
+        (so.items || []).forEach(oi => {
+          const inv = findItem(oi.itemId);
+          const ordQty = parseQty(oi.quantity);
+          const avail  = inv ? parseQty(inv.quantity) : 0;
+          const rate   = parseAmt(oi.rate);
+          const disc   = parseAmt(oi.discount);
+          const finalUnit = rate - (ordQty > 0 ? disc / ordQty : 0);
+          result.push({
+            _id:              oi._id || oi.itemId,
+            itemId:           oi.itemId,
+            name:             oi.details || inv?.name || `Item ${oi.itemId}`,
+            item_code:        inv?.item_code || oi.itemId,
+            unit:             oi.unit || inv?.Unit || "Piece",
+            description:      oi.details || "",
+            rate,
+            discount:         disc,
+            selling_price:    finalUnit.toFixed(2),
+            availableQuantity:avail,
+            orderedQuantity:  ordQty,
+            outboundQuantity: ordQty > 0 ? ordQty : 1,
+            maxQuantity:      avail > 0 ? avail : ordQty,
+            brand:            inv?.brand || "",
+            status:           "pending",
+            salesOrderNumber: so.orderNumber,
+            salesOrderId:     so.id,
           });
         });
-      }
-    });
-    
-    console.log("Transformed outbound items:", allOutboundItems);
-    return allOutboundItems;
-  };
-
-  // Get all items - combine from both sources
-  const getAllItems = () => {
-    const salesOrderItems = transformSalesOrderItems();
-    
-    // If we have sales order items, use them
-    if (salesOrderItems.length > 0) {
-      return salesOrderItems;
+      });
+      return result;
     }
-    
-    // Otherwise use the items from items API (fallback)
-    if (itemsData && Array.isArray(itemsData)) {
-      return itemsData.map(item => ({
-        _id: item._id,
-        itemId: item._id,
-        name: item.name || "Unnamed Item",
-        item_code: item.item_code || item._id,
-        sku: "",
-        type: "Product",
-        unit: item.Unit || "Piece",
-        description: "",
-        rate: parseAmount(item.selling_price) || 0,
-        discount: 0,
-        selling_price: item.selling_price || "0.00",
-        quantity: parseQuantity(item.quantity),
-        availableQuantity: parseQuantity(item.quantity),
-        brand: item.brand || "",
-        image: "https://via.placeholder.com/40",
+    if (Array.isArray(itemsData)) {
+      return itemsData.map(i => ({
+        _id:              i._id,
+        itemId:           i._id,
+        name:             i.name || "Unnamed Item",
+        item_code:        i.item_code || i._id,
+        unit:             i.Unit || "Piece",
+        description:      "",
+        rate:             parseAmt(i.selling_price),
+        discount:         0,
+        selling_price:    i.selling_price || "0.00",
+        availableQuantity:parseQty(i.quantity),
+        orderedQuantity:  1,
         outboundQuantity: 1,
-        maxQuantity: parseQuantity(item.quantity),
-        orderedQuantity: 1,
-        status: "pending"
+        maxQuantity:      parseQty(i.quantity),
+        brand:            i.brand || "",
+        status:           "pending",
+        salesOrderNumber: null,
+        salesOrderId:     null,
       }));
     }
-    
     return [];
   };
 
-  useEffect(() => {
-    // Fetch both data sources
-    handleGetItem();
-    handleGetSalesorder();
-  }, []);
+  useEffect(() => { handleGetItem(); handleGetSalesorder(); }, []);
 
-  // Update outbound items when data is loaded
   useEffect(() => {
-    const allItems = getAllItems();
-    
-    if (allItems.length > 0) {
-      // Select all items by default
-      const initialSelected = new Set(allItems.map(item => item._id));
-      setSelectedItems(initialSelected);
-      
-      // Initialize outbound items
-      const initializedItems = allItems.map(item => ({
-        ...item,
-        isSelected: initialSelected.has(item._id),
-        status: "pending"
-      }));
-      setOutboundItems(initializedItems);
-      
-      console.log("Initialized outbound items:", initializedItems);
+    const items = transformItems();
+    if (items.length) {
+      const ids = new Set(items.map(i => i._id));
+      setSelectedIds(ids);
+      setOutboundItems(items.map(i => ({ ...i, isSelected: true })));
     }
   }, [itemsData, salesOrdersData]);
 
-  // Search filter
   useEffect(() => {
-    if (searchTerm.trim() === '') {
-      setFilteredItems([]);
-      setShowDropdown(false);
-    } else {
-      const filtered = outboundItems.filter(item => 
-        (item.item_code && item.item_code.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.name && item.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.salesOrderNumber && item.salesOrderNumber.toLowerCase().includes(searchTerm.toLowerCase()))
-      );
-      setFilteredItems(filtered);
-      setShowDropdown(true);
-    }
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) { setFilteredItems([]); setShowDrop(false); return; }
+    const f = outboundItems.filter(i =>
+      i.item_code?.toLowerCase().includes(q) ||
+      i.name?.toLowerCase().includes(q) ||
+      i.salesOrderNumber?.toLowerCase().includes(q)
+    );
+    setFilteredItems(f);
+    setShowDrop(true);
   }, [searchTerm, outboundItems]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (searchRef.current && !searchRef.current.contains(event.target)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    const h = e => { if (searchRef.current && !searchRef.current.contains(e.target)) setShowDrop(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  // Toggle item selection
-  const toggleItemSelection = (itemId) => {
-    const newSelected = new Set(selectedItems);
-    if (newSelected.has(itemId)) {
-      newSelected.delete(itemId);
-    } else {
-      newSelected.add(itemId);
-    }
-    setSelectedItems(newSelected);
-    
-    // Update outbound items
-    setOutboundItems(prev => prev.map(item => ({
-      ...item,
-      isSelected: newSelected.has(item._id)
-    })));
+  // ── Actions ──────────────────────────────────────────────────
+  const toggleId = (id) => {
+    const s = new Set(selectedIds);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedIds(s);
+    setOutboundItems(p => p.map(i => ({ ...i, isSelected: s.has(i._id) })));
+  };
+  const selectAll   = () => { const s = new Set(outboundItems.map(i => i._id)); setSelectedIds(s); setOutboundItems(p => p.map(i => ({ ...i, isSelected: true }))); };
+  const deselectAll = () => { setSelectedIds(new Set()); setOutboundItems(p => p.map(i => ({ ...i, isSelected: false }))); };
+
+  const updateQty = (id, val) => {
+    const item = outboundItems.find(i => i._id === id);
+    if (!item) return;
+    const max = item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity;
+    const qty = Math.max(1, Math.min(parseInt(val) || 1, max));
+    setOutboundItems(p => p.map(i => i._id === id ? { ...i, outboundQuantity: qty } : i));
   };
 
-  // Select all items
-  const selectAllItems = () => {
-    const allItemIds = new Set(outboundItems.map(item => item._id));
-    setSelectedItems(allItemIds);
-    setOutboundItems(prev => prev.map(item => ({
-      ...item,
-      isSelected: true
-    })));
-    setIsBulkSelect(true);
-  };
-
-  // Deselect all items
-  const deselectAllItems = () => {
-    setSelectedItems(new Set());
-    setOutboundItems(prev => prev.map(item => ({
-      ...item,
-      isSelected: false
-    })));
-    setIsBulkSelect(false);
-  };
-
-  // Update outbound quantity
-  const updateQuantity = (itemId, newQuantity) => {
-  const item = outboundItems.find(i => i._id === itemId);
-  if (!item) return;
-  
-  // Ensure newQuantity is a number
-  const numericQuantity = parseInt(newQuantity) || 1;
-  
-  // Allow up to available stock if we have it
-  const maxQty = item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity;
-  
-  // Ensure quantity is between 1 and max
-  const quantity = Math.max(1, Math.min(numericQuantity, maxQty));
-  
-  console.log(`Updating ${item.name}: ordered=${item.orderedQuantity}, available=${item.availableQuantity}, max=${maxQty}, new=${quantity}`);
-  
-  setOutboundItems(prev => prev.map(item => 
-    item._id === itemId ? { ...item, outboundQuantity: quantity } : item
-  ));
-};
-
-  // Handle outbound save
-  // In your Outbound component, update the handleSaveOutbound function:
-const handleSaveOutbound = () => {
-  const selectedOutboundItems = outboundItems
-    .filter(item => selectedItems.has(item._id))
-    .map(item => ({
-      _id: item._id,
-      itemId: item.itemId,
-      name: item.name,
-      item_code: item.item_code,
-      quantity: item.outboundQuantity,
-      orderedQuantity: item.orderedQuantity,
-      availableQuantity: item.availableQuantity,
-      unit: item.unit,
-      rate: item.rate,
-      discount: item.discount,
-      selling_price: item.selling_price,
+  const handleSave = () => {
+    const sel = outboundItems.filter(i => selectedIds.has(i._id)).map(i => ({
+      ...i, quantity: i.outboundQuantity,
       status: requiresApproval ? "pending_approval" : "approved",
-      salesOrderNumber: item.salesOrderNumber,
-      salesOrderId: item.salesOrderId,
-      description: item.description,
-      sku: item.sku || item.item_code,
-      brand: item.brand
+      sku: i.sku || i.item_code,
     }));
-
-  // Get customer information from sales order (assuming first item has it)
-  const firstItem = selectedOutboundItems[0];
-  const salesOrder = salesOrdersData?.salesOrders?.find(so => 
-    so.id === firstItem?.salesOrderId || so.orderNumber === firstItem?.salesOrderNumber
-  );
-
-  // Calculate totals
-  const totalItems = selectedOutboundItems.length;
-  const totalQuantity = selectedOutboundItems.reduce((sum, item) => sum + item.quantity, 0);
-  const totalValue = selectedOutboundItems.reduce((sum, item) => 
-    sum + (item.quantity * parseFloat(item.selling_price || 0)), 0);
-  const totalDiscount = selectedOutboundItems.reduce((sum, item) => 
-    sum + parseFloat(item.discount || 0), 0);
-  
-  // Calculate subtotal (before discount)
-  const subtotal = selectedOutboundItems.reduce((sum, item) => 
-    sum + (item.quantity * parseFloat(item.rate || 0)), 0);
-
-  // Prepare delivery note data
-  const deliveryNoteData = {
-    items: selectedOutboundItems,
-    summary: {
-      totalItems,
-      totalQuantity,
-      totalValue,
-      totalDiscount,
-      subtotal
-    },
-    customerInfo: {
-      name: salesOrder?.customerName || salesOrder?.customer?.name || "John Smith",
-      orderNumber: firstItem?.salesOrderNumber || salesOrder?.orderNumber || 'N/A',
-      orderId: firstItem?.salesOrderId || salesOrder?.id
-    },
-    note: outboundNote,
-    requiresApproval,
-    approvalNote: requiresApproval ? approvalNote : ""
+    const first = sel[0];
+    const so = salesOrdersData?.salesOrders?.find(s => s.id === first?.salesOrderId);
+    const totalQty   = sel.reduce((s, i) => s + i.outboundQuantity, 0);
+    const totalValue = sel.reduce((s, i) => s + i.outboundQuantity * parseFloat(i.selling_price || 0), 0);
+    const totalDisc  = sel.reduce((s, i) => s + parseFloat(i.discount || 0), 0);
+    const subtotal   = sel.reduce((s, i) => s + i.outboundQuantity * parseFloat(i.rate || 0), 0);
+    const dn = `DN-${Date.now().toString().slice(-6).padStart(6, "0")}`;
+    navigate("/sales/deliverynote", {
+      state: {
+        outboundData: {
+          items: sel,
+          summary: { totalItems: sel.length, totalQuantity: totalQty, totalValue, totalDiscount: totalDisc, subtotal },
+          customerInfo: { name: so?.customerName || "Customer", orderNumber: first?.salesOrderNumber || "N/A", orderId: first?.salesOrderId },
+          note: outboundNote, requiresApproval,
+        },
+        deliveryNote: {
+          number: dn,
+          date: new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }),
+          orderNumber: first?.salesOrderNumber || "N/A",
+          customer: so?.customerName || "Customer",
+          status: "Shipped",
+          note: outboundNote,
+        },
+      },
+    });
   };
 
-  // Generate delivery note number (in real app, this would come from API)
-  const deliveryNoteNumber = `DN-${Date.now().toString().slice(-6).padStart(6, '0')}`;
-
-  // Navigate to delivery note page with data
-  navigate("/sales/deliverynote", {
-    state: {
-      outboundData: deliveryNoteData,
-      deliveryNote: {
-        number: deliveryNoteNumber,
-        date: new Date().toLocaleDateString('en-US', { 
-          month: '2-digit', 
-          day: '2-digit', 
-          year: 'numeric' 
-        }),
-        orderNumber: deliveryNoteData.customerInfo.orderNumber,
-        customer: deliveryNoteData.customerInfo.name,
-        status: "Shipped",
-        note: outboundNote
-      }
-    }
-  });
-
-  // In real app, you would make API call here to save the delivery note
-  console.log("Delivery note created:", deliveryNoteNumber, deliveryNoteData);
-};
-
-  // Handle cancellation
-  const handleCancelRequest = (itemId) => {
-    setItemToCancel(itemId);
-    setShowCancelModal(true);
-  };
-
+  const handleCancelRequest = (id) => { setItemToCancel(id); setShowCancelModal(true); };
   const confirmCancel = () => {
-    if (!cancelReason.trim()) {
-      alert("Please provide a cancellation reason");
-      return;
-    }
-    
-    // Update item status to cancelled
-    setOutboundItems(prev => prev.map(item => 
-      item._id === itemToCancel ? { 
-        ...item, 
-        status: "cancelled",
-        cancelReason,
-        requiresApproval: true 
-      } : item
-    ));
-    
-    // Remove from selected items
-    const newSelected = new Set(selectedItems);
-    newSelected.delete(itemToCancel);
-    setSelectedItems(newSelected);
-    
-    setShowCancelModal(false);
-    setCancelReason("");
-    setItemToCancel(null);
-    alert("Cancellation request submitted for approval");
+    if (!cancelReason.trim()) { alert("Please provide a reason"); return; }
+    setOutboundItems(p => p.map(i => i._id === itemToCancel ? { ...i, status: "cancelled", cancelReason, requiresApproval: true } : i));
+    const s = new Set(selectedIds); s.delete(itemToCancel); setSelectedIds(s);
+    setShowCancelModal(false); setCancelReason(""); setItemToCancel(null);
   };
-
-  // Handle approval
-  const handleApproveItem = (itemId) => {
-    const newApproved = new Set(approvedItems);
-    newApproved.add(itemId);
-    setApprovedItems(newApproved);
-    
-    setOutboundItems(prev => prev.map(item => 
-      item._id === itemId ? { ...item, status: "approved" } : item
-    ));
+  const handleApprove = (id) => {
+    const s = new Set(approvedItems); s.add(id); setApprovedItems(s);
+    setOutboundItems(p => p.map(i => i._id === id ? { ...i, status: "approved" } : i));
   };
+  const handleReject = (id) => setOutboundItems(p => p.map(i => i._id === id ? { ...i, status: "rejected" } : i));
 
-  const handleRejectItem = (itemId) => {
-    setOutboundItems(prev => prev.map(item => 
-      item._id === itemId ? { ...item, status: "rejected" } : item
-    ));
-  };
+  // ── Derived stats ────────────────────────────────────────────
+  const selItems   = outboundItems.filter(i => selectedIds.has(i._id));
+  const totalQty   = selItems.reduce((s, i) => s + (i.outboundQuantity || 0), 0);
+  const totalValue = selItems.reduce((s, i) => s + (i.outboundQuantity || 0) * parseFloat(i.selling_price || 0), 0);
+  const totalDisc  = selItems.reduce((s, i) => s + parseFloat(i.discount || 0), 0);
+  const stockWarn  = outboundItems.filter(i => i.availableQuantity === 0).length;
 
-  // Status badge component
-  const StatusBadge = ({ status }) => {
-    const statusConfig = {
-      pending: { color: "bg-yellow-100 text-yellow-800", text: "Pending" },
-      approved: { color: "bg-green-100 text-green-800", text: "Approved" },
-      rejected: { color: "bg-red-100 text-red-800", text: "Rejected" },
-      cancelled: { color: "bg-gray-100 text-gray-800", text: "Cancelled" },
-      pending_approval: { color: "bg-orange-100 text-orange-800", text: "Pending Approval" }
-    };
-    
-    const config = statusConfig[status] || statusConfig.pending;
-    
-    return (
-      <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.color}`}>
-        {config.text}
-      </span>
-    );
-  };
+  // ── Pagination ───────────────────────────────────────────────
+  const totalPages   = Math.max(1, Math.ceil(outboundItems.length / perPage));
+  const currentItems = outboundItems.slice((page - 1) * perPage, page * perPage);
 
-  // Search handlers
-  const handleSearchChange = (e) => setSearchTerm(e.target.value);
-  
-  const clearSearch = () => {
-    setSearchTerm('');
-    setSelectedSearchItem(null);
-    setShowDropdown(false);
-  };
-  
-  const toggleDropdown = () => {
-    if (searchTerm.trim()) setShowDropdown(!showDropdown);
-  };
-  
-  const handleSelectItemFromDropdown = (item) => {
-    setSelectedSearchItem(item);
-    setSearchTerm(`${item.item_code} - ${item.name}`);
-    setShowDropdown(false);
-  };
+  const loading = itemsLoading || soLoading;
+  const error   = itemsError   || soError;
 
-  // Drawer handlers
-  const handleItemClick = (item) => {
-    setSelectedItem(item);
-    setIsDrawerOpen(true);
-    setActiveTab('overview');
-  };
+  // ── Dynamic CSS ──────────────────────────────────────────────
+  const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
+    .ob-root * { box-sizing: border-box; }
+    .ob-root { font-family: 'DM Sans', sans-serif; }
+    .ob-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
 
-  const closeDrawer = () => {
-    setIsDrawerOpen(false);
-    setSelectedItem(null);
-  };
+    .ob-row { transition: background 0.1s; }
+    .ob-row:hover { background: ${isDark ? "rgba(255,255,255,0.025)" : "#f8fafc"} !important; }
+    .ob-row:hover .ob-name { color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
 
-  // Combine loading and error states
-  const loading = itemsLoading || salesOrdersLoading;
-  const error = itemsError || salesOrdersError;
+    .ob-stat { transition: transform 0.18s ease, box-shadow 0.18s ease; cursor: default; }
+    .ob-stat:hover { transform: translateY(-2px); box-shadow: ${isDark ? "0 8px 32px rgba(0,0,0,0.4)" : "0 8px 24px rgba(0,0,0,0.1)"} !important; }
 
-  // Debug: Log current state
-  useEffect(() => {
-    if (outboundItems.length > 0) {
-      console.log("Current outbound items:", outboundItems.map(item => ({
-        name: item.name,
-        orderedQuantity: item.orderedQuantity,
-        outboundQuantity: item.outboundQuantity,
-        availableQuantity: item.availableQuantity,
-        maxQuantity: item.maxQuantity,
-        rate: item.rate,
-        discount: item.discount,
-        selling_price: item.selling_price
-      })));
-    }
-  }, [outboundItems]);
+    .ob-btn { transition: all 0.15s ease; }
+    .ob-btn:hover { opacity: 0.85; transform: translateY(-1px); }
 
-  // Loading state
+    .ob-icon-btn { transition: all 0.12s; }
+    .ob-icon-btn:hover { background: ${isDark ? "rgba(255,255,255,0.07)" : "#f1f5f9"} !important; }
+
+    .ob-tab { transition: all 0.15s; border-bottom: 2px solid transparent; cursor: pointer; }
+    .ob-tab:hover { color: ${isDark ? "#94a3b8" : "#374151"} !important; }
+    .ob-tab-active { color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; border-bottom-color: ${isDark ? "#3b82f6" : "#2563eb"} !important; }
+
+    .ob-qty-input { outline: none; -moz-appearance: textfield; }
+    .ob-qty-input::-webkit-outer-spin-button,
+    .ob-qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .ob-qty-input:focus { border-color: ${isDark ? "rgba(59,130,246,0.6)" : "#93c5fd"} !important; box-shadow: 0 0 0 3px ${isDark ? "rgba(59,130,246,0.12)" : "rgba(147,197,253,0.25)"} !important; }
+
+    .ob-note:focus { outline: none; border-color: ${isDark ? "rgba(59,130,246,0.5)" : "#93c5fd"} !important; box-shadow: 0 0 0 3px ${isDark ? "rgba(59,130,246,0.1)" : "rgba(147,197,253,0.2)"} !important; }
+
+    .search-item:hover { background: ${isDark ? "rgba(59,130,246,0.08)" : "#eff6ff"} !important; }
+
+    /* ── Custom scrollbar — global + local ─────── */
+    html, body, * { scrollbar-width: thin; scrollbar-color: ${isDark ? "rgba(255,255,255,0.12) transparent" : "rgba(0,0,0,0.14) transparent"}; }
+    html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { width: 5px; height: 5px; }
+    html::-webkit-scrollbar-track, body::-webkit-scrollbar-track, *::-webkit-scrollbar-track { background: transparent; }
+    html::-webkit-scrollbar-thumb, body::-webkit-scrollbar-thumb, *::-webkit-scrollbar-thumb { background: ${isDark ? "rgba(255,255,255,0.11)" : "rgba(0,0,0,0.13)"}; border-radius: 999px; transition: background 0.2s; }
+    html::-webkit-scrollbar-thumb:hover, body::-webkit-scrollbar-thumb:hover, *::-webkit-scrollbar-thumb:hover { background: ${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.24)"}; }
+    html::-webkit-scrollbar-corner, body::-webkit-scrollbar-corner, *::-webkit-scrollbar-corner { background: transparent; }
+
+    @keyframes slideIn  { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @keyframes fadeIn   { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeUp   { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes spin     { to { transform: rotate(360deg); } }
+    @keyframes pulse    { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+    .ob-slide  { animation: slideIn 0.25s cubic-bezier(0.16,1,0.3,1) forwards; }
+    .ob-fade   { animation: fadeIn 0.2s ease forwards; }
+    .ob-up     { animation: fadeUp 0.3s ease both; }
+    .ob-up-1   { animation: fadeUp 0.3s 0.05s ease both; }
+    .ob-up-2   { animation: fadeUp 0.3s 0.10s ease both; }
+    .ob-spin   { animation: spin 0.8s linear infinite; }
+    .ob-pulse  { animation: pulse 1.8s ease infinite; }
+
+    .qty-btn { transition: background 0.1s, color 0.1s; }
+    .qty-btn:hover { background: ${isDark ? "rgba(59,130,246,0.18)" : "#dbeafe"} !important; color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
+
+    .pg-btn { transition: all 0.12s; }
+    .pg-btn:hover:not(:disabled) { border-color: ${isDark ? "rgba(59,130,246,0.4)" : "#93c5fd"} !important; color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
+  `;
+
+  const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: "14px", transition: "background 0.25s, border-color 0.25s" };
+
+  // ── Loading ──────────────────────────────────────────────────
   if (loading) return (
-    <div className="bg-white min-h-screen flex flex-col items-center justify-center">
-      <div className="relative">
-        {/* Animated spinner */}
-        <div className="w-20 h-20 border-4 border-blue-100 rounded-full"></div>
-        <div className="absolute top-0 left-0 w-20 h-20 border-4 border-blue-600 rounded-full animate-spin border-t-transparent"></div>
-        
-        {/* Inner spinner */}
-        <div className="absolute top-2 left-2 w-16 h-16 border-2 border-blue-200 rounded-full animate-spin border-b-transparent" 
-             style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}>
-        </div>
-      </div>
-      
-      <div className="mt-6 text-center">
-        <h3 className="text-lg font-medium text-gray-700">Preparing Outbound Items</h3>
-        <p className="text-gray-500 mt-2">Fetching items and sales orders...</p>
-        
-        <div className="mt-4 w-48 bg-gray-200 rounded-full h-1.5 mx-auto">
-          <div className="bg-blue-600 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }}></div>
-        </div>
-        
-        <div className="mt-4 flex space-x-2 justify-center">
-          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-          <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-        </div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: T.bg }}>
+      <style>{css}</style>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
+        <div className="ob-spin" style={{ width: "36px", height: "36px", border: `3px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%" }} />
+        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "'DM Sans', sans-serif" }}>Preparing outbound items…</span>
       </div>
     </div>
   );
 
-  // Error state
   if (error) return (
-    <div className="bg-white min-h-screen flex items-center justify-center">
-      <div className="text-center max-w-md p-6">
-        <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
-          <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+    <div className="ob-root" style={{ padding: "24px", background: T.bg, minHeight: "100vh" }}>
+      <style>{css}</style>
+      <div style={{ ...card, padding: "24px", display: "flex", alignItems: "center", gap: "14px", maxWidth: "480px", margin: "40px auto" }}>
+        <div style={{ width: "44px", height: "44px", borderRadius: "12px", background: "rgba(239,68,68,0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", flexShrink: 0, fontSize: "18px" }}>
+          <FaExclamationTriangle />
         </div>
-        <h3 className="text-lg font-medium text-gray-700">Error Loading Data</h3>
-        <p className="text-gray-500 mt-2">{error}</p>
-        <button 
-          onClick={() => {
-            handleGetItem();
-            handleGetSalesorder();
-          }}
-          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          Retry
-        </button>
+        <div style={{ flex: 1 }}>
+          <p className="ob-jakarta" style={{ fontWeight: "700", color: T.textPri, margin: "0 0 4px", fontSize: "14px" }}>Failed to load data</p>
+          <p style={{ color: T.textSec, fontSize: "12px", margin: "0 0 12px" }}>{error}</p>
+          <button className="ob-btn" onClick={() => { handleGetItem(); handleGetSalesorder(); }}
+            style={{ padding: "7px 18px", background: T.blue, color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+            Retry
+          </button>
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div className="bg-white min-h-screen p-6 text-gray-800">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center space-x-2">
-          <h2 className="text-lg font-semibold">Outbound Items</h2>
-          <button className="text-gray-500 hover:text-gray-700">
-            <FaFilter />
-          </button>
-        </div>
+    <>
+      <style>{css}</style>
+      <div className="ob-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
 
-        <div className="flex items-center space-x-3">
-          {/* Search Bar */}
-          <div className="relative" ref={searchRef}>
-            <div className="relative">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={handleSearchChange}
-                onFocus={() => searchTerm.trim() && setShowDropdown(true)}
-                className="pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
-                placeholder="Search by item name, code, or sales order..."
-              />
-              <FaSearch className="absolute left-3 top-3 text-gray-400" />
-              <button
-                onClick={toggleDropdown}
-                className="absolute right-10 top-3 text-gray-400 hover:text-gray-600 cursor-pointer"
-              >
-                {showDropdown ? <FaChevronUp /> : <FaChevronDown />}
-              </button>
+        {/* ── HEADER ─────────────────────────────────────────── */}
+        <div className="ob-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "22px" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+              <div style={{ width: "32px", height: "32px", borderRadius: "9px", background: T.blueDim, color: T.blue, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>
+                <FaTruck />
+              </div>
+              <h1 className="ob-jakarta" style={{ fontSize: "19px", fontWeight: "800", color: T.textPri, margin: 0 }}>Outbound</h1>
+            </div>
+            <p style={{ color: T.textSec, fontSize: "12px", margin: 0, paddingLeft: "42px" }}>
+              Prepare and dispatch items from sales orders
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {/* Search */}
+            <div ref={searchRef} style={{ position: "relative" }}>
+              <FaSearch style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)", color: T.textSec, fontSize: "11px", pointerEvents: "none" }} />
+              <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                onFocus={() => searchTerm.trim() && setShowDrop(true)}
+                placeholder="Search items, orders…"
+                style={{ padding: "8px 32px 8px 32px", width: "240px", border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", background: T.surface, color: T.textPri, fontFamily: "inherit" }} />
               {searchTerm && (
-                <button
-                  onClick={clearSearch}
-                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 cursor-pointer"
-                >
-                  <FaTimes />
+                <button onClick={() => { setSearchTerm(""); setShowDrop(false); }}
+                  style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 0 }}>
+                  <FaTimes size={10} />
                 </button>
               )}
-            </div>
-
-            {/* Search Dropdown */}
-            {showDropdown && filteredItems.length > 0 && (
-              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                <div className="py-1">
-                  <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-b">
-                    {filteredItems.length} item(s) found
+              {/* Search dropdown */}
+              {showDrop && filteredItems.length > 0 && (
+                <div className="ob-search-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 9999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: "11px", boxShadow: isDark ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 32px rgba(0,0,0,0.12)", maxHeight: "260px", overflowY: "auto" }}>
+                  <div style={{ padding: "8px 12px", fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${T.border}` }}>
+                    {filteredItems.length} result{filteredItems.length !== 1 ? "s" : ""}
                   </div>
-                  {filteredItems.map((item) => (
-                    <div
-                      key={item._id}
-                      className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex items-center space-x-3 border-b border-gray-100 last:border-b-0"
-                      onClick={() => handleItemClick(item)}
-                    >
-                      <img
-                        src={item.image || "https://via.placeholder.com/30"}
-                        alt={item.name}
-                        className="w-6 h-6 rounded border border-gray-200"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">{item.name}</div>
-                        <div className="text-xs text-gray-500 truncate">
-                          {item.item_code} • Available: {item.availableQuantity} • Ordered: {item.orderedQuantity}
-                          {item.salesOrderNumber && ` • SO: ${item.salesOrderNumber}`}
-                        </div>
+                  {filteredItems.map(item => (
+                    <div key={item._id} className="search-item" onClick={() => { setSelected(item); setDrawer(true); setShowDrop(false); setSearchTerm(""); }}
+                      style={{ padding: "10px 12px", cursor: "pointer", borderBottom: `1px solid ${T.border}`, display: "flex", gap: "10px", alignItems: "center" }}>
+                      <div style={{ width: "30px", height: "30px", borderRadius: "7px", background: T.blueDim, color: T.blue, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>
+                        <FaBoxOpen />
                       </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</p>
+                        <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0" }}>{item.item_code}{item.salesOrderNumber ? ` · ${item.salesOrderNumber}` : ""}</p>
+                      </div>
+                      <span style={{ fontSize: "11px", fontWeight: "600", color: item.availableQuantity === 0 ? "#ef4444" : T.green }}>
+                        {item.availableQuantity} {item.unit}
+                      </span>
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+
+            {/* Save button */}
+            <button className="ob-btn" onClick={handleSave} disabled={selectedIds.size === 0}
+              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 18px", background: selectedIds.size === 0 ? T.surface2 : T.blue, color: selectedIds.size === 0 ? T.textMuted : "white", border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+              <FaShippingFast size={12} />
+              Create Delivery Note
+              {selectedIds.size > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px" }}>{selectedIds.size}</span>}
+            </button>
+          </div>
+        </div>
+
+        {/* ── STAT CARDS ─────────────────────────────────────── */}
+        <div className="ob-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "12px", marginBottom: "18px" }}>
+          {[
+            { label: "Total Items",    value: outboundItems.length,          icon: <FaWarehouse />,      color: T.blue,   dim: T.blueDim,   sub: `${selectedIds.size} selected` },
+            { label: "Selected Value", value: fmtAED(totalValue),            icon: <FaTag />,            color: T.green,  dim: T.greenDim,  sub: `${totalQty} units total`, small: true },
+            { label: "Total Discount", value: fmtAED(totalDisc),             icon: <FaFileAlt />,        color: T.purple, dim: T.purpleDim, sub: "Across selected items", small: true },
+            { label: "Stock Warnings", value: stockWarn,                     icon: <FaExclamationTriangle />, color: stockWarn > 0 ? "#ef4444" : T.green, dim: stockWarn > 0 ? "rgba(239,68,68,0.12)" : T.greenDim, sub: stockWarn > 0 ? "Items with 0 stock" : "All stocked" },
+          ].map((c, i) => (
+            <div key={i} className="ob-stat" style={{ ...card, padding: "16px 18px", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "2px", background: `linear-gradient(90deg, transparent 10%, ${c.color}55, transparent 90%)` }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
+                <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", margin: 0, textTransform: "uppercase", letterSpacing: "0.07em" }}>{c.label}</p>
+                <div style={{ width: "32px", height: "32px", borderRadius: "9px", background: c.dim, color: c.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", flexShrink: 0 }}>{c.icon}</div>
               </div>
-            )}
-          </div>
-
-          <button className="p-2 border rounded-md hover:bg-gray-100">
-            <FaThList className="text-gray-600" />
-          </button>
-          <button className="p-2 border rounded-md hover:bg-gray-100">
-            <FaThLarge className="text-gray-600" />
-          </button>
-        </div>
-      </div>
-
-      {/* Outbound Controls */}
-      <div className="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-lg">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={selectedItems.size === outboundItems.length && outboundItems.length > 0}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    selectAllItems();
-                  } else {
-                    deselectAllItems();
-                  }
-                }}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-              />
-              <span className="text-sm text-gray-600">
-                {selectedItems.size} of {outboundItems.length} items selected
-              </span>
+              <p className="ob-jakarta" style={{ fontSize: c.small ? "14px" : "22px", fontWeight: "800", color: T.textPri, margin: "0 0 6px", lineHeight: 1 }}>{c.value}</p>
+              <p style={{ fontSize: "11px", color: T.textSec, margin: 0 }}>{c.sub}</p>
             </div>
-            
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={requiresApproval}
-                onChange={(e) => setRequiresApproval(e.target.checked)}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-              />
-              <span className="text-sm text-gray-600">Requires Approval</span>
+          ))}
+        </div>
+
+        {/* ── CONTROLS BAR ───────────────────────────────────── */}
+        <div className="ob-up-2" style={{ ...card, padding: "12px 16px", marginBottom: "12px", display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+          {/* Select all checkbox */}
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", userSelect: "none" }}>
+            <input type="checkbox"
+              checked={selectedIds.size === outboundItems.length && outboundItems.length > 0}
+              onChange={e => e.target.checked ? selectAll() : deselectAll()}
+              style={{ accentColor: T.blue, width: "15px", height: "15px" }} />
+            <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>
+              {selectedIds.size} of {outboundItems.length} selected
+            </span>
+          </label>
+
+          <div style={{ width: "1px", height: "20px", background: T.border }} />
+
+          {/* Approval toggle */}
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", userSelect: "none" }}>
+            <div onClick={() => setRequiresApproval(v => !v)}
+              style={{ width: "36px", height: "20px", borderRadius: "999px", background: requiresApproval ? T.blue : (isDark ? "rgba(255,255,255,0.1)" : "#e2e8f0"), position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}>
+              <div style={{ position: "absolute", top: "2px", left: requiresApproval ? "18px" : "2px", width: "16px", height: "16px", borderRadius: "50%", background: "white", transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }} />
             </div>
-          </div>
+            <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>Requires Approval</span>
+          </label>
 
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => setRequiresApproval(!requiresApproval)}
-              className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-sm"
-            >
-              {requiresApproval ? "Disable Approval" : "Enable Approval"}
-            </button>
-            <button
-              onClick={handleSaveOutbound}
-              disabled={selectedItems.size === 0}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-            >
-              <FaShippingFast />
-              <span>Save Outbound ({selectedItems.size})</span>
-            </button>
-          </div>
+          <div style={{ width: "1px", height: "20px", background: T.border }} />
+
+          {/* Note input */}
+          <input value={outboundNote} onChange={e => setOutboundNote(e.target.value)}
+            placeholder="Add dispatch note (optional)…"
+            style={{ flex: 1, minWidth: "200px", padding: "7px 12px", border: `1px solid ${T.border}`, borderRadius: "8px", fontSize: "12px", background: T.surface2, color: T.textPri, fontFamily: "inherit" }} />
+
+          {/* Stock warning badge */}
+          {stockWarn > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "5px 10px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "7px" }}>
+              <FaExclamationTriangle size={10} color="#ef4444" />
+              <span style={{ fontSize: "11px", color: "#ef4444", fontWeight: "600" }}>{stockWarn} out of stock</span>
+            </div>
+          )}
         </div>
 
-        {/* Outbound Note */}
-        <div className="mt-4">
-          <textarea
-            value={outboundNote}
-            onChange={(e) => setOutboundNote(e.target.value)}
-            placeholder="Add notes for this outbound (optional)"
-            className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            rows="2"
-          />
-        </div>
-      </div>
+        {/* ── TABLE ──────────────────────────────────────────── */}
+        <div style={{ ...card, overflow: "hidden", marginBottom: "12px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+            <thead>
+              <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
+                <th style={{ padding: "11px 14px", width: "32px" }}>
+                  <input type="checkbox" style={{ accentColor: T.blue }}
+                    checked={selectedIds.size === outboundItems.length && outboundItems.length > 0}
+                    onChange={e => e.target.checked ? selectAll() : deselectAll()} />
+                </th>
+                {["Item", "Available", "Ordered", "Dispatch Qty", "Status", "Sales Order", "Price / unit", "Actions"].map((h, i) => (
+                  <th key={i} style={{ padding: "11px 14px", textAlign: i >= 6 ? "right" : "left", fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {currentItems.length > 0 ? currentItems.map((item) => {
+                const sc = getStatus(item.status);
+                const isZeroStock = item.availableQuantity === 0;
+                const hasDiscount = item.discount > 0;
+                return (
+                  <tr key={item._id} className="ob-row" style={{ borderBottom: `1px solid ${T.border || T.border}` }}>
+                    <td style={{ padding: "12px 14px" }}>
+                      <input type="checkbox" style={{ accentColor: T.blue }}
+                        checked={selectedIds.has(item._id)}
+                        onChange={() => toggleId(item._id)} />
+                    </td>
 
-      {/* Outbound Items Table */}
-      <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase">
-            <tr>
-              <th className="px-4 py-3 text-left w-8">
-                <input
-                  type="checkbox"
-                  checked={selectedItems.size === outboundItems.length && outboundItems.length > 0}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      selectAllItems();
-                    } else {
-                      deselectAllItems();
-                    }
-                  }}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-                />
-              </th>
-              <th className="px-4 py-3 text-left font-medium">Item</th>
-              <th className="px-4 py-3 text-left font-medium">Available Qty</th>
-              <th className="px-4 py-3 text-left font-medium">Ordered Qty</th>
-              <th className="px-4 py-3 text-left font-medium">Outbound Qty</th>
-              <th className="px-4 py-3 text-left font-medium">Status</th>
-              <th className="px-4 py-3 text-left font-medium">Sales Order</th>
-              <th className="px-4 py-3 text-left font-medium">Actions</th>
-              <th className="px-4 py-3 text-right font-medium">Price</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {outboundItems.length > 0 ? (
-              outboundItems.map((item) => (
-                <tr key={item._id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedItems.has(item._id)}
-                      onChange={() => toggleItemSelection(item._id)}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center space-x-3">
-                      <img
-                        src={item.image || "https://via.placeholder.com/40"}
-                        alt={item.name}
-                        className="w-8 h-8 rounded border border-gray-200"
-                      />
-                      <div>
-                        <span 
-                          className="text-blue-600 hover:underline font-medium cursor-pointer"
-                          onClick={() => handleItemClick(item)}
-                        >
-                          {item.name}
-                        </span>
-                        <div className="text-xs text-gray-500">{item.item_code}</div>
-                        {item.description && (
-                          <div className="text-xs text-gray-400 truncate max-w-xs">{item.description}</div>
-                        )}
-                        {item.discount > 0 && (
-                          <div className="text-xs text-red-500 mt-1">
-                            Discount: AED {parseFloat(item.discount).toFixed(2)}
-                          </div>
-                        )}
+                    {/* Item */}
+                    <td style={{ padding: "12px 14px", maxWidth: "220px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, fontSize: "13px", flexShrink: 0 }}>
+                          <FaBoxOpen />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <p className="ob-name" onClick={() => { setSelected(item); setDrawer(true); }}
+                            style={{ fontSize: "13px", fontWeight: "700", color: T.blue, margin: 0, cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "color 0.15s" }}>
+                            {item.name}
+                          </p>
+                          <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0", fontFamily: "monospace" }}>{item.item_code}</p>
+                          {hasDiscount && (
+                            <p style={{ fontSize: "10px", color: "#f59e0b", margin: "2px 0 0", fontWeight: "600" }}>
+                              Disc: {fmtAED(item.discount)}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`font-medium ${item.availableQuantity === 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                      {item.availableQuantity}
-                    </span>
-                    <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="font-medium">{item.orderedQuantity}</span>
-                    <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        min="1"
-                        max={Math.max(item.orderedQuantity, item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity)}
-                        value={item.outboundQuantity}
-                        onChange={(e) => updateQuantity(item._id, parseInt(e.target.value) || 1)}
-                        className="w-20 p-1 border border-gray-300 rounded text-center"
-                      />
-                      <span className="text-xs text-gray-500">
-                        max {Math.max(item.orderedQuantity, item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity)}
+                    </td>
+
+                    {/* Available qty */}
+                    <td style={{ padding: "12px 14px" }}>
+                      <span className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: isZeroStock ? "#ef4444" : T.green }}>
+                        {item.availableQuantity}
                       </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={item.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    {item.salesOrderNumber ? (
-                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
-                        {item.salesOrderNumber}
+                      <span style={{ fontSize: "11px", color: T.textSec, marginLeft: "4px" }}>{item.unit}</span>
+                      {isZeroStock && <span className="ob-pulse" style={{ display: "block", fontSize: "10px", color: "#ef4444", fontWeight: "600", marginTop: "2px" }}>Out of stock</span>}
+                    </td>
+
+                    {/* Ordered qty */}
+                    <td style={{ padding: "12px 14px" }}>
+                      <span className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "600", color: T.textPri }}>{item.orderedQuantity}</span>
+                      <span style={{ fontSize: "11px", color: T.textSec, marginLeft: "4px" }}>{item.unit}</span>
+                    </td>
+
+                    {/* Dispatch qty — custom stepper */}
+                    <td style={{ padding: "12px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || 1) - 1)}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          −
+                        </button>
+                        <input type="number" min="1" max={item.maxQuantity} value={item.outboundQuantity}
+                          onChange={e => updateQty(item._id, parseInt(e.target.value) || 1)}
+                          className="ob-qty-input"
+                          style={{ width: "44px", height: "24px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface2, color: T.textPri, fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }} />
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || 1) + 1)}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          +
+                        </button>
+                      </div>
+                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>max {item.maxQuantity}</p>
+                    </td>
+
+                    {/* Status */}
+                    <td style={{ padding: "12px 14px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "10px", fontWeight: "700", padding: "3px 9px", borderRadius: "999px", background: sc.dim, color: sc.color, border: `1px solid ${sc.border}`, whiteSpace: "nowrap" }}>
+                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />
+                        {sc.label}
                       </span>
-                    ) : (
-                      <span className="text-xs text-gray-400">N/A</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex space-x-2">
-                      {item.status === "pending_approval" && requiresApproval && (
-                        <>
-                          <button
-                            onClick={() => handleApproveItem(item._id)}
-                            className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded hover:bg-green-200"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleRejectItem(item._id)}
-                            className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded hover:bg-red-200"
-                          >
-                            Reject
-                          </button>
-                        </>
-                      )}
-                      <button
-                        onClick={() => handleCancelRequest(item._id)}
-                        disabled={item.status === "cancelled" || item.status === "approved"}
-                        className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex flex-col items-end">
-                      {item.rate > parseFloat(item.selling_price) ? (
-                        <>
-                          <span className="text-xs text-gray-500 line-through">
-                            AED {parseFloat(item.rate).toFixed(2)}
-                          </span>
-                          <span className="font-medium text-gray-800">
-                            AED {parseFloat(item.selling_price).toFixed(2)}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="font-medium text-gray-800">
-                          AED {parseFloat(item.selling_price).toFixed(2)}
+                    </td>
+
+                    {/* Sales order */}
+                    <td style={{ padding: "12px 14px" }}>
+                      {item.salesOrderNumber ? (
+                        <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "monospace" }}>
+                          {item.salesOrderNumber}
                         </span>
+                      ) : <span style={{ color: T.textMuted, fontSize: "12px" }}>—</span>}
+                    </td>
+
+                    {/* Price */}
+                    <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                      {item.rate > parseFloat(item.selling_price) ? (
+                        <div>
+                          <p style={{ fontSize: "11px", color: T.textMuted, textDecoration: "line-through", margin: "0 0 2px" }}>{fmtAED(item.rate)}</p>
+                          <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.green, margin: 0 }}>{fmtAED(item.selling_price)}</p>
+                        </div>
+                      ) : (
+                        <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>{fmtAED(item.selling_price)}</p>
                       )}
+                    </td>
+
+                    {/* Actions */}
+                    <td style={{ padding: "12px 10px", textAlign: "right" }}>
+                      <div style={{ display: "flex", gap: "5px", justifyContent: "flex-end" }}>
+                        {item.status === "pending_approval" && requiresApproval && (
+                          <>
+                            <button className="ob-icon-btn" onClick={() => handleApprove(item._id)}
+                              style={{ padding: "5px 9px", borderRadius: "7px", border: `1px solid rgba(16,185,129,0.25)`, background: "rgba(16,185,129,0.1)", color: "#10b981", cursor: "pointer", fontSize: "11px", fontWeight: "600", fontFamily: "inherit" }}>
+                              <FaCheck size={9} />
+                            </button>
+                            <button className="ob-icon-btn" onClick={() => handleReject(item._id)}
+                              style={{ padding: "5px 9px", borderRadius: "7px", border: `1px solid rgba(239,68,68,0.25)`, background: "rgba(239,68,68,0.1)", color: "#ef4444", cursor: "pointer", fontSize: "11px", fontWeight: "600", fontFamily: "inherit" }}>
+                              <FaTimes size={9} />
+                            </button>
+                          </>
+                        )}
+                        <button className="ob-icon-btn" onClick={() => handleCancelRequest(item._id)}
+                          disabled={item.status === "cancelled" || item.status === "approved"}
+                          style={{ padding: "5px 9px", borderRadius: "7px", border: `1px solid ${T.border}`, background: "transparent", color: item.status === "cancelled" || item.status === "approved" ? T.textMuted : T.textSec, cursor: item.status === "cancelled" || item.status === "approved" ? "not-allowed" : "pointer", fontSize: "11px", fontWeight: "600", fontFamily: "inherit" }}>
+                          <FaBan size={9} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td colSpan="9" style={{ padding: "64px 20px", textAlign: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px", color: T.textSec }}>
+                        <FaBoxOpen />
+                      </div>
+                      <p className="ob-jakarta" style={{ fontWeight: "700", color: T.textPri, fontSize: "15px", margin: 0 }}>No outbound items</p>
+                      <p style={{ color: T.textSec, fontSize: "13px", margin: 0 }}>No sales order items found for dispatch</p>
                     </div>
                   </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan="9" className="px-4 py-8 text-center text-gray-500">
-                  <div className="flex flex-col items-center justify-center">
-                    <FaBoxOpen className="text-gray-400 text-3xl mb-2" />
-                    <p className="text-lg">No outbound items found</p>
-                    <p className="text-sm mt-1">No sales order items or inventory items available for outbound</p>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── PAGINATION ─────────────────────────────────────── */}
+        {outboundItems.length > 0 && (
+          <div style={{ ...card, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+            <span style={{ fontSize: "12px", color: T.textSec }}>
+              {(page - 1) * perPage + 1}–{Math.min(page * perPage, outboundItems.length)} of {outboundItems.length} items
+            </span>
+            <div style={{ display: "flex", gap: "4px" }}>
+              <button className="pg-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                style={{ padding: "5px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", color: page === 1 ? T.textMuted : T.textSec, cursor: page === 1 ? "not-allowed" : "pointer", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px", fontFamily: "inherit" }}>
+                <FaChevronLeft size={9} /> Prev
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button key={p} className="pg-btn" onClick={() => setPage(p)}
+                  style={{ padding: "5px 10px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", border: `1px solid ${page === p ? "rgba(59,130,246,0.35)" : T.border}`, background: page === p ? T.blueDim : "transparent", color: page === p ? T.blueLight : T.textSec }}>
+                  {p}
+                </button>
+              ))}
+              <button className="pg-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                style={{ padding: "5px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", color: page === totalPages ? T.textMuted : T.textSec, cursor: page === totalPages ? "not-allowed" : "pointer", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px", fontFamily: "inherit" }}>
+                Next <FaChevronRight size={9} />
+              </button>
+            </div>
+            <span style={{ fontSize: "12px", color: T.textSec }}>{totalPages} page{totalPages !== 1 ? "s" : ""}</span>
+          </div>
+        )}
+
+        {/* ── SUMMARY FOOTER ─────────────────────────────────── */}
+        {selectedIds.size > 0 && (
+          <div style={{ ...card, padding: "16px 20px", background: isDark ? "rgba(59,130,246,0.05)" : "#f8faff", borderColor: isDark ? "rgba(59,130,246,0.15)" : "#dbeafe" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+              <div style={{ display: "flex", gap: "28px", flexWrap: "wrap" }}>
+                {[
+                  { label: "Items", value: selectedIds.size },
+                  { label: "Total Units", value: `${totalQty} pcs` },
+                  { label: "Subtotal",    value: fmtAED(selItems.reduce((s, i) => s + i.outboundQuantity * parseFloat(i.rate || 0), 0)) },
+                  { label: "Discount",   value: fmtAED(totalDisc), red: true },
+                  { label: "Total Value", value: fmtAED(totalValue), bold: true },
+                ].map(({ label, value, red, bold }) => (
+                  <div key={label}>
+                    <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
+                    <p className="ob-jakarta" style={{ fontSize: bold ? "16px" : "14px", fontWeight: bold ? "800" : "700", color: red ? "#ef4444" : bold ? T.blue : T.textPri, margin: 0 }}>{value}</p>
                   </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                ))}
+              </div>
+              <button className="ob-btn" onClick={handleSave}
+                style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
+                <FaShippingFast size={13} /> Create Delivery Note
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Summary */}
-      {selectedItems.size > 0 && (
-        <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-          <h3 className="font-medium mb-3">Outbound Summary</h3>
-          <div className="grid grid-cols-4 gap-4">
-            <div className="bg-white p-3 rounded border">
-              <div className="text-sm text-gray-500">Total Items</div>
-              <div className="text-lg font-bold">{selectedItems.size}</div>
-            </div>
-            <div className="bg-white p-3 rounded border">
-              <div className="text-sm text-gray-500">Total Outbound Qty</div>
-              <div className="text-lg font-bold">
-                {outboundItems
-                  .filter(item => selectedItems.has(item._id))
-                  .reduce((sum, item) => sum + (item.outboundQuantity || 0), 0)}
-                <span className="text-sm text-gray-500 ml-1">
-                  / {outboundItems
-                    .filter(item => selectedItems.has(item._id))
-                    .reduce((sum, item) => sum + (item.orderedQuantity || 0), 0)} ordered
-                </span>
-              </div>
-            </div>
-            <div className="bg-white p-3 rounded border">
-              <div className="text-sm text-gray-500">Total Value</div>
-              <div className="text-lg font-bold">
-                AED {outboundItems
-                  .filter(item => selectedItems.has(item._id))
-                  .reduce((sum, item) => 
-                    sum + ((item.outboundQuantity || 0) * parseFloat(item.selling_price || 0)), 0)
-                  .toFixed(2)}
-              </div>
-            </div>
-            <div className="bg-white p-3 rounded border">
-              <div className="text-sm text-gray-500">Total Discount</div>
-              <div className="text-lg font-bold text-red-600">
-                AED {outboundItems
-                  .filter(item => selectedItems.has(item._id))
-                  .reduce((sum, item) => sum + parseFloat(item.discount || 0), 0)
-                  .toFixed(2)}
-              </div>
-            </div>
-          </div>
-          
-          {/* Additional info */}
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <div className="text-sm text-gray-600">
-              <strong>Note:</strong> Outbound quantity is initially set to ordered quantity. 
-              If available quantity is 0, it will be shown in red. You can adjust outbound quantity down if needed.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Cancel Modal */}
+      {/* ── CANCEL MODAL ──────────────────────────────────────── */}
       {showCancelModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96">
-            <h3 className="text-lg font-bold mb-4">Cancel Outbound Item</h3>
-            <div className="mb-4">
-              <label className="block text-sm text-gray-600 mb-2">Reason for Cancellation</label>
-              <textarea
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-md"
-                rows="3"
-                placeholder="Please provide reason for cancellation..."
-              />
+        <>
+          <div className="ob-fade" onClick={() => { setShowCancelModal(false); setCancelReason(""); }}
+            style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.75)" : "rgba(15,23,42,0.45)", backdropFilter: "blur(6px)", zIndex: 100 }} />
+          <div className="ob-up" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 101, width: "400px", maxWidth: "calc(100vw - 32px)", ...card, padding: "24px", boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.6)" : "0 16px 48px rgba(0,0,0,0.15)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
+              <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: "rgba(239,68,68,0.1)", color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", flexShrink: 0 }}>
+                <FaBan />
+              </div>
+              <div>
+                <h3 className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "700", color: T.textPri, margin: 0 }}>Cancel Item</h3>
+                <p style={{ fontSize: "12px", color: T.textSec, margin: "2px 0 0" }}>This will require manager approval</p>
+              </div>
             </div>
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => {
-                  setShowCancelModal(false);
-                  setCancelReason("");
-                }}
-                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Cancel
+            <label style={{ fontSize: "11px", fontWeight: "600", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: "6px" }}>
+              Reason for Cancellation <span style={{ color: "#ef4444" }}>*</span>
+            </label>
+            <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+              placeholder="Please describe the reason…"
+              rows={3}
+              className="ob-note"
+              style={{ width: "100%", padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", background: T.surface2, color: T.textPri, fontFamily: "inherit", resize: "none" }} />
+            <div style={{ display: "flex", gap: "8px", marginTop: "16px", justifyContent: "flex-end" }}>
+              <button className="ob-btn" onClick={() => { setShowCancelModal(false); setCancelReason(""); }}
+                style={{ padding: "8px 18px", border: `1px solid ${T.border}`, borderRadius: "9px", background: "transparent", color: T.textSec, fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                Dismiss
               </button>
-              <button
-                onClick={confirmCancel}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              >
+              <button className="ob-btn" onClick={confirmCancel}
+                style={{ padding: "8px 18px", background: "#ef4444", color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
                 Submit for Approval
               </button>
             </div>
           </div>
-        </div>
+        </>
       )}
 
-      {/* Drawer Component */}
-      <div
-        className={`fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out ${
-          isDrawerOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        <div 
-          className="absolute inset-0 bg-opacity-20 backdrop-blur-md backdrop-filter"
-          onClick={closeDrawer}
-        ></div>
-        
-        <div className="absolute right-0 top-0 h-full w-full sm:w-96 md:w-128 bg-white shadow-xl flex flex-col">
-          <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-gray-200">
-            <div>
-              <h3 className="text-xl font-bold text-gray-900">{selectedItem?.name || "Item Details"}</h3>
-              <p className="text-sm text-gray-500 mt-1">{selectedItem?.item_code}</p>
-            </div>
-            <button 
-              onClick={closeDrawer}
-              className="p-2 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
-            >
-              <FaTimes className="text-gray-500 text-lg" />
-            </button>
-          </div>
+      {/* ── ITEM DRAWER ───────────────────────────────────────── */}
+      {drawer && (
+        <>
+          <div className="ob-fade" onClick={() => { setDrawer(false); setSelected(null); }}
+            style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.7)" : "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)", zIndex: 50 }} />
+          <div className="ob-slide"
+            style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "420px", maxWidth: "100vw", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
 
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <div className="h-full overflow-y-auto p-6">
-              {selectedItem && (
-                <div className="space-y-6">
-                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <h4 className="font-medium text-gray-800 mb-3">Item Information</h4>
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <div className="text-sm text-gray-500">Item Name</div>
-                          <div className="font-medium text-gray-800 mt-1">{selectedItem.name}</div>
+            {selected && (() => {
+              const sc = getStatus(selected.status);
+              return (
+                <>
+                  {/* Drawer header */}
+                  <div style={{ padding: "20px 20px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "14px" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "5px" }}>
+                          <h3 className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.name}</h3>
                         </div>
-                        <div>
-                          <div className="text-sm text-gray-500">Item Code</div>
-                          <div className="font-medium text-gray-800 mt-1">{selectedItem.item_code}</div>
-                        </div>
-                        <div>
-                          <div className="text-sm text-gray-500">Available Quantity</div>
-                          <div className={`font-medium ${selectedItem.availableQuantity === 0 ? 'text-red-600' : 'text-gray-800'} mt-1`}>
-                            {selectedItem.availableQuantity} {selectedItem.unit}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-sm text-gray-500">Ordered Quantity</div>
-                          <div className="font-medium text-gray-800 mt-1">{selectedItem.orderedQuantity} {selectedItem.unit}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "11px", fontFamily: "monospace", color: T.textSec }}>{selected.item_code}</span>
+                          <span style={{ fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "999px", background: sc.dim, color: sc.color, border: `1px solid ${sc.border}`, display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                            <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />{sc.label}
+                          </span>
                         </div>
                       </div>
+                      <button onClick={() => { setDrawer(false); setSelected(null); }}
+                        style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "8px", padding: "6px", cursor: "pointer", color: T.textSec, display: "flex", flexShrink: 0, marginLeft: "10px" }}>
+                        <FaTimes size={11} />
+                      </button>
                     </div>
                   </div>
-                  
-                  {selectedItem.salesOrderNumber && (
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                      <h4 className="font-medium text-gray-800 mb-3">Sales Order Information</h4>
-                      <div className="space-y-2">
-                        <div>
-                          <div className="text-sm text-gray-500">Sales Order Number</div>
-                          <div className="font-medium text-gray-800 mt-1">{selectedItem.salesOrderNumber}</div>
+
+                  {/* Drawer body */}
+                  <div className="ob-drawer-body" style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {/* Qty overview */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+                      {[
+                        { label: "Available", value: selected.availableQuantity, unit: selected.unit, warn: selected.availableQuantity === 0 },
+                        { label: "Ordered",   value: selected.orderedQuantity,   unit: selected.unit },
+                        { label: "Dispatch",  value: selected.outboundQuantity,  unit: selected.unit, blue: true },
+                      ].map(({ label, value, unit, warn, blue }) => (
+                        <div key={label} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "12px 14px", textAlign: "center" }}>
+                          <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 6px" }}>{label}</p>
+                          <p className="ob-jakarta" style={{ fontSize: "18px", fontWeight: "800", color: warn ? "#ef4444" : blue ? T.blue : T.textPri, margin: 0, lineHeight: 1 }}>{value}</p>
+                          <p style={{ fontSize: "10px", color: T.textSec, margin: "3px 0 0" }}>{unit}</p>
                         </div>
-                      </div>
+                      ))}
                     </div>
-                  )}
-                  
-                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <h4 className="font-medium text-gray-800 mb-3">Outbound Information</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Outbound Quantity</span>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-medium">{selectedItem.outboundQuantity}</span>
-                          <span className="text-sm text-gray-500">of {selectedItem.orderedQuantity} ordered</span>
+
+                    {/* Sales order */}
+                    {selected.salesOrderNumber && (
+                      <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "13px 14px" }}>
+                        <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>Linked Sales Order</p>
+                        <span style={{ fontSize: "12px", fontWeight: "700", padding: "4px 10px", borderRadius: "7px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "monospace" }}>
+                          {selected.salesOrderNumber}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Pricing breakdown */}
+                    <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                      <div style={{ padding: "11px 14px", borderBottom: `1px solid ${T.border}` }}>
+                        <p className="ob-jakarta" style={{ fontSize: "11px", fontWeight: "700", color: T.textPri, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pricing</p>
+                      </div>
+                      {[
+                        { label: "Original Rate",  value: fmtAED(selected.rate) },
+                        selected.discount > 0 && { label: "Discount",       value: `− ${fmtAED(selected.discount)}`, red: true },
+                        { label: "Price / unit",   value: fmtAED(selected.selling_price) },
+                      ].filter(Boolean).map(({ label, value, red }) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+                          <span style={{ fontSize: "12px", color: T.textSec }}>{label}</span>
+                          <span style={{ fontSize: "13px", fontWeight: "600", color: red ? "#ef4444" : T.textPri }}>{value}</span>
                         </div>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Original Rate</span>
-                        <span className="font-medium">AED {parseFloat(selectedItem.rate || 0).toFixed(2)}</span>
-                      </div>
-                      {selectedItem.discount > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Discount</span>
-                          <span className="font-medium text-red-600">- AED {parseFloat(selectedItem.discount || 0).toFixed(2)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Selling Price (per unit)</span>
-                        <span className="font-medium">AED {parseFloat(selectedItem.selling_price || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between pt-2 border-t border-gray-200">
-                        <span className="font-medium text-gray-800">Total Value</span>
-                        <span className="font-bold text-gray-800">
-                          AED {((selectedItem.outboundQuantity || 1) * parseFloat(selectedItem.selling_price || 0)).toFixed(2)}
+                      ))}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: isDark ? "rgba(59,130,246,0.06)" : "#eff6ff" }}>
+                        <span className="ob-jakarta" style={{ fontSize: "12px", fontWeight: "700", color: T.textPri }}>Line Total</span>
+                        <span className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.blue }}>
+                          {fmtAED((selected.outboundQuantity || 1) * parseFloat(selected.selling_price || 0))}
                         </span>
                       </div>
                     </div>
+
+                    {/* Dispatch qty adjuster */}
+                    <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "14px" }}>
+                      <p style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 10px" }}>Adjust Dispatch Qty</p>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || 1) - 1)}
+                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                        <input type="number" min="1" max={selected.maxQuantity} value={selected.outboundQuantity}
+                          onChange={e => { updateQty(selected._id, parseInt(e.target.value) || 1); setSelected(prev => ({ ...prev, outboundQuantity: Math.max(1, Math.min(parseInt(e.target.value) || 1, prev.maxQuantity)) })); }}
+                          className="ob-qty-input"
+                          style={{ flex: 1, height: "32px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "8px", background: T.surface, color: T.textPri, fontSize: "14px", fontWeight: "700", fontFamily: "inherit" }} />
+                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || 1) + 1)}
+                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                      </div>
+                      <p style={{ fontSize: "11px", color: T.textSec, margin: "7px 0 0" }}>Max dispatchable: <strong>{selected.maxQuantity}</strong></p>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+
+                  {/* Drawer footer */}
+                  <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "8px" }}>
+                    <button className="ob-btn" onClick={() => handleCancelRequest(selected._id)}
+                      disabled={selected.status === "cancelled" || selected.status === "approved"}
+                      style={{ flex: 1, padding: "9px", background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", opacity: selected.status === "cancelled" || selected.status === "approved" ? 0.5 : 1 }}>
+                      <FaBan size={11} /> Cancel
+                    </button>
+                    {selected.status === "pending_approval" && requiresApproval && (
+                      <>
+                        <button className="ob-btn" onClick={() => { handleApprove(selected._id); setDrawer(false); }}
+                          style={{ flex: 1, padding: "9px", background: "rgba(16,185,129,0.1)", color: "#10b981", border: "1px solid rgba(16,185,129,0.25)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                          <FaCheck size={10} /> Approve
+                        </button>
+                        <button className="ob-btn" onClick={() => { handleReject(selected._id); setDrawer(false); }}
+                          style={{ flex: 1, padding: "9px", background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                          <FaTimes size={10} /> Reject
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </>
   );
 }
