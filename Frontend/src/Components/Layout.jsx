@@ -1,42 +1,43 @@
 import { Outlet } from 'react-router-dom'
 import { useState } from 'react'
 import Sidebar from './Home/Sidebar'
-import Navbar from './Home/Navbar'
+import Navbar  from './Home/Navbar'
+import useThemeStore from '../store/useThemeStore'
 
 export default function Layout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarToggle, setSidebarToggle] = useState(false)
+  const isDark = useThemeStore((s) => s.isDark)
+
+  const sidebarWidth = sidebarToggle ? '60px' : '220px'
 
   return (
-    <>
-      <style>{`
-        .layout-root {
-          background: #0a0f1e;
-          min-height: 100vh;
-        }
-        .layout-main {
-          background: #0d1526;
-          overflow-y: auto;
-        }
-        /* Custom scrollbar */
-        .layout-main::-webkit-scrollbar { width: 5px; }
-        .layout-main::-webkit-scrollbar-track { background: transparent; }
-        .layout-main::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.08);
-          border-radius: 3px;
-        }
-        .layout-main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
-      `}</style>
+    <div style={{
+      display:    'flex',
+      height:     '100vh',
+      background: isDark ? '#080d1a' : '#f1f5f9',
+      transition: 'background 0.25s ease',
+    }}>
+      <Sidebar isCollapsed={sidebarToggle} />
 
-      <div className="layout-root flex h-screen overflow-hidden">
-        <Sidebar isCollapsed={sidebarCollapsed} />
+      <div style={{
+        marginLeft:    sidebarWidth,
+        flex:          1,
+        display:       'flex',
+        flexDirection: 'column',
+        minWidth:      0,
+        transition:    'margin-left 0.3s ease',
+      }}>
+        <Navbar onToggleSidebar={() => setSidebarToggle(!sidebarToggle)} />
 
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <Navbar onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)} />
-          <main className="layout-main flex-1 p-6">
-            <Outlet />
-          </main>
-        </div>
+        <main style={{
+          flex:       1,
+          overflowY:  'auto',
+          background: isDark ? '#080d1a' : '#f1f5f9',
+          transition: 'background 0.25s ease',
+        }}>
+          <Outlet />
+        </main>
       </div>
-    </>
+    </div>
   )
 }

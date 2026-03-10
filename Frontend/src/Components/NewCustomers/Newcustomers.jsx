@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
 import toast, { Toaster } from "react-hot-toast";
@@ -137,9 +138,8 @@ const FinanceTab = ({ formData, handleChange }) => (
       ))}
       <div>
         <Label>Currency</Label>
-        <select className="nc-select" name="currency" value={formData.currency} onChange={handleChange}>
-          {['UAE Dirham', 'USD', 'EUR', 'GBP', 'SAR'].map(c => <option key={c}>{c}</option>)}
-        </select>
+        <CustomSelect name="currency" value={formData.currency} onChange={handleChange}
+          options={['UAE Dirham', 'USD', 'EUR', 'GBP', 'SAR']} placeholder="Select currency" />
       </div>
     </div>
   </div>
@@ -313,22 +313,340 @@ const DocumentsTab = ({ documents, handleFileUpload, removeDocument, getFileIcon
   </div>
 );
 
+// ─── Custom Select — portal-based dropdown, no native <select> ───
+const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select', name }) => {
+  const [open,      setOpen]    = useState(false);
+  const [ready,     setReady]   = useState(false);
+  const [dropPos,   setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const rafRef     = useRef(null);
+
+  const selected = options.find(o => (o.value ?? o) === value);
+  const display  = selected ? (selected.label ?? selected) : null;
+
+  const measurePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const dropH = Math.min(options.length * 44 + 16, 260);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
+    setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width });
+    setReady(true);
+  }, [options.length]);
+
+  const handleOpen = () => {
+    if (open) { setOpen(false); setReady(false); return; }
+    setReady(false);
+    setOpen(true);
+    // Two rAF frames — first lets React render the portal, second lets browser paint it
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = requestAnimationFrame(() => measurePos());
+    });
+  };
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const s = () => measurePos(), r = () => measurePos();
+    window.addEventListener('scroll', s, true);
+    window.addEventListener('resize', r);
+    return () => { window.removeEventListener('scroll', s, true); window.removeEventListener('resize', r); };
+  }, [open, measurePos]);
+
+  useEffect(() => {
+    const h = e => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+          dropRef.current    && !dropRef.current.contains(e.target)) {
+        setOpen(false); setReady(false);
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const select = (opt) => {
+    onChange({ target: { name, value: opt.value ?? opt } });
+    setOpen(false); setReady(false);
+  };
+
+  const dropdown = (
+    <div ref={dropRef}
+      style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, width: dropPos.width,
+               zIndex: 99999, background: 'white', border: '1.5px solid #e2e8f0', borderRadius: '12px',
+               boxShadow: '0 16px 48px rgba(0,0,0,0.12)', overflow: 'hidden',
+               fontFamily: "'Outfit', sans-serif", boxSizing: 'border-box',
+               visibility: ready ? 'visible' : 'hidden',
+               opacity: ready ? 1 : 0, transition: 'opacity 0.12s ease' }}>
+      <div style={{ maxHeight: '244px', overflowY: 'auto', padding: '6px' }}>
+        {options.map((opt, i) => {
+          const val   = opt.value ?? opt;
+          const lbl   = opt.label ?? opt;
+          const isAct = val === value;
+          return (
+            <div key={i} onClick={() => select(opt)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                       padding: '9px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
+                       fontWeight: isAct ? '600' : '400',
+                       color: isAct ? '#1d4ed8' : '#1e293b',
+                       background: isAct ? '#eff6ff' : 'transparent',
+                       transition: 'background 0.1s' }}
+              onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = '#f8fafc'; }}
+              onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = 'transparent'; }}>
+              {lbl}
+              {isAct && (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      {label && <Label>{label}</Label>}
+      <div ref={triggerRef} onClick={handleOpen}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                 height: '42px', padding: '0 14px', border: `1.5px solid ${open ? '#93c5fd' : '#e2e8f0'}`,
+                 borderRadius: '10px', background: 'white', cursor: 'pointer',
+                 boxShadow: open ? '0 0 0 3px rgba(147,197,253,0.2)' : 'none',
+                 transition: 'border-color 0.15s, box-shadow 0.15s',
+                 boxSizing: 'border-box', userSelect: 'none' }}>
+        <span style={{ fontSize: '13px', color: display ? '#1e293b' : '#cbd5e1',
+                       fontFamily: "'Outfit', sans-serif", fontWeight: display ? '500' : '400' }}>
+          {display || placeholder}
+        </span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke={open ? '#2563eb' : '#94a3b8'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+          style={{ transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      {open && createPortal(dropdown, document.body)}
+    </div>
+  );
+};
+
+// ─── Custom DatePicker — portal-based so it's never clipped ──────
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => {
+  const [open,      setOpen]      = useState(false);
+  const [ready,     setReady]     = useState(false);
+  const [viewYear,  setViewYear]  = useState(() => value ? new Date(value).getFullYear()  : new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => value ? new Date(value).getMonth()     : new Date().getMonth());
+  const [pickingY,  setPickingY]  = useState(false);
+  const [dropPos,   setDropPos]   = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const rafRef     = useRef(null);
+
+  const measurePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const dropH = 360;
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > dropH ? r.bottom + 6 : r.top - dropH - 6;
+    setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width });
+    setReady(true);
+  }, []);
+
+  const handleOpen = () => {
+    if (open) { setOpen(false); setReady(false); setPickingY(false); return; }
+    setReady(false);
+    setOpen(true);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = requestAnimationFrame(() => measurePos());
+    });
+  };
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const s = () => measurePos(), r = () => measurePos();
+    window.addEventListener('scroll', s, true);
+    window.addEventListener('resize', r);
+    return () => { window.removeEventListener('scroll', s, true); window.removeEventListener('resize', r); };
+  }, [open, measurePos]);
+
+  useEffect(() => {
+    const h = e => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+          dropRef.current    && !dropRef.current.contains(e.target)) {
+        setOpen(false); setReady(false);
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const parsed   = value ? new Date(value + 'T00:00:00') : null;
+  const display  = parsed ? `${String(parsed.getDate()).padStart(2,'0')} ${MONTHS[parsed.getMonth()].slice(0,3)} ${parsed.getFullYear()}` : '';
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDay    = new Date(viewYear, viewMonth, 1).getDay();
+
+  const selectDay = d => {
+    const iso = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    onChange(iso);
+    setOpen(false); setReady(false);
+  };
+
+  const prevMonth = e => { e.stopPropagation(); if (viewMonth === 0) { setViewMonth(11); setViewYear(y=>y-1); } else setViewMonth(m=>m-1); };
+  const nextMonth = e => { e.stopPropagation(); if (viewMonth === 11) { setViewMonth(0);  setViewYear(y=>y+1); } else setViewMonth(m=>m+1); };
+
+  const yearRange = Array.from({ length: 31 }, (_, i) => new Date().getFullYear() - 10 + i);
+
+  const isSelected = d => parsed && parsed.getDate() === d && parsed.getMonth() === viewMonth && parsed.getFullYear() === viewYear;
+  const isToday    = d => { const t = new Date(); return t.getDate() === d && t.getMonth() === viewMonth && t.getFullYear() === viewYear; };
+
+  const calendar = (
+    <div ref={dropRef}
+      style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, zIndex: 99999,
+               background: 'white', border: '1.5px solid #e2e8f0', borderRadius: '14px',
+               boxShadow: '0 20px 60px rgba(0,0,0,0.15)', padding: '16px',
+               width: Math.max(dropPos.width, 280) + 'px', fontFamily: "'Outfit', sans-serif",
+               boxSizing: 'border-box',
+               visibility: ready ? 'visible' : 'hidden',
+               opacity: ready ? 1 : 0, transition: 'opacity 0.12s ease' }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+        <button type="button" onClick={prevMonth}
+          style={{ width: '30px', height: '30px', border: '1.5px solid #e2e8f0', borderRadius: '8px', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexShrink: 0 }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+
+        <button type="button" onClick={e => { e.stopPropagation(); setPickingY(p => !p); }}
+          style={{ display: 'flex', alignItems: 'center', gap: '5px', background: pickingY ? '#eff6ff' : 'transparent', border: pickingY ? '1.5px solid #bfdbfe' : '1.5px solid transparent', borderRadius: '8px', padding: '5px 12px', cursor: 'pointer', fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>
+          {MONTHS[viewMonth]} {viewYear}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5">
+            <polyline points={pickingY ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}/>
+          </svg>
+        </button>
+
+        <button type="button" onClick={nextMonth}
+          style={{ width: '30px', height: '30px', border: '1.5px solid #e2e8f0', borderRadius: '8px', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexShrink: 0 }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+
+      {/* Year grid */}
+      {pickingY ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+          {yearRange.map(y => (
+            <button key={y} type="button"
+              onClick={e => { e.stopPropagation(); setViewYear(y); setPickingY(false); }}
+              style={{ padding: '7px 2px', borderRadius: '7px', fontSize: '12px', fontWeight: y === viewYear ? '700' : '400', border: 'none', cursor: 'pointer', background: y === viewYear ? '#2563eb' : 'transparent', color: y === viewYear ? 'white' : '#374151' }}>
+              {y}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          {/* Day headers */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: '6px' }}>
+            {DAYS.map(d => (
+              <div key={d} style={{ textAlign: 'center', fontSize: '10px', fontWeight: '600', color: '#94a3b8', padding: '3px 0', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d}</div>
+            ))}
+          </div>
+
+          {/* Day cells */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: '2px' }}>
+            {Array(firstDay).fill(null).map((_, i) => <div key={`e${i}`} />)}
+            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => (
+              <button key={d} type="button" onClick={e => { e.stopPropagation(); selectDay(d); }}
+                style={{ aspectRatio: '1', borderRadius: '8px', fontSize: '12px', fontWeight: isSelected(d) ? '700' : isToday(d) ? '600' : '400',
+                         border: isToday(d) && !isSelected(d) ? '1.5px solid #bfdbfe' : 'none',
+                         cursor: 'pointer', background: isSelected(d) ? '#2563eb' : 'transparent',
+                         color: isSelected(d) ? 'white' : isToday(d) ? '#2563eb' : '#374151',
+                         display: 'flex', alignItems: 'center', justifyContent: 'center',
+                         minHeight: '32px' }}
+                onMouseEnter={e => { if (!isSelected(d)) e.currentTarget.style.background = '#eff6ff'; }}
+                onMouseLeave={e => { if (!isSelected(d)) e.currentTarget.style.background = 'transparent'; }}>
+                {d}
+              </button>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div style={{ display: 'flex', gap: '6px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+            <button type="button" onClick={e => { e.stopPropagation(); const t = new Date(); setViewMonth(t.getMonth()); setViewYear(t.getFullYear()); selectDay(t.getDate()); }}
+              style={{ flex: 1, padding: '7px', background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '8px', fontSize: '12px', fontWeight: '600', color: '#1d4ed8', cursor: 'pointer', fontFamily: "'Outfit', sans-serif" }}>
+              Today
+            </button>
+            <button type="button" onClick={e => { e.stopPropagation(); onChange(''); setOpen(false); setReady(false); }}
+              style={{ flex: 1, padding: '7px', background: 'white', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', fontWeight: '500', color: '#64748b', cursor: 'pointer', fontFamily: "'Outfit', sans-serif" }}>
+              Clear
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      {label && <Label>{label}</Label>}
+
+      {/* Trigger */}
+      <div ref={triggerRef}
+        onClick={handleOpen}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                 height: '42px', padding: '0 14px', border: `1.5px solid ${open ? '#93c5fd' : '#e2e8f0'}`,
+                 borderRadius: '10px', background: 'white', cursor: 'pointer',
+                 transition: 'border-color 0.15s, box-shadow 0.15s',
+                 boxShadow: open ? '0 0 0 3px rgba(147,197,253,0.2)' : 'none',
+                 boxSizing: 'border-box', width: '100%', userSelect: 'none' }}>
+        <span style={{ fontSize: '13px', color: display ? '#1e293b' : '#cbd5e1', fontFamily: "'Outfit', sans-serif", fontWeight: display ? '500' : '400' }}>
+          {display || placeholder}
+        </span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={open ? '#2563eb' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+      </div>
+
+      {/* Portal — renders directly on body, never clipped */}
+      {open && createPortal(calendar, document.body)}
+    </div>
+  );
+};
+
 const CustomFieldsTab = ({ customFields, setFormData }) => (
   <div>
     <SectionHeader icon={<FaBuilding />} title="Custom Fields" subtitle="Additional business registration details" />
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+
+      {/* Text fields */}
       {[
-        { label: 'Trade License Number', key: 'tradeLicenseNumber', placeholder: 'TL-XXXXXXXX', type: 'text' },
-        { label: 'TRL Number',           key: 'trlNumber',          placeholder: 'TRL-XXXXXX',  type: 'text' },
-        { label: 'Registration Date',    key: 'registrationDate',   placeholder: '',             type: 'date' },
-        { label: 'License Expiry Date',  key: 'licenseExpiryDate',  placeholder: '',             type: 'date' },
+        { label: 'Trade License Number', key: 'tradeLicenseNumber', placeholder: 'TL-XXXXXXXX' },
+        { label: 'TRL Number',           key: 'trlNumber',          placeholder: 'TRL-XXXXXX'  },
       ].map(f => (
         <div key={f.key}>
           <Label>{f.label}</Label>
-          <input className="nc-input" type={f.type} value={customFields?.[f.key] || ''} placeholder={f.placeholder}
+          <input className="nc-input" type="text" value={customFields?.[f.key] || ''} placeholder={f.placeholder}
             onChange={e => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, [f.key]: e.target.value } }))} />
         </div>
       ))}
+
+      {/* Custom date pickers */}
+      <DatePicker
+        label="Registration Date"
+        value={customFields?.registrationDate || ''}
+        onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, registrationDate: v } }))}
+      />
+      <DatePicker
+        label="License Expiry Date"
+        value={customFields?.licenseExpiryDate || ''}
+        onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, licenseExpiryDate: v } }))}
+      />
     </div>
   </div>
 );
@@ -564,11 +882,8 @@ const Newcustomers = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: '14px' }}>
                   <div>
-                    <Label>Salutation</Label>
-                    <select className="nc-select" name="salutation" value={formData.salutation} onChange={handleChange}>
-                      <option value="">Select</option>
-                      {['Mr.','Mrs.','Ms.','Miss','Dr.'].map(s => <option key={s}>{s}</option>)}
-                    </select>
+                    <CustomSelect name="salutation" label="Salutation" value={formData.salutation}
+                      onChange={handleChange} options={['Mr.','Mrs.','Ms.','Miss','Dr.']} placeholder="Select" />
                   </div>
                   <div>
                     <Label>First Name</Label>

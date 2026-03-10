@@ -16,6 +16,7 @@ import EditCustomer from "./Components/Customers/EditCustomer"
 import Outbound from "./Components/Outbound/Outbound"
 import DeliveryNote from "./Components/DeliveryNote/Deliverynote"
 import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute" 
+import Vendors from "./Components/Vendor/Vendor"
 
 function App() {
   return (
@@ -47,6 +48,7 @@ function App() {
           <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders />} />
           <Route path="/Purchase/Purchaseorders" element={<Purchaseorders />} />
           <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
+          <Route path="Purchase/Vendors" element={<Vendors />} />
         </Route>
       </Routes>
     </>
