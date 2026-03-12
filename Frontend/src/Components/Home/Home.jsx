@@ -9,6 +9,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import useAuthStore from "../../store/useAuthStore";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useGetDashboardStats from "../../helper/useGetDashboardStats";
 
 /* ─── SVG Sparkline ─────────────────────────────────────────────── */
 const Spark = ({ data, color, h = 38, filled = true }) => {
@@ -47,6 +48,9 @@ export default function Dashboard() {
   const T         = getTheme(isDark);
   const initials  = (user?.userId || "A").charAt(0).toUpperCase();
 
+  // ── Live dashboard data from backend ──────────────────────────────
+  const { stats, loading: statsLoading, error: statsError, refresh } = useGetDashboardStats();
+
   const [time, setTime] = useState(new Date());
   const [pendingApprovals, setPendingApprovals] = useState([
     { id: 1, type: "outbound_cancel", item: "Office Chair",        by: "John Doe",     ago: "2h ago" },
@@ -59,14 +63,147 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
-  /* ── static data ── */
-  const activities = [
-    { id: 1, k: "cart",    text: "New sale order #SO-2023-156 created",  by: "John Doe",     ago: "10m" },
-    { id: 2, k: "truck",   text: "Outbound #OB-2023-045 approved",       by: "Sarah Smith",  ago: "25m" },
-    { id: 3, k: "box",     text: "Low stock alert: Storage Cabinet",     by: "System",       ago: "1h"  },
-    { id: 4, k: "invoice", text: "Invoice #INV-2023-089 sent to client", by: "Mike Johnson", ago: "2h"  },
-    { id: 5, k: "user",    text: "New customer: TechCorp UAE",           by: "System",       ago: "3h"  },
-  ];
+  // ── Live values — keys match GetDashboardStats response exactly ──────
+  // /api/customers/dashboard  → totalCustomers, activeCustomers, pendingCustomers,
+  //                              todayNewCustomers, thisMonthNewCustomers, growthRate
+  const totalCustomers       = stats.totalCustomers;
+  const activeCustomers      = stats.activeCustomers;
+  const pendingCustomers     = stats.pendingCustomers;
+  const todayNewCustomers    = stats.todayNewCustomers;
+  const thisMonthNewCustomers = stats.thisMonthNewCustomers;
+  const growthRate           = stats.growthRate;
+  // /api/customers/stats      → inactiveCustomers, businessCustomers, recentCustomers
+  const inactiveCustomers    = stats.inactiveCustomers;
+  const businessCustomers    = stats.businessCustomers;
+  const recentCustomers      = stats.recentCustomers;
+  // /api/stocks/getitem       → totalItems, lowStockCount, lowStockItems
+  const totalItems           = stats.totalItems;
+  const lowStockCount        = stats.lowStockCount;
+  // /api/sales-orders/stats   → pendingOrders, todayNewOrders, todayRevenue
+  const pendingOrders        = stats.pendingOrders;
+  // Use live low-stock list when loaded, static fallback while loading
+  const lowStock = stats.lowStockItems.length > 0
+    ? stats.lowStockItems
+    : [
+        { id: 1, name: "Storage Cabinet", code: "ITM001", cur: 5,  min: 10, s: "critical" },
+        { id: 2, name: "Office Chair",    code: "ITM003", cur: 8,  min: 15, s: "warning"  },
+        { id: 3, name: "LED Bulb 15W",    code: "ITM004", cur: 15, min: 20, s: "warning"  },
+        { id: 4, name: "Area Rug",        code: "ITM002", cur: 3,  min: 10, s: "critical" },
+      ];
+  // Recent orders: use live if available, static fallback otherwise
+  const orders = stats.recentOrders.length > 0
+    ? stats.recentOrders.map(o => ({
+        id:   o.salesOrderNumber ?? o._id?.substring(0,10) ?? "—",
+        cust: o.customerName     ?? o.customer ?? "—",
+        amt:  Number(o.totalAmount ?? 0).toLocaleString("en-AE"),
+        st:   o.status === "completed" || o.status === "delivered" ? "completed" : "open",
+        date: o.createdAt
+              ? new Date(o.createdAt).toLocaleDateString("en-AE", { day:"numeric", month:"short" })
+              : "—",
+      }))
+    : [
+        { id: "SO-2023-156", cust: "ABC Corporation",   amt: "45,000", st: "open",      date: "Today"      },
+        { id: "SO-2023-155", cust: "XYZ Ltd",           amt: "28,500", st: "completed", date: "Yesterday"  },
+        { id: "SO-2023-154", cust: "Global Industries", amt: "62,000", st: "completed", date: "2 days ago" },
+        { id: "SO-2023-153", cust: "Tech Solutions",    amt: "15,750", st: "open",      date: "3 days ago" },
+      ];
+
+  /* ── Activity Feed — built from already-loaded stats data ── */
+  // Converts agoSecs → readable string
+  const fmtAgo = (date) => {
+    if (!date) return "—";
+    const secs = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    if (secs < 0)    return "just now";
+    if (secs < 60)   return `${secs}s`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
+    return `${Math.floor(secs / 86400)}d`;
+  };
+
+  const activities = (() => {
+    const evts = [];
+
+    // 1. Recent sales orders (already in stats.recentOrders)
+    if (stats.recentOrders && stats.recentOrders.length > 0) {
+      stats.recentOrders.slice(0, 5).forEach((o, i) => {
+        const num  = o.salesOrderNumber ?? o.orderNumber ?? o._id?.substring(0,10) ?? "—";
+        const cust = o.customerName ?? o.customer ?? "";
+        const by   = o.salesperson ?? o.createdBy ?? "—";
+        const status = (o.status || "").toLowerCase();
+        const ts   = o.updatedAt ?? o.createdAt;
+        const isNew = !status || status === "draft" || status === "pending";
+        evts.push({
+          id:  `so-${i}`,
+          k:   isNew ? "cart" : "invoice",
+          text: isNew
+            ? `New sale order #${num} created${cust ? " — " + cust : ""}`
+            : `Sale order #${num} ${status}${cust ? " — " + cust : ""}`,
+          by,
+          ago: fmtAgo(ts),
+          _ts: ts ? new Date(ts).getTime() : 0,
+        });
+      });
+    }
+
+    // 2. Recent customers (from stats data — use activeCustomersList which is already fetched)
+    if (stats.activeCustomersList && stats.activeCustomersList.length > 0) {
+      stats.activeCustomersList.slice(0, 3).forEach((cu, i) => {
+        const name = cu.customerDisplayName ?? cu.companyName ?? "Unknown";
+        const by   = cu.created_by ?? cu.createdBy ?? "System";
+        const ts   = cu.created_at ?? cu.createdAt;
+        evts.push({
+          id:  `cu-${i}`,
+          k:   "user",
+          text: `New customer: ${name}`,
+          by,
+          ago: fmtAgo(ts),
+          _ts: ts ? new Date(ts).getTime() : 0,
+        });
+      });
+    }
+
+    // 3. Low stock alerts (from stats.lowStockItems — already loaded)
+    if (stats.lowStockItems && stats.lowStockItems.length > 0) {
+      stats.lowStockItems.slice(0, 3).forEach((item, i) => {
+        evts.push({
+          id:  `ls-${i}`,
+          k:   "box",
+          text: `Low stock alert: ${item.name}${item.cur !== undefined ? ` (${item.cur} left)` : ""}`,
+          by:  "System",
+          ago: "now",
+          _ts: Date.now() - i * 1000,
+        });
+      });
+    }
+
+    // 4. Recently added items (all items have created_at after stock_controller fix)
+    if (stats.allItems && stats.allItems.length > 0) {
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      stats.allItems
+        .filter(item => {
+          const ts = item.created_at || item.createdAt;
+          return ts && new Date(ts).getTime() > sevenDaysAgo;
+        })
+        .slice(0, 4)
+        .forEach((item, i) => {
+          const ts = item.created_at || item.createdAt;
+          evts.push({
+            id:  `ni-${i}`,
+            k:   "invoice",
+            text: `New item added: ${item.name || item.itemName || "Unknown"}`,
+            by:  item.created_by || item.createdBy || "System",
+            ago: fmtAgo(ts),
+            _ts: ts ? new Date(ts).getTime() : 0,
+          });
+        });
+    }
+
+    // Sort newest-first, cap at 8
+    evts.sort((a, b) => (b._ts || 0) - (a._ts || 0));
+    return evts.slice(0, 8);
+  })();
+
+  const actLoading = statsLoading;
 
   /* Icon + colors per activity type — recalculated when T changes */
   const actMeta = {
@@ -76,19 +213,6 @@ export default function Dashboard() {
     invoice: { icon: <FaFileInvoice />,  c: T.amber,  dim: T.amberDim  },
     user:    { icon: <FaUser />,         c: T.purple, dim: T.purpleDim },
   };
-
-  const lowStock = [
-    { id: 1, name: "Storage Cabinet", code: "ITM001", cur: 5,  min: 10, s: "critical" },
-    { id: 2, name: "Office Chair",    code: "ITM003", cur: 8,  min: 15, s: "warning"  },
-    { id: 3, name: "LED Bulb 15W",    code: "ITM004", cur: 15, min: 20, s: "warning"  },
-    { id: 4, name: "Area Rug",        code: "ITM002", cur: 3,  min: 10, s: "critical" },
-  ];
-  const orders = [
-    { id: "SO-2023-156", cust: "ABC Corporation",   amt: "45,000", st: "open",      date: "Today"      },
-    { id: "SO-2023-155", cust: "XYZ Ltd",           amt: "28,500", st: "completed", date: "Yesterday"  },
-    { id: "SO-2023-154", cust: "Global Industries", amt: "62,000", st: "completed", date: "2 days ago" },
-    { id: "SO-2023-153", cust: "Tech Solutions",    amt: "15,750", st: "open",      date: "3 days ago" },
-  ];
 
   const spkRevenue   = [18, 26, 21, 34, 28, 40, 35, 48, 44, 55, 50, 62];
   const spkOrders    = [4, 7, 5, 9, 6, 11, 8, 12, 9, 10, 11, 12];
@@ -170,6 +294,9 @@ export default function Dashboard() {
     /* bar chart */
     .bar{transition:opacity .12s}
     .bar:hover{opacity:.85 !important}
+
+    /* refresh spin */
+    @keyframes spin{to{transform:rotate(360deg)}}
   `;
 
   const card = (ex = {}) => ({
@@ -187,6 +314,14 @@ export default function Dashboard() {
   return (
     <div className="hd" style={{ minHeight: "100vh", background: T.bg, padding: "24px 28px", color: T.textPri }}>
       <style>{css}</style>
+
+      {/* ── Error banner ── */}
+      {statsError && (
+        <div style={{ marginBottom: "14px", padding: "10px 16px", borderRadius: "10px", background: isDark ? "rgba(239,68,68,.1)" : "#fef2f2", border: `1px solid ${isDark ? "rgba(239,68,68,.22)" : "#fca5a5"}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+          <span style={{ fontSize: "12px", color: T.red, fontWeight: "500" }}>⚠ Could not load dashboard data — showing cached values.{stats.dashboardUpdatedAt ? ` Last success: ${stats.dashboardUpdatedAt}` : ""}</span>
+          <button onClick={refresh} style={{ fontSize: "11px", fontWeight: "700", color: T.red, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Retry</button>
+        </div>
+      )}
 
       {/* ══ HEADER ══════════════════════════════════════════════════ */}
       <div className="s0" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "26px" }}>
@@ -215,6 +350,12 @@ export default function Dashboard() {
           <div className="sora" style={{ padding: "7px 15px", background: surfaceBg, border: `1px solid ${borderColor}`, borderRadius: "10px", fontSize: "13px", fontWeight: "600", color: T.textPri, letterSpacing: "0.06em", minWidth: "96px", textAlign: "center" }}>
             {fmtClock(time)}
           </div>
+          {/* refresh */}
+          <button onClick={refresh} title="Refresh dashboard" style={{ width: "38px", height: "38px", borderRadius: "10px", background: statsLoading ? T.blueDim : surfaceBg, border: `1px solid ${statsLoading ? T.blue : borderColor}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: statsLoading ? T.blue : T.textSec, transition: "all .2s" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ animation: statsLoading ? "spin 0.9s linear infinite" : "none" }}>
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+          </button>
           {/* bell */}
           <button style={{ position: "relative", width: "38px", height: "38px", borderRadius: "10px", background: surfaceBg, border: `1px solid ${borderColor}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.textSec }}>
             <FaBell size={13} />
@@ -305,9 +446,10 @@ export default function Dashboard() {
           <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent,${T.purple},transparent)`, opacity: isDark ? .45 : .65 }} />
           <div>
             <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 10px" }}>Active Customers</p>
-            <p className="sora" style={{ fontSize: "24px", fontWeight: "700", color: T.textPri, margin: "0 0 6px", letterSpacing: "-0.03em", lineHeight: 1 }}>48</p>
+            <p className="sora" style={{ fontSize: "24px", fontWeight: "700", color: T.textPri, margin: "0 0 6px", letterSpacing: "-0.03em", lineHeight: 1 }}>{statsLoading ? "—" : activeCustomers}</p>
+            <p style={{ fontSize: "10px", color: T.textSec, margin: "0 0 6px" }}>{statsLoading ? "" : `${totalCustomers} total · ${pendingCustomers} pending`}</p>
             <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: "600", color: T.purple }}>
-              <FaArrowUp size={8} /> +5 this month
+              <FaArrowUp size={8} /> +{thisMonthNewCustomers} this month
             </span>
           </div>
           <div style={{ marginTop: "12px" }}>
@@ -319,10 +461,10 @@ export default function Dashboard() {
       {/* ══ KPI CARDS ═══════════════════════════════════════════════ */}
       <div className="s2" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "14px", marginBottom: "14px" }}>
         {[
-          { label: "Total Items",      val: 156, icon: <FaLayerGroup />,         c: T.blue,  dim: T.blueDim,  up: true,  trend: "+4",  spk: [90,100,108,115,120,128,156],   action: () => navigate("/Items/Items") },
-          { label: "Pending Orders",   val: 12,  icon: <FaShoppingCart />,       c: T.amber, dim: T.amberDim, up: true,  trend: "+3",  spk: spkOrders,                      action: () => navigate("/Sales/Salesorders") },
-          { label: "Outbound Pending", val: 5,   icon: <FaTruck />,              c: T.green, dim: T.greenDim, up: false, trend: "−2",  spk: [9,7,8,6,7,5,6,7,6,5,6,5],    action: () => navigate("/Sales/Outbound") },
-          { label: "Low Stock Alerts", val: 8,   icon: <FaExclamationTriangle />, c: T.red,  dim: T.redDim,   up: false, trend: "+2",  spk: [3,4,5,4,6,5,7,6,7,7,8,8],    action: () => navigate("/Items/Items") },
+          { label: "Total Items",      val: statsLoading ? "…" : totalItems,    icon: <FaLayerGroup />,          c: T.blue,  dim: T.blueDim,  up: true,  trend: "+4",  spk: [90,100,108,115,120,128,totalItems||156],   action: () => navigate("/Items/Items") },
+          { label: "Pending Orders",   val: statsLoading ? "…" : pendingOrders,  icon: <FaShoppingCart />,        c: T.amber, dim: T.amberDim, up: true,  trend: "+3",  spk: spkOrders,                                  action: () => navigate("/Sales/Salesorders") },
+          { label: "Outbound Pending", val: 5,                                   icon: <FaTruck />,               c: T.green, dim: T.greenDim, up: false, trend: "−2",  spk: [9,7,8,6,7,5,6,7,6,5,6,5],                action: () => navigate("/Sales/Outbound") },
+          { label: "Low Stock Alerts", val: statsLoading ? "…" : lowStockCount,  icon: <FaExclamationTriangle />, c: T.red,   dim: T.redDim,   up: false, trend: "+2",  spk: [3,4,5,4,6,5,7,6,7,7,8,8],                action: () => navigate("/Items/Items") },
         ].map((k, i) => (
           <div key={i} className="kpi" onClick={k.action}
             style={{ ...card({ padding: "18px 20px", position: "relative", overflow: "hidden" }) }}>
@@ -374,30 +516,42 @@ export default function Dashboard() {
           <div style={{ padding: "17px 20px 13px", borderBottom: `1px solid ${borderColor}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
               <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>Activity Feed</p>
-              <span className="live" style={{ width: "6px", height: "6px", borderRadius: "50%", background: T.green, display: "inline-block" }} />
+              <span className="live" style={{ width: "6px", height: "6px", borderRadius: "50%", background: actLoading ? T.amber : T.green, display: "inline-block", animation: actLoading ? "dhPulse 1.2s ease infinite" : "dhPulse 2.5s ease infinite" }} />
+              {actLoading && <span style={{ fontSize: "9px", color: T.textSec, fontWeight: 600, letterSpacing: ".04em" }}>LOADING…</span>}
             </div>
             <button className="lnk" style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
               View all <FaArrowRight size={8} />
             </button>
           </div>
           <div style={{ padding: "7px 12px" }}>
-            {activities.map(a => {
-              const m = actMeta[a.k];
-              return (
-                <div key={a.id} className="act" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 10px" }}>
-                  <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: m.dim, color: m.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>{m.icon}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: "12px", color: T.textPri, fontWeight: "500", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</p>
-                    <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0", display: "flex", alignItems: "center", gap: "5px" }}>
-                      {a.by}
-                      <span style={{ width: "3px", height: "3px", borderRadius: "50%", background: T.textSec, display: "inline-block" }} />
-                      <FaClock size={8} /> {a.ago} ago
-                    </p>
+            {actLoading
+              ? [1,2,3,4,5].map(i => (
+                  <div key={i} style={{ display:"flex",alignItems:"center",gap:"12px",padding:"10px",opacity:1-(i*.12) }}>
+                    <div style={{ width:34,height:34,borderRadius:10,background:isDark?"rgba(255,255,255,.06)":"#e2e8f0",flexShrink:0,animation:"dhPulse 1.2s ease infinite" }} />
+                    <div style={{ flex:1 }}>
+                      <div style={{ height:11,borderRadius:6,background:isDark?"rgba(255,255,255,.06)":"#e2e8f0",marginBottom:6,width:`${75-i*8}%`,animation:"dhPulse 1.2s ease infinite" }} />
+                      <div style={{ height:9,borderRadius:6,background:isDark?"rgba(255,255,255,.04)":"#f1f5f9",width:"40%",animation:"dhPulse 1.2s ease infinite" }} />
+                    </div>
                   </div>
-                  <FaArrowRight className="arr" size={9} style={{ color: T.textSec, flexShrink: 0 }} />
-                </div>
-              );
-            })}
+                ))
+              : activities.map(a => {
+                  const m = actMeta[a.k] || actMeta["cart"];
+                  return (
+                    <div key={a.id} className="act" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 10px" }}>
+                      <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: m.dim, color: m.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>{m.icon}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: "12px", color: T.textPri, fontWeight: "500", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</p>
+                        <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0", display: "flex", alignItems: "center", gap: "5px" }}>
+                          {a.by}
+                          <span style={{ width: "3px", height: "3px", borderRadius: "50%", background: T.textSec, display: "inline-block" }} />
+                          <FaClock size={8} /> {a.ago} ago
+                        </p>
+                      </div>
+                      <FaArrowRight className="arr" size={9} style={{ color: T.textSec, flexShrink: 0 }} />
+                    </div>
+                  );
+                })
+            }
           </div>
         </div>
 
@@ -460,7 +614,7 @@ export default function Dashboard() {
             <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
               <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>Low Stock</p>
               <span style={{ padding: "2px 8px", borderRadius: "999px", background: isDark ? "rgba(239,68,68,.1)" : "#fee2e2", color: T.red, fontSize: "9px", fontWeight: "700", border: `1px solid ${isDark ? "rgba(239,68,68,.2)" : "#fca5a5"}` }}>
-                {lowStock.filter(x => x.s === "critical").length} critical
+                {lowStockCount > 0 ? lowStock.filter(x => x.s === "critical").length : "—"} critical
               </span>
             </div>
             <button className="lnk" onClick={() => navigate("/Items/Items")}
@@ -602,10 +756,10 @@ export default function Dashboard() {
         <div style={card({ padding: "20px 22px" })}>
           <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: "0 0 18px" }}>Today's Metrics</p>
           {[
-            { label: "New Orders",      value: "4",     color: T.blue,   pct: 72 },
-            { label: "Dispatched",      value: "2",     color: T.green,  pct: 40 },
-            { label: "Revenue Today",   value: "AED 6,200", color: T.purple, pct: 60 },
-            { label: "Pending Actions", value: "11",    color: T.amber,  pct: 86 },
+            { label: "New Orders",      value: statsLoading ? "…" : String(stats.todayNewOrders),                                              color: T.blue,   pct: stats.todayOrdersPct    },
+            { label: "New Customers",   value: statsLoading ? "…" : String(todayNewCustomers),                                                         color: T.purple, pct: Math.min(Math.round((todayNewCustomers / 10) * 100), 100) },
+            { label: "Revenue Today",   value: statsLoading ? "…" : `AED ${Number(stats.todayRevenue).toLocaleString("en-AE")}`,                        color: T.green,  pct: stats.revenuePct        },
+            { label: "Pending Actions", value: statsLoading ? "…" : String(pendingOrders + pendingCustomers),                                          color: T.amber,  pct: stats.pendingActionsPct  },
           ].map(m => (
             <div key={m.label} style={{ marginBottom: "13px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>

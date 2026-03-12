@@ -1,59 +1,51 @@
-import React, { useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import axios from 'axios'
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast'
 import useAuthStore from '../store/useAuthStore'
 
 const useGetAllSalesOrder = () => {
   const BASE_URL = "http://localhost:8080"
-  const [data, setData] = useState(null)
+  const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError]     = useState(null)
 
   const token = useAuthStore((state) => state.token)
 
-  const handleGetSalesorder = useCallback(async () => {
+  const handleGetSalesorder = useCallback(async (params = {}) => {
     setLoading(true)
     setError(null)
     try {
-      const response = await axios.get(`${BASE_URL}/api/sales-orders/getsaleorder`, {
-         headers: {
-          Authorization: `Bearer ${token}` // 👈 send token in every request
-        }
+      // Build query string from optional params: { page, limit, status, search, startDate, endDate }
+      const query = new URLSearchParams()
+      if (params.page)      query.set('page',      params.page)
+      if (params.limit)     query.set('limit',     params.limit)
+      if (params.status)    query.set('status',    params.status)
+      if (params.search)    query.set('search',    params.search)
+      if (params.startDate) query.set('startDate', params.startDate)
+      if (params.endDate)   query.set('endDate',   params.endDate)
+
+      const url = `${BASE_URL}/api/sales-orders/getsaleorder${query.toString() ? '?' + query.toString() : ''}`
+
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` }
       })
-      console.log("Full API response:", response)
-      
-      
-      const salesOrderData = response.data.data
-      console.log("Stocks data:", salesOrderData)
-      
-      setData(salesOrderData) 
+
+      // Response shape: { status, message, data: { total, page, limit, totalPages, salesOrders: [...] } }
+      const salesOrderData = response.data?.data ?? null
+      setData(salesOrderData)
       return salesOrderData
-    } catch (error) {
-      const errorMessage = error.response?.data?.message || "Data item failed..."
-      setError(errorMessage)
-      
-      toast.error(errorMessage, {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "light",
-      })
-      throw error
+
+    } catch (err) {
+      const msg = err.response?.data?.message || "Failed to load sales orders."
+      setError(msg)
+      toast.error(msg)
+      throw err
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [token])
 
-  return { 
-    handleGetSalesorder, 
-    data, 
-    loading, 
-    error 
-  }
+  return { handleGetSalesorder, data, loading, error }
 }
 
 export default useGetAllSalesOrder

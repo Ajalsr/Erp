@@ -387,7 +387,7 @@ const Vendors = () => {
             {[
               { label: "Export", icon: <FaDownload size={11} />, onClick: handleExport, variant: "ghost" },
               { label: "Import", icon: <FaUpload   size={11} />, onClick: () => {},     variant: "ghost" },
-              { label: "New Vendor", icon: <FaPlus size={11} />, onClick: () => navigate("/Purchase/Vendors/New"), variant: "primary" },
+              { label: "New Vendor", icon: <FaPlus size={11} />, onClick: () => navigate("/Purchase/Vendors/NewVendor"), variant: "primary" },
             ].map(btn => (
               <button key={btn.label} className="vnd-action" onClick={btn.onClick}
                 style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "9px", fontSize: "13px", fontWeight: btn.variant === "primary" ? "600" : "500", cursor: "pointer", fontFamily: "inherit", background: btn.variant === "primary" ? T.blue : "transparent", color: btn.variant === "primary" ? "white" : T.textSec, border: btn.variant === "primary" ? "none" : `1px solid ${T.border}` }}>

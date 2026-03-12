@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -19,30 +20,30 @@ import (
 var salesOrdersCollection *mongo.Collection = config.GetCollection(config.DB, "sales_orders")
 var itemsCollection *mongo.Collection = config.GetCollection(config.DB, "stocks")
 
-//var customersCollection *mongo.Collection = config.GetCollection(config.DB, "customers")
-
-// Helper function to calculate item amount
-func calculateItemAmount(quantity, rate float64, discount string) float64 {
-	discountValue := 0.0
-
-	if discount != "" {
-		// Check if discount is percentage
-		if len(discount) > 0 && discount[len(discount)-1] == '%' {
-			// Parse percentage
-			if percent, err := strconv.ParseFloat(discount[:len(discount)-1], 64); err == nil {
-				amount := quantity * rate
-				discountValue = amount * (percent / 100)
-			}
-		} else {
-			// Parse fixed amount
-			if fixed, err := strconv.ParseFloat(discount, 64); err == nil {
-				discountValue = fixed
-			}
-		}
+// calculateItemAmount computes the final line amount using structured discount fields.
+// discountType: "percentage" → discount is a percent (e.g. 15 means 15%)
+// discountType: "fixed"      → discount is a fixed AED value
+func calculateItemAmount(quantity, rate, discount float64, discountType string) float64 {
+	base := quantity * rate
+	if base <= 0 {
+		return 0
 	}
 
-	amount := quantity * rate
-	return amount - discountValue
+	var discountAED float64
+	switch discountType {
+	case "percentage":
+		discountAED = base * (discount / 100)
+	case "fixed":
+		discountAED = discount
+	default:
+		discountAED = 0
+	}
+
+	result := base - discountAED
+	if result < 0 {
+		result = 0
+	}
+	return math.Round(result*100) / 100
 }
 
 func CreateSalesOrder() gin.HandlerFunc {
@@ -50,11 +51,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		var newReq models.SalesOrder
-		fmt.Println(newReq, "new req")
-
 		var req models.SalesOrder
-		//fmt.Println(req, "this is the values from request")
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
@@ -64,26 +61,16 @@ func CreateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
-		fmt.Println(req, "this is the new request values")
-		// if err := c.BindJSON(&req); err != nil {
-		// 	c.JSON(http.StatusBadRequest, gin.H{
-		// 		"status":  http.StatusBadRequest,
-		// 		"message": "Invalid request body",
-		// 		"error":   err.Error(),
-		// 	})
-		// 	return
-		// }
-
 		// Convert customer ID
 		customerObjectID, err := primitive.ObjectIDFromHex(req.CustomerID)
-		// if err != nil {
-		// 	c.JSON(http.StatusBadRequest, gin.H{
-		// 		"status":  http.StatusBadRequest,
-		// 		"message": "Invalid customer ID format",
-		// 		"error":   err.Error(),
-		// 	})
-		// 	return
-		// }
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  http.StatusBadRequest,
+				"message": "Invalid customer ID format",
+				"error":   err.Error(),
+			})
+			return
+		}
 
 		// Get customer details
 		var customer models.Customer
@@ -104,15 +91,14 @@ func CreateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Process items and calculate totals
+		// Process items — recalculate amount server-side for integrity
 		var orderItems []models.SalesOrderItem
-		var subTotal float64 = 0
+		var subTotal float64
 
 		for _, itemReq := range req.Items {
-			// Convert item ID
-			fmt.Printf("Item Request Data: %+v\n", itemReq)
+			fmt.Printf("Processing item: %+v\n", itemReq)
+
 			itemObjectID, err := primitive.ObjectIDFromHex(itemReq.ItemID)
-			fmt.Println(itemObjectID, "item object id")
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"status":  http.StatusBadRequest,
@@ -122,9 +108,8 @@ func CreateSalesOrder() gin.HandlerFunc {
 				return
 			}
 
-			// Get item details
+			// Get item from inventory
 			var inventoryItem models.Stock
-			fmt.Println(inventoryItem, "this is inventory item")
 			err = itemsCollection.FindOne(ctx, bson.M{"_id": itemObjectID}).Decode(&inventoryItem)
 			if err != nil {
 				if err == mongo.ErrNoDocuments {
@@ -142,27 +127,39 @@ func CreateSalesOrder() gin.HandlerFunc {
 				return
 			}
 
-			// Calculate amount for this item
-			rateStr := inventoryItem.SellingPrice
-			if rateStr == "0" {
-				rateStr = inventoryItem.SellingPrice
+			// Use rate from request (user may have overridden); fall back to inventory price
+			rate := itemReq.Rate
+			if rate <= 0 {
+				if inventoryRate, err := strconv.ParseFloat(inventoryItem.SellingPrice, 64); err == nil {
+					rate = inventoryRate
+				}
 			}
 
-			rate, err := strconv.ParseFloat(rateStr, 64)
+			// Recalculate amount server-side using structured discount fields
+			// discountType: "percentage" or "fixed"
+			amount := calculateItemAmount(itemReq.Quantity, rate, itemReq.Discount.Float64(), itemReq.DiscountType)
 
-			amount := calculateItemAmount(itemReq.Quantity, rate, itemReq.Discount)
+			// Compute DiscountAED for storage
+			base := itemReq.Quantity * rate
+			var discountAED float64
+			switch itemReq.DiscountType {
+			case "percentage":
+				discountAED = math.Round(base*(itemReq.Discount.Float64()/100)*100) / 100
+			case "fixed":
+				discountAED = itemReq.Discount.Float64()
+			}
 
-			// Create sales order item
 			orderItem := models.SalesOrderItem{
 				ID:           primitive.NewObjectID(),
 				ItemID:       itemReq.ItemID,
 				Details:      inventoryItem.Name,
 				Quantity:     itemReq.Quantity,
-				Rate:         itemReq.Rate,
+				Rate:         rate,
 				Discount:     itemReq.Discount,
 				DiscountType: itemReq.DiscountType,
 				DiscountUnit: itemReq.DiscountUnit,
-				Amount:       itemReq.Amount,
+				DiscountAED:  models.FlexFloat(discountAED),
+				Amount:       amount,
 				Unit:         inventoryItem.Unit,
 			}
 
@@ -170,18 +167,17 @@ func CreateSalesOrder() gin.HandlerFunc {
 			subTotal += amount
 		}
 
-		// Calculate VAT (5%)
-		//vat := req.VAT
-
-		// Calculate total
-		//total := req.SubTotal
+		subTotal = math.Round(subTotal*100) / 100
+		vat := math.Round(subTotal*0.05*100) / 100
+		shipping := math.Round(req.ShippingCharges*100) / 100
+		adjustment := math.Round(req.Adjustment*100) / 100
+		total := math.Round((subTotal+vat+shipping+adjustment)*100) / 100
 
 		// Generate order number if not provided
 		if req.OrderNumber == "" {
 			req.OrderNumber = generateOrderNumber(ctx)
 		}
 
-		// Create sales order
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
 			OrderNumber:          req.OrderNumber,
@@ -197,11 +193,11 @@ func CreateSalesOrder() gin.HandlerFunc {
 			PaymentTerms:         req.PaymentTerms,
 			Salesperson:          req.Salesperson,
 			Items:                orderItems,
-			SubTotal:             req.SubTotal,
-			ShippingCharges:      req.ShippingCharges,
-			Adjustment:           req.Adjustment,
-			VAT:                  req.VAT,
-			Total:                req.Total,
+			SubTotal:             subTotal,
+			ShippingCharges:      shipping,
+			Adjustment:           adjustment,
+			VAT:                  vat,
+			Total:                total,
 			CustomerNotes:        req.CustomerNotes,
 			TermsAndConditions:   req.TermsAndConditions,
 			Status:               "open",
@@ -209,7 +205,6 @@ func CreateSalesOrder() gin.HandlerFunc {
 			UpdatedAt:            time.Now(),
 		}
 
-		// Insert into database
 		result, err := salesOrdersCollection.InsertOne(ctx, salesOrder)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -228,6 +223,8 @@ func CreateSalesOrder() gin.HandlerFunc {
 				"orderNumber":  salesOrder.OrderNumber,
 				"orderDate":    salesOrder.OrderDate,
 				"customerName": salesOrder.CustomerName,
+				"subTotal":     salesOrder.SubTotal,
+				"vat":          salesOrder.VAT,
 				"total":        salesOrder.Total,
 				"status":       salesOrder.Status,
 				"insertedId":   result.InsertedID,
@@ -241,7 +238,6 @@ func generateOrderNumber(ctx context.Context) string {
 	year := now.Year() % 100
 	month := int(now.Month())
 
-	// Find the last order number for this month-year
 	prefix := fmt.Sprintf("SO%02d%02d", month, year)
 	filter := bson.M{
 		"orderNumber": bson.M{
@@ -249,16 +245,14 @@ func generateOrderNumber(ctx context.Context) string {
 		},
 	}
 
-	options := options.FindOne().
-		SetSort(bson.D{{Key: "orderNumber", Value: -1}})
+	opts := options.FindOne().SetSort(bson.D{{Key: "orderNumber", Value: -1}})
 
 	var lastOrder bson.M
-	err := salesOrdersCollection.FindOne(ctx, filter, options).Decode(&lastOrder)
+	err := salesOrdersCollection.FindOne(ctx, filter, opts).Decode(&lastOrder)
 
 	nextSequence := 1
 	if err == nil {
-		lastNumber := lastOrder["orderNumber"].(string)
-		if len(lastNumber) >= 8 {
+		if lastNumber, ok := lastOrder["orderNumber"].(string); ok && len(lastNumber) >= 8 {
 			seqStr := lastNumber[6:]
 			if seq, err := strconv.Atoi(seqStr); err == nil {
 				nextSequence = seq + 1
@@ -277,19 +271,16 @@ func GetAllSalesOrders() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Get pagination parameters
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 		skip := (page - 1) * limit
 
-		// Get filter parameters
 		status := c.Query("status")
 		customerID := c.Query("customerId")
 		startDate := c.Query("startDate")
 		endDate := c.Query("endDate")
 		search := c.Query("search")
 
-		// Build filter
 		filter := bson.M{}
 
 		if status != "" {
@@ -311,19 +302,17 @@ func GetAllSalesOrders() gin.HandlerFunc {
 			}
 		}
 
-		// Date range filter
 		if startDate != "" && endDate != "" {
 			start, err1 := time.Parse("2006-01-02", startDate)
 			end, err2 := time.Parse("2006-01-02", endDate)
 			if err1 == nil && err2 == nil {
 				filter["orderDate"] = bson.M{
 					"$gte": start,
-					"$lte": end.AddDate(0, 0, 1), // Include the entire end day
+					"$lte": end.AddDate(0, 0, 1),
 				}
 			}
 		}
 
-		// Get total count
 		total, err := salesOrdersCollection.CountDocuments(ctx, filter)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -334,7 +323,6 @@ func GetAllSalesOrders() gin.HandlerFunc {
 			return
 		}
 
-		// Get sales orders with pagination
 		findOptions := options.Find().
 			SetSkip(int64(skip)).
 			SetLimit(int64(limit)).
@@ -365,7 +353,6 @@ func GetAllSalesOrders() gin.HandlerFunc {
 			salesOrders = []models.SalesOrder{}
 		}
 
-		// Convert to response format
 		var response []models.SalesOrderResponse
 		for _, order := range salesOrders {
 			response = append(response, models.SalesOrderResponse{
@@ -446,7 +433,6 @@ func GetSalesOrderByID() gin.HandlerFunc {
 			return
 		}
 
-		// Get customer details for response
 		var customer models.Customer
 		customersCollection.FindOne(ctx, bson.M{"_id": salesOrder.CustomerID}).Decode(&customer)
 
@@ -509,7 +495,7 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 		}
 
 		var req struct {
-			Status string `json:"status" binding:"required,oneof=draft pending approved shipped completed cancelled"`
+			Status string `json:"status" binding:"required,oneof=draft pending approved shipped completed cancelled open"`
 		}
 
 		if err := c.BindJSON(&req); err != nil {
@@ -528,11 +514,7 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			},
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(
-			ctx,
-			bson.M{"_id": objectID},
-			update,
-		)
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -589,7 +571,6 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Get existing order to recalculate total
 		var existingOrder models.SalesOrder
 		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingOrder)
 		if err != nil {
@@ -608,51 +589,39 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Prepare update
-		update := bson.M{
-			"$set": bson.M{
-				"updatedAt": time.Now(),
-			},
-		}
+		setFields := bson.M{"updatedAt": time.Now()}
 
-		// Update fields if provided
 		if req.Status != nil {
-			update["$set"].(bson.M)["status"] = *req.Status
+			setFields["status"] = *req.Status
 		}
 		if req.ShippingCharges != nil {
-			update["$set"].(bson.M)["shippingCharges"] = *req.ShippingCharges
+			setFields["shippingCharges"] = *req.ShippingCharges
 		}
 		if req.Adjustment != nil {
-			update["$set"].(bson.M)["adjustment"] = *req.Adjustment
+			setFields["adjustment"] = *req.Adjustment
 		}
 		if req.CustomerNotes != nil {
-			update["$set"].(bson.M)["customerNotes"] = *req.CustomerNotes
+			setFields["customerNotes"] = *req.CustomerNotes
 		}
 		if req.TermsAndConditions != nil {
-			update["$set"].(bson.M)["termsAndConditions"] = *req.TermsAndConditions
+			setFields["termsAndConditions"] = *req.TermsAndConditions
 		}
 
 		// Recalculate total if shipping or adjustment changed
 		if req.ShippingCharges != nil || req.Adjustment != nil {
 			newShipping := existingOrder.ShippingCharges
 			newAdjustment := existingOrder.Adjustment
-
 			if req.ShippingCharges != nil {
 				newShipping = *req.ShippingCharges
 			}
 			if req.Adjustment != nil {
 				newAdjustment = *req.Adjustment
 			}
-
-			newTotal := existingOrder.SubTotal + existingOrder.VAT + newShipping + newAdjustment
-			update["$set"].(bson.M)["total"] = newTotal
+			newTotal := math.Round((existingOrder.SubTotal+existingOrder.VAT+newShipping+newAdjustment)*100) / 100
+			setFields["total"] = newTotal
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(
-			ctx,
-			bson.M{"_id": objectID},
-			update,
-		)
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": setFields})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -670,7 +639,6 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Get updated order
 		var updatedOrder models.SalesOrder
 		salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedOrder)
 
@@ -681,6 +649,8 @@ func UpdateSalesOrder() gin.HandlerFunc {
 				"id":                 updatedOrder.ID.Hex(),
 				"orderNumber":        updatedOrder.OrderNumber,
 				"customerName":       updatedOrder.CustomerName,
+				"subTotal":           updatedOrder.SubTotal,
+				"vat":                updatedOrder.VAT,
 				"total":              updatedOrder.Total,
 				"status":             updatedOrder.Status,
 				"shippingCharges":    updatedOrder.ShippingCharges,
@@ -729,7 +699,6 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Soft delete - update status to cancelled instead of removing
 		update := bson.M{
 			"$set": bson.M{
 				"status":    "cancelled",
@@ -737,15 +706,11 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			},
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(
-			ctx,
-			bson.M{"_id": objectID},
-			update,
-		)
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
-				"message": "Failed to delete sales order",
+				"message": "Failed to cancel sales order",
 				"error":   err.Error(),
 			})
 			return
@@ -771,13 +736,11 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		// Define date ranges
 		now := time.Now()
 		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		weekStart := todayStart.AddDate(0, 0, -int(now.Weekday())+1) // Start of week (Monday)
+		weekStart := todayStart.AddDate(0, 0, -int(now.Weekday())+1)
 		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 
-		// Get counts
 		totalOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{})
 
 		pipeline := []bson.M{
@@ -806,31 +769,27 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		var statusResults []bson.M
 		if err := cursor.All(ctx, &statusResults); err == nil {
 			for _, result := range statusResults {
-				status := result["_id"].(string)
-				count := result["count"].(int64)
-				amount := result["totalAmount"].(float64)
-
-				statusStats[status] = count
-				totalAmount += amount
+				if statusVal, ok := result["_id"].(string); ok {
+					if count, ok := result["count"].(int64); ok {
+						statusStats[statusVal] = count
+					}
+					if amount, ok := result["totalAmount"].(float64); ok {
+						totalAmount += amount
+					}
+				}
 			}
 		}
 
-		// Get today's orders
 		todayOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
 			"createdAt": bson.M{"$gte": todayStart},
 		})
-
-		// Get this week's orders
 		thisWeekOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
 			"createdAt": bson.M{"$gte": weekStart},
 		})
-
-		// Get this month's orders
 		thisMonthOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
 			"createdAt": bson.M{"$gte": monthStart},
 		})
 
-		// Get top customers
 		topCustomersPipeline := []bson.M{
 			{
 				"$group": bson.M{
@@ -840,12 +799,8 @@ func GetSalesOrderStats() gin.HandlerFunc {
 					"totalAmount":  bson.M{"$sum": "$total"},
 				},
 			},
-			{
-				"$sort": bson.M{"totalAmount": -1},
-			},
-			{
-				"$limit": 5,
-			},
+			{"$sort": bson.M{"totalAmount": -1}},
+			{"$limit": 5},
 		}
 
 		topCustomersCursor, err := salesOrdersCollection.Aggregate(ctx, topCustomersPipeline)
@@ -855,16 +810,21 @@ func GetSalesOrderStats() gin.HandlerFunc {
 			var topCustomerResults []bson.M
 			if err := topCustomersCursor.All(ctx, &topCustomerResults); err == nil {
 				for _, result := range topCustomerResults {
-					customerID := result["_id"].(primitive.ObjectID).Hex()
-					customerName := result["customerName"].(string)
-					orderCount := result["orderCount"].(int64)
-					totalAmount := result["totalAmount"].(float64)
+					customerID := ""
+					if oid, ok := result["_id"].(primitive.ObjectID); ok {
+						customerID = oid.Hex()
+					} else if str, ok := result["_id"].(string); ok {
+						customerID = str
+					}
+					customerName, _ := result["customerName"].(string)
+					orderCount, _ := result["orderCount"].(int64)
+					amount, _ := result["totalAmount"].(float64)
 
 					topCustomers = append(topCustomers, models.TopCustomer{
 						CustomerID:   customerID,
 						CustomerName: customerName,
 						OrderCount:   orderCount,
-						TotalAmount:  totalAmount,
+						TotalAmount:  amount,
 					})
 				}
 			}

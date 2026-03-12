@@ -1,10 +1,99 @@
 package models
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/bsontype"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 )
+
+// ─── FlexFloat ────────────────────────────────────────────────────────────────
+// Custom type that accepts BOTH numeric (double/int) AND string BSON values.
+// This fixes the "Failed to decode sales orders" error caused by old MongoDB
+// documents that stored the discount field as a string ("15" or "15%").
+type FlexFloat float64
+
+func (f FlexFloat) MarshalJSON() ([]byte, error) {
+	return []byte(strconv.FormatFloat(float64(f), 'f', -1, 64)), nil
+}
+
+func (f *FlexFloat) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		s = s[1 : len(s)-1]
+	}
+	s = strings.TrimSuffix(strings.TrimSpace(s), "%")
+	if s == "" || s == "null" {
+		*f = 0
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return err
+	}
+	*f = FlexFloat(v)
+	return nil
+}
+
+func (f *FlexFloat) UnmarshalBSONValue(t bsontype.Type, raw []byte) error {
+	switch t {
+	case bsontype.Double:
+		v, _, ok := bsoncore.ReadDouble(raw)
+		if !ok {
+			return fmt.Errorf("FlexFloat: failed to read double")
+		}
+		*f = FlexFloat(v)
+	case bsontype.Int32:
+		v, _, ok := bsoncore.ReadInt32(raw)
+		if !ok {
+			return fmt.Errorf("FlexFloat: failed to read int32")
+		}
+		*f = FlexFloat(float64(v))
+	case bsontype.Int64:
+		v, _, ok := bsoncore.ReadInt64(raw)
+		if !ok {
+			return fmt.Errorf("FlexFloat: failed to read int64")
+		}
+		*f = FlexFloat(float64(v))
+	case bsontype.String:
+		// Legacy documents stored discount as "15" or "15%"
+		v, _, ok := bsoncore.ReadString(raw)
+		if !ok {
+			return fmt.Errorf("FlexFloat: failed to read string")
+		}
+		v = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "%"))
+		if v == "" {
+			*f = 0
+			return nil
+		}
+		parsed, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			*f = 0 // non-numeric string → treat as 0 rather than crashing
+			return nil
+		}
+		*f = FlexFloat(parsed)
+	case bsontype.Null, bsontype.Undefined:
+		*f = 0
+	default:
+		// Unknown BSON type — treat as zero rather than crashing
+		*f = 0
+	}
+	return nil
+}
+
+func (f FlexFloat) MarshalBSONValue() (bsontype.Type, []byte, error) {
+	// Store as BSON double
+	return bsontype.Double, bsoncore.AppendDouble(nil, float64(f)), nil
+}
+
+// Float64 returns the underlying float64 value — use this in arithmetic.
+func (f FlexFloat) Float64() float64 { return float64(f) }
+
+// ─── Models ───────────────────────────────────────────────────────────────────
 
 type SalesOrder struct {
 	ID                   primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
@@ -14,12 +103,12 @@ type SalesOrder struct {
 	CustomerCode         string             `json:"customerCode" bson:"customerCode"`
 	SalesType            string             `json:"salesType" bson:"salesType" binding:"required,oneof=SO MOA MOA_COLLECT FREE_DELIVERY"`
 	OrderDate            time.Time          `json:"orderDate" bson:"orderDate" binding:"required"`
-	LpoNumber            string             `json:"lpoNumber" bson:"lpoNumber" binding:"required"`
+	LpoNumber            string             `json:"lpoNumber" bson:"lpoNumber"`
 	LpoDate              *time.Time         `json:"lpoDate,omitempty" bson:"lpoDate,omitempty"`
-	LpoValue             float64            `json:"lpoValue" bson:"lpoValue" binding:"required,min=0"`
+	LpoValue             float64            `json:"lpoValue" bson:"lpoValue"`
 	ExpectedShipmentDate *time.Time         `json:"expectedShipmentDate,omitempty" bson:"expectedShipmentDate,omitempty"`
 	PaymentTerms         string             `json:"paymentTerms" bson:"paymentTerms" binding:"required"`
-	Salesperson          string             `json:"salesperson" bson:"salesperson" binding:"required"`
+	Salesperson          string             `json:"salesperson" bson:"salesperson"`
 	Items                []SalesOrderItem   `json:"items" bson:"items" binding:"required,min=1,dive"`
 	SubTotal             float64            `json:"subTotal" bson:"subTotal"`
 	ShippingCharges      float64            `json:"shippingCharges" bson:"shippingCharges"`
@@ -36,18 +125,22 @@ type SalesOrder struct {
 	UpdatedBy            string             `json:"updatedBy,omitempty" bson:"updatedBy,omitempty"`
 }
 
+// SalesOrderItem — one line in an order.
+//
+// Discount + DiscountAED use FlexFloat so old documents that stored discount as
+// a string ("15" or "15%") are decoded without a type-mismatch error.
 type SalesOrderItem struct {
-	ID      primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	ItemID  string             `json:"itemId" bson:"itemId" binding:"required"`
-	Details string             `json:"details" bson:"details"`
-	//SKU      string             `json:"sku" bson:"sku"`
-	Quantity     float64 `json:"quantity" bson:"quantity" binding:"required,min=1"`
-	Rate         float64 `json:"rate" bson:"rate" binding:"required,min=0"`
-	Discount     string  `json:"discount" bson:"discount"`
-	DiscountType string  `json:"discountType" bson:"discountType"`
-	DiscountUnit string  `json:"discountUnit" bson:"discountUnit"`
-	Amount       float64 `json:"amount" bson:"amount"`
-	Unit         string  `json:"unit" bson:"unit"`
+	ID           primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	ItemID       string             `json:"itemId" bson:"itemId" binding:"required"`
+	Details      string             `json:"details" bson:"details"`
+	Quantity     float64            `json:"quantity" bson:"quantity" binding:"required,min=1"`
+	Rate         float64            `json:"rate" bson:"rate"`
+	Discount     FlexFloat          `json:"discount" bson:"discount"`         // ← FlexFloat: handles "15", "15%", 15
+	DiscountType string             `json:"discountType" bson:"discountType"` // "percentage" | "fixed"
+	DiscountUnit string             `json:"discountUnit" bson:"discountUnit"` // "%" | "AED"
+	DiscountAED  FlexFloat          `json:"discountAed" bson:"discountAed"`   // ← FlexFloat: AED deduction
+	Amount       float64            `json:"amount" bson:"amount"`
+	Unit         string             `json:"unit" bson:"unit"`
 }
 
 type Attachment struct {
@@ -65,9 +158,9 @@ type CreateSalesOrderRequest struct {
 	CustomerID           string           `json:"customerId" binding:"required"`
 	SalesType            string           `json:"salesType" binding:"required,oneof=SO MOA MOA_COLLECT FREE_DELIVERY"`
 	OrderDate            time.Time        `json:"orderDate" binding:"required"`
-	LpoNumber            string           `json:"lpoNumber" binding:"required"`
+	LpoNumber            string           `json:"lpoNumber"`
 	LpoDate              *time.Time       `json:"lpoDate,omitempty"`
-	LpoValue             float64          `json:"lpoValue" binding:"required,min=0"`
+	LpoValue             float64          `json:"lpoValue"`
 	ExpectedShipmentDate *time.Time       `json:"expectedShipmentDate,omitempty"`
 	PaymentTerms         string           `json:"paymentTerms" binding:"required"`
 	Salesperson          string           `json:"salesperson"`
@@ -78,10 +171,16 @@ type CreateSalesOrderRequest struct {
 	TermsAndConditions   string           `json:"termsAndConditions,omitempty"`
 }
 
+// SalesOrderItemRequest — what the frontend sends per line item
 type SalesOrderItemRequest struct {
-	ItemID   string  `json:"itemId" binding:"required"`
-	Quantity float64 `json:"quantity" binding:"required,min=1"`
-	Discount string  `json:"discount"`
+	ItemID       string    `json:"itemId" binding:"required"`
+	Quantity     float64   `json:"quantity" binding:"required,min=1"`
+	Rate         float64   `json:"rate"`
+	Discount     FlexFloat `json:"discount"`     // number (not "15%")
+	DiscountType string    `json:"discountType"` // "percentage" or "fixed"
+	DiscountUnit string    `json:"discountUnit"` // "%" or "AED"
+	DiscountAED  FlexFloat `json:"discountAed"`  // pre-computed AED deduction
+	Amount       float64   `json:"amount"`       // pre-computed final line amount
 }
 
 type UpdateSalesOrderRequest struct {

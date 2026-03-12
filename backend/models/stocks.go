@@ -1,6 +1,10 @@
 package models
 
-import "go.mongodb.org/mongo-driver/bson/primitive"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
 
 type Stock struct {
 	ID               primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
@@ -30,4 +34,10 @@ type Stock struct {
 	OpeningStockRate string             `json:"opening_stock_rate" bson:"opening_stock_rate"`
 	ReorderPoint     string             `json:"reorder_point" bson:"reorder_point"`
 	Quantity         string             `json:"quantity" bson:"quantity"`
+	CreatedAt        time.Time          `json:"created_at" bson:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at" bson:"updated_at"`
+	CreatedBy        string             `json:"created_by" bson:"created_by"`
+	Category         string             `json:"category" bson:"category"`
+	SKU              string             `json:"sku" bson:"sku"`
+	Type             string             `json:"type" bson:"type"`
 }

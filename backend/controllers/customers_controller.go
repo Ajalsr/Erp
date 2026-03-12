@@ -10,7 +10,6 @@ import (
 	"github.com/backend/config"
 	"github.com/backend/models"
 
-	// "github.com/backend/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -19,24 +18,21 @@ import (
 	"golang.org/x/net/context"
 )
 
+var customersCollection *mongo.Collection = config.GetCollection(config.DB, "customers")
+
+// ─── GET ALL ──────────────────────────────────────────────────────────────────
 func GetAllCustomers() gin.HandlerFunc {
-
 	return func(c *gin.Context) {
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
 		var customers []models.Customer
 		defer cancel()
 
 		collection := config.GetCollection(config.DB, "customers")
-		fmt.Println(collection, "this is the collection")
 		results, err := collection.Find(ctx, bson.M{})
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
 		defer results.Close(ctx)
 
 		if err := results.All(ctx, &customers); err != nil {
@@ -53,48 +49,37 @@ func GetAllCustomers() gin.HandlerFunc {
 			"message": "success",
 			"data":    customers,
 		})
-
 	}
-
 }
 
-var customersCollection *mongo.Collection = config.GetCollection(config.DB, "customers")
-
+// ─── ADD CUSTOMER ─────────────────────────────────────────────────────────────
 func AddCustomers() gin.HandlerFunc {
-
 	return func(c *gin.Context) {
-
-		// token := c.Request.Header.Get("Authorization")
-
-		// if token == "" {
-		// 	c.JSON(http.StatusUnauthorized, gin.H{"message": "Not authorized."})
-		// 	return
-		// }
-
-		// err := utils.VerifyToken(token)
-
-		// if err != nil {
-		// 	c.JSON(http.StatusUnauthorized,gin.H{"mesage" : "Not authorized."})
-		// 	return
-		// }
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
 		var item models.Customer
 
-		defer cancel()
-
-		if err := c.BindJSON(&item); err != nil {
-
+		// ShouldBindJSON returns a proper 400 without aborting the handler
+		if err := c.ShouldBindJSON(&item); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
-				"message": "error",
+				"message": "Invalid request body",
 				"error":   err.Error(),
 			})
-
 			return
 		}
 
+		// ── Validate required field ───────────────────────────────────────
+		if item.CustomerDisplayName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  http.StatusBadRequest,
+				"message": "customerDisplayName is required",
+			})
+			return
+		}
+
+		// ── Auto-generate customer code ───────────────────────────────────
 		customerCode, err := generateCustomerCodeContinuous(ctx)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -105,95 +90,102 @@ func AddCustomers() gin.HandlerFunc {
 			return
 		}
 
-		item.CustomerCode = customerCode
+		// ── Assign all server-side fields ─────────────────────────────────
+		now := time.Now()
 		item.ID = primitive.NewObjectID()
-		item.CreatedAt = time.Now()
+		item.CustomerCode = customerCode
+		item.CreatedAt = now
+		item.UpdatedAt = now // ← was missing
 
-		result, err := customersCollection.InsertOne(ctx, item)
+		// Default status to "active" when the form doesn't supply one
+		if item.Status == "" {
+			item.Status = "active"
+		}
 
-		fmt.Println(result)
+		// Default customer type
+		if item.CustomerType == "" {
+			item.CustomerType = "business"
+		}
 
+		// ── CreatedBy from JWT (set by middlewares.Authenticate) ──────────
+		// The middleware stores the authenticated user's ID in the gin context
+		// under the key "userId". We record it here for the audit trail.
+		if userID, exists := c.Get("userId"); exists {
+			item.CreatedBy = fmt.Sprintf("%v", userID)
+		}
+
+		// ── Assign real ObjectIDs to every ContactPerson ──────────────────
+		// The frontend sends contacts without _id (useAddCustomer already
+		// strips the local Date.now() key). We assign proper MongoDB IDs.
+		for i := range item.ContactPersons {
+			if item.ContactPersons[i].ID.IsZero() {
+				item.ContactPersons[i].ID = primitive.NewObjectID()
+				item.ContactPersons[i].CreatedAt = now
+				item.ContactPersons[i].UpdatedAt = now
+			}
+		}
+
+		// ── Assign real ObjectIDs to every Document record ────────────────
+		for i := range item.Documents {
+			if item.Documents[i].ID.IsZero() {
+				item.Documents[i].ID = primitive.NewObjectID()
+				item.Documents[i].UploadedAt = now
+			}
+		}
+
+		// ── Insert ────────────────────────────────────────────────────────
+		_, err = customersCollection.InsertOne(ctx, item)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
-				"message": "err",
+				"message": "Failed to save customer",
 				"error":   err.Error(),
 			})
 			return
 		}
 
-		responseItem := gin.H{
-			"_id": item.ID,
-		}
-
+		// Return the complete saved document so the frontend can use it immediately
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
-			"message": "Customer Added Successfully...",
-			"data":    responseItem,
+			"message": "Customer Added Successfully",
+			"data":    item,
 		})
-
 	}
 }
 
+// ─── CUSTOMER CODE GENERATOR ──────────────────────────────────────────────────
 func generateCustomerCodeContinuous(ctx context.Context) (string, error) {
 	now := time.Now()
 	currentMonth := int(now.Month())
 	currentYear := now.Year() % 100
-
-	// Find the last customer code for THIS month-year only
 	monthYearPrefix := fmt.Sprintf("%02d%02d", currentMonth, currentYear)
 
-	// Create regex pattern to match codes starting with current month-year
 	filter := bson.M{
-		"customerCode": bson.M{
-			"$regex": "^" + monthYearPrefix,
-		},
+		"customerCode": bson.M{"$regex": "^" + monthYearPrefix},
 	}
-
-	options := options.FindOne().
-		SetSort(bson.D{{Key: "customerCode", Value: -1}})
+	opts := options.FindOne().SetSort(bson.D{{Key: "customerCode", Value: -1}})
 
 	var lastCustomer bson.M
-	err := customersCollection.FindOne(ctx, filter, options).Decode(&lastCustomer)
+	err := customersCollection.FindOne(ctx, filter, opts).Decode(&lastCustomer)
 
-	var nextSequence int
-
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			// No customers for this month-year yet, start from 01
-			nextSequence = 1
-		} else {
-			return "", err
-		}
-	} else {
-		// Extract sequence from last customer code
-		lastCode := lastCustomer["customerCode"].(string)
-
-		if len(lastCode) == 6 {
-			// Extract the last 2 digits (sequence part)
-			lastSeqStr := lastCode[4:]
-			lastSeq, err := strconv.Atoi(lastSeqStr)
-			if err != nil {
-				// If can't parse, start from 01
-				nextSequence = 1
-			} else {
-				// Continue the sequence
+	nextSequence := 1
+	if err == nil {
+		if lastCode, ok := lastCustomer["customerCode"].(string); ok && len(lastCode) == 6 {
+			if lastSeq, e := strconv.Atoi(lastCode[4:]); e == nil {
 				nextSequence = lastSeq + 1
-
-				// If sequence exceeds 99, reset to 01
 				if nextSequence > 99 {
 					nextSequence = 1
 				}
 			}
-		} else {
-			nextSequence = 1
 		}
+	} else if err != mongo.ErrNoDocuments {
+		return "", err
 	}
 
-	// Format: MM(2) + YY(2) + sequence(2)
 	return fmt.Sprintf("%02d%02d%02d", currentMonth, currentYear, nextSequence), nil
 }
 
+// ─── GET SUGGESTIONS ─────────────────────────────────────────────────────────
 func GetCustomerSuggestions() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -223,16 +215,9 @@ func GetCustomerSuggestions() gin.HandlerFunc {
 		}
 
 		projection := bson.M{
-			"_id":                 1,
-			"customerCode":        1,
-			"customerDisplayName": 1,
-			"companyName":         1,
-			"customerEmail":       1,
-			"customerPhone":       1,
-			"workPhone":           1,
-			"mobile":              1,
-			"status":              1,
-			"created_at":          1,
+			"_id": 1, "customerCode": 1, "customerDisplayName": 1,
+			"companyName": 1, "customerEmail": 1, "customerPhone": 1,
+			"workPhone": 1, "mobile": 1, "status": 1, "created_at": 1,
 		}
 
 		findOptions := options.Find().
@@ -243,24 +228,15 @@ func GetCustomerSuggestions() gin.HandlerFunc {
 		var suggestions []bson.M
 		cursor, err := customersCollection.Find(ctx, filter, findOptions)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to fetch suggestions",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to fetch suggestions", "error": err.Error()})
 			return
 		}
 		defer cursor.Close(ctx)
 
 		if err := cursor.All(ctx, &suggestions); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to decode suggestions",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to decode suggestions", "error": err.Error()})
 			return
 		}
-
 		if suggestions == nil {
 			suggestions = []bson.M{}
 		}
@@ -274,6 +250,7 @@ func GetCustomerSuggestions() gin.HandlerFunc {
 	}
 }
 
+// ─── SEARCH ──────────────────────────────────────────────────────────────────
 func SearchCustomers() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -299,25 +276,20 @@ func SearchCustomers() gin.HandlerFunc {
 				{"lastName": bson.M{"$regex": query, "$options": "i"}},
 			}
 		}
-
 		if customerType != "" {
 			filter["customerType"] = customerType
 		}
-
 		if status != "" {
 			filter["status"] = status
 		} else {
 			filter["status"] = bson.M{"$ne": "deleted"}
 		}
-
 		if city != "" {
 			filter["city"] = bson.M{"$regex": city, "$options": "i"}
 		}
-
 		if country != "" {
 			filter["country"] = bson.M{"$regex": country, "$options": "i"}
 		}
-
 		if company != "" {
 			filter["companyName"] = bson.M{"$regex": company, "$options": "i"}
 		}
@@ -325,24 +297,15 @@ func SearchCustomers() gin.HandlerFunc {
 		var customers []models.Customer
 		cursor, err := customersCollection.Find(ctx, filter)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to search customers",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to search customers", "error": err.Error()})
 			return
 		}
 		defer cursor.Close(ctx)
 
 		if err := cursor.All(ctx, &customers); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to decode search results",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to decode search results", "error": err.Error()})
 			return
 		}
-
 		if customers == nil {
 			customers = []models.Customer{}
 		}
@@ -353,17 +316,14 @@ func SearchCustomers() gin.HandlerFunc {
 			"data":    customers,
 			"count":   len(customers),
 			"filters": gin.H{
-				"query":        query,
-				"customerType": customerType,
-				"status":       status,
-				"city":         city,
-				"country":      country,
-				"company":      company,
+				"query": query, "customerType": customerType, "status": status,
+				"city": city, "country": country, "company": company,
 			},
 		})
 	}
 }
 
+// ─── GET BY ID ────────────────────────────────────────────────────────────────
 func GetCustomerByID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -372,11 +332,7 @@ func GetCustomerByID() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid customer ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid customer ID format", "error": err.Error()})
 			return
 		}
 
@@ -384,28 +340,18 @@ func GetCustomerByID() gin.HandlerFunc {
 		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&customer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Customer not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve customer",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customer", "error": err.Error()})
 			}
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"status":  http.StatusOK,
-			"message": "Customer retrieved successfully",
-			"data":    customer,
-		})
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Customer retrieved successfully", "data": customer})
 	}
 }
 
+// ─── UPDATE CUSTOMER ──────────────────────────────────────────────────────────
 func UpdateCustomer() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -414,11 +360,7 @@ func UpdateCustomer() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid customer ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid customer ID format", "error": err.Error()})
 			return
 		}
 
@@ -426,118 +368,105 @@ func UpdateCustomer() gin.HandlerFunc {
 		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingCustomer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Customer not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve customer",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customer", "error": err.Error()})
 			}
 			return
 		}
 
 		var updateData models.Customer
-		if err := c.BindJSON(&updateData); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid request body",
-				"error":   err.Error(),
-			})
+		if err := c.ShouldBindJSON(&updateData); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
 			return
 		}
 
-		update := bson.M{
-			"updatedAt": time.Now(),
+		now := time.Now()
+		update := bson.M{"updated_at": now}
+
+		// ── String fields ─────────────────────────────────────────────────
+		strFields := map[string]string{
+			"salutation":          updateData.Salutation,
+			"firstName":           updateData.FirstName,
+			"lastName":            updateData.LastName,
+			"customerDisplayName": updateData.CustomerDisplayName,
+			"companyName":         updateData.CompanyName,
+			"customerEmail":       updateData.CustomerEmail,
+			"customerPhone":       updateData.CustomerPhone,
+			"workPhone":           updateData.WorkPhone,
+			"mobile":              updateData.Mobile,
+			"status":              updateData.Status,
+			"streetAddress":       updateData.StreetAddress,
+			"city":                updateData.City,
+			"country":             updateData.Country,
+			"postalCode":          updateData.PostalCode,
+			"payment_terms":       updateData.PaymentTerms,
+			"currency":            updateData.Currency,
+			"remarks":             updateData.Remarks,
+			"updated_by":          updateData.UpdatedBy,
+			"customerType":        updateData.CustomerType,
+		}
+		for key, val := range strFields {
+			if val != "" {
+				update[key] = val
+			}
 		}
 
-		if updateData.CustomerDisplayName != "" {
-			update["customerDisplayName"] = updateData.CustomerDisplayName
+		// ── UpdatedBy from JWT ────────────────────────────────────────────
+		if userID, exists := c.Get("userId"); exists {
+			update["updated_by"] = fmt.Sprintf("%v", userID)
 		}
-		if updateData.FirstName != "" {
-			update["firstName"] = updateData.FirstName
+
+		// ── Numeric fields ────────────────────────────────────────────────
+		if updateData.CreditLimit > 0 {
+			update["credit_limit"] = updateData.CreditLimit
 		}
-		if updateData.LastName != "" {
-			update["lastName"] = updateData.LastName
+		if updateData.CreditUsed > 0 {
+			update["credit_used"] = updateData.CreditUsed
+		} // ← NEW
+		if updateData.NoOfDays > 0 {
+			update["no_of_days"] = updateData.NoOfDays
+		} // ← NEW
+
+		// ── Slice fields ──────────────────────────────────────────────────
+		if len(updateData.ReportingTags) > 0 {
+			update["reporting_tags"] = updateData.ReportingTags
 		}
-		if updateData.CompanyName != "" {
-			update["companyName"] = updateData.CompanyName
+		if len(updateData.CustomFields) > 0 {
+			update["custom_fields"] = updateData.CustomFields
 		}
-		if updateData.CustomerEmail != "" {
-			update["customerEmail"] = updateData.CustomerEmail
-		}
-		if updateData.CustomerPhone != "" {
-			update["customerPhone"] = updateData.CustomerPhone
-		}
-		if updateData.WorkPhone != "" {
-			update["workPhone"] = updateData.WorkPhone
-		}
-		if updateData.Mobile != "" {
-			update["mobile"] = updateData.Mobile
-		}
-		if updateData.Status != "" {
-			update["status"] = updateData.Status
-		}
-		if updateData.StreetAddress != "" {
-			update["streetAddress"] = updateData.StreetAddress
-		}
-		if updateData.City != "" {
-			update["city"] = updateData.City
-		}
-		if updateData.Country != "" {
-			update["country"] = updateData.Country
-		}
-		if updateData.PostalCode != "" {
-			update["postalCode"] = updateData.PostalCode
-		}
-		if updateData.PaymentTerms != "" {
-			update["paymentTerms"] = updateData.PaymentTerms
-		}
-		if updateData.Remarks != "" {
-			update["remarks"] = updateData.Remarks
-		}
-		if updateData.UpdatedBy != "" {
-			update["updatedBy"] = updateData.UpdatedBy
+
+		if len(updateData.Documents) > 0 {
+			for i := range updateData.Documents {
+				if updateData.Documents[i].ID.IsZero() {
+					updateData.Documents[i].ID = primitive.NewObjectID()
+					updateData.Documents[i].UploadedAt = now
+				}
+			}
+			update["documents"] = updateData.Documents
 		}
 
 		if len(updateData.ContactPersons) > 0 {
 			for i := range updateData.ContactPersons {
 				if updateData.ContactPersons[i].ID.IsZero() {
 					updateData.ContactPersons[i].ID = primitive.NewObjectID()
-					updateData.ContactPersons[i].CreatedAt = time.Now()
-					updateData.ContactPersons[i].UpdatedAt = time.Now()
+					updateData.ContactPersons[i].CreatedAt = now
+					updateData.ContactPersons[i].UpdatedAt = now
+				} else {
+					updateData.ContactPersons[i].UpdatedAt = now
 				}
 			}
 			update["contactPersons"] = updateData.ContactPersons
 		}
 
-		result, err := customersCollection.UpdateOne(
-			ctx,
-			bson.M{"_id": objectID},
-			bson.M{"$set": update},
-		)
+		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": update})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to update customer",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update customer", "error": err.Error()})
 			return
 		}
 
 		var updatedCustomer models.Customer
-		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedCustomer)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Customer updated but failed to retrieve updated data",
-				"error":   err.Error(),
-			})
-			return
-		}
+		_ = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedCustomer)
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
@@ -551,6 +480,7 @@ func UpdateCustomer() gin.HandlerFunc {
 	}
 }
 
+// ─── DELETE (soft) ────────────────────────────────────────────────────────────
 func DeleteCustomer() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -559,11 +489,7 @@ func DeleteCustomer() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid customer ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid customer ID format", "error": err.Error()})
 			return
 		}
 
@@ -571,38 +497,20 @@ func DeleteCustomer() gin.HandlerFunc {
 		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingCustomer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Customer not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve customer",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customer", "error": err.Error()})
 			}
 			return
-		}
-
-		update := bson.M{
-			"$set": bson.M{
-				"status":    "deleted",
-				"updatedAt": time.Now(),
-			},
 		}
 
 		result, err := customersCollection.UpdateOne(
 			ctx,
 			bson.M{"_id": objectID},
-			update,
+			bson.M{"$set": bson.M{"status": "deleted", "updated_at": time.Now()}},
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to delete customer",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to delete customer", "error": err.Error()})
 			return
 		}
 
@@ -620,6 +528,7 @@ func DeleteCustomer() gin.HandlerFunc {
 	}
 }
 
+// ─── BY STATUS ────────────────────────────────────────────────────────────────
 func GetCustomersByStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -627,34 +536,22 @@ func GetCustomersByStatus() gin.HandlerFunc {
 
 		status := c.Param("status")
 		if status == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Status parameter is required",
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Status parameter is required"})
 			return
 		}
 
 		var customers []models.Customer
 		cursor, err := customersCollection.Find(ctx, bson.M{"status": status})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to retrieve customers by status",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customers by status", "error": err.Error()})
 			return
 		}
 		defer cursor.Close(ctx)
 
 		if err := cursor.All(ctx, &customers); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to decode customers",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to decode customers", "error": err.Error()})
 			return
 		}
-
 		if customers == nil {
 			customers = []models.Customer{}
 		}
@@ -668,6 +565,7 @@ func GetCustomersByStatus() gin.HandlerFunc {
 	}
 }
 
+// ─── STATS ────────────────────────────────────────────────────────────────────
 func GetCustomerStats() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -677,49 +575,27 @@ func GetCustomerStats() gin.HandlerFunc {
 		pendingCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "pending"})
 		inactiveCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "inactive"})
 		totalCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": bson.M{"$ne": "deleted"}})
-
 		individualCount, _ := customersCollection.CountDocuments(ctx, bson.M{"customerType": "individual", "status": bson.M{"$ne": "deleted"}})
 		businessCount, _ := customersCollection.CountDocuments(ctx, bson.M{"customerType": "business", "status": bson.M{"$ne": "deleted"}})
-
 		weekAgo := time.Now().AddDate(0, 0, -7)
-		recentCount, _ := customersCollection.CountDocuments(ctx, bson.M{
-			"created_at": bson.M{"$gte": weekAgo},
-			"status":     bson.M{"$ne": "deleted"},
-		})
+		recentCount, _ := customersCollection.CountDocuments(ctx, bson.M{"created_at": bson.M{"$gte": weekAgo}, "status": bson.M{"$ne": "deleted"}})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "Customer statistics retrieved successfully",
 			"data": gin.H{
-				"total": gin.H{
-					"count": totalCount,
-					"label": "Total Customers",
-				},
-				"active": gin.H{
-					"count": activeCount,
-					"label": "Active",
-				},
-				"pending": gin.H{
-					"count": pendingCount,
-					"label": "Pending",
-				},
-				"inactive": gin.H{
-					"count": inactiveCount,
-					"label": "Inactive",
-				},
-				"byType": gin.H{
-					"individual": individualCount,
-					"business":   businessCount,
-				},
-				"recent": gin.H{
-					"count": recentCount,
-					"label": "Last 7 Days",
-				},
+				"total":    gin.H{"count": totalCount, "label": "Total Customers"},
+				"active":   gin.H{"count": activeCount, "label": "Active"},
+				"pending":  gin.H{"count": pendingCount, "label": "Pending"},
+				"inactive": gin.H{"count": inactiveCount, "label": "Inactive"},
+				"byType":   gin.H{"individual": individualCount, "business": businessCount},
+				"recent":   gin.H{"count": recentCount, "label": "Last 7 Days"},
 			},
 		})
 	}
 }
 
+// ─── EXPORT CSV ───────────────────────────────────────────────────────────────
 func ExportCustomersCSV() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -736,21 +612,13 @@ func ExportCustomersCSV() gin.HandlerFunc {
 		var customers []models.Customer
 		cursor, err := customersCollection.Find(ctx, filter)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to retrieve customers for export",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customers for export", "error": err.Error()})
 			return
 		}
 		defer cursor.Close(ctx)
 
 		if err := cursor.All(ctx, &customers); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to decode customers",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to decode customers", "error": err.Error()})
 			return
 		}
 
@@ -761,31 +629,14 @@ func ExportCustomersCSV() gin.HandlerFunc {
 			writer := csv.NewWriter(c.Writer)
 
 			headers := []string{
-				"Customer Code",
-				"Customer Name",
-				"Company Name",
-				"Email",
-				"Phone",
-				"Work Phone",
-				"Mobile",
-				"Address",
-				"City",
-				"Country",
-				"Postal Code",
-				"Status",
-				"Customer Type",
-				"Payment Terms",
-				"Remarks",
-				"Created Date",
-				"Last Updated",
+				"Customer Code", "Customer Name", "Company Name", "Email",
+				"Phone", "Work Phone", "Mobile", "Address", "City", "Country",
+				"Postal Code", "Status", "Customer Type", "Payment Terms",
+				"Credit Limit", "Credit Used", "No of Days", "Currency",
+				"Remarks", "Created Date", "Last Updated",
 			}
-
 			if err := writer.Write(headers); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to write CSV headers",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to write CSV headers", "error": err.Error()})
 				return
 			}
 
@@ -805,40 +656,31 @@ func ExportCustomersCSV() gin.HandlerFunc {
 					customer.Status,
 					customer.CustomerType,
 					customer.PaymentTerms,
+					fmt.Sprintf("%.2f", customer.CreditLimit),
+					fmt.Sprintf("%.2f", customer.CreditUsed), // ← NEW
+					fmt.Sprintf("%.0f", customer.NoOfDays),   // ← NEW
+					customer.Currency,
 					customer.Remarks,
 					customer.CreatedAt.Format("2006-01-02 15:04:05"),
 					customer.UpdatedAt.Format("2006-01-02 15:04:05"),
 				}
-
 				if err := writer.Write(record); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"status":  http.StatusInternalServerError,
-						"message": "Failed to write CSV row",
-						"error":   err.Error(),
-					})
+					c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to write CSV row", "error": err.Error()})
 					return
 				}
 			}
 
 			writer.Flush()
 			if err := writer.Error(); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to flush CSV writer",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to flush CSV writer", "error": err.Error()})
 			}
 		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"status":  http.StatusOK,
-				"message": "Customers retrieved for export",
-				"data":    customers,
-				"count":   len(customers),
-			})
+			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Customers retrieved for export", "data": customers, "count": len(customers)})
 		}
 	}
 }
 
+// ─── TRANSACTIONS (stub) ──────────────────────────────────────────────────────
 func GetCustomerTransactions() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -847,11 +689,7 @@ func GetCustomerTransactions() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid customer ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid customer ID format", "error": err.Error()})
 			return
 		}
 
@@ -859,21 +697,12 @@ func GetCustomerTransactions() gin.HandlerFunc {
 		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&customer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Customer not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve customer",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customer", "error": err.Error()})
 			}
 			return
 		}
-
-		transactions := []interface{}{}
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
@@ -881,13 +710,14 @@ func GetCustomerTransactions() gin.HandlerFunc {
 			"data": gin.H{
 				"customer":     customer.CustomerDisplayName,
 				"customerId":   customer.ID,
-				"transactions": transactions,
-				"count":        len(transactions),
+				"transactions": []interface{}{},
+				"count":        0,
 			},
 		})
 	}
 }
 
+// ─── HISTORY ──────────────────────────────────────────────────────────────────
 func GetCustomerHistory() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -896,11 +726,7 @@ func GetCustomerHistory() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid customer ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid customer ID format", "error": err.Error()})
 			return
 		}
 
@@ -908,33 +734,16 @@ func GetCustomerHistory() gin.HandlerFunc {
 		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&customer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Customer not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve customer",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customer", "error": err.Error()})
 			}
 			return
 		}
 
 		history := []gin.H{
-			{
-				"action":    "Customer Created",
-				"timestamp": customer.CreatedAt.Format("2006-01-02 15:04:05"),
-				"user":      customer.CreatedBy,
-				"details":   "Customer record was created in the system",
-			},
-			{
-				"action":    "Customer Updated",
-				"timestamp": customer.UpdatedAt.Format("2006-01-02 15:04:05"),
-				"user":      customer.UpdatedBy,
-				"details":   "Customer information was updated",
-			},
+			{"action": "Customer Created", "timestamp": customer.CreatedAt.Format("2006-01-02 15:04:05"), "user": customer.CreatedBy, "details": "Customer record was created in the system"},
+			{"action": "Customer Updated", "timestamp": customer.UpdatedAt.Format("2006-01-02 15:04:05"), "user": customer.UpdatedBy, "details": "Customer information was updated"},
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -950,6 +759,7 @@ func GetCustomerHistory() gin.HandlerFunc {
 	}
 }
 
+// ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
 func GetDashboardStats(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
