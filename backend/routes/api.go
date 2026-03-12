@@ -30,14 +30,22 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes := router.Group("/api/customers")
 	custRoutes.Use(middlewares.Authenticate) // ✅ protected
 
+	// ── Aggregate / utility routes (must come BEFORE /:id) ───────────────
 	custRoutes.POST("/addcustomers", controllers.AddCustomers())
 	custRoutes.GET("/getcustomers", controllers.GetAllCustomers())
 	custRoutes.GET("/search", controllers.SearchCustomers())
 	custRoutes.GET("/suggestions", controllers.GetCustomerSuggestions())
 	custRoutes.GET("/stats", controllers.GetCustomerStats())
 	custRoutes.GET("/export/csv", controllers.ExportCustomersCSV())
-	// NOTE: static sub-paths must come BEFORE /:id to avoid conflicts
+
+	// GetDashboardStats is a plain func(c *gin.Context) — NOT a factory func.
+	// Register it directly without () so Gin receives the handler itself.
+	custRoutes.GET("/dashboard", controllers.GetDashboardStats)
+
+	// Static sub-paths must remain BEFORE /:id to avoid route conflicts.
 	custRoutes.GET("/status/:status", controllers.GetCustomersByStatus())
+
+	// ── Per-customer routes ──────────────────────────────────────────────
 	custRoutes.GET("/:id", controllers.GetCustomerByID())
 	custRoutes.PUT("/:id", controllers.UpdateCustomer())
 	custRoutes.DELETE("/:id", controllers.DeleteCustomer())
@@ -57,5 +65,13 @@ func SaleOrderRoutes(router *gin.Engine) {
 		salesOrderRoutes.PUT("/:id", controllers.UpdateSalesOrder())
 		salesOrderRoutes.PATCH("/:id/status", controllers.UpdateSalesOrderStatus())
 		salesOrderRoutes.DELETE("/:id", controllers.DeleteSalesOrder())
+	}
+}
+
+func DashboardRoutes(router *gin.Engine) {
+	dashRoutes := router.Group("/api/dashboard")
+	dashRoutes.Use(middlewares.Authenticate) // ✅ protected
+	{
+		dashRoutes.GET("/activity-feed", controllers.GetActivityFeed())
 	}
 }

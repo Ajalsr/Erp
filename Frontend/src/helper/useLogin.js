@@ -1,10 +1,9 @@
 import axios from 'axios'
-import { toast } from 'react-toastify'
 import useAuthStore from '../store/useAuthStore'
+import nexusToast from './nexusToast'
 
 const useLogin = () => {
-
-  const BASE_URL = "http://localhost:8080"
+  const BASE_URL = 'http://localhost:8080'
   const { setAuth } = useAuthStore()
 
   const handleSignin = async (inputs) => {
@@ -12,29 +11,17 @@ const useLogin = () => {
       const response = await axios.post(`${BASE_URL}/api/auth/signin`, inputs)
       const { data, token } = response.data
 
-      
       setAuth(token, data)
-
-      toast.success("Signed in successfully!", {
-        position: "top-right",
-        autoClose: 3000,
-        theme: "light",
-      })
+      nexusToast.success('Signed in successfully!')
 
       return response.data
-
     } catch (error) {
       const errorMessage =
         error.response?.data?.error ||
         error.response?.data?.message ||
-        "Sign in failed. Please try again."
+        'Sign in failed. Please try again.'
 
-      toast.error(errorMessage, {
-        position: "top-right",
-        autoClose: 5000,
-        theme: "light",
-      })
-
+      nexusToast.error(errorMessage)
       throw { error: errorMessage }
     }
   }
