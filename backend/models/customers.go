@@ -24,38 +24,73 @@ type Customer struct {
 	PostalCode          string             `json:"postalCode" bson:"postalCode"`
 	Country             string             `json:"country" bson:"country"`
 	ContactPersons      []ContactPerson    `json:"contactPersons" bson:"contactPersons"`
-	SalesAccount        string             `json:"sales_account,omitempty" bson:"sales_account,omitempty"`
-	SalesDescription    string             `json:"sales_description,omitempty" bson:"sales_description,omitempty"`
-	CostPrice           string             `json:"cost_price,omitempty" bson:"cost_price,omitempty"`
-	CostAccount         string             `json:"cost_account,omitempty" bson:"cost_account,omitempty"`
-	CostDescription     string             `json:"cost_description,omitempty" bson:"cost_description,omitempty"`
-	PreferredVendor     string             `json:"preferred_vendor,omitempty" bson:"preferred_vendor,omitempty"`
-	InventoryAccount    string             `json:"inventory_account,omitempty" bson:"inventory_account,omitempty"`
-	OpeningStock        string             `json:"opening_stock,omitempty" bson:"opening_stock,omitempty"`
-	OpeningStockRate    string             `json:"opening_stock_rate,omitempty" bson:"opening_stock_rate,omitempty"`
-	ReorderPoint        string             `json:"reorder_point,omitempty" bson:"reorder_point,omitempty"`
-	Quantity            string             `json:"quantity,omitempty" bson:"quantity,omitempty"`
-	Currency            string             `json:"currency,omitempty" bson:"currency,omitempty"`
-	PaymentTerms        string             `json:"payment_terms,omitempty" bson:"payment_terms,omitempty"`
-	Remarks             string             `json:"remarks,omitempty" bson:"remarks,omitempty"`
-	ReportingTags       []string           `json:"reporting_tags,omitempty" bson:"reporting_tags,omitempty"`
-	CustomFields        string             `json:"custom_fields,omitempty" bson:"custom_fields,omitempty"`
-	Documents           []string           `json:"documents,omitempty" bson:"documents,omitempty"`
-	Status              string             `json:"status,omitempty" bson:"status,omitempty"`
-	CreatedAt           time.Time          `json:"created_at,omitempty" bson:"created_at,omitempty"`
-	UpdatedAt           time.Time          `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
-	CreatedBy           string             `json:"created_by,omitempty" bson:"created_by,omitempty"`
-	UpdatedBy           string             `json:"updated_by,omitempty" bson:"updated_by,omitempty"`
+
+	// ── Finance ──────────────────────────────────────────────────────────
+	// json tags use snake_case to match what the frontend payload sends.
+	Currency     string  `json:"currency,omitempty"      bson:"currency,omitempty"`
+	PaymentTerms string  `json:"payment_terms,omitempty" bson:"payment_terms,omitempty"` // form sends "payment_terms" (mapped from paymentTerms)
+	CreditLimit  float64 `json:"credit_limit,omitempty"  bson:"credit_limit,omitempty"`
+	CreditUsed   float64 `json:"credit_used,omitempty"   bson:"credit_used,omitempty"` // ← NEW: form field credit_used
+	NoOfDays     float64 `json:"no_of_days,omitempty"    bson:"no_of_days,omitempty"`  // ← NEW: form field no_of_days
+
+	// Computed server-side, never sent by the form
+	OutstandingBalance float64 `json:"outstanding_balance,omitempty" bson:"outstanding_balance,omitempty"`
+	UnusedCredits      float64 `json:"unused_credits,omitempty"      bson:"unused_credits,omitempty"`
+
+	// ── Item / Inventory (kept for backwards compat, not used by customer form) ──
+	SellingPrice     float64 `json:"selling_price,omitempty"      bson:"selling_price,omitempty"`
+	SalesAccount     string  `json:"sales_account,omitempty"      bson:"sales_account,omitempty"`
+	SalesDescription string  `json:"sales_description,omitempty"  bson:"sales_description,omitempty"`
+	CostPrice        float64 `json:"cost_price,omitempty"         bson:"cost_price,omitempty"`
+	CostAccount      string  `json:"cost_account,omitempty"       bson:"cost_account,omitempty"`
+	CostDescription  string  `json:"cost_description,omitempty"   bson:"cost_description,omitempty"`
+	PreferredVendor  string  `json:"preferred_vendor,omitempty"   bson:"preferred_vendor,omitempty"`
+	InventoryAccount string  `json:"inventory_account,omitempty"  bson:"inventory_account,omitempty"`
+	OpeningStock     float64 `json:"opening_stock,omitempty"      bson:"opening_stock,omitempty"`
+	OpeningStockRate float64 `json:"opening_stock_rate,omitempty" bson:"opening_stock_rate,omitempty"`
+	ReorderPoint     float64 `json:"reorder_point,omitempty"      bson:"reorder_point,omitempty"`
+	Quantity         float64 `json:"quantity,omitempty"           bson:"quantity,omitempty"`
+
+	// ── Extras ───────────────────────────────────────────────────────────
+	Remarks       string                 `json:"remarks,omitempty"        bson:"remarks,omitempty"`
+	ReportingTags []string               `json:"reporting_tags,omitempty" bson:"reporting_tags,omitempty"` // form sends "reporting_tags" (mapped from reportingTags)
+	CustomFields  map[string]interface{} `json:"custom_fields,omitempty"  bson:"custom_fields,omitempty"`  // form sends "custom_fields" (mapped from customFields)
+	Documents     []Document             `json:"documents,omitempty"      bson:"documents,omitempty"`
+	Tags          []string               `json:"tags,omitempty"           bson:"tags,omitempty"`
+	Notes         string                 `json:"notes,omitempty"          bson:"notes,omitempty"`
+	Rating        int                    `json:"rating,omitempty"         bson:"rating,omitempty"`
+
+	// ── Status / Audit ───────────────────────────────────────────────────
+	Status    string    `json:"status,omitempty"     bson:"status,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty" bson:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
+	CreatedBy string    `json:"created_by,omitempty" bson:"created_by,omitempty"`
+	UpdatedBy string    `json:"updated_by,omitempty" bson:"updated_by,omitempty"`
 }
 
 type ContactPerson struct {
-	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	Name      string             `json:"name" bson:"name"`
-	Email     string             `json:"email" bson:"email"`
-	Phone     string             `json:"phone" bson:"phone"`
-	Position  string             `json:"position,omitempty" bson:"position,omitempty"`
+	ID        primitive.ObjectID `json:"_id,omitempty"       bson:"_id,omitempty"`
+	Name      string             `json:"name"                bson:"name"`
+	Email     string             `json:"email"               bson:"email"`
+	Phone     string             `json:"phone"               bson:"phone"`
+	Position  string             `json:"position,omitempty"  bson:"position,omitempty"`
 	IsPrimary bool               `json:"is_primary,omitempty" bson:"is_primary,omitempty"`
-	Notes     string             `json:"notes,omitempty" bson:"notes,omitempty"`
+	Notes     string             `json:"notes,omitempty"     bson:"notes,omitempty"`
 	CreatedAt time.Time          `json:"created_at,omitempty" bson:"created_at,omitempty"`
 	UpdatedAt time.Time          `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
+}
+
+// Document stores metadata only — actual file bytes are uploaded via a
+// separate multipart endpoint. The frontend cannot JSON-serialise File objects.
+type Document struct {
+	ID          primitive.ObjectID `json:"_id,omitempty"         bson:"_id,omitempty"`
+	Name        string             `json:"name"                  bson:"name"`
+	Type        string             `json:"type"                  bson:"type"` // matches DOCUMENT_TYPES id on the frontend
+	URL         string             `json:"url,omitempty"         bson:"url,omitempty"`
+	Size        int64              `json:"size,omitempty"        bson:"size,omitempty"`
+	UploadDate  string             `json:"uploadDate,omitempty"  bson:"uploadDate,omitempty"` // ← NEW: ISO string from the form
+	Status      string             `json:"status,omitempty"      bson:"status,omitempty"`     // ← NEW: "pending"|"uploaded"|"verified"
+	UploadedAt  time.Time          `json:"uploaded_at,omitempty" bson:"uploaded_at,omitempty"`
+	UploadedBy  string             `json:"uploaded_by,omitempty" bson:"uploaded_by,omitempty"`
+	Description string             `json:"description,omitempty" bson:"description,omitempty"`
 }

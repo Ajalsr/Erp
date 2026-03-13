@@ -1,347 +1,834 @@
-import { useEffect, useState } from "react";
-import { FaThList, FaThLarge, FaPlus, FaEllipsisV, FaFilter, FaTimes } from "react-icons/fa";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
+import {
+  FaPlus, FaTimes, FaSearch, FaUser, FaBuilding,
+  FaEnvelope, FaPhone, FaDownload, FaUpload,
+  FaUsers, FaCheckCircle, FaClock, FaCreditCard,
+  FaChevronLeft, FaChevronRight, FaBoxOpen, FaEdit,
+  FaSortAmountDown, FaSortAmountUp
+} from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
-import useGetCustomers from '../../helper/useGetCustomers';
+import useGetCustomers from "../../helper/useGetCustomers";
+import debounce from "lodash/debounce";
+import useThemeStore, { getTheme } from "../../store/useThemeStore";
+
+
+
+// ─── CustomSelect — portal-based, theme-aware ────────────────────
+const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWidth = 120 }) => {
+  const [open,    setOpen]    = useState(false);
+  const [ready,   setReady]   = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const rafRef     = useRef(null);
+
+  // options: [{ label, value }] or plain strings
+  const opts     = options.map(o => typeof o === "string" ? { label: o, value: o } : o);
+  const selected = opts.find(o => o.value === value);
+
+  const measurePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const dropH = Math.min(opts.length * 40 + 12, 220);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
+    setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, minWidth) });
+    setReady(true);
+  }, [opts.length, minWidth]);
+
+  const handleOpen = () => {
+    if (open) { setOpen(false); setReady(false); return; }
+    setReady(false); setOpen(true);
+    rafRef.current = requestAnimationFrame(() =>
+      rafRef.current = requestAnimationFrame(() => measurePos())
+    );
+  };
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const upd = () => measurePos();
+    window.addEventListener("scroll", upd, true);
+    window.addEventListener("resize", upd);
+    return () => { window.removeEventListener("scroll", upd, true); window.removeEventListener("resize", upd); };
+  }, [open, measurePos]);
+
+  useEffect(() => {
+    const h = e => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+          dropRef.current    && !dropRef.current.contains(e.target))
+        { setOpen(false); setReady(false); }
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  // Grab T from the nearest theme store — read directly so this stays stateless
+  const isDarkNow = (() => { try { return JSON.parse(localStorage.getItem("nexus-theme") || "{}").state?.isDark ?? true; } catch { return true; } })();
+  const bg      = isDarkNow ? "#111d30" : "#ffffff";
+  const border  = isDarkNow ? "rgba(255,255,255,0.07)" : "#e2e8f0";
+  const textPri = isDarkNow ? "#e2e8f0" : "#1e293b";
+  const textSec = isDarkNow ? "#64748b" : "#94a3b8";
+  const hoverBg = isDarkNow ? "rgba(59,130,246,0.08)" : "#eff6ff";
+  const activeBg= isDarkNow ? "rgba(59,130,246,0.15)" : "#eff6ff";
+  const activeC = isDarkNow ? "#60a5fa" : "#1d4ed8";
+  const focusBorder = isDarkNow ? "rgba(59,130,246,0.5)" : "#93c5fd";
+
+  const dropdown = (
+    <div ref={dropRef} style={{
+      position: "absolute", top: dropPos.top, left: dropPos.left, width: dropPos.width,
+      zIndex: 99999, background: bg, border: `1.5px solid ${border}`, borderRadius: "11px",
+      boxShadow: isDarkNow ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 32px rgba(0,0,0,0.12)",
+      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+      boxSizing: "border-box", visibility: ready ? "visible" : "hidden",
+      opacity: ready ? 1 : 0, transition: "opacity 0.12s ease",
+    }}>
+      <div style={{ padding: "5px" }}>
+        {opts.map((opt, i) => {
+          const isAct = opt.value === value;
+          return (
+            <div key={i} onClick={() => { onChange(opt.value); setOpen(false); setReady(false); }}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "8px 11px", borderRadius: "7px", cursor: "pointer", fontSize: "12px",
+                fontWeight: isAct ? "600" : "400", color: isAct ? activeC : textPri,
+                background: isAct ? activeBg : "transparent", transition: "background 0.1s",
+              }}
+              onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+              {opt.label}
+              {isAct && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={activeC} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div ref={triggerRef} onClick={handleOpen} style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      height: "34px", padding: "0 11px", minWidth,
+      border: `1px solid ${open ? focusBorder : border}`, borderRadius: "7px",
+      background: bg, cursor: "pointer", userSelect: "none",
+      boxShadow: open ? `0 0 0 3px ${isDarkNow ? "rgba(59,130,246,0.15)" : "rgba(147,197,253,0.25)"}` : "none",
+      transition: "border-color 0.15s, box-shadow 0.15s", boxSizing: "border-box", gap: "8px",
+    }}>
+      <span style={{ fontSize: "12px", fontWeight: "500", color: selected ? textPri : textSec,
+        fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif", whiteSpace: "nowrap" }}>
+        {selected ? selected.label : placeholder}
+      </span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? activeC : textSec}
+        strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+        style={{ transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "rotate(0deg)", flexShrink: 0 }}>
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+      {open && createPortal(dropdown, document.body)}
+    </div>
+  );
+};
 
 const Customers = () => {
   const { handleGetCustomers, data, loading, error } = useGetCustomers();
   const navigate = useNavigate();
-  
-  
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
-  
-  
+  const isDark = useThemeStore((s) => s.isDark);
+  const T      = getTheme(isDark);
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 200;
+  // ── Avatar palettes — reactive to theme ──────────────────────────
+  const AVATAR_PALETTES = [
+    [T.blueDim,   T.blueLight],
+    [T.greenDim,  T.green],
+    [T.amberDim,  T.amber],
+    [isDark ? "rgba(236,72,153,0.12)" : "#fce7f3", "#f472b6"],
+    [T.purpleDim, T.purple],
+    [T.cyanDim,   T.cyan],
+  ];
 
-  const displayItems = data || [];
-  
-  const totalPages = Math.ceil(displayItems.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentItems = displayItems.slice(startIndex, startIndex + itemsPerPage);
+  // ── Dynamic CSS ───────────────────────────────────────────────────
+  const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
 
-  const handlePageChange = (page) => {
-    if (page < 1 || page > totalPages) return;
-    setCurrentPage(page);
+    .cust-root * { box-sizing: border-box; }
+    .cust-root { font-family: 'Inter', sans-serif; transition: background 0.25s ease, color 0.25s ease; }
+    .cust-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
+
+    .stat-card { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+    .stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: ${isDark ? "0 8px 32px rgba(0,0,0,0.4)" : "0 8px 24px rgba(0,0,0,0.1)"} !important;
+    }
+
+    .cust-row { transition: background 0.12s; }
+    .cust-row:hover { background: ${isDark ? "rgba(255,255,255,0.025)" : "#f8fafc"} !important; }
+    .cust-row:hover .row-name { color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
+
+    .action-btn { transition: all 0.15s; }
+    .action-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+
+    .filter-pill { transition: all 0.15s; cursor: pointer; }
+    .filter-pill:hover { border-color: ${isDark ? "rgba(59,130,246,0.3)" : "#bfdbfe"} !important; color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
+    .filter-pill-active { background: ${isDark ? "rgba(59,130,246,0.15)" : "#eff6ff"} !important; color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; border-color: ${isDark ? "rgba(59,130,246,0.35)" : "#bfdbfe"} !important; font-weight: 600 !important; }
+
+    .tbl-btn { transition: all 0.12s; }
+    .tbl-btn:hover { background: ${isDark ? "rgba(255,255,255,0.07)" : "#f1f5f9"} !important; color: ${isDark ? "#e2e8f0" : "#0f172a"} !important; }
+
+    .page-btn { transition: all 0.12s; }
+    .page-btn:hover { border-color: ${isDark ? "rgba(59,130,246,0.3)" : "#bfdbfe"} !important; color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; }
+
+    .suggestion-row { transition: background 0.1s; cursor: pointer; }
+    .suggestion-row:hover { background: ${isDark ? "rgba(59,130,246,0.06)" : "#eff6ff"} !important; }
+
+    .drawer-tab { transition: all 0.15s; border-bottom: 2px solid transparent; }
+    .drawer-tab:hover { color: ${isDark ? "#94a3b8" : "#374151"} !important; }
+    .drawer-tab-active { color: ${isDark ? "#60a5fa" : "#1d4ed8"} !important; border-bottom-color: ${isDark ? "#3b82f6" : "#2563eb"} !important; }
+
+    .detail-row { transition: background 0.1s; }
+    .detail-row:hover { background: ${isDark ? "rgba(255,255,255,0.04)" : "#f8fafc"} !important; }
+
+    .approve-btn { transition: all 0.12s; }
+    .approve-btn:hover { filter: brightness(${isDark ? "1.2" : "0.94"}); }
+
+    .sort-select option { background: ${T.surface2}; color: ${T.textPri}; }
+    .per-page-select option { background: ${T.surface2}; color: ${T.textPri}; }
+
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes spin    { to { transform: rotate(360deg); } }
+    @keyframes fadeUp  { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+    .drawer-anim  { animation: slideIn 0.25s cubic-bezier(0.16,1,0.3,1) forwards; }
+    .overlay-anim { animation: fadeIn 0.2s ease forwards; }
+    .fade-up      { animation: fadeUp 0.3s ease forwards; }
+  `;
+
+  const [isDrawerOpen, setIsDrawerOpen]       = useState(false);
+  const [selectedItem, setSelectedItem]       = useState(null);
+  const [activeTab, setActiveTab]             = useState("overview");
+  const [searchTerm, setSearchTerm]           = useState("");
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [searchSuggestions, setSearchSuggestions] = useState([]);
+  const [selectedStatus, setSelectedStatus]   = useState("all");
+  const [sortBy, setSortBy]                   = useState("name");
+  const [sortOrder, setSortOrder]             = useState("asc");
+  const [currentPage, setCurrentPage]         = useState(1);
+  const [itemsPerPage, setItemsPerPage]       = useState(10);
+  const [totalPages, setTotalPages]           = useState(1);
+  const searchRef = useRef(null);
+
+  // ── helpers ──────────────────────────────────────────────────────
+  const getStats = () => {
+    if (!data) return { total: 0, active: 0, pending: 0, receivables: 0 };
+    return {
+      total:       data.length,
+      active:      data.filter(i => (i.status || "active") === "active").length,
+      pending:     data.filter(i => (i.status || "active") === "pending").length,
+      receivables: data.reduce((s, i) => s + (parseFloat(i.selling_price) || 0), 0),
+    };
+  };
+  const stats = getStats();
+
+  const getCode = (item) => {
+    if (item.customerCode) return item.customerCode;
+    const initials = (item.customerDisplayName || "").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 3);
+    return `${initials}${(item._id || "0000").slice(-4).toUpperCase()}`;
   };
 
-  const handleItemClick = (item) => {
-    setSelectedItem(item);
-    setIsDrawerOpen(true);
-    setActiveTab('overview'); 
+  const getAvatar = (name) => AVATAR_PALETTES[(name || "").charCodeAt(0) % AVATAR_PALETTES.length];
+
+  const getFilteredSorted = () => {
+    if (!data) return [];
+    let list = [...data];
+    if (selectedStatus !== "all") list = list.filter(i => (i.status || "active").toLowerCase() === selectedStatus);
+    list.sort((a, b) => {
+      const key = sortBy;
+      let av = key === "date" ? new Date(a.createdAt || 0) : (key === "receivables" ? parseFloat(a.selling_price) || 0 : (a[key === "name" ? "customerDisplayName" : "companyName"] || "").toLowerCase());
+      let bv = key === "date" ? new Date(b.createdAt || 0) : (key === "receivables" ? parseFloat(b.selling_price) || 0 : (b[key === "name" ? "customerDisplayName" : "companyName"] || "").toLowerCase());
+      return sortOrder === "asc" ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+    });
+    return list;
   };
 
-  const closeDrawer = () => {
-    setIsDrawerOpen(false);
-    setSelectedItem(null);
+  const filteredItems = getFilteredSorted();
+
+  useEffect(() => {
+    const pages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
+    setTotalPages(pages);
+    if (currentPage > pages) setCurrentPage(pages);
+  }, [filteredItems, itemsPerPage, currentPage]);
+
+  const currentItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const handlePageChange = (p) => {
+    if (p < 1 || p > totalPages) return;
+    setCurrentPage(p);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const getPageNums = () => {
+    if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const nums = [1];
+    let s = Math.max(2, currentPage - 1), e = Math.min(totalPages - 1, currentPage + 1);
+    if (currentPage <= 3) e = 4;
+    if (currentPage >= totalPages - 2) s = totalPages - 3;
+    if (s > 2) nums.push("...");
+    for (let i = s; i <= e; i++) nums.push(i);
+    if (e < totalPages - 1) nums.push("...");
+    if (totalPages > 1) nums.push(totalPages);
+    return nums;
+  };
+
+  const handleItemClick = (item) => { setSelectedItem(item); setIsDrawerOpen(true); setActiveTab("overview"); };
+  const closeDrawer     = () => { setIsDrawerOpen(false); setSelectedItem(null); };
+
+  const handleSearchChange = useCallback(debounce(() => {}, 300), []);
+  const handleSearchInput  = (e) => {
+    const v = e.target.value;
+    setSearchTerm(v);
+    handleSearchChange(v);
+    if (v.trim().length >= 2) {
+      const t = v.toLowerCase();
+      setSearchSuggestions((data || []).filter(i =>
+        (i.customerDisplayName || "").toLowerCase().includes(t) ||
+        (i.companyName || "").toLowerCase().includes(t) ||
+        (i.customerEmail || "").toLowerCase().includes(t) ||
+        (i.customerPhone || "").toLowerCase().includes(t) ||
+        (getCode(i) || "").toLowerCase().includes(t)
+      ).slice(0, 8));
+    } else setSearchSuggestions([]);
+  };
+  const handleClearSearch = () => { setSearchTerm(""); setSearchSuggestions([]); };
+
+  const handleSuggestionClick = (item) => {
+    setSelectedItem(item); setIsDrawerOpen(true); setActiveTab("overview");
+    setSearchTerm(""); setSearchSuggestions([]); setIsSearchFocused(false);
   };
 
   useEffect(() => {
-    handleGetCustomers();
-  }, [handleGetCustomers]);
+    const h = (e) => { if (searchRef.current && !searchRef.current.contains(e.target)) { setSearchSuggestions([]); setIsSearchFocused(false); } };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
 
-  console.log("API Data:", data);
-  console.log("Display Items:", displayItems);
+  const handleExport = () => {
+    if (!data?.length) { alert("No customers to export"); return; }
+    const rows = data.map(i => ({ Code: getCode(i), Name: i.customerDisplayName || "", Company: i.companyName || "", Email: i.customerEmail || "", Phone: i.customerPhone || "", Status: i.status || "active" }));
+    const csv  = Object.keys(rows[0]).join(",") + "\n" + rows.map(r => Object.values(r).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `customers_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+  };
 
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error}</div>;
+  useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
+
+  // ── status badge config ───────────────────────────────────────────
+  const statusCfg = {
+    active:   { bg: T.greenDim,  color: T.green,  border: isDark ? "rgba(16,185,129,0.25)"  : "#86efac"  },
+    pending:  { bg: T.amberDim,  color: T.amber,  border: isDark ? "rgba(245,158,11,0.25)"  : "#fcd34d"  },
+    inactive: { bg: isDark ? T.textMuted + "33" : "#f1f5f9", color: T.textSec, border: isDark ? "rgba(100,116,139,0.2)" : "#cbd5e1" },
+  };
+
+  // ── loading / error ───────────────────────────────────────────────
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: T.bg, transition: "background 0.25s ease" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <div style={{ width: "36px", height: "36px", border: `3px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "Inter, sans-serif" }}>Loading customers…</span>
+      </div>
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ padding: "20px", color: T.red, background: T.redDim, borderRadius: "12px", margin: "24px", border: `1px solid rgba(239,68,68,0.2)`, fontFamily: "Inter, sans-serif" }}>
+      Error: {error}
+    </div>
+  );
+
+  const startIdx = (currentPage - 1) * itemsPerPage + 1;
+  const endIdx   = Math.min(currentPage * itemsPerPage, filteredItems.length);
+
+  // ── shared card style ─────────────────────────────────────────────
+  const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: "14px", transition: "background 0.25s ease, border-color 0.25s ease" };
+
   return (
-    <div className="bg-white min-h-screen p-6 text-gray-800">
-         
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center space-x-2">
-              <h2 className="text-lg font-semibold">Customers</h2>
-              <button className="text-gray-500 hover:text-gray-700">
-                <FaFilter />
-              </button>
-            </div>
-    
-            <div className="flex items-center space-x-3">
-              <button className="p-2 border rounded-md hover:bg-gray-100">
-                <FaThList className="text-gray-600" />
-              </button>
-              <button className="p-2 border rounded-md hover:bg-gray-100">
-                <FaThLarge className="text-gray-600" />
-              </button>
-              <button 
-                className="bg-blue-600 text-white px-3 py-2 rounded-md flex items-center space-x-2 hover:bg-blue-700 cursor-pointer" 
-                onClick={() => navigate("/Sales/Customers/Newcustomers")}
-              >
-                <FaPlus />
-                <span>New</span>
-              </button>
-              <button className="p-2 border rounded-md hover:bg-gray-100">
-                <FaEllipsisV className="text-gray-600" />
-              </button>
-            </div>
+    <>
+      <style>{css}</style>
+
+      <div className="cust-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+
+        {/* ── HEADER ─────────────────────────────────────────────── */}
+        <div className="fade-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+          <div>
+            <h1 className="cust-jakarta" style={{ fontSize: "20px", fontWeight: "700", color: T.textPri, margin: 0 }}>Customers</h1>
+            <p style={{ color: T.textSec, fontSize: "13px", marginTop: "4px" }}>Manage and track your customer relationships</p>
           </div>
-    
-          
-          <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase">
-                <tr>
-                  <th className="px-4 py-3 text-left w-8">
-                    <input type="checkbox" className="w-4 h-4 text-blue-600 border-gray-300 rounded" />
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium w-1/4">Name</th>
-                  <th className="px-4 py-3 text-left font-medium w-1/6">Company Name</th>
-                  <th className="px-4 py-3 text-left font-medium w-1/6">Email</th>
-                  <th className="px-4 py-3 text-left font-medium w-1/6">Work Phone</th>
-                  <th className="px-4 py-3 text-left font-medium w-1/3">Receivables</th>
-                  <th className="px-4 py-3 text-right font-medium w-1/6">Unused Credits</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {currentItems.map((item, index) => (
-                  <tr key={item._id || item.id || index} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center space-x-3">
-                        {/* <img
-                          src={item.image || "https://via.placeholder.com/40"}
-                          alt={item.name}
-                          className="w-8 h-8 rounded border border-gray-200"
-                        /> */}
-                        <span 
-                          className="text-blue-600 hover:underline font-medium cursor-pointer"
-                          onClick={() => handleItemClick(item)}
-                        >
-                          {item.customerDisplayName}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{item.companyName || "N/A"}</td>
-                    <td className="px-4 py-3 text-gray-700">{item.customerEmail || "N/A"}</td>
-                    <td className="px-4 py-3 text-gray-700">{item.customerPhone || "N/A"}</td>
-                    {/* <td className="px-4 py-3 text-gray-600 ">
-                      <div className="truncate" title={item.customerPhone}>
-                        {item.customerPhone}
-                      </div>
-                    </td> */}
-                    <td className="px-4 py-3 text-gray-600 max-w-xs">
-                      <div className="truncate" title={item.sales_description}>
-                        {item.sales_description || "No description"}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-800">
-                      {item.selling_price ? `AED ${item.selling_price}` : "N/A"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-    
-         
-          <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
-            <div>
-              Showing {startIndex + 1} -{" "}
-              {Math.min(startIndex + itemsPerPage, displayItems.length)} of {displayItems.length}
-            </div>
-    
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => handlePageChange(currentPage - 1)}
-                disabled={currentPage === 1}
-                className="px-3 py-1 border rounded-md hover:bg-gray-100 disabled:opacity-50"
-              >
-                Prev
+          <div style={{ display: "flex", gap: "8px" }}>
+            {[
+              { label: "Export", icon: <FaDownload size={11} />, onClick: handleExport, variant: "ghost" },
+              { label: "Import", icon: <FaUpload size={11} />,   onClick: () => {},     variant: "ghost" },
+              { label: "New Customer", icon: <FaPlus size={11} />, onClick: () => navigate("/Sales/Customers/Newcustomers"), variant: "primary" },
+            ].map((btn) => (
+              <button key={btn.label} className="action-btn" onClick={btn.onClick}
+                style={{
+                  display: "flex", alignItems: "center", gap: "6px",
+                  padding: "8px 16px", borderRadius: "9px", fontSize: "13px", fontWeight: "500",
+                  cursor: "pointer", fontFamily: "inherit",
+                  background: btn.variant === "primary" ? T.blue : "transparent",
+                  color:      btn.variant === "primary" ? "white" : T.textSec,
+                  border:     btn.variant === "primary" ? "none" : `1px solid ${T.border}`,
+                }}>
+                {btn.icon} {btn.label}
               </button>
-    
-              {[...Array(totalPages)].map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => handlePageChange(index + 1)}
-                  className={`px-3 py-1 border rounded-md ${
-                    currentPage === index + 1
-                      ? "bg-blue-500 text-white"
-                      : "hover:bg-gray-100"
-                  }`}
-                >
-                  {index + 1}
-                </button>
-              ))}
-    
-              <button
-                onClick={() => handlePageChange(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1 border rounded-md hover:bg-gray-100 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-    
- 
-          <div
-            className={`fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out ${
-              isDrawerOpen ? "translate-x-0" : "translate-x-full"
-            }`}
-          >
-            <div 
-              className="absolute inset-0 bg-opacity-20 backdrop-blur-md backdrop-filter"
-              onClick={closeDrawer}
-            ></div>
-            
-            <div className="absolute right-0 top-0 h-full w-196 max-w-full bg-white shadow-xl">
-              <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold">{selectedItem?.name || "Item Details"}</h3>
-                <button 
-                  onClick={closeDrawer}
-                  className="p-2 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
-                >
-                  <FaTimes className="text-gray-500" />
-                </button>
-              </div>
-    
-              <div className="border-b border-gray-200">
-                <div className="flex space-x-1 px-4">
-                  <button
-                    onClick={() => setActiveTab('overview')}
-                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                      activeTab === 'overview'
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Overview
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('transactions')}
-                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                      activeTab === 'transactions'
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Transactions
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('history')}
-                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                      activeTab === 'history'
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    History
-                  </button>
-                </div>
-              </div>
-              
-              <div className="p-4 overflow-y-auto h-full">
-                {selectedItem && (
-                  <div className="space-y-4">
-                    {activeTab === 'overview' && (
-                      <div className="space-y-4">
-                        <div className="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg">
-                          <img
-                            src={selectedItem.image || "https://via.placeholder.com/60"}
-                            alt={selectedItem.name}
-                            className="w-12 h-12 rounded border border-gray-200"
-                          />
-                          <div>
-                            <h4 className="text-lg font-bold text-gray-800">{selectedItem.name}</h4>
-                            <p className="text-gray-600 text-sm">{selectedItem.item_code || "N/A"}</p>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="bg-gray-50 p-3 rounded-lg">
-                            <label className="text-sm text-gray-500">Brand</label>
-                            <p className="font-medium text-gray-800">{selectedItem.brand || "N/A"}</p>
-                          </div>
-                          <div className="bg-gray-50 p-3 rounded-lg">
-                            <label className="text-sm text-gray-500">Type</label>
-                            <p className="font-medium text-gray-800">{selectedItem.type || "N/A"}</p>
-                          </div>
-                          <div className="bg-gray-50 p-3 rounded-lg">
-                            <label className="text-sm text-gray-500">Quantity</label>
-                            <p className="font-medium text-gray-800">{selectedItem.quantity || "0"}</p>
-                          </div>
-                          <div className="bg-gray-50 p-3 rounded-lg">
-                            <label className="text-sm text-gray-500">Selling Price</label>
-                            <p className="font-medium text-gray-800">
-                              {selectedItem.selling_price ? `AED ${selectedItem.selling_price}` : 
-                               selectedItem.rate ? selectedItem.rate : "N/A"}
-                            </p>
-                          </div>
-                        </div>
-                        
-                        <div className="bg-gray-50 p-3 rounded-lg">
-                          <label className="text-sm text-gray-500">Description</label>
-                          <p className="mt-1 text-gray-700">
-                            {selectedItem.sales_description || selectedItem.description || "No description available"}
-                          </p>
-                        </div>
-                        
-                        <div className="bg-gray-50 p-3 rounded-lg">
-                          <label className="text-sm text-gray-500">SKU</label>
-                          <p className="font-medium text-gray-800">{selectedItem.sku || "N/A"}</p>
-                        </div>
-                      </div>
-                    )}
-    
-                    {activeTab === 'transactions' && (
-                      <div className="text-center py-8">
-                        <div className="text-gray-400 mb-2">
-                          <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                        <p className="text-gray-500">No transactions found</p>
-                        <p className="text-gray-400 text-sm mt-1">There are no transactions for this item yet.</p>
-                      </div>
-                    )}
-    
-                    {activeTab === 'history' && (
-                      <div className="text-center py-8">
-                        <div className="text-gray-400 mb-2">
-                          <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                        <p className="text-gray-500">No Recent History</p>
-                        <p className="text-gray-400 text-sm mt-1">There is no recent history for this item.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              
-              {/* Drawer Footer with Gray Border */}
-              {/* <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
-                <div className="flex space-x-2">
-                  <button 
-                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-                    onClick={() => {
-                      // Add edit functionality here
-                      console.log("Edit item:", selectedItem);
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <button 
-                    className="flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-300 transition-colors"
-                    onClick={closeDrawer}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div> */}
-            </div>
+            ))}
           </div>
         </div>
-  )
-}
 
-export default Customers
+        {/* ── STAT CARDS — Option A: Insight Cards ────────────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "14px", marginBottom: "20px" }}>
+          {[
+            {
+              label: "Total Customers", value: stats.total,
+              icon: <FaUsers />, color: T.blue, dim: T.blueDim,
+              sub: `${stats.active} active · ${stats.pending} pending`,
+              bar: null,
+            },
+            {
+              label: "Active", value: stats.active,
+              icon: <FaCheckCircle />, color: T.green, dim: T.greenDim,
+              sub: stats.total ? `${Math.round((stats.active / stats.total) * 100)}% of total` : "—",
+              bar: stats.total ? (stats.active / stats.total) * 100 : 0,
+              barColor: T.green,
+            },
+            {
+              label: "Pending", value: stats.pending,
+              icon: <FaClock />, color: T.amber, dim: T.amberDim,
+              sub: stats.total ? `${Math.round((stats.pending / stats.total) * 100)}% of total` : "—",
+              bar: stats.total ? (stats.pending / stats.total) * 100 : 0,
+              barColor: T.amber,
+            },
+            {
+              label: "Total Receivables", value: `AED ${stats.receivables.toLocaleString()}`,
+              icon: <FaCreditCard />, color: T.purple, dim: T.purpleDim, small: true,
+              sub: `Avg AED ${stats.total ? Math.round(stats.receivables / stats.total).toLocaleString() : 0} / customer`,
+              bar: null,
+            },
+          ].map((c, i) => (
+            <div key={i} className="stat-card"
+              style={{ ...card, padding: "18px 20px", position: "relative", overflow: "hidden" }}>
+              {/* Top glow line */}
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "2px",
+                background: `linear-gradient(90deg, transparent 10%, ${c.color}${isDark ? "55" : "70"}, transparent 90%)` }} />
+
+              {/* Label + icon row */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
+                <p style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", margin: 0,
+                  textTransform: "uppercase", letterSpacing: "0.07em" }}>{c.label}</p>
+                <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: c.dim,
+                  color: c.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", flexShrink: 0 }}>
+                  {c.icon}
+                </div>
+              </div>
+
+              {/* Value */}
+              <p className="cust-jakarta" style={{ fontSize: c.small ? "17px" : "26px", fontWeight: "800",
+                color: T.textPri, margin: "0 0 10px", lineHeight: 1 }}>{c.value}</p>
+
+              {/* Progress bar for active / pending */}
+              {c.bar !== null && c.bar !== undefined && (
+                <div style={{ height: "3px", background: isDark ? "rgba(255,255,255,0.07)" : "#e2e8f0",
+                  borderRadius: "999px", marginBottom: "8px", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${c.bar}%`, background: c.barColor,
+                    borderRadius: "999px", transition: "width 0.8s ease" }} />
+                </div>
+              )}
+
+              {/* Sub-label */}
+              <p style={{ fontSize: "11px", color: T.textSec, margin: 0, fontWeight: "500" }}>{c.sub}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* ── TOOLBAR ─────────────────────────────────────────────── */}
+        <div style={{ ...card, padding: "12px 16px", marginBottom: "12px" }}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+
+            {/* Search */}
+            <div ref={searchRef} style={{ position: "relative", flex: 1, minWidth: "240px" }}>
+              <FaSearch style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: T.textSec, fontSize: "11px", pointerEvents: "none" }} />
+              <input type="text" value={searchTerm} onChange={handleSearchInput}
+                onFocus={() => setIsSearchFocused(true)}
+                placeholder="Search by name, email, phone, code…"
+                style={{ width: "100%", padding: "8px 32px", border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", background: T.surface2, color: T.textPri, outline: "none", fontFamily: "inherit", transition: "border-color 0.15s" }}
+                onMouseEnter={e => e.target.style.borderColor = T.borderFoc}
+                onMouseLeave={e => !isSearchFocused && (e.target.style.borderColor = T.border)}
+              />
+              {searchTerm && (
+                <button onClick={handleClearSearch}
+                  style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textSec, display: "flex", padding: 0 }}>
+                  <FaTimes size={11} />
+                </button>
+              )}
+
+              {/* Suggestions dropdown */}
+              {isSearchFocused && searchSuggestions.length > 0 && (
+                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: "12px", boxShadow: isDark ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, overflow: "hidden" }}>
+                  <div style={{ padding: "8px 14px 6px", fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.08em" }}>{searchSuggestions.length} results</div>
+                  {searchSuggestions.map((item, idx) => {
+                    const [bg, fg] = getAvatar(item.customerDisplayName);
+                    return (
+                      <div key={item._id || idx} className="suggestion-row" onClick={() => handleSuggestionClick(item)}
+                        style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", borderTop: `1px solid ${T.border2}` }}>
+                        <div style={{ width: "30px", height: "30px", borderRadius: "8px", background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: "700", flexShrink: 0 }}>
+                          {(item.customerDisplayName || "U").charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.customerDisplayName || "Unnamed"}</p>
+                          <p style={{ fontSize: "11px", color: T.textSec, margin: 0 }}>{item.customerEmail || item.companyName || ""}</p>
+                        </div>
+                        <span style={{ fontSize: "10px", fontWeight: "600", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
+                          {getCode(item)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {isSearchFocused && searchTerm.trim().length >= 2 && searchSuggestions.length === 0 && (
+                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: "12px", boxShadow: isDark ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, padding: "20px", textAlign: "center" }}>
+                  <p style={{ color: T.textSec, fontSize: "13px", margin: 0 }}>No results for "{searchTerm}"</p>
+                </div>
+              )}
+            </div>
+
+            {/* Status pills */}
+            <div style={{ display: "flex", gap: "4px" }}>
+              {["all", "active", "pending", "inactive"].map(s => (
+                <button key={s} onClick={() => { setSelectedStatus(s); setCurrentPage(1); }}
+                  className={`filter-pill${selectedStatus === s ? " filter-pill-active" : ""}`}
+                  style={{ padding: "6px 12px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", background: "transparent", color: T.textSec, border: `1px solid ${T.border}`, fontFamily: "inherit", cursor: "pointer" }}>
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort */}
+            <div style={{ display: "flex", gap: "6px" }}>
+              <CustomSelect
+                value={sortBy}
+                onChange={v => { setSortBy(v); setCurrentPage(1); }}
+                options={[
+                  { label: "Name",        value: "name"        },
+                  { label: "Company",     value: "company"     },
+                  { label: "Date",        value: "date"        },
+                  { label: "Receivables", value: "receivables" },
+                ]}
+                minWidth={130}
+              />
+              <button onClick={() => { setSortOrder(o => o === "asc" ? "desc" : "asc"); setCurrentPage(1); }}
+                style={{ padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: T.surface2, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center" }}>
+                {sortOrder === "asc" ? <FaSortAmountDown size={12} /> : <FaSortAmountUp size={12} />}
+              </button>
+            </div>
+
+            <span style={{ fontSize: "12px", color: T.textSec, marginLeft: "auto", whiteSpace: "nowrap" }}>
+              {filteredItems.length} customer{filteredItems.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+        </div>
+
+        {/* ── TABLE ───────────────────────────────────────────────── */}
+        <div style={{ ...card, overflow: "hidden", marginBottom: "12px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+            <thead>
+              <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
+                <th style={{ padding: "11px 16px", width: "32px" }}>
+                  <input type="checkbox" style={{ accentColor: T.blue }} />
+                </th>
+                {["Customer", "Company", "Contact", "Description", "Receivables", ""].map((h, i) => (
+                  <th key={i} style={{ padding: "11px 16px", textAlign: i === 4 ? "right" : "left", fontSize: "11px", fontWeight: "600", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {currentItems.length > 0 ? currentItems.map((item, idx) => {
+                const [avBg, avFg] = getAvatar(item.customerDisplayName);
+                const sc = statusCfg[item.status] || statusCfg.active;
+                return (
+                  <tr key={item._id || idx} className="cust-row" style={{ borderBottom: `1px solid ${T.border2}` }}>
+                    <td style={{ padding: "13px 16px" }}><input type="checkbox" style={{ accentColor: T.blue }} /></td>
+
+                    {/* Name + code + status */}
+                    <td style={{ padding: "13px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "11px" }}>
+                        <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: avBg, color: avFg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "700", flexShrink: 0 }}>
+                          {(item.customerDisplayName || "U").charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                            <span className="row-name" onClick={() => handleItemClick(item)}
+                              style={{ fontWeight: "600", color: T.textPri, cursor: "pointer", transition: "color 0.15s", fontSize: "13px" }}>
+                              {item.customerDisplayName || "Unnamed"}
+                            </span>
+                            <span style={{ fontSize: "10px", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 7px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
+                              {getCode(item)}
+                            </span>
+                            {item.status && (
+                              <span style={{ fontSize: "10px", fontWeight: "600", background: sc.bg, color: sc.color, padding: "2px 8px", borderRadius: "999px", border: `1px solid ${sc.border}` }}>
+                                {item.status}
+                              </span>
+                            )}
+                          </div>
+                          {item.companyName && item.companyName !== "N/A" && (
+                            <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0" }}>{item.companyName}</p>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Company */}
+                    <td style={{ padding: "13px 16px", color: T.textSec, fontSize: "12px" }}>
+                      {item.companyName && item.companyName !== "N/A" ? item.companyName : <span style={{ color: T.textMuted }}>—</span>}
+                    </td>
+
+                    {/* Contact */}
+                    <td style={{ padding: "13px 16px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                        {item.customerEmail && item.customerEmail !== "N/A" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: "5px", color: T.textSec, fontSize: "12px" }}>
+                            <FaEnvelope style={{ color: T.textMuted, fontSize: "10px" }} />{item.customerEmail}
+                          </div>
+                        )}
+                        {item.customerPhone && item.customerPhone !== "N/A" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: "5px", color: T.textSec, fontSize: "12px" }}>
+                            <FaPhone style={{ color: T.textMuted, fontSize: "10px" }} />{item.customerPhone}
+                          </div>
+                        )}
+                        {!item.customerEmail && !item.customerPhone && <span style={{ color: T.textMuted }}>—</span>}
+                      </div>
+                    </td>
+
+                    {/* Description */}
+                    <td style={{ padding: "13px 16px", maxWidth: "180px" }}>
+                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", color: T.textSec }}>
+                        {item.sales_description || <span style={{ color: T.textMuted }}>—</span>}
+                      </div>
+                    </td>
+
+                    {/* Receivables */}
+                    <td style={{ padding: "13px 16px", textAlign: "right" }}>
+                      {item.selling_price
+                        ? <span className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "13px" }}>AED {item.selling_price}</span>
+                        : <span style={{ color: T.textMuted }}>—</span>}
+                    </td>
+
+                    {/* Actions */}
+                    <td style={{ padding: "13px 12px" }}>
+                      <div style={{ display: "flex", gap: "5px", justifyContent: "flex-end" }}>
+                        <button className="tbl-btn" onClick={() => handleItemClick(item)}
+                          style={{ padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.textSec, cursor: "pointer", fontFamily: "inherit", fontWeight: "500" }}>
+                          View
+                        </button>
+                        <button className="tbl-btn" onClick={() => navigate(`/sales/customers/edit/${item._id}`)}
+                          style={{ padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.textSec, cursor: "pointer", fontFamily: "inherit", fontWeight: "500", display: "flex", alignItems: "center", gap: "4px" }}>
+                          <FaEdit size={10} /> Edit
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td colSpan="7" style={{ padding: "64px 20px", textAlign: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px", color: T.textMuted }}>
+                        <FaBoxOpen />
+                      </div>
+                      <p className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "15px", margin: 0 }}>No customers found</p>
+                      <p style={{ color: T.textSec, fontSize: "13px", margin: 0 }}>
+                        {selectedStatus !== "all" ? `No customers with status "${selectedStatus}"` : "Start by adding your first customer"}
+                      </p>
+                      <button onClick={() => navigate("/Sales/Customers/Newcustomers")}
+                        style={{ marginTop: "4px", padding: "8px 20px", background: T.blue, color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                        Add Customer
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── PAGINATION ──────────────────────────────────────────── */}
+        {filteredItems.length > 0 && (
+          <div style={{ ...card, padding: "11px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: "12px", color: T.textSec }}>Showing {startIdx}–{endIdx} of {filteredItems.length}</span>
+
+            <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+              <button onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1}
+                style={{ padding: "5px 11px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "12px", color: currentPage === 1 ? T.textMuted : T.textSec, cursor: currentPage === 1 ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "4px", fontFamily: "inherit" }}>
+                <FaChevronLeft size={10} /> Prev
+              </button>
+              {getPageNums().map((p, i) =>
+                p === "..." ? (
+                  <span key={`e${i}`} style={{ padding: "5px 8px", color: T.textSec, fontSize: "12px" }}>…</span>
+                ) : (
+                  <button key={p} onClick={() => handlePageChange(p)} className="page-btn"
+                    style={{ padding: "5px 10px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", border: `1px solid ${currentPage === p ? "rgba(59,130,246,0.35)" : T.border}`, background: currentPage === p ? T.blueDim : "transparent", color: currentPage === p ? T.blueLight : T.textSec, transition: "all 0.12s" }}>
+                    {p}
+                  </button>
+                )
+              )}
+              <button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages}
+                style={{ padding: "5px 11px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "12px", color: currentPage === totalPages ? T.textMuted : T.textSec, cursor: currentPage === totalPages ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "4px", fontFamily: "inherit" }}>
+                Next <FaChevronRight size={10} />
+              </button>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "12px", color: T.textSec }}>Per page:</span>
+              <CustomSelect
+                value={itemsPerPage}
+                onChange={v => { setItemsPerPage(Number(v)); setCurrentPage(1); }}
+                options={[5, 10, 20, 50, 100].map(n => ({ label: String(n), value: n }))}
+                minWidth={72}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── DRAWER ──────────────────────────────────────────────── */}
+      {isDrawerOpen && (
+        <>
+          <div className="overlay-anim" onClick={closeDrawer}
+            style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.7)" : "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)", zIndex: 50 }} />
+
+          <div className="drawer-anim"
+            style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "400px", maxWidth: "100vw", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)", transition: "background 0.25s ease" }}>
+
+            {/* Drawer header */}
+            <div style={{ padding: "20px 20px 0", borderBottom: `1px solid ${T.border}` }}>
+              {selectedItem && (() => {
+                const [bg, fg] = getAvatar(selectedItem.customerDisplayName);
+                const sc = statusCfg[selectedItem.status] || statusCfg.active;
+                return (
+                  <div style={{ marginBottom: "16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "13px", marginBottom: "14px" }}>
+                      <div style={{ width: "46px", height: "46px", borderRadius: "12px", background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "19px", fontWeight: "700", flexShrink: 0 }}>
+                        {(selectedItem.customerDisplayName || "U").charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
+                          <h3 className="cust-jakarta" style={{ fontSize: "15px", fontWeight: "700", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {selectedItem.customerDisplayName || "Customer"}
+                          </h3>
+                          <span style={{ fontSize: "10px", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)`, flexShrink: 0 }}>
+                            {getCode(selectedItem)}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          {selectedItem.companyName && (
+                            <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>{selectedItem.companyName}</p>
+                          )}
+                          {selectedItem.status && (
+                            <span style={{ fontSize: "10px", fontWeight: "600", background: sc.bg, color: sc.color, padding: "2px 8px", borderRadius: "999px", border: `1px solid ${sc.border}` }}>
+                              {selectedItem.status}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button onClick={closeDrawer}
+                        style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "8px", padding: "6px", cursor: "pointer", color: T.textSec, display: "flex", flexShrink: 0 }}>
+                        <FaTimes size={12} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Tabs */}
+              <div style={{ display: "flex", gap: "0" }}>
+                {["overview", "transactions", "history"].map(tab => (
+                  <button key={tab} onClick={() => setActiveTab(tab)}
+                    className={`drawer-tab${activeTab === tab ? " drawer-tab-active" : ""}`}
+                    style={{ padding: "9px 16px", background: "none", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: "500", fontFamily: "inherit", color: T.textSec, textTransform: "capitalize" }}>
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Drawer body */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
+              {selectedItem && activeTab === "overview" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {[
+                    { label: "Company",     value: selectedItem.companyName || "N/A",     icon: <FaBuilding />, color: T.purple },
+                    { label: "Email",       value: selectedItem.customerEmail || "N/A",   icon: <FaEnvelope />, color: T.blue   },
+                    { label: "Phone",       value: selectedItem.customerPhone || "N/A",   icon: <FaPhone />,    color: T.green  },
+                    { label: "Receivables", value: selectedItem.selling_price ? `AED ${selectedItem.selling_price}` : "N/A", icon: <FaCreditCard />, color: T.amber },
+                  ].map(({ label, value, icon, color }) => (
+                    <div key={label} className="detail-row"
+                      style={{ display: "flex", alignItems: "center", gap: "13px", padding: "12px 14px", background: T.surface2, borderRadius: "11px", border: `1px solid ${T.border2}` }}>
+                      <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: `${color}18`, color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>
+                        {icon}
+                      </div>
+                      <div>
+                        <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>{label}</p>
+                        <p style={{ fontSize: "13px", fontWeight: "500", color: T.textPri, margin: "2px 0 0" }}>{value}</p>
+                      </div>
+                    </div>
+                  ))}
+
+                  {selectedItem.sales_description && (
+                    <div style={{ padding: "13px 14px", background: T.surface2, borderRadius: "11px", border: `1px solid ${T.border2}` }}>
+                      <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>Description</p>
+                      <p style={{ fontSize: "13px", color: T.textSec, margin: 0, lineHeight: 1.6 }}>{selectedItem.sales_description}</p>
+                    </div>
+                  )}
+
+                  <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: "11px", border: `1px solid ${T.border2}` }}>
+                    <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Customer ID</p>
+                    <p style={{ fontSize: "11px", fontFamily: "monospace", color: T.textSec, margin: 0, wordBreak: "break-all" }}>{selectedItem._id || "N/A"}</p>
+                  </div>
+                </div>
+              )}
+
+              {activeTab !== "overview" && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "220px", gap: "12px" }}>
+                  <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
+                    {activeTab === "transactions" ? <FaCreditCard /> : <FaClock />}
+                  </div>
+                  <p className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No {activeTab} yet</p>
+                  <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>Data will appear here once available.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Drawer footer */}
+            <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "8px" }}>
+              <button onClick={() => selectedItem && navigate(`/sales/customers/edit/${selectedItem._id}`)}
+                style={{ flex: 1, padding: "10px", background: T.blue, color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
+                <FaEdit size={12} /> Edit Customer
+              </button>
+              <button onClick={closeDrawer}
+                style={{ flex: 1, padding: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+};
+
+export default Customers;
