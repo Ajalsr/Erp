@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import axios from 'axios'
 import { toast } from 'react-toastify';
+import useAuthStore from '../store/useAuthStore'
 
 const useGetItem = () => {
   const BASE_URL = "http://localhost:8080"
@@ -8,11 +9,19 @@ const useGetItem = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  const store = useAuthStore()
+
   const handleGetItem = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await axios.get(`${BASE_URL}/api/stocks/getitem`)
+      const response = await axios.get(`${BASE_URL}/api/stocks/getitem`,
+        {
+          headers: {
+            Authorization: `Bearer ${store.token}` // 👈 send token in every request
+          }
+        }
+      )
       console.log("Full API response:", response)
       
       

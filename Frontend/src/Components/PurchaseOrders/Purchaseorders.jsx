@@ -1,379 +1,410 @@
-import { useEffect, useState } from "react";
-import { FaThList, FaThLarge, FaPlus, FaEllipsisV, FaFilter, FaTimes } from "react-icons/fa";
-import { useNavigate } from "react-router-dom";
-import useGetItem from '../../helper/useGetItem';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  FaPlus, FaTimes, FaSearch, FaBoxOpen,
+  FaChevronLeft, FaChevronRight,
+  FaFileInvoiceDollar, FaEdit, FaBan,
+  FaCheckCircle, FaClock, FaTimesCircle, FaSpinner,
+  FaTruck, FaDownload, FaFilter, FaEllipsisV,
+} from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
+import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import axiosInstance from '../../helper/axiosInstance';
 
-const Purchaseorders = () => {
-  const { handleGetItem, data, loading, error } = useGetItem();
-  const navigate = useNavigate();
-  
-  
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
-  
-  
-  const [localItems] = useState([
-    {
-      id: 1,
-      name: "Storage Cabinet",
-      sku: "Item 37 sku",
-      type: "Service",
-      description: "A versatile storage cabinet with adjustable shelves.",
-      rate: "AED4610.00",
-      image: "https://via.placeholder.com/40",
-    },
-    {
-      id: 2,
-      name: "Area Rug",
-      sku: "Item 38 sku",
-      type: "Service",
-      description: "A soft, high-quality area rug to add warmth to any room.",
-      rate: "AED2990.00",
-      image: "https://via.placeholder.com/40",
-    }
-  ]);
+const STATUS_CFG = {
+  draft:     { label: 'Draft',     color: '#64748b', dimKey: 'surface2'  },
+  pending:   { label: 'Pending',   color: '#f59e0b', dimKey: 'amberDim'  },
+  approved:  { label: 'Approved',  color: '#3b82f6', dimKey: 'blueDim'   },
+  ordered:   { label: 'Ordered',   color: '#8b5cf6', dimKey: 'purpleDim' },
+  received:  { label: 'Received',  color: '#10b981', dimKey: 'greenDim'  },
+  cancelled: { label: 'Cancelled', color: '#ef4444', dimKey: 'redDim'    },
+  partial:   { label: 'Partial',   color: '#06b6d4', dimKey: 'cyanDim'   },
+};
+const STATUS_TABS = ['all','draft','pending','approved','ordered','received','partial','cancelled'];
 
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 200;
+const StatCard = ({ label, value, accent, dimBg, icon, T }) => (
+  <div style={{ background:T.surface, border:`1.5px solid ${T.border}`, borderRadius:14, padding:'16px 18px', display:'flex', alignItems:'center', gap:14, boxShadow:T.isDark?'0 2px 10px rgba(0,0,0,.25)':'0 2px 6px rgba(0,0,0,.04)' }}>
+    <div style={{ width:40, height:40, borderRadius:11, background:dimBg, color:accent, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{icon}</div>
+    <div>
+      <p style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:800, color:T.textPri, margin:0, lineHeight:1 }}>{value}</p>
+      <p style={{ fontSize:11, fontWeight:600, color:T.textSec, margin:'3px 0 0', textTransform:'uppercase', letterSpacing:'0.05em' }}>{label}</p>
+    </div>
+  </div>
+);
 
-  // ✅ Use API data if available and is array, otherwise use fallback
-  const displayItems = Array.isArray(data) && data.length > 0 ? data : localItems;
-  
-  const totalPages = Math.ceil(displayItems.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentItems = displayItems.slice(startIndex, startIndex + itemsPerPage);
-
-  const handlePageChange = (page) => {
-    if (page < 1 || page > totalPages) return;
-    setCurrentPage(page);
-  };
-
-  // Handle item click to open drawer
-  const handleItemClick = (item) => {
-    setSelectedItem(item);
-    setIsDrawerOpen(true);
-    setActiveTab('overview'); // Reset to overview tab when opening drawer
-  };
-
-  // Close drawer
-  const closeDrawer = () => {
-    setIsDrawerOpen(false);
-    setSelectedItem(null);
-  };
-
-  useEffect(() => {
-    handleGetItem();
-  }, [handleGetItem]);
-
-  // Debug
-  console.log("API Data:", data);
-  console.log("Display Items:", displayItems);
-
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error}</div>;
+const Badge = ({ status, T }) => {
+  const cfg = STATUS_CFG[status] || STATUS_CFG.draft;
   return (
-    <div className="bg-white min-h-screen p-6 text-gray-800">
-              {/* Header */}
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center space-x-2">
-                  <h2 className="text-lg font-semibold">Purchase Orders</h2>
-                  <button className="text-gray-500 hover:text-gray-700">
-                    <FaFilter />
-                  </button>
-                </div>
-        
-                <div className="flex items-center space-x-3">
-                  <button className="p-2 border rounded-md hover:bg-gray-100">
-                    <FaThList className="text-gray-600" />
-                  </button>
-                  <button className="p-2 border rounded-md hover:bg-gray-100">
-                    <FaThLarge className="text-gray-600" />
-                  </button>
-                  <button 
-                    className="bg-blue-600 text-white px-3 py-2 rounded-md flex items-center space-x-2 hover:bg-blue-700 cursor-pointer" 
-                    onClick={() => navigate("/Purchase/Purchaseorders/Newpurchaseorders")}
-                  >
-                    <FaPlus />
-                    <span>New</span>
-                  </button>
-                  <button className="p-2 border rounded-md hover:bg-gray-100">
-                    <FaEllipsisV className="text-gray-600" />
-                  </button>
-                </div>
-              </div>
-        
-              {/* Table */}
-              <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase">
-                    <tr>
-                      <th className="px-4 py-3 text-left w-8">
-                        <input type="checkbox" className="w-4 h-4 text-blue-600 border-gray-300 rounded" />
-                      </th>
-                      <th className="px-4 py-3 text-left font-medium w-1/4">Name</th>
-                      <th className="px-4 py-3 text-left font-medium w-1/6">Company Name</th>
-                      <th className="px-4 py-3 text-left font-medium w-1/6">Email</th>
-                      <th className="px-4 py-3 text-left font-medium w-1/6">Work Phone</th>
-                      <th className="px-4 py-3 text-left font-medium w-1/3">Receivables</th>
-                      <th className="px-4 py-3 text-right font-medium w-1/6">Unused Credits</th>
+    <span style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:999, fontSize:10, fontWeight:700, background:T[cfg.dimKey]||T.surface2, color:cfg.color, border:`1px solid ${cfg.color}33`, textTransform:'capitalize' }}>
+      <span style={{ width:5, height:5, borderRadius:'50%', background:cfg.color }} />{cfg.label}
+    </span>
+  );
+};
+
+const Empty = ({ T, onNew }) => (
+  <div style={{ textAlign:'center', padding:'72px 0' }}>
+    <div style={{ width:64, height:64, borderRadius:18, background:T.blueDim, color:T.blue, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', fontSize:26 }}><FaBoxOpen /></div>
+    <p style={{ fontFamily:"'Sora',sans-serif", fontSize:15, fontWeight:700, color:T.textPri, margin:'0 0 6px' }}>No purchase orders yet</p>
+    <p style={{ fontSize:13, color:T.textSec, margin:'0 0 20px' }}>Create your first purchase order to get started</p>
+    <button onClick={onNew} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'10px 20px', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 14px rgba(59,130,246,.35)' }}>
+      <FaPlus size={11} /> New Purchase Order
+    </button>
+  </div>
+);
+
+const DRow = ({ label, value, T }) => (
+  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', padding:'9px 0', borderBottom:`1px solid ${T.border}` }}>
+    <span style={{ fontSize:11, color:T.textSec, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em', flexShrink:0, marginRight:12 }}>{label}</span>
+    <span style={{ fontSize:13, color:T.textPri, fontWeight:500, textAlign:'right', wordBreak:'break-word' }}>{value||'—'}</span>
+  </div>
+);
+
+export default function Purchaseorders() {
+  const navigate = useNavigate();
+  const isDark   = useThemeStore(s => s.isDark);
+  const T        = { ...getTheme(isDark), isDark };
+
+  const [orders,      setOrders]      = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [stats,       setStats]       = useState({ total:0, pending:0, ordered:0, received:0, totalValue:0 });
+  const [search,      setSearch]      = useState('');
+  const [statusFilter,setStatusFilter]= useState('all');
+  const [sortField,   setSortField]   = useState('createdAt');
+  const [sortDir,     setSortDir]     = useState('desc');
+  const [page,        setPage]        = useState(1);
+  const [totalPages,  setTotalPages]  = useState(1);
+  const [totalCount,  setTotalCount]  = useState(0);
+  const [drawer,      setDrawer]      = useState(false);
+  const [selected,    setSelected]    = useState(null);
+  const [activeTab,   setActiveTab]   = useState('overview');
+  const PER_PAGE = 15;
+
+  const fetchOrders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page, limit: PER_PAGE, ...(statusFilter !== 'all' && { status: statusFilter }), ...(search.trim() && { q: search.trim() }), sortBy: sortField, sortDir });
+      const res  = await axiosInstance.get(`/api/purchase-orders/getorders?${params}`);
+      const d    = res.data?.data ?? {};
+      const list = Array.isArray(d.purchaseOrders) ? d.purchaseOrders : Array.isArray(d) ? d : [];
+      setOrders(list);
+      setTotalPages(d.totalPages ?? 1);
+      setTotalCount(d.total ?? list.length);
+    } catch { setOrders([]); } finally { setLoading(false); }
+  }, [page, statusFilter, search, sortField, sortDir]);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await axiosInstance.get('/api/purchase-orders/stats');
+      const d   = res.data?.data ?? {};
+      setStats({ total: d.totalOrders??0, pending: d.pendingOrders??0, ordered: d.orderedOrders??0, received: d.receivedOrders??0, totalValue: d.totalAmount??0 });
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+  useEffect(() => { fetchStats();  }, [fetchStats]);
+
+  const openDrawer  = (o) => { setSelected(o); setDrawer(true); setActiveTab('overview'); };
+  const closeDrawer = ()  => { setDrawer(false); setSelected(null); };
+  const handleSort  = (f) => { if (sortField===f) setSortDir(d => d==='asc'?'desc':'asc'); else { setSortField(f); setSortDir('desc'); } };
+
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AE',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  const fmtAmt  = n => `AED ${Number(n||0).toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+
+  const displayed = orders.filter(o => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (o.orderNumber||'').toLowerCase().includes(q)||(o.vendorName||'').toLowerCase().includes(q)||(o.status||'').toLowerCase().includes(q);
+  });
+
+  const border   = T.border;
+  const thS = (f) => ({ padding:'11px 14px', fontSize:10, fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase', color:T.textSec, textAlign:'left', background:T.surface2, borderBottom:`1.5px solid ${border}`, cursor:f?'pointer':'default', userSelect:'none', whiteSpace:'nowrap' });
+  const tdS = { padding:'12px 14px', fontSize:13, color:T.textPri, verticalAlign:'middle', borderBottom:`1px solid ${border}` };
+  const SortIcon = ({ field }) => sortField!==field
+    ? <span style={{color:T.textMuted,marginLeft:4,fontSize:9}}>↕</span>
+    : <span style={{color:T.blue,marginLeft:4,fontSize:9}}>{sortDir==='asc'?'↑':'↓'}</span>;
+
+  return (
+    <>
+      <style>{`
+        @keyframes poSlideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+        @keyframes poOverlay { from{opacity:0} to{opacity:1} }
+        @keyframes poFadeUp  { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin      { to{transform:rotate(360deg)} }
+        .po-row:hover { background:${isDark?'rgba(255,255,255,.025)':'#f8fafc'} !important; }
+        .po-tab { transition:all .15s; border-bottom:2px solid transparent; }
+        .po-tab:hover { color:${isDark?'#94a3b8':'#374151'} !important; }
+        .po-tab-active { color:${isDark?'#60a5fa':'#2563eb'} !important; border-bottom-color:${isDark?'#3b82f6':'#2563eb'} !important; }
+        .po-pill:hover { border-color:${isDark?'rgba(59,130,246,0.3)':'#bfdbfe'} !important; color:${isDark?'#60a5fa':'#1d4ed8'} !important; }
+        .po-pill-active { background:${isDark?'rgba(59,130,246,0.15)':'#eff6ff'} !important; color:${isDark?'#60a5fa':'#1d4ed8'} !important; border-color:${isDark?'rgba(59,130,246,0.35)':'#bfdbfe'} !important; font-weight:700 !important; }
+        .po-num { color:${isDark?'#60a5fa':'#2563eb'}; cursor:pointer; font-weight:600; transition:color .12s; font-family:'DM Mono',monospace; font-size:12px; }
+        .po-num:hover { color:${isDark?'#93c5fd':'#1d4ed8'}; text-decoration:underline; }
+        .po-icon-btn { background:none; border:none; cursor:pointer; border-radius:8px; padding:6px 8px; transition:background .12s; color:${T.textSec}; }
+        .po-icon-btn:hover { background:${isDark?'rgba(255,255,255,.06)':'#f1f5f9'}; }
+        .po-drawer { animation:poSlideIn .25s cubic-bezier(0.16,1,0.3,1) forwards; }
+        .po-overlay { animation:poOverlay .2s ease forwards; }
+      `}</style>
+
+      <div style={{ minHeight:'100vh', background:T.bg, padding:'24px 24px 80px', animation:'poFadeUp .3s ease both' }}>
+
+        {/* Header */}
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:22 }}>
+          <div>
+            <h1 style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:800, color:T.textPri, margin:'0 0 3px', letterSpacing:'-0.02em' }}>Purchase Orders</h1>
+            <p style={{ fontSize:12, color:T.textSec, margin:0 }}>Manage and track all procurement orders</p>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="po-icon-btn" title="Export"><FaDownload size={12}/></button>
+            <button className="po-icon-btn" title="More"><FaEllipsisV size={12}/></button>
+            <button onClick={() => navigate('/Purchase/Purchaseorders/Newpurchaseorders')} style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 14px rgba(59,130,246,.35)' }}>
+              <FaPlus size={10}/> New Order
+            </button>
+          </div>
+        </div>
+
+        {/* Stat cards */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:22 }}>
+          <StatCard T={T} label="Total Orders" value={stats.total}    accent={T.blue}   dimBg={T.blueDim}   icon={<FaFileInvoiceDollar/>}/>
+          <StatCard T={T} label="Pending"      value={stats.pending}  accent={T.amber}  dimBg={T.amberDim}  icon={<FaClock/>}/>
+          <StatCard T={T} label="Ordered"      value={stats.ordered}  accent={T.purple} dimBg={T.purpleDim} icon={<FaTruck/>}/>
+          <StatCard T={T} label="Received"     value={stats.received} accent={T.green}  dimBg={T.greenDim}  icon={<FaCheckCircle/>}/>
+          <StatCard T={T} label="Total Value"  value={fmtAmt(stats.totalValue)} accent={T.cyan} dimBg={T.cyanDim} icon={<FaBoxOpen/>}/>
+        </div>
+
+        {/* Main card */}
+        <div style={{ background:T.surface, borderRadius:16, border:`1.5px solid ${border}`, boxShadow:isDark?'0 2px 12px rgba(0,0,0,.3)':'0 2px 8px rgba(0,0,0,.04)', overflow:'hidden' }}>
+
+          {/* Toolbar */}
+          <div style={{ padding:'14px 18px', borderBottom:`1px solid ${border}`, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:9, background:T.surface2, border:`1.5px solid ${border}`, borderRadius:10, padding:'8px 13px', flex:'1 1 260px', maxWidth:380 }}>
+              <FaSearch size={12} style={{ color:T.textSec, flexShrink:0 }}/>
+              <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Search order no., vendor…" style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:13, color:T.textPri, fontFamily:"'DM Sans',sans-serif" }}/>
+              {search && <button onClick={()=>{setSearch('');setPage(1);}} style={{ background:'none', border:'none', cursor:'pointer', color:T.textSec, padding:0, display:'flex', lineHeight:1 }}><FaTimes size={11}/></button>}
+            </div>
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <button className="po-icon-btn" style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 12px', border:`1.5px solid ${border}`, borderRadius:9, fontSize:12, fontWeight:600, fontFamily:'inherit', color:T.textSec }}>
+                <FaFilter size={10}/> Filter
+              </button>
+              <span style={{ fontSize:11, color:T.textSec, background:T.surface2, border:`1px solid ${border}`, padding:'5px 11px', borderRadius:8, fontWeight:600, fontFamily:"'DM Mono',monospace" }}>
+                {totalCount} order{totalCount!==1?'s':''}
+              </span>
+            </div>
+          </div>
+
+          {/* Status tabs */}
+          <div style={{ display:'flex', padding:'0 18px', borderBottom:`1px solid ${border}`, gap:2, overflowX:'auto' }}>
+            {STATUS_TABS.map(s => (
+              <button key={s} className={`po-pill${statusFilter===s?' po-pill-active':''}`} onClick={()=>{setStatusFilter(s);setPage(1);}}
+                style={{ padding:'10px 14px', background:'none', border:'none', fontSize:12, fontWeight:500, color:T.textSec, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap', textTransform:'capitalize', transition:'all .15s' }}>
+                {s==='all'?'All Orders':STATUS_CFG[s]?.label??s}
+              </button>
+            ))}
+          </div>
+
+          {/* Table */}
+          {loading ? (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'60px 0', gap:10, color:T.textSec }}>
+              <FaSpinner size={18} style={{ animation:'spin 1s linear infinite' }}/>
+              <span style={{ fontSize:13, fontWeight:600 }}>Loading orders…</span>
+            </div>
+          ) : displayed.length === 0 ? (
+            <Empty T={T} onNew={()=>navigate('/Purchase/Purchaseorders/Newpurchaseorders')}/>
+          ) : (
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thS(), width:40, textAlign:'center' }}><input type="checkbox" style={{ accentColor:T.blue }}/></th>
+                    <th style={thS('orderNumber')} onClick={()=>handleSort('orderNumber')}>Order No. <SortIcon field="orderNumber"/></th>
+                    <th style={thS('vendorName')}  onClick={()=>handleSort('vendorName')}>Vendor <SortIcon field="vendorName"/></th>
+                    <th style={thS('orderDate')}   onClick={()=>handleSort('orderDate')}>Order Date <SortIcon field="orderDate"/></th>
+                    <th style={thS()}>Expected By</th>
+                    <th style={thS()}>Payment Terms</th>
+                    <th style={thS('status')}      onClick={()=>handleSort('status')}>Status <SortIcon field="status"/></th>
+                    <th style={{ ...thS('total'), textAlign:'right' }} onClick={()=>handleSort('total')}>Total <SortIcon field="total"/></th>
+                    <th style={{ ...thS(), textAlign:'center', width:80 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayed.map((o,i) => (
+                    <tr key={o._id||o.id||i} className="po-row">
+                      <td style={{ ...tdS, textAlign:'center' }}><input type="checkbox" style={{ accentColor:T.blue }}/></td>
+                      <td style={tdS}><span className="po-num" onClick={()=>openDrawer(o)}>{o.orderNumber||`PO-${String(i+1).padStart(4,'0')}`}</span></td>
+                      <td style={tdS}>
+                        <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+                          <div style={{ width:28, height:28, borderRadius:8, flexShrink:0, background:T.blueDim, color:T.blue, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'Sora',sans-serif", fontSize:10, fontWeight:800 }}>
+                            {(o.vendorName||'V')[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <p style={{ margin:0, fontSize:13, fontWeight:600, color:T.textPri }}>{o.vendorName||'—'}</p>
+                            {o.vendorCode && <p style={{ margin:0, fontSize:10, color:T.textSec, fontFamily:"'DM Mono',monospace" }}>{o.vendorCode}</p>}
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ ...tdS, fontSize:12, color:T.textSec }}>{fmtDate(o.orderDate)}</td>
+                      <td style={{ ...tdS, fontSize:12, color:T.textSec }}>{fmtDate(o.expectedDeliveryDate||o.expectedDate)}</td>
+                      <td style={tdS}>{o.paymentTerms ? <span style={{ background:T.surface2, border:`1px solid ${border}`, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600, color:T.textSec }}>{o.paymentTerms}</span> : <span style={{ color:T.textSec }}>—</span>}</td>
+                      <td style={tdS}><Badge status={o.status||'draft'} T={T}/></td>
+                      <td style={{ ...tdS, textAlign:'right', fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:700 }}>{fmtAmt(o.total)}</td>
+                      <td style={{ ...tdS, textAlign:'center' }}>
+                        <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
+                          <button className="po-icon-btn" title="View"   onClick={()=>openDrawer(o)}><FaFileInvoiceDollar size={12}/></button>
+                          <button className="po-icon-btn" title="Edit"   onClick={()=>navigate(`/Purchase/Purchaseorders/${o._id}/edit`)}><FaEdit size={12}/></button>
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {currentItems.map((item, index) => (
-                      <tr key={item._id || item.id || index} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded"
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center space-x-3">
-                            <img
-                              src={item.image || "https://via.placeholder.com/40"}
-                              alt={item.name}
-                              className="w-8 h-8 rounded border border-gray-200"
-                            />
-                            <span 
-                              className="text-blue-600 hover:underline font-medium cursor-pointer"
-                              onClick={() => handleItemClick(item)}
-                            >
-                              {item.name}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">{item.item_code || "N/A"}</td>
-                        <td className="px-4 py-3 text-gray-700">{item.brand || "N/A"}</td>
-                        <td className="px-4 py-3 text-gray-600 ">
-                          <div className="truncate" title={item.quantity}>
-                            {item.quantity || "0" }
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-600 max-w-xs">
-                          <div className="truncate" title={item.sales_description}>
-                            {item.sales_description || "No description"}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-right font-medium text-gray-800">
-                          {item.selling_price ? `AED ${item.selling_price}` : "N/A"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-        
-              {/* Pagination Footer */}
-              <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
-                <div>
-                  Showing {startIndex + 1} -{" "}
-                  {Math.min(startIndex + itemsPerPage, displayItems.length)} of {displayItems.length}
-                </div>
-        
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1 border rounded-md hover:bg-gray-100 disabled:opacity-50"
-                  >
-                    Prev
-                  </button>
-        
-                  {[...Array(totalPages)].map((_, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handlePageChange(index + 1)}
-                      className={`px-3 py-1 border rounded-md ${
-                        currentPage === index + 1
-                          ? "bg-blue-500 text-white"
-                          : "hover:bg-gray-100"
-                      }`}
-                    >
-                      {index + 1}
-                    </button>
                   ))}
-        
-                  <button
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1 border rounded-md hover:bg-gray-100 disabled:opacity-50"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-        
-              {/* Drawer with Tabs */}
-              <div
-                className={`fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out ${
-                  isDrawerOpen ? "translate-x-0" : "translate-x-full"
-                }`}
-              >
-                {/* Glass Backdrop */}
-                <div 
-                  className="absolute inset-0 bg-opacity-20 backdrop-blur-md backdrop-filter"
-                  onClick={closeDrawer}
-                ></div>
-                
-                {/* Drawer Panel */}
-                <div className="absolute right-0 top-0 h-full w-196 max-w-full bg-white shadow-xl">
-                  {/* Drawer Header with Gray Border */}
-                  <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold">{selectedItem?.name || "Item Details"}</h3>
-                    <button 
-                      onClick={closeDrawer}
-                      className="p-2 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
-                    >
-                      <FaTimes className="text-gray-500" />
-                    </button>
-                  </div>
-        
-                  {/* Tabs Navigation with Gray Border */}
-                  <div className="border-b border-gray-200">
-                    <div className="flex space-x-1 px-4">
-                      <button
-                        onClick={() => setActiveTab('overview')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                          activeTab === 'overview'
-                            ? 'border-blue-500 text-blue-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        Overview
-                      </button>
-                      <button
-                        onClick={() => setActiveTab('transactions')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                          activeTab === 'transactions'
-                            ? 'border-blue-500 text-blue-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        Transactions
-                      </button>
-                      <button
-                        onClick={() => setActiveTab('history')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
-                          activeTab === 'history'
-                            ? 'border-blue-500 text-blue-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        History
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {/* Tab Content */}
-                  <div className="p-4 overflow-y-auto h-full">
-                    {selectedItem && (
-                      <div className="space-y-4">
-                        {/* Overview Tab */}
-                        {activeTab === 'overview' && (
-                          <div className="space-y-4">
-                            <div className="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg">
-                              <img
-                                src={selectedItem.image || "https://via.placeholder.com/60"}
-                                alt={selectedItem.name}
-                                className="w-12 h-12 rounded border border-gray-200"
-                              />
-                              <div>
-                                <h4 className="text-lg font-bold text-gray-800">{selectedItem.name}</h4>
-                                <p className="text-gray-600 text-sm">{selectedItem.item_code || "N/A"}</p>
-                              </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="bg-gray-50 p-3 rounded-lg">
-                                <label className="text-sm text-gray-500">Brand</label>
-                                <p className="font-medium text-gray-800">{selectedItem.brand || "N/A"}</p>
-                              </div>
-                              <div className="bg-gray-50 p-3 rounded-lg">
-                                <label className="text-sm text-gray-500">Type</label>
-                                <p className="font-medium text-gray-800">{selectedItem.type || "N/A"}</p>
-                              </div>
-                              <div className="bg-gray-50 p-3 rounded-lg">
-                                <label className="text-sm text-gray-500">Quantity</label>
-                                <p className="font-medium text-gray-800">{selectedItem.quantity || "0"}</p>
-                              </div>
-                              <div className="bg-gray-50 p-3 rounded-lg">
-                                <label className="text-sm text-gray-500">Selling Price</label>
-                                <p className="font-medium text-gray-800">
-                                  {selectedItem.selling_price ? `AED ${selectedItem.selling_price}` : 
-                                   selectedItem.rate ? selectedItem.rate : "N/A"}
-                                </p>
-                              </div>
-                            </div>
-                            
-                            <div className="bg-gray-50 p-3 rounded-lg">
-                              <label className="text-sm text-gray-500">Description</label>
-                              <p className="mt-1 text-gray-700">
-                                {selectedItem.sales_description || selectedItem.description || "No description available"}
-                              </p>
-                            </div>
-                            
-                            <div className="bg-gray-50 p-3 rounded-lg">
-                              <label className="text-sm text-gray-500">SKU</label>
-                              <p className="font-medium text-gray-800">{selectedItem.sku || "N/A"}</p>
-                            </div>
-                          </div>
-                        )}
-        
-                        {/* Transactions Tab */}
-                        {activeTab === 'transactions' && (
-                          <div className="text-center py-8">
-                            <div className="text-gray-400 mb-2">
-                              <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            </div>
-                            <p className="text-gray-500">No transactions found</p>
-                            <p className="text-gray-400 text-sm mt-1">There are no transactions for this item yet.</p>
-                          </div>
-                        )}
-        
-                        {/* History Tab */}
-                        {activeTab === 'history' && (
-                          <div className="text-center py-8">
-                            <div className="text-gray-400 mb-2">
-                              <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            </div>
-                            <p className="text-gray-500">No Recent History</p>
-                            <p className="text-gray-400 text-sm mt-1">There is no recent history for this item.</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Drawer Footer with Gray Border */}
-                  {/* <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
-                    <div className="flex space-x-2">
-                      <button 
-                        className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-                        onClick={() => {
-                          // Add edit functionality here
-                          console.log("Edit item:", selectedItem);
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button 
-                        className="flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-300 transition-colors"
-                        onClick={closeDrawer}
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </div> */}
-                </div>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 18px', borderTop:`1px solid ${border}` }}>
+              <span style={{ fontSize:12, color:T.textSec }}>Page {page} of {totalPages} · {totalCount} total</span>
+              <div style={{ display:'flex', gap:6 }}>
+                <button disabled={page<=1} onClick={()=>setPage(p=>p-1)} style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', background:T.surface2, border:`1.5px solid ${border}`, borderRadius:8, fontSize:12, fontWeight:600, color:page<=1?T.textSec:T.textPri, cursor:page<=1?'not-allowed':'pointer', opacity:page<=1?0.5:1, fontFamily:'inherit' }}><FaChevronLeft size={9}/> Prev</button>
+                {Array.from({length:Math.min(totalPages,5)},(_,i)=>{const pg=totalPages<=5?i+1:page<=3?i+1:page>=totalPages-2?totalPages-4+i:page-2+i;return(
+                  <button key={pg} onClick={()=>setPage(pg)} style={{ width:32, height:32, borderRadius:8, background:page===pg?T.blue:T.surface2, border:`1.5px solid ${page===pg?T.blue:border}`, color:page===pg?'#fff':T.textPri, fontSize:12, fontWeight:700, cursor:'pointer' }}>{pg}</button>
+                );}).filter(Boolean)}
+                <button disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)} style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', background:T.surface2, border:`1.5px solid ${border}`, borderRadius:8, fontSize:12, fontWeight:600, color:page>=totalPages?T.textSec:T.textPri, cursor:page>=totalPages?'not-allowed':'pointer', opacity:page>=totalPages?0.5:1, fontFamily:'inherit' }}>Next <FaChevronRight size={9}/></button>
               </div>
             </div>
-  )
-}
+          )}
+        </div>
+      </div>
 
-export default Purchaseorders
+      {/* Drawer */}
+      {drawer && selected && (
+        <div style={{ position:'fixed', inset:0, zIndex:1000 }}>
+          <div className="po-overlay" onClick={closeDrawer} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.45)', backdropFilter:'blur(6px)' }}/>
+          <div className="po-drawer" style={{ position:'absolute', right:0, top:0, bottom:0, width:480, maxWidth:'100vw', background:T.surface, borderLeft:`1.5px solid ${border}`, display:'flex', flexDirection:'column', boxShadow:'-20px 0 60px rgba(0,0,0,.3)' }}>
+
+            {/* Drawer header */}
+            <div style={{ padding:'16px 20px', borderBottom:`1px solid ${border}`, flexShrink:0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+                    <p style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color:T.blue, margin:0 }}>{selected.orderNumber||'PO-DRAFT'}</p>
+                    <Badge status={selected.status||'draft'} T={T}/>
+                  </div>
+                  <p style={{ fontFamily:"'Sora',sans-serif", fontSize:16, fontWeight:800, color:T.textPri, margin:0 }}>{selected.vendorName||'Unknown Vendor'}</p>
+                  <p style={{ fontSize:11, color:T.textSec, margin:'3px 0 0' }}>{fmtDate(selected.orderDate)}</p>
+                </div>
+                <button onClick={closeDrawer} className="po-icon-btn" style={{ padding:8, marginTop:-4 }}><FaTimes size={14}/></button>
+              </div>
+              <div style={{ marginTop:14, padding:'12px 16px', borderRadius:12, background:isDark?'rgba(59,130,246,.1)':'#eff6ff', border:`1.5px solid ${isDark?'rgba(59,130,246,.25)':'#bfdbfe'}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <span style={{ fontSize:11, fontWeight:700, color:T.textSec, textTransform:'uppercase', letterSpacing:'0.06em' }}>Order Total</span>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:18, fontWeight:800, color:T.blue }}>{fmtAmt(selected.total)}</span>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display:'flex', borderBottom:`1px solid ${border}`, padding:'0 20px', flexShrink:0 }}>
+              {['overview','items','history'].map(tab => (
+                <button key={tab} className={`po-tab${activeTab===tab?' po-tab-active':''}`} onClick={()=>setActiveTab(tab)}
+                  style={{ padding:'11px 14px', background:'none', border:'none', fontSize:12, fontWeight:600, color:T.textSec, cursor:'pointer', fontFamily:'inherit', textTransform:'capitalize' }}>
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Content */}
+            <div style={{ flex:1, overflowY:'auto', padding:'18px 20px' }}>
+
+              {activeTab==='overview' && (
+                <div>
+                  <div style={{ background:T.surface2, border:`1.5px solid ${border}`, borderRadius:12, padding:'14px 16px', marginBottom:18 }}>
+                    <p style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:T.textSec, margin:'0 0 10px' }}>Vendor</p>
+                    <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                      <div style={{ width:40, height:40, borderRadius:11, background:T.blueDim, color:T.blue, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:800, flexShrink:0 }}>
+                        {(selected.vendorName||'V')[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <p style={{ margin:0, fontSize:14, fontWeight:700, color:T.textPri }}>{selected.vendorName||'—'}</p>
+                        {selected.vendorCode && <p style={{ margin:'2px 0 0', fontSize:11, color:T.textSec, fontFamily:"'DM Mono',monospace" }}>{selected.vendorCode}</p>}
+                      </div>
+                    </div>
+                  </div>
+                  <DRow label="Order Number"  value={selected.orderNumber} T={T}/>
+                  <DRow label="Order Date"    value={fmtDate(selected.orderDate)} T={T}/>
+                  <DRow label="Expected By"   value={fmtDate(selected.expectedDeliveryDate||selected.expectedDate)} T={T}/>
+                  <DRow label="Payment Terms" value={selected.paymentTerms} T={T}/>
+                  <DRow label="Delivery To"   value={selected.deliveryAddress||selected.warehouse} T={T}/>
+                  <DRow label="Reference No." value={selected.referenceNo||selected.lpoNumber} T={T}/>
+                  <DRow label="Created By"    value={selected.createdBy} T={T}/>
+                  <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>
+                  <DRow label="Shipping"      value={fmtAmt(selected.shippingCharges)} T={T}/>
+                  <DRow label="Adjustment"    value={fmtAmt(selected.adjustment)} T={T}/>
+                  <DRow label="VAT (5%)"      value={fmtAmt(selected.vat)} T={T}/>
+                  {selected.notes && (
+                    <div style={{ marginTop:14, padding:12, background:T.surface2, border:`1px solid ${border}`, borderRadius:10 }}>
+                      <p style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:T.textSec, margin:'0 0 6px' }}>Notes</p>
+                      <p style={{ fontSize:13, color:T.textPri, margin:0, lineHeight:1.5 }}>{selected.notes}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab==='items' && (
+                <div>
+                  {Array.isArray(selected.items) && selected.items.length > 0 ? (
+                    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                      {selected.items.map((item,i) => (
+                        <div key={i} style={{ border:`1.5px solid ${border}`, borderRadius:12, padding:'13px 15px', background:T.surface2 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+                            <div>
+                              <p style={{ margin:0, fontSize:13, fontWeight:700, color:T.textPri }}>{item.itemName||item.name||item.itemId||'—'}</p>
+                              {item.details && <p style={{ margin:'2px 0 0', fontSize:11, color:T.textSec }}>{item.details}</p>}
+                            </div>
+                            <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color:T.textPri }}>{fmtAmt(item.amount)}</span>
+                          </div>
+                          <div style={{ display:'flex', gap:16 }}>
+                            <span style={{ fontSize:11, color:T.textSec }}>Qty: <strong style={{ color:T.textPri }}>{item.quantity}</strong></span>
+                            <span style={{ fontSize:11, color:T.textSec }}>Rate: <strong style={{ color:T.textPri, fontFamily:"'DM Mono',monospace" }}>AED {item.rate}</strong></span>
+                            {item.discount>0 && <span style={{ fontSize:11, color:T.amber }}>Disc: {item.discount}%</span>}
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ display:'flex', justifyContent:'flex-end', padding:'12px 0 0', borderTop:`1px solid ${border}` }}>
+                        <div style={{ textAlign:'right' }}>
+                          <p style={{ margin:0, fontSize:11, color:T.textSec, fontWeight:600 }}>ORDER TOTAL</p>
+                          <p style={{ margin:'3px 0 0', fontFamily:"'DM Mono',monospace", fontSize:18, fontWeight:800, color:T.blue }}>{fmtAmt(selected.total)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign:'center', padding:'48px 0' }}>
+                      <FaBoxOpen size={32} style={{ color:T.textSec, opacity:0.4, marginBottom:10 }}/>
+                      <p style={{ fontSize:13, color:T.textSec, margin:0 }}>No line items</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab==='history' && (
+                <div style={{ textAlign:'center', padding:'48px 0' }}>
+                  <FaClock size={32} style={{ color:T.textSec, opacity:0.4, marginBottom:10 }}/>
+                  <p style={{ fontSize:14, fontWeight:600, color:T.textPri, margin:'0 0 4px' }}>No History Yet</p>
+                  <p style={{ fontSize:12, color:T.textSec, margin:0 }}>Status changes will appear here</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding:'14px 20px', borderTop:`1px solid ${border}`, flexShrink:0, display:'flex', gap:8 }}>
+              <button onClick={()=>navigate(`/Purchase/Purchaseorders/${selected._id}/edit`)} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                <FaEdit size={11}/> Edit Order
+              </button>
+              {selected.status!=='received' && selected.status!=='cancelled' && (
+                <button style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:T.surface2, color:T.green, border:`1.5px solid ${T.greenDim}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                  <FaCheckCircle size={11}/> Mark Received
+                </button>
+              )}
+              <button onClick={closeDrawer} style={{ padding:'10px 16px', background:T.surface2, color:T.textSec, border:`1.5px solid ${border}`, borderRadius:11, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

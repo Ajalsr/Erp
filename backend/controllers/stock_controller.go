@@ -76,6 +76,8 @@ func AddItem() gin.HandlerFunc {
 		}
 
 		item.ID = primitive.NewObjectID()
+		item.CreatedAt = time.Now()
+		item.UpdatedAt = time.Now()
 
 		result, err := stockCollection.InsertOne(ctx, item)
 

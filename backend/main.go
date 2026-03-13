@@ -1,11 +1,13 @@
 package main
 
 import (
-	"context"
+	// "context"
+
+	"os"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/backend/config"
+	// "github.com/backend/config"
 	"github.com/backend/routes"
 )
 
@@ -27,18 +29,26 @@ func CORSMiddleware() gin.HandlerFunc {
 
 func main() {
 
+	port := os.Getenv("PORT")
+
+	if port == "" {
+		port = "8000"
+	}
+
 	server := gin.Default()
 
 	server.Use(CORSMiddleware())
 	routes.StockRoutes(server)
 	routes.AuthRoutes(server)
 	routes.CustomerRoutes(server)
+	routes.SaleOrderRoutes(server)
+	//routes.DashboardRoutes(server)
 
 	server.Run(":8080")
 
-	defer func() {
-		if err := config.DB.Disconnect(context.Background()); err != nil {
-			panic(err)
-		}
-	}()
+	// defer func() {
+	// 	if err := config.DB.Disconnect(context.Background()); err != nil {
+	// 		panic(err)
+	// 	}
+	// }()
 }
