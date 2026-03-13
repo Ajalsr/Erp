@@ -1,6 +1,15 @@
 node_modules/
 dist/
-*.exe
+dist-electron/
 *.dll
+*.zip
 *.app
-*.zipnode_modules/electron/
+
+# Tauri build output
+src-tauri/target/
+
+# Backend binaries (rebuilt by scripts/build-backend.js)
+src-tauri/binaries/
+
+# Electron
+node_modules/electron/
