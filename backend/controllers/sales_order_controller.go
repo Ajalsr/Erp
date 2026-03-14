@@ -10,6 +10,7 @@ import (
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/ws"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -214,6 +215,8 @@ func CreateSalesOrder() gin.HandlerFunc {
 			})
 			return
 		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "create", ID: salesOrder.ID.Hex()})
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
@@ -532,6 +535,8 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			return
 		}
 
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "update", ID: id})
+
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "Sales order status updated successfully",
@@ -642,6 +647,8 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		var updatedOrder models.SalesOrder
 		salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedOrder)
 
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "update", ID: id})
+
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "Sales order updated successfully",
@@ -715,6 +722,8 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			})
 			return
 		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "delete", ID: id})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,

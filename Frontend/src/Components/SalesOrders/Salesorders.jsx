@@ -9,6 +9,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import useGetAllSalesOrder from "../../helper/useGetAllSalesOrder";
+import useWebSocket from "../../helper/useWebSocket";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 
 
@@ -197,6 +198,10 @@ const Salesorders = () => {
   const perPage = 10;
 
   useEffect(() => { handleGetSalesorder(); }, [handleGetSalesorder]);
+
+  useWebSocket((event) => {
+    if (event.type === "sales_orders_updated") handleGetSalesorder();
+  });
 
   const allOrders = data ? transformOrders(data) : [];
 

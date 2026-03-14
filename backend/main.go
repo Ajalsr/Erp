@@ -9,6 +9,7 @@ import (
 
 	// "github.com/backend/config"
 	"github.com/backend/routes"
+	"github.com/backend/ws"
 )
 
 func CORSMiddleware() gin.HandlerFunc {
@@ -35,6 +36,9 @@ func main() {
 		port = "8000"
 	}
 
+	// Start the WebSocket hub
+	go ws.GlobalHub.Run()
+
 	server := gin.Default()
 
 	server.Use(CORSMiddleware())
@@ -43,6 +47,9 @@ func main() {
 	routes.CustomerRoutes(server)
 	routes.SaleOrderRoutes(server)
 	//routes.DashboardRoutes(server)
+
+	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
+	server.GET("/ws", ws.ServeWs(ws.GlobalHub))
 
 	server.Run(":8080")
 
