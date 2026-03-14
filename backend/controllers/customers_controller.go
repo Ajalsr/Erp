@@ -9,6 +9,7 @@ import (
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/ws"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -143,6 +144,8 @@ func AddCustomers() gin.HandlerFunc {
 			})
 			return
 		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "create", ID: item.ID.Hex()})
 
 		// Return the complete saved document so the frontend can use it immediately
 		c.JSON(http.StatusCreated, gin.H{
@@ -468,6 +471,8 @@ func UpdateCustomer() gin.HandlerFunc {
 		var updatedCustomer models.Customer
 		_ = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedCustomer)
 
+		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "update", ID: id})
+
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "Customer updated successfully",
@@ -513,6 +518,8 @@ func DeleteCustomer() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to delete customer", "error": err.Error()})
 			return
 		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "delete", ID: id})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,

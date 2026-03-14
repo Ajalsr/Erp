@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
+import useWebSocket from "../../helper/useWebSocket";
 import debounce from "lodash/debounce";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 
@@ -326,6 +327,10 @@ const Customers = () => {
   };
 
   useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
+
+  useWebSocket((event) => {
+    if (event.type === "customers_updated") handleGetCustomers();
+  });
 
   // ── status badge config ───────────────────────────────────────────
   const statusCfg = {
