@@ -7,17 +7,19 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Event is the message broadcast to all connected clients.
+// Event is the message broadcast to connected clients.
 type Event struct {
-	Type   string `json:"type"`   // e.g. "customers_updated", "sales_orders_updated", "stocks_updated"
-	Action string `json:"action"` // "create" | "update" | "delete"
-	ID     string `json:"id,omitempty"`
+	Type    string      `json:"type"`             // e.g. "customers_updated", "notification"
+	Action  string      `json:"action,omitempty"` // "create" | "update" | "delete"
+	ID      string      `json:"id,omitempty"`
+	Payload interface{} `json:"payload,omitempty"` // arbitrary data for typed events
 }
 
 // client represents a single WebSocket connection.
 type client struct {
-	conn *websocket.Conn
-	send chan []byte
+	conn   *websocket.Conn
+	send   chan []byte
+	userID string // authenticated user — empty if token was missing/invalid
 }
 
 // Hub manages all active WebSocket clients.
@@ -59,17 +61,16 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 
 		case msg := <-h.broadcast:
-			h.mu.RLock()
+			h.mu.Lock()
 			for c := range h.clients {
 				select {
 				case c.send <- msg:
 				default:
-					// Slow client — drop and remove
 					close(c.send)
 					delete(h.clients, c)
 				}
 			}
-			h.mu.RUnlock()
+			h.mu.Unlock()
 		}
 	}
 }
@@ -81,4 +82,31 @@ func (h *Hub) Broadcast(evt Event) {
 		return
 	}
 	h.broadcast <- data
+}
+
+// BroadcastToUser sends raw JSON only to connections belonging to userID.
+func (h *Hub) BroadcastToUser(userID string, data []byte) {
+	if userID == "" {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.clients {
+		if c.userID == userID {
+			select {
+			case c.send <- data:
+			default:
+				// slow client — skip, don't drop (notification will still be in DB)
+			}
+		}
+	}
+}
+
+// SendEventToUser marshals an Event and sends it only to the given user.
+func (h *Hub) SendEventToUser(userID string, evt Event) {
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return
+	}
+	h.BroadcastToUser(userID, data)
 }

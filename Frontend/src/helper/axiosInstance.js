@@ -3,7 +3,7 @@ import toast from 'react-hot-toast'
 import useAuthStore from '../store/useAuthStore'
 
 const api = axios.create({
-  baseURL: 'http://localhost:8080',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080',
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -62,6 +62,11 @@ api.interceptors.request.use((config) => {
     }
 
     config.headers.Authorization = `Bearer ${token}`
+  }
+
+  const activeOrg = useAuthStore.getState().activeOrg
+  if (activeOrg?._id) {
+    config.headers['X-Org-ID'] = activeOrg._id
   }
 
   return config

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/backend/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -17,15 +18,26 @@ var upgrader = websocket.Upgrader{
 }
 
 // ServeWs upgrades the HTTP connection to WebSocket and registers the client.
+// Pass the JWT as a query parameter: /ws?token=<jwt>
+// Connections without a valid token are still accepted but will not receive
+// user-targeted events (only org-wide broadcasts).
 func ServeWs(hub *Hub) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Extract userId from token — optional, non-blocking
+		userID := ""
+		if tokenStr := c.Query("token"); tokenStr != "" {
+			if uid, err := utils.VerifyToken(tokenStr); err == nil {
+				userID = uid
+			}
+		}
+
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			log.Println("WebSocket upgrade error:", err)
 			return
 		}
 
-		cl := &client{conn: conn, send: make(chan []byte, 256)}
+		cl := &client{conn: conn, send: make(chan []byte, 256), userID: userID}
 		hub.register <- cl
 
 		// Write pump

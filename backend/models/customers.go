@@ -60,6 +60,9 @@ type Customer struct {
 	Notes         string                 `json:"notes,omitempty"          bson:"notes,omitempty"`
 	Rating        int                    `json:"rating,omitempty"         bson:"rating,omitempty"`
 
+	// ── Org ──────────────────────────────────────────────────────────────
+	OrgID string `json:"orgId,omitempty" bson:"orgId,omitempty"`
+
 	// ── Status / Audit ───────────────────────────────────────────────────
 	Status    string    `json:"status,omitempty"     bson:"status,omitempty"`
 	CreatedAt time.Time `json:"created_at,omitempty" bson:"created_at,omitempty"`

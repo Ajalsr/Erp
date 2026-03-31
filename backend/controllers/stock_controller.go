@@ -23,9 +23,10 @@ func GetAllStocks() gin.HandlerFunc {
 		var stocks []models.Stock
 		defer cancel()
 
+		orgID, _ := c.Get("orgId")
 		collection := config.GetCollection(config.DB, "stocks")
 		fmt.Println(collection, "this is the collection")
-		results, err := collection.Find(ctx, bson.M{})
+		results, err := collection.Find(ctx, bson.M{"orgId": orgID})
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -75,7 +76,9 @@ func AddItem() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
 		item.ID = primitive.NewObjectID()
+		item.OrgID = fmt.Sprintf("%v", orgID)
 		item.CreatedAt = time.Now()
 		item.UpdatedAt = time.Now()
 

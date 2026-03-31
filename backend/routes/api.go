@@ -19,7 +19,7 @@ func AuthRoutes(router *gin.Engine) {
 
 func StockRoutes(router *gin.Engine) {
 	stockRoutes := router.Group("/api/stocks")
-	stockRoutes.Use(middlewares.Authenticate) // ✅ protected
+	stockRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
 	{
 		stockRoutes.GET("/getitem", controllers.GetAllStocks())
 		stockRoutes.POST("/additem", controllers.AddItem())
@@ -28,24 +28,16 @@ func StockRoutes(router *gin.Engine) {
 
 func CustomerRoutes(router *gin.Engine) {
 	custRoutes := router.Group("/api/customers")
-	custRoutes.Use(middlewares.Authenticate) // ✅ protected
+	custRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
 
-	// ── Aggregate / utility routes (must come BEFORE /:id) ───────────────
 	custRoutes.POST("/addcustomers", controllers.AddCustomers())
 	custRoutes.GET("/getcustomers", controllers.GetAllCustomers())
 	custRoutes.GET("/search", controllers.SearchCustomers())
 	custRoutes.GET("/suggestions", controllers.GetCustomerSuggestions())
 	custRoutes.GET("/stats", controllers.GetCustomerStats())
 	custRoutes.GET("/export/csv", controllers.ExportCustomersCSV())
-
-	// GetDashboardStats is a plain func(c *gin.Context) — NOT a factory func.
-	// Register it directly without () so Gin receives the handler itself.
 	custRoutes.GET("/dashboard", controllers.GetDashboardStats)
-
-	// Static sub-paths must remain BEFORE /:id to avoid route conflicts.
 	custRoutes.GET("/status/:status", controllers.GetCustomersByStatus())
-
-	// ── Per-customer routes ──────────────────────────────────────────────
 	custRoutes.GET("/:id", controllers.GetCustomerByID())
 	custRoutes.PUT("/:id", controllers.UpdateCustomer())
 	custRoutes.DELETE("/:id", controllers.DeleteCustomer())
@@ -55,7 +47,7 @@ func CustomerRoutes(router *gin.Engine) {
 
 func SaleOrderRoutes(router *gin.Engine) {
 	salesOrderRoutes := router.Group("/api/sales-orders")
-	salesOrderRoutes.Use(middlewares.Authenticate) // ✅ protected
+	salesOrderRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
 	{
 		salesOrderRoutes.POST("/", controllers.CreateSalesOrder())
 		salesOrderRoutes.GET("/getsaleorder", controllers.GetAllSalesOrders())
@@ -70,7 +62,7 @@ func SaleOrderRoutes(router *gin.Engine) {
 
 func DashboardRoutes(router *gin.Engine) {
 	dashRoutes := router.Group("/api/dashboard")
-	dashRoutes.Use(middlewares.Authenticate) // ✅ protected
+	dashRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
 	{
 		dashRoutes.GET("/activity-feed", controllers.GetActivityFeed())
 	}

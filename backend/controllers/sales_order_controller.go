@@ -179,8 +179,10 @@ func CreateSalesOrder() gin.HandlerFunc {
 			req.OrderNumber = generateOrderNumber(ctx)
 		}
 
+		orgID, _ := c.Get("orgId")
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
+			OrgID:                fmt.Sprintf("%v", orgID),
 			OrderNumber:          req.OrderNumber,
 			CustomerID:           req.CustomerID,
 			CustomerName:         customer.CustomerDisplayName,
@@ -284,7 +286,8 @@ func GetAllSalesOrders() gin.HandlerFunc {
 		endDate := c.Query("endDate")
 		search := c.Query("search")
 
-		filter := bson.M{}
+		orgID, _ := c.Get("orgId")
+		filter := bson.M{"orgId": orgID}
 
 		if status != "" {
 			filter["status"] = status
@@ -750,9 +753,11 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		weekStart := todayStart.AddDate(0, 0, -int(now.Weekday())+1)
 		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 
-		totalOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{})
+		orgID, _ := c.Get("orgId")
+		totalOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
 
 		pipeline := []bson.M{
+			{"$match": bson.M{"orgId": orgID}},
 			{
 				"$group": bson.M{
 					"_id":         "$status",
@@ -790,16 +795,17 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		}
 
 		todayOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"createdAt": bson.M{"$gte": todayStart},
+			"orgId": orgID, "createdAt": bson.M{"$gte": todayStart},
 		})
 		thisWeekOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"createdAt": bson.M{"$gte": weekStart},
+			"orgId": orgID, "createdAt": bson.M{"$gte": weekStart},
 		})
 		thisMonthOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"createdAt": bson.M{"$gte": monthStart},
+			"orgId": orgID, "createdAt": bson.M{"$gte": monthStart},
 		})
 
 		topCustomersPipeline := []bson.M{
+			{"$match": bson.M{"orgId": orgID}},
 			{
 				"$group": bson.M{
 					"_id":          "$customerId",
@@ -878,7 +884,9 @@ func SearchSalesOrders() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
 		filter := bson.M{
+			"orgId": orgID,
 			"$or": []bson.M{
 				{"orderNumber": bson.M{"$regex": query, "$options": "i"}},
 				{"customerName": bson.M{"$regex": query, "$options": "i"}},

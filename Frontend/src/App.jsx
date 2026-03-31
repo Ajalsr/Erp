@@ -15,9 +15,12 @@ import Newpurchaseorders from "./Components/NewPurchaseOrders/Newpurchaseorders"
 import EditCustomer from "./Components/Customers/EditCustomer"
 import Outbound from "./Components/Outbound/Outbound"
 import DeliveryNote from "./Components/DeliveryNote/Deliverynote"
-import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute" 
+import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute"
 import Vendors from "./Components/Vendor/Vendor"
 import NewVendor from "./Components/NewVendor/NewVendor"
+import CreateOrganization from "./Components/Organization/CreateOrganization"
+import OrganizationSettings from "./Components/Organization/OrganizationSettings"
+import AcceptInvitation from "./Components/Organization/AcceptInvitation"
 
 function App() {
   return (
@@ -45,7 +48,16 @@ function App() {
         <Route path="/" element={<Login />} />
         <Route path="/Signup" element={<Signup />} />
 
-        {/* 👇 All protected routes are now wrapped */}
+        {/* Invitation accept — accessible when logged in, before org is set */}
+        <Route path="/invitations/accept" element={<AcceptInvitation />} />
+
+        {/* Create first org after signup (protected, but outside main layout) */}
+        <Route
+          path="/organizations/create"
+          element={<ProtectedRoute><CreateOrganization /></ProtectedRoute>}
+        />
+
+        {/* All protected routes inside main layout */}
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route path="/Home" element={<Home />} />
           <Route path="/Items/Items" element={<Item />} />
@@ -61,6 +73,8 @@ function App() {
           <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
           <Route path="Purchase/Vendors" element={<Vendors />} />
           <Route path="Purchase/Vendors/NewVendor" element={<NewVendor />} />
+          {/* Organization settings & members */}
+          <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
         </Route>
       </Routes>
     </>

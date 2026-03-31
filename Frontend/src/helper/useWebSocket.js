@@ -1,7 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react'
 import useAuthStore from '../store/useAuthStore'
 
-const WS_URL = 'ws://localhost:8080/ws'
+// Derive WebSocket URL from API URL: http→ws, https→wss
+const _api = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+const WS_URL = _api.replace(/^http/, 'ws') + '/ws'
 const RECONNECT_DELAY_MS = 3000
 
 /**
@@ -31,7 +33,7 @@ const useWebSocket = (onEvent) => {
   const connect = useCallback(() => {
     if (!token || !mountedRef.current) return
 
-    const ws = new WebSocket(WS_URL)
+    const ws = new WebSocket(token ? `${WS_URL}?token=${token}` : WS_URL)
     wsRef.current = ws
 
     ws.onmessage = (e) => {

@@ -18,7 +18,6 @@ import (
 )
 
 var userCollection *mongo.Collection = config.GetCollection(config.DB, "users")
-var companyCollection *mongo.Collection = config.GetCollection(config.DB, "company")
 var validate = Validations.GetValidator()
 
 func SignUp() gin.HandlerFunc {
@@ -29,7 +28,6 @@ func SignUp() gin.HandlerFunc {
 		defer cancel()
 
 		var user models.Users
-		var company models.Company
 
 		if err := c.BindJSON(&user); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -68,7 +66,6 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 
-		// Hash password BEFORE saving
 		hashedPassword, err := utils.HashPassword(user.Password)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -79,31 +76,8 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 
-		// ✅ FIX 1: Was user.CompanyName = string(val) — overwrote company name with hash
-		// Save the original company name before overwriting password
-		originalCompanyName := user.CompanyName
-		user.Password = hashedPassword // ✅ store hash in Password field, not CompanyName
-
-		// Create company record using the original company name
-		company = models.Company{
-			ID:          primitive.NewObjectID(),
-			CompanyName: originalCompanyName,
-		}
-
-		_, err = companyCollection.InsertOne(ctx, company)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "error",
-				"error":   "Failed to create company",
-			})
-			return
-		}
-
-		user.OrgID = company.ID
+		user.Password = hashedPassword
 		user.ID = primitive.NewObjectID()
-		// ✅ Keep CompanyName intact on the user record
-		user.CompanyName = originalCompanyName
 
 		_, err = userCollection.InsertOne(ctx, user)
 		if err != nil {

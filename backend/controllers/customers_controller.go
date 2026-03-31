@@ -28,8 +28,9 @@ func GetAllCustomers() gin.HandlerFunc {
 		var customers []models.Customer
 		defer cancel()
 
+		orgID, _ := c.Get("orgId")
 		collection := config.GetCollection(config.DB, "customers")
-		results, err := collection.Find(ctx, bson.M{})
+		results, err := collection.Find(ctx, bson.M{"orgId": orgID})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -113,6 +114,9 @@ func AddCustomers() gin.HandlerFunc {
 		// under the key "userId". We record it here for the audit trail.
 		if userID, exists := c.Get("userId"); exists {
 			item.CreatedBy = fmt.Sprintf("%v", userID)
+		}
+		if orgID, exists := c.Get("orgId"); exists {
+			item.OrgID = fmt.Sprintf("%v", orgID)
 		}
 
 		// ── Assign real ObjectIDs to every ContactPerson ──────────────────
@@ -206,7 +210,9 @@ func GetCustomerSuggestions() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
 		filter := bson.M{
+			"orgId": orgID,
 			"$or": []bson.M{
 				{"customerDisplayName": bson.M{"$regex": query, "$options": "i"}},
 				{"companyName": bson.M{"$regex": query, "$options": "i"}},
@@ -266,7 +272,8 @@ func SearchCustomers() gin.HandlerFunc {
 		country := c.Query("country")
 		company := c.Query("company")
 
-		filter := bson.M{}
+		orgID, _ := c.Get("orgId")
+		filter := bson.M{"orgId": orgID}
 
 		if query != "" {
 			filter["$or"] = []bson.M{
@@ -547,8 +554,9 @@ func GetCustomersByStatus() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
 		var customers []models.Customer
-		cursor, err := customersCollection.Find(ctx, bson.M{"status": status})
+		cursor, err := customersCollection.Find(ctx, bson.M{"orgId": orgID, "status": status})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customers by status", "error": err.Error()})
 			return
@@ -578,14 +586,15 @@ func GetCustomerStats() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		activeCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "active"})
-		pendingCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "pending"})
-		inactiveCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "inactive"})
-		totalCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": bson.M{"$ne": "deleted"}})
-		individualCount, _ := customersCollection.CountDocuments(ctx, bson.M{"customerType": "individual", "status": bson.M{"$ne": "deleted"}})
-		businessCount, _ := customersCollection.CountDocuments(ctx, bson.M{"customerType": "business", "status": bson.M{"$ne": "deleted"}})
+		orgID, _ := c.Get("orgId")
+		activeCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "active"})
+		pendingCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "pending"})
+		inactiveCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "inactive"})
+		totalCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": bson.M{"$ne": "deleted"}})
+		individualCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "customerType": "individual", "status": bson.M{"$ne": "deleted"}})
+		businessCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "customerType": "business", "status": bson.M{"$ne": "deleted"}})
 		weekAgo := time.Now().AddDate(0, 0, -7)
-		recentCount, _ := customersCollection.CountDocuments(ctx, bson.M{"created_at": bson.M{"$gte": weekAgo}, "status": bson.M{"$ne": "deleted"}})
+		recentCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "created_at": bson.M{"$gte": weekAgo}, "status": bson.M{"$ne": "deleted"}})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
@@ -611,7 +620,8 @@ func ExportCustomersCSV() gin.HandlerFunc {
 		status := c.Query("status")
 		format := c.DefaultQuery("format", "csv")
 
-		filter := bson.M{"status": bson.M{"$ne": "deleted"}}
+		orgID, _ := c.Get("orgId")
+		filter := bson.M{"orgId": orgID, "status": bson.M{"$ne": "deleted"}}
 		if status != "" && status != "all" {
 			filter["status"] = status
 		}
@@ -771,19 +781,22 @@ func GetDashboardStats(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	totalCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"status": bson.M{"$ne": "deleted"}})
-	activeCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "active"})
-	pendingCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "pending"})
+	orgID, _ := c.Get("orgId")
+	totalCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": bson.M{"$ne": "deleted"}})
+	activeCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "active"})
+	pendingCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "pending"})
 
 	today := time.Now().Truncate(24 * time.Hour)
 	tomorrow := today.Add(24 * time.Hour)
 	todayNewCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{
+		"orgId":      orgID,
 		"created_at": bson.M{"$gte": today, "$lt": tomorrow},
 		"status":     bson.M{"$ne": "deleted"},
 	})
 
 	startOfMonth := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Now().Location())
 	thisMonthNewCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{
+		"orgId":      orgID,
 		"created_at": bson.M{"$gte": startOfMonth},
 		"status":     bson.M{"$ne": "deleted"},
 	})

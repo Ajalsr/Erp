@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import useLogin from '../../helper/useLogin'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
@@ -7,6 +7,7 @@ import 'react-toastify/dist/ReactToastify.css'
 const Login = () => {
   const { handleSignin } = useLogin()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [inputs, setInputs] = useState({ userId: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -20,7 +21,9 @@ const Login = () => {
     try {
       await handleSignin(inputs)
       setInputs({ userId: '', password: '' })
-      setTimeout(() => navigate('/Home'), 1200)
+      // If an invite (or any page) redirected here, go back there after login
+      const redirectTo = searchParams.get('redirect')
+      setTimeout(() => navigate(redirectTo ? decodeURIComponent(redirectTo) : '/Home'), 1200)
     } catch (error) {
       toast.error(error?.error || 'Sign in failed')
     } finally {

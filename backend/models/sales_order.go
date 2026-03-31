@@ -119,6 +119,7 @@ type SalesOrder struct {
 	TermsAndConditions   string             `json:"termsAndConditions,omitempty" bson:"termsAndConditions,omitempty"`
 	Status               string             `json:"status" bson:"status"`
 	Attachments          []Attachment       `json:"attachments,omitempty" bson:"attachments,omitempty"`
+	OrgID                string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt            time.Time          `json:"createdAt" bson:"createdAt"`
 	UpdatedAt            time.Time          `json:"updatedAt" bson:"updatedAt"`
 	CreatedBy            string             `json:"createdBy,omitempty" bson:"createdBy,omitempty"`
