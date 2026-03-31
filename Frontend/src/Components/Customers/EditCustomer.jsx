@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../helper/axiosInstance';
 import { toast } from 'react-hot-toast';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
@@ -40,7 +40,7 @@ const EditCustomer = () => {
 
   const fetchCustomer = async () => {
     try {
-      const response = await axios.get(`http://localhost:8080/api/customers/${id}`);
+      const response = await api.get(`/api/customers/${id}`);
       if (response.data && response.data.data) {
         setFormData(response.data.data);
       }
@@ -78,7 +78,7 @@ const EditCustomer = () => {
     setIsSubmitting(true);
     
     try {
-      await axios.put(`http://localhost:8080/api/customers/${id}`, formData);
+      await api.put(`/api/customers/${id}`, formData);
       toast.success("Customer updated successfully!");
       setTimeout(() => {
         navigate("/sales/customers");

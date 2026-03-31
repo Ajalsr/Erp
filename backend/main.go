@@ -3,9 +3,11 @@ package main
 import (
 	// "context"
 
+	"log"
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 
 	// "github.com/backend/config"
 	"github.com/backend/routes"
@@ -16,7 +18,7 @@ func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5175")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Org-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {
@@ -29,6 +31,10 @@ func CORSMiddleware() gin.HandlerFunc {
 }
 
 func main() {
+	// Load .env file if present
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using environment variables")
+	}
 
 	port := os.Getenv("PORT")
 
@@ -46,7 +52,9 @@ func main() {
 	routes.AuthRoutes(server)
 	routes.CustomerRoutes(server)
 	routes.SaleOrderRoutes(server)
-	//routes.DashboardRoutes(server)
+	routes.OrgRoutes(server)
+	routes.NotificationRoutes(server)
+	routes.DashboardRoutes(server)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	server.GET("/ws", ws.ServeWs(ws.GlobalHub))

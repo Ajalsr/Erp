@@ -6,6 +6,7 @@
   "author": "ERP",
   "type": "commonjs",
   "scripts": {
+    "predev": "node -e \"try{require('child_process').execSync('lsof -ti:8080 | xargs kill -9 2>/dev/null',{shell:true})}catch(e){}\"",
     "dev": "npm run build:backend && tauri dev",
     "build": "npm run build:backend && tauri build",
     "build:backend": "node scripts/build-backend.js",
