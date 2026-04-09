@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "identifier": "com.erp.desktop",
   "build": {
-    "beforeDevCommand": "concurrently \"cd backend && go run .\" \"cd Frontend && npm run dev\"",
+    "beforeDevCommand": "node scripts/dev.js",
     "devUrl": "http://localhost:5175",
     "beforeBuildCommand": "cd Frontend && npm run build",
     "frontendDist": "../Frontend/dist"

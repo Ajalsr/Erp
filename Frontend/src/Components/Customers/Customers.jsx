@@ -5,7 +5,7 @@ import {
   FaEnvelope, FaPhone, FaDownload, FaUpload,
   FaUsers, FaCheckCircle, FaClock, FaCreditCard,
   FaChevronLeft, FaChevronRight, FaBoxOpen, FaEdit,
-  FaSortAmountDown, FaSortAmountUp
+  FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaCalendarAlt
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
@@ -711,127 +711,239 @@ const Customers = () => {
       </div>
 
       {/* ── DRAWER ──────────────────────────────────────────────── */}
-      {isDrawerOpen && (
-        <>
-          <div className="overlay-anim" onClick={closeDrawer}
-            style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.7)" : "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)", zIndex: 50 }} />
+      {isDrawerOpen && selectedItem && (() => {
+        const [avBg, avFg] = getAvatar(selectedItem.customerDisplayName);
+        const sc   = statusCfg[selectedItem.status] || statusCfg.active;
+        const code = getCode(selectedItem);
+        const hasEmail = selectedItem.customerEmail && selectedItem.customerEmail !== "N/A";
+        const hasPhone = selectedItem.customerPhone && selectedItem.customerPhone !== "N/A";
 
-          <div className="drawer-anim"
-            style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "400px", maxWidth: "100vw", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)", transition: "background 0.25s ease" }}>
+        return (
+          <>
+            {/* Backdrop */}
+            <div className="overlay-anim" onClick={closeDrawer}
+              style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.7)" : "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)", zIndex: 50 }} />
 
-            {/* Drawer header */}
-            <div style={{ padding: "20px 20px 0", borderBottom: `1px solid ${T.border}` }}>
-              {selectedItem && (() => {
-                const [bg, fg] = getAvatar(selectedItem.customerDisplayName);
-                const sc = statusCfg[selectedItem.status] || statusCfg.active;
-                return (
-                  <div style={{ marginBottom: "16px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "13px", marginBottom: "14px" }}>
-                      <div style={{ width: "46px", height: "46px", borderRadius: "12px", background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "19px", fontWeight: "700", flexShrink: 0 }}>
-                        {(selectedItem.customerDisplayName || "U").charAt(0).toUpperCase()}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
-                          <h3 className="cust-jakarta" style={{ fontSize: "15px", fontWeight: "700", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {selectedItem.customerDisplayName || "Customer"}
-                          </h3>
-                          <span style={{ fontSize: "10px", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)`, flexShrink: 0 }}>
-                            {getCode(selectedItem)}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          {selectedItem.companyName && (
-                            <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>{selectedItem.companyName}</p>
-                          )}
-                          {selectedItem.status && (
-                            <span style={{ fontSize: "10px", fontWeight: "600", background: sc.bg, color: sc.color, padding: "2px 8px", borderRadius: "999px", border: `1px solid ${sc.border}` }}>
-                              {selectedItem.status}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <button onClick={closeDrawer}
-                        style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "8px", padding: "6px", cursor: "pointer", color: T.textSec, display: "flex", flexShrink: 0 }}>
-                        <FaTimes size={12} />
-                      </button>
+            {/* Panel */}
+            <div className="drawer-anim"
+              style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "520px", maxWidth: "100vw", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
+
+              {/* ── Header ── */}
+              <div style={{ position: "relative", padding: "24px 24px 0", borderBottom: `1px solid ${T.border}` }}>
+                {/* Accent strip */}
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px",
+                  background: `linear-gradient(90deg, ${avFg}88, ${avFg}22, transparent)` }} />
+
+                {/* Close */}
+                <button onClick={closeDrawer}
+                  style={{ position: "absolute", top: "16px", right: "18px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "8px", padding: "6px", cursor: "pointer", color: T.textSec, display: "flex" }}>
+                  <FaTimes size={12} />
+                </button>
+
+                {/* Avatar + identity */}
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: "18px" }}>
+                  <div style={{ width: "56px", height: "56px", borderRadius: "14px", background: avBg, color: avFg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px", fontWeight: "800", flexShrink: 0 }}>
+                    {(selectedItem.customerDisplayName || "U").charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: "36px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "5px" }}>
+                      <h3 className="cust-jakarta" style={{ fontSize: "16px", fontWeight: "700", color: T.textPri, margin: 0 }}>
+                        {selectedItem.customerDisplayName || "Customer"}
+                      </h3>
+                      <span style={{ fontSize: "10px", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)`, flexShrink: 0 }}>
+                        {code}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      {selectedItem.companyName && selectedItem.companyName !== "N/A" && (
+                        <span style={{ fontSize: "12px", color: T.textSec, display: "flex", alignItems: "center", gap: "4px" }}>
+                          <FaBuilding size={10} /> {selectedItem.companyName}
+                        </span>
+                      )}
+                      {selectedItem.status && (
+                        <span style={{ fontSize: "10px", fontWeight: "600", background: sc.bg, color: sc.color, padding: "2px 9px", borderRadius: "999px", border: `1px solid ${sc.border}` }}>
+                          {selectedItem.status}
+                        </span>
+                      )}
                     </div>
                   </div>
-                );
-              })()}
+                </div>
 
-              {/* Tabs */}
-              <div style={{ display: "flex", gap: "0" }}>
-                {["overview", "transactions", "history"].map(tab => (
-                  <button key={tab} onClick={() => setActiveTab(tab)}
-                    className={`drawer-tab${activeTab === tab ? " drawer-tab-active" : ""}`}
-                    style={{ padding: "9px 16px", background: "none", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: "500", fontFamily: "inherit", color: T.textSec, textTransform: "capitalize" }}>
-                    {tab}
+                {/* Quick action buttons */}
+                <div style={{ display: "flex", gap: "8px", marginBottom: "18px" }}>
+                  {hasEmail && (
+                    <a href={`mailto:${selectedItem.customerEmail}`}
+                      style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "8px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", fontWeight: "500", color: T.textSec, cursor: "pointer", textDecoration: "none" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = T.blueDim; e.currentTarget.style.color = T.blueLight; e.currentTarget.style.borderColor = "rgba(59,130,246,0.3)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.color = T.textSec; e.currentTarget.style.borderColor = T.border; }}>
+                      <FaEnvelope size={11} /> Email
+                    </a>
+                  )}
+                  {hasPhone && (
+                    <a href={`tel:${selectedItem.customerPhone}`}
+                      style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "8px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", fontWeight: "500", color: T.textSec, cursor: "pointer", textDecoration: "none" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = T.greenDim; e.currentTarget.style.color = T.green; e.currentTarget.style.borderColor = "rgba(16,185,129,0.3)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = T.surface2; e.currentTarget.style.color = T.textSec; e.currentTarget.style.borderColor = T.border; }}>
+                      <FaPhone size={11} /> Call
+                    </a>
+                  )}
+                  <button onClick={() => navigate(`/sales/customers/edit/${selectedItem._id}`)}
+                    style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "8px", background: T.blue, border: "none", borderRadius: "9px", fontSize: "12px", fontWeight: "500", color: "white", cursor: "pointer" }}
+                    onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.1)"}
+                    onMouseLeave={e => e.currentTarget.style.filter = "brightness(1)"}>
+                    <FaEdit size={11} /> Edit
                   </button>
-                ))}
+                </div>
+
+                {/* Tabs */}
+                <div style={{ display: "flex" }}>
+                  {["overview", "contacts", "financials"].map(tab => (
+                    <button key={tab} onClick={() => setActiveTab(tab)}
+                      className={`drawer-tab${activeTab === tab ? " drawer-tab-active" : ""}`}
+                      style={{ padding: "9px 18px", background: "none", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: "500", fontFamily: "inherit", color: T.textSec, textTransform: "capitalize" }}>
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Body ── */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+
+                {activeTab === "overview" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+
+                    {/* Contact info */}
+                    {(hasEmail || hasPhone) && (
+                      <div>
+                        <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Contact Information</p>
+                        <div style={{ background: T.surface2, borderRadius: "12px", border: `1px solid ${T.border2}`, overflow: "hidden" }}>
+                          {hasEmail && (
+                            <div className="detail-row" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px", borderBottom: hasPhone ? `1px solid ${T.border2}` : "none" }}>
+                              <div style={{ width: "30px", height: "30px", borderRadius: "8px", background: T.blueDim, color: T.blueLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", flexShrink: 0 }}>
+                                <FaEnvelope />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>Email</p>
+                                <p style={{ fontSize: "13px", color: T.textPri, margin: "2px 0 0", fontWeight: "500" }}>{selectedItem.customerEmail}</p>
+                              </div>
+                              <a href={`mailto:${selectedItem.customerEmail}`} style={{ color: T.textMuted, display: "flex" }}>
+                                <FaExternalLinkAlt size={10} />
+                              </a>
+                            </div>
+                          )}
+                          {hasPhone && (
+                            <div className="detail-row" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px" }}>
+                              <div style={{ width: "30px", height: "30px", borderRadius: "8px", background: T.greenDim, color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", flexShrink: 0 }}>
+                                <FaPhone />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>Phone</p>
+                                <p style={{ fontSize: "13px", color: T.textPri, margin: "2px 0 0", fontWeight: "500" }}>{selectedItem.customerPhone}</p>
+                              </div>
+                              <a href={`tel:${selectedItem.customerPhone}`} style={{ color: T.textMuted, display: "flex" }}>
+                                <FaExternalLinkAlt size={10} />
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Financial snapshot — 2×2 grid */}
+                    <div>
+                      <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Financial Snapshot</p>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                        {[
+                          { label: "Outstanding",    value: selectedItem.selling_price ? `AED ${parseFloat(selectedItem.selling_price).toLocaleString()}` : "—", color: T.amber,  dim: T.amberDim,  icon: <FaCreditCard /> },
+                          { label: "Total Orders",   value: "—",                                                                                                  color: T.blue,   dim: T.blueDim,   icon: <FaBoxOpen /> },
+                          { label: "Last Order",     value: "—",                                                                                                  color: T.purple, dim: T.purpleDim, icon: <FaClock /> },
+                          { label: "Customer Since", value: selectedItem.createdAt ? new Date(selectedItem.createdAt).toLocaleDateString("en-GB", { month: "short", year: "numeric" }) : "—", color: T.green, dim: T.greenDim, icon: <FaCalendarAlt /> },
+                        ].map((stat, i) => (
+                          <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border2}`, borderRadius: "11px", padding: "14px", display: "flex", alignItems: "center", gap: "10px" }}>
+                            <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: stat.dim, color: stat.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>
+                              {stat.icon}
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>{stat.label}</p>
+                              <p className="cust-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: T.textPri, margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stat.value}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Description / Notes */}
+                    {selectedItem.sales_description && (
+                      <div>
+                        <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Notes</p>
+                        <div style={{ background: T.surface2, borderRadius: "12px", border: `1px solid ${T.border2}`, padding: "14px 16px" }}>
+                          <p style={{ fontSize: "13px", color: T.textSec, margin: 0, lineHeight: 1.65 }}>{selectedItem.sales_description}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Meta details */}
+                    <div>
+                      <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Details</p>
+                      <div style={{ background: T.surface2, borderRadius: "12px", border: `1px solid ${T.border2}`, overflow: "hidden" }}>
+                        {[
+                          { label: "Customer Code", value: code,                                 mono: false },
+                          { label: "Customer ID",   value: selectedItem._id || "N/A",            mono: true  },
+                          ...(selectedItem.currency    ? [{ label: "Currency",       value: selectedItem.currency,    mono: false }] : []),
+                          ...(selectedItem.paymentTerms ? [{ label: "Payment Terms", value: selectedItem.paymentTerms, mono: false }] : []),
+                        ].map(({ label, value, mono }, i, arr) => (
+                          <div key={i} className="detail-row"
+                            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border2}` : "none" }}>
+                            <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500", flexShrink: 0 }}>{label}</span>
+                            <span style={{ fontSize: mono ? "11px" : "12px", color: T.textPri, fontWeight: "600", fontFamily: mono ? "monospace" : "inherit", textAlign: "right", maxWidth: "240px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "contacts" && (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "260px", gap: "12px" }}>
+                    <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
+                      <FaUser />
+                    </div>
+                    <p className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No contact persons</p>
+                    <p style={{ color: T.textSec, fontSize: "12px", margin: 0, textAlign: "center" }}>Contact persons can be added when editing this customer.</p>
+                    <button onClick={() => navigate(`/sales/customers/edit/${selectedItem._id}`)}
+                      style={{ padding: "7px 16px", background: T.blueDim, color: T.blueLight, border: `1px solid rgba(59,130,246,0.25)`, borderRadius: "8px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                      Edit Customer
+                    </button>
+                  </div>
+                )}
+
+                {activeTab === "financials" && (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "260px", gap: "12px" }}>
+                    <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
+                      <FaCreditCard />
+                    </div>
+                    <p className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No financial records</p>
+                    <p style={{ color: T.textSec, fontSize: "12px", margin: 0, textAlign: "center" }}>Invoices and payments will appear here once created.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Footer ── */}
+              <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "8px" }}>
+                <button onClick={() => navigate(`/sales/customers/edit/${selectedItem._id}`)}
+                  style={{ flex: 1, padding: "10px", background: T.blue, color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
+                  <FaEdit size={12} /> Edit Customer
+                </button>
+                <button onClick={closeDrawer}
+                  style={{ flex: 1, padding: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                  Close
+                </button>
               </div>
             </div>
-
-            {/* Drawer body */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
-              {selectedItem && activeTab === "overview" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {[
-                    { label: "Company",     value: selectedItem.companyName || "N/A",     icon: <FaBuilding />, color: T.purple },
-                    { label: "Email",       value: selectedItem.customerEmail || "N/A",   icon: <FaEnvelope />, color: T.blue   },
-                    { label: "Phone",       value: selectedItem.customerPhone || "N/A",   icon: <FaPhone />,    color: T.green  },
-                    { label: "Receivables", value: selectedItem.selling_price ? `AED ${selectedItem.selling_price}` : "N/A", icon: <FaCreditCard />, color: T.amber },
-                  ].map(({ label, value, icon, color }) => (
-                    <div key={label} className="detail-row"
-                      style={{ display: "flex", alignItems: "center", gap: "13px", padding: "12px 14px", background: T.surface2, borderRadius: "11px", border: `1px solid ${T.border2}` }}>
-                      <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: `${color}18`, color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>
-                        {icon}
-                      </div>
-                      <div>
-                        <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>{label}</p>
-                        <p style={{ fontSize: "13px", fontWeight: "500", color: T.textPri, margin: "2px 0 0" }}>{value}</p>
-                      </div>
-                    </div>
-                  ))}
-
-                  {selectedItem.sales_description && (
-                    <div style={{ padding: "13px 14px", background: T.surface2, borderRadius: "11px", border: `1px solid ${T.border2}` }}>
-                      <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>Description</p>
-                      <p style={{ fontSize: "13px", color: T.textSec, margin: 0, lineHeight: 1.6 }}>{selectedItem.sales_description}</p>
-                    </div>
-                  )}
-
-                  <div style={{ padding: "12px 14px", background: T.surface2, borderRadius: "11px", border: `1px solid ${T.border2}` }}>
-                    <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Customer ID</p>
-                    <p style={{ fontSize: "11px", fontFamily: "monospace", color: T.textSec, margin: 0, wordBreak: "break-all" }}>{selectedItem._id || "N/A"}</p>
-                  </div>
-                </div>
-              )}
-
-              {activeTab !== "overview" && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "220px", gap: "12px" }}>
-                  <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
-                    {activeTab === "transactions" ? <FaCreditCard /> : <FaClock />}
-                  </div>
-                  <p className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No {activeTab} yet</p>
-                  <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>Data will appear here once available.</p>
-                </div>
-              )}
-            </div>
-
-            {/* Drawer footer */}
-            <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "8px" }}>
-              <button onClick={() => selectedItem && navigate(`/sales/customers/edit/${selectedItem._id}`)}
-                style={{ flex: 1, padding: "10px", background: T.blue, color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
-                <FaEdit size={12} /> Edit Customer
-              </button>
-              <button onClick={closeDrawer}
-                style={{ flex: 1, padding: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                Close
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
     </>
   );
 };

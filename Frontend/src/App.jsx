@@ -12,12 +12,15 @@ import Salesorders from "./Components/SalesOrders/Salesorders"
 import Newsalesorders from "./Components/NewSalesOrders/Newsalesorders"
 import Purchaseorders from "./Components/PurchaseOrders/Purchaseorders"
 import Newpurchaseorders from "./Components/NewPurchaseOrders/Newpurchaseorders"
-import EditCustomer from "./Components/Customers/EditCustomer"
+//import EditCustomer from "./Components/Customers/EditCustomer"
 import Outbound from "./Components/Outbound/Outbound"
 import DeliveryNote from "./Components/DeliveryNote/Deliverynote"
 import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute"
 import Vendors from "./Components/Vendor/Vendor"
 import NewVendor from "./Components/NewVendor/NewVendor"
+import GRN from "./Components/Purchase/GRN"
+import Inbound from "./Components/Purchase/Inbound"
+import PurchaseStock from "./Components/Purchase/Stock"
 import CreateOrganization from "./Components/Organization/CreateOrganization"
 import OrganizationSettings from "./Components/Organization/OrganizationSettings"
 import AcceptInvitation from "./Components/Organization/AcceptInvitation"
@@ -64,7 +67,7 @@ function App() {
           <Route path="/Items/Items/New" element={<New />} />
           <Route path="/Sales/Customers" element={<Customers />} />
           <Route path="/Sales/Customers/Newcustomers" element={<Newcustomers />} />
-          <Route path="/sales/customers/edit/:id" element={<EditCustomer />} />
+          {/* <Route path="/sales/customers/edit/:id" element={<EditCustomer />} /> */}
           <Route path="/Sales/Salesorders" element={<Salesorders />} />
           <Route path="/Sales/Outbound" element={<Outbound />} />
           <Route path="/Sales/Deliverynote" element={<DeliveryNote />} />
@@ -73,6 +76,9 @@ function App() {
           <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
           <Route path="Purchase/Vendors" element={<Vendors />} />
           <Route path="Purchase/Vendors/NewVendor" element={<NewVendor />} />
+          <Route path="/Purchase/GRN" element={<GRN />} />
+          <Route path="/Purchase/Inbound" element={<Inbound />} />
+          <Route path="/Purchase/Stock" element={<PurchaseStock />} />
           {/* Organization settings & members */}
           <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
         </Route>

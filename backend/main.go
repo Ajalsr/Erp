@@ -55,6 +55,7 @@ func main() {
 	routes.OrgRoutes(server)
 	routes.NotificationRoutes(server)
 	routes.DashboardRoutes(server)
+	routes.PurchaseOrderRoutes(server)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	server.GET("/ws", ws.ServeWs(ws.GlobalHub))
