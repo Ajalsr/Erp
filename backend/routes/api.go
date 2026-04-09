@@ -67,3 +67,13 @@ func DashboardRoutes(router *gin.Engine) {
 		dashRoutes.GET("/activity-feed", controllers.GetActivityFeed())
 	}
 }
+
+func PurchaseOrderRoutes(router *gin.Engine) {
+	poRoutes := router.Group("/api/purchase-orders")
+	poRoutes.Use(middlewares.Authenticate)
+	{
+		poRoutes.POST("/", controllers.CreatePurchaseOrder())
+		poRoutes.GET("/getorders", controllers.GetAllPurchaseOrders())
+		poRoutes.GET("/stats", controllers.GetPurchaseOrderStats())
+	}
+}

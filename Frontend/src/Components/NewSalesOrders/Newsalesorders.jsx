@@ -691,7 +691,7 @@ const Newsalesorders = () => {
                           position:'fixed',zIndex:9997,
                           top:custDropPos.top,left:custDropPos.left,width:custDropPos.width,
                           background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,
-                          boxShadow:'0 24px 64px rgba(0,0,0,.14)',maxHeight:360,display:'flex',flexDirection:'column',overflow:'hidden',borderRadius:16,
+                          boxShadow:'0 24px 64px rgba(0,0,0,.14)',maxHeight:360,display:'flex',flexDirection:'column',overflow:'hidden'
                         }}>
                           {/* Search input inside dropdown */}
                           <div style={{padding:'10px 12px',borderBottom:`1.5px solid ${T.border}`,background:T.surface2,flexShrink:0}}>

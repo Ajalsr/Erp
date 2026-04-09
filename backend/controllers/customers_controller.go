@@ -21,7 +21,6 @@ import (
 
 var customersCollection *mongo.Collection = config.GetCollection(config.DB, "customers")
 
-// ─── GET ALL ──────────────────────────────────────────────────────────────────
 func GetAllCustomers() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -54,7 +53,6 @@ func GetAllCustomers() gin.HandlerFunc {
 	}
 }
 
-// ─── ADD CUSTOMER ─────────────────────────────────────────────────────────────
 func AddCustomers() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -62,7 +60,6 @@ func AddCustomers() gin.HandlerFunc {
 
 		var item models.Customer
 
-		// ShouldBindJSON returns a proper 400 without aborting the handler
 		if err := c.ShouldBindJSON(&item); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
@@ -72,7 +69,6 @@ func AddCustomers() gin.HandlerFunc {
 			return
 		}
 
-		// ── Validate required field ───────────────────────────────────────
 		if item.CustomerDisplayName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
@@ -138,7 +134,6 @@ func AddCustomers() gin.HandlerFunc {
 			}
 		}
 
-		// ── Insert ────────────────────────────────────────────────────────
 		_, err = customersCollection.InsertOne(ctx, item)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -151,7 +146,6 @@ func AddCustomers() gin.HandlerFunc {
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "create", ID: item.ID.Hex()})
 
-		// Return the complete saved document so the frontend can use it immediately
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Customer Added Successfully",
@@ -160,20 +154,19 @@ func AddCustomers() gin.HandlerFunc {
 	}
 }
 
-// ─── CUSTOMER CODE GENERATOR ──────────────────────────────────────────────────
 func generateCustomerCodeContinuous(ctx context.Context) (string, error) {
 	now := time.Now()
 	currentMonth := int(now.Month())
 	currentYear := now.Year() % 100
-	monthYearPrefix := fmt.Sprintf("%02d%02d", currentMonth, currentYear)
+	//monthYearPrefix := fmt.Sprintf("%02d%02d", currentMonth, currentYear)
 
-	filter := bson.M{
-		"customerCode": bson.M{"$regex": "^" + monthYearPrefix},
-	}
+	// filter := bson.M{
+	// 	"customerCode": bson.M{"$regex": "^" + monthYearPrefix},
+	// }
 	opts := options.FindOne().SetSort(bson.D{{Key: "customerCode", Value: -1}})
 
 	var lastCustomer bson.M
-	err := customersCollection.FindOne(ctx, filter, opts).Decode(&lastCustomer)
+	err := customersCollection.FindOne(ctx, bson.M{}, opts).Decode(&lastCustomer)
 
 	nextSequence := 1
 	if err == nil {
@@ -192,7 +185,6 @@ func generateCustomerCodeContinuous(ctx context.Context) (string, error) {
 	return fmt.Sprintf("%02d%02d%02d", currentMonth, currentYear, nextSequence), nil
 }
 
-// ─── GET SUGGESTIONS ─────────────────────────────────────────────────────────
 func GetCustomerSuggestions() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

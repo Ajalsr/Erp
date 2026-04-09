@@ -32,6 +32,9 @@ const MENU = [
   { icon: FaCartArrowDown,   label: 'Purchases',  subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors' },
     { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders' },
+    { name: 'GRN',              route: '/Purchase/GRN' },
+    { name: 'Inbound',          route: '/Purchase/Inbound' },
+    { name: 'Stock',            route: '/Purchase/Stock' },
     { name: 'Bills',            route: '/Purchase/Bills' },
     { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
