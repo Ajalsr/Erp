@@ -70,7 +70,7 @@ export default function Item() {
   const [isDrawerOpen,  setIsDrawerOpen]  = useState(false);
   const [activeTab,     setActiveTab]     = useState("overview");
   const [searchTerm,    setSearchTerm]    = useState("");
-  const [showDropdown,  setShowDropdown]  = useState(false);
+  const [, setShowDropdown]  = useState(false);
   const [filterStatus,  setFilterStatus]  = useState("all");   // all | ok | low | critical | out
   const [selectedRows,  setSelectedRows]  = useState(new Set());
   const [cmdOpen,       setCmdOpen]       = useState(false);
@@ -709,7 +709,67 @@ export default function Item() {
             {/* Drawer body */}
             <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
               {activeTab === "overview" && <DrawerOverview item={selectedItem} T={T} isDark={isDark} surface2={surface2} border={border} />}
-              {activeTab === "transactions" && <DrawerEmpty T={T} icon={<FaTag size={24} />} title="No Transactions" sub="No transactions recorded for this item yet." />}
+              {activeTab === "transactions" && (() => {
+                const price      = parseFloat(selectedItem.selling_price || 0);
+                const qty        = selectedItem.quantity || 0;
+                const subTotal   = Math.round(price * qty * 100) / 100;
+                const taxAmt     = Math.round(subTotal * 0.05 * 100) / 100;
+                const grandTotal = Math.round((subTotal + taxAmt) * 100) / 100;
+                const fmtV = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+
+                    {/* Item valuation rows */}
+                    <div style={{ background: surface2, border: `1px solid ${border}`, borderRadius: "12px", overflow: "hidden" }}>
+                      {[
+                        { label: "Unit Price",     value: fmtV(price) },
+                        { label: "Qty on Hand",    value: `${qty} ${selectedItem.unit || "pcs"}` },
+                        { label: "Sub Total",      value: fmtV(subTotal) },
+                      ].map(({ label, value }, i, arr) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${border}` : "none" }}>
+                          <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>{label}</span>
+                          <span style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, fontFamily: "monospace" }}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* VAT breakdown */}
+                    <div>
+                      <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Tax Breakdown</p>
+                      <div style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "12px", padding: "12px 16px" }}>
+                        <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 10px" }}>VAT 5% — Grouped by Rate</p>
+                        {price > 0 && qty > 0 ? (
+                          <>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
+                              <div>
+                                <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Rate {fmtV(price)}</p>
+                                <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "monospace" }}>{fmtV(subTotal)} × 5%</p>
+                              </div>
+                              <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "monospace" }}>{fmtV(taxAmt)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "8px", paddingTop: "8px" }}>
+                              <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
+                              <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "monospace" }}>{fmtV(taxAmt)}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>No stock value to calculate tax on.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Grand Total */}
+                    {price > 0 && qty > 0 && (
+                      <div style={{ background: surface2, border: `1px solid ${border}`, borderRadius: "12px", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "14px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Sans',sans-serif" }}>Total Stock Value (incl. VAT)</span>
+                        <span style={{ fontSize: "17px", fontWeight: "800", color: T.blue, fontFamily: "monospace" }}>{fmtV(grandTotal)}</span>
+                      </div>
+                    )}
+
+                    <p style={{ fontSize: "11px", color: T.textMuted, margin: 0, textAlign: "center" }}>Transaction history will appear once sales/purchase orders are linked.</p>
+                  </div>
+                );
+              })()}
               {activeTab === "history"      && <DrawerEmpty T={T} icon={<FaBarcode size={24} />} title="No History" sub="Activity history will appear here." />}
             </div>
 
