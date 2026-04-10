@@ -918,15 +918,66 @@ const Customers = () => {
                   </div>
                 )}
 
-                {activeTab === "financials" && (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "260px", gap: "12px" }}>
-                    <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
-                      <FaCreditCard />
+                {activeTab === "financials" && (() => {
+                  const outstanding  = parseFloat(selectedItem.selling_price || 0);
+                  const taxBase      = outstanding;
+                  const taxAmt       = Math.round(taxBase * 0.05 * 100) / 100;
+                  const grandTotal   = Math.round((taxBase + taxAmt) * 100) / 100;
+                  const fmt = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+
+                      {/* Summary rows */}
+                      <div style={{ background: T.surface2, border: `1px solid ${T.border2}`, borderRadius: "12px", overflow: "hidden" }}>
+                        {[
+                          { label: "Outstanding Receivables", value: fmt(outstanding), color: outstanding > 0 ? "#ef4444" : T.textPri },
+                          { label: "Payment Terms",           value: selectedItem.paymentTerms || "—" },
+                          { label: "Currency",                value: selectedItem.currency || "AED" },
+                        ].map(({ label, value, color }, i, arr) => (
+                          <div key={i} className="detail-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border2}` : "none" }}>
+                            <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>{label}</span>
+                            <span style={{ fontSize: "13px", fontWeight: "600", color: color || T.textPri }}>{value}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* VAT Breakdown */}
+                      <div>
+                        <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Tax Breakdown</p>
+                        <div style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "12px", padding: "12px 16px" }}>
+                          <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 10px" }}>VAT 5% — Grouped by Rate</p>
+                          {outstanding > 0 ? (
+                            <>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
+                                <div>
+                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Receivables Amount</p>
+                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "monospace" }}>{fmt(taxBase)} × 5%</p>
+                                </div>
+                                <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "monospace" }}>{fmt(taxAmt)}</span>
+                              </div>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "8px", paddingTop: "8px" }}>
+                                <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
+                                <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "monospace" }}>{fmt(taxAmt)}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>No outstanding receivables to calculate tax on.</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Grand Total */}
+                      {outstanding > 0 && (
+                        <div style={{ background: T.surface2, border: `1px solid ${T.border2}`, borderRadius: "12px", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span className="cust-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: T.textPri }}>Grand Total (incl. VAT)</span>
+                          <span className="cust-jakarta" style={{ fontSize: "17px", fontWeight: "800", color: T.blue, fontFamily: "monospace" }}>{fmt(grandTotal)}</span>
+                        </div>
+                      )}
+
+                      <p style={{ fontSize: "11px", color: T.textMuted, margin: 0, textAlign: "center" }}>Full invoice history will appear once orders are created.</p>
                     </div>
-                    <p className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No financial records</p>
-                    <p style={{ color: T.textSec, fontSize: "12px", margin: 0, textAlign: "center" }}>Invoices and payments will appear here once created.</p>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* ── Footer ── */}

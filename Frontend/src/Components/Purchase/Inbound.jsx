@@ -8,8 +8,27 @@ import { MdMoveToInbox } from "react-icons/md";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 
 // ── Helpers ───────────────────────────────────────────────────────
-const fmtAED = (n) =>
+const fmtAED  = (n) =>
   `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const round2  = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const TAX_RATE = 0.05;
+
+const buildInboundTaxGroups = (selItems) => {
+  const order = [], groups = {};
+  selItems.forEach(item => {
+    const price = parseFloat(item.costPrice || 0);
+    const qty   = item.receiveQty || 0;
+    if (!price || !qty) return;
+    const key = String(price);
+    if (!groups[key]) { groups[key] = { rate: price, base: 0 }; order.push(key); }
+    groups[key].base = round2(groups[key].base + qty * price);
+  });
+  return order.map(key => ({
+    rate:       groups[key].rate,
+    baseAmount: round2(groups[key].base),
+    taxAmount:  round2(groups[key].base * TAX_RATE),
+  }));
+};
 
 const STATUS_CFG = {
   pending:          { color: "#f59e0b", dim: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "Pending"          },
@@ -115,9 +134,12 @@ export default function Inbound() {
   const handleReject = (id) => setItems(p => p.map(i => i._id === id ? { ...i, status: "rejected" } : i));
 
   // ── Derived stats ─────────────────────────────────────────────────
-  const selItems    = items.filter(i => selectedIds.has(i._id));
-  const totalQty    = selItems.reduce((s, i) => s + (i.receiveQty || 0), 0);
-  const totalValue  = selItems.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0);
+  const selItems       = items.filter(i => selectedIds.has(i._id));
+  const totalQty       = selItems.reduce((s, i) => s + (i.receiveQty || 0), 0);
+  const subTotal       = round2(selItems.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0));
+  const inboundTaxGroups = buildInboundTaxGroups(selItems);
+  const totalTax       = round2(inboundTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
+  const totalValue     = round2(subTotal + totalTax);
   const zeroStock   = items.filter(i => i.stockOnHand === 0).length;
 
   // ── Pagination ────────────────────────────────────────────────────
@@ -317,7 +339,7 @@ export default function Inbound() {
                     checked={selectedIds.size === items.length && items.length > 0}
                     onChange={e => e.target.checked ? selectAll() : deselectAll()} />
                 </th>
-                {["Item", "On Hand", "Ordered", "Receive Qty", "Status", "Purchase Order", "Cost / unit", "Actions"].map((h, i) => (
+                {["Item", "On Hand", "Ordered", "Receive Qty", "Status", "Purchase Order", "Cost / Unit", "VAT (5%)", "Line Total", "Actions"].map((h, i) => (
                   <th key={i} style={{ padding: "11px 14px", textAlign: i >= 6 ? "right" : "left", fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -399,10 +421,36 @@ export default function Inbound() {
                       </span>
                     </td>
 
-                    {/* Cost */}
+                    {/* Cost / Unit */}
                     <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                      <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>{fmtAED(item.costPrice)}</p>
+                      <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0, fontFamily: "monospace" }}>{fmtAED(item.costPrice)}</p>
+                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>excl. VAT</p>
                     </td>
+
+                    {/* VAT (5%) */}
+                    {(() => {
+                      const lineBase = round2((item.receiveQty || 0) * (item.costPrice || 0));
+                      const lineVat  = round2(lineBase * TAX_RATE);
+                      return (
+                        <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                          <p style={{ fontSize: "12px", fontWeight: "700", color: "#f59e0b", margin: 0, fontFamily: "monospace" }}>{fmtAED(lineVat)}</p>
+                          <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>{fmtAED(lineBase)} × 5%</p>
+                        </td>
+                      );
+                    })()}
+
+                    {/* Line Total (incl. VAT) */}
+                    {(() => {
+                      const lineBase  = round2((item.receiveQty || 0) * (item.costPrice || 0));
+                      const lineVat   = round2(lineBase * TAX_RATE);
+                      const lineTotal = round2(lineBase + lineVat);
+                      return (
+                        <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                          <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "monospace" }}>{fmtAED(lineTotal)}</p>
+                          <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>incl. VAT</p>
+                        </td>
+                      );
+                    })()}
 
                     {/* Actions */}
                     <td style={{ padding: "12px 10px", textAlign: "right" }}>
@@ -473,24 +521,56 @@ export default function Inbound() {
 
         {/* ── SUMMARY FOOTER ──────────────────────────────────────── */}
         {selectedIds.size > 0 && (
-          <div style={{ ...card, padding: "16px 20px", background: isDark ? "rgba(59,130,246,0.05)" : "#f8faff", borderColor: isDark ? "rgba(59,130,246,0.15)" : "#dbeafe" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
-              <div style={{ display: "flex", gap: "28px", flexWrap: "wrap" }}>
+          <div style={{ ...card, padding: "18px 22px", background: isDark ? "rgba(59,130,246,0.04)" : "#f8faff", borderColor: isDark ? "rgba(59,130,246,0.15)" : "#dbeafe" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "20px" }}>
+
+              {/* Left — quick stats */}
+              <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "flex-start" }}>
                 {[
-                  { label: "Items",        value: selectedIds.size },
-                  { label: "Total Units",  value: `${totalQty} pcs` },
-                  { label: "Total Value",  value: fmtAED(totalValue), bold: true },
-                ].map(({ label, value, bold }) => (
+                  { label: "Items",       value: selectedIds.size },
+                  { label: "Total Units", value: `${totalQty} pcs` },
+                  { label: "Subtotal",    value: fmtAED(subTotal) },
+                ].map(({ label, value }) => (
                   <div key={label}>
                     <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
-                    <p className="ob-jakarta" style={{ fontSize: bold ? "16px" : "14px", fontWeight: bold ? "800" : "700", color: bold ? T.blue : T.textPri, margin: 0 }}>{value}</p>
+                    <p className="ob-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: T.textPri, margin: 0 }}>{value}</p>
                   </div>
                 ))}
               </div>
-              <button className="ob-btn" onClick={handleReceive}
-                style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                <MdMoveToInbox size={14} /> Receive Goods
-              </button>
+
+              {/* Centre — tax breakdown box */}
+              <div style={{ flex: 1, minWidth: "220px", maxWidth: "340px", background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "10px", padding: "10px 14px" }}>
+                <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 7px" }}>VAT 5% — Grouped by Rate</p>
+                {inboundTaxGroups.length === 0 && (
+                  <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>—</p>
+                )}
+                {inboundTaxGroups.map((g, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < inboundTaxGroups.length - 1 ? `1px solid ${isDark ? "rgba(245,158,11,0.12)" : "#fef3c7"}` : "none" }}>
+                    <div>
+                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Rate {fmtAED(g.rate)}</p>
+                      <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "monospace" }}>{fmtAED(g.baseAmount)} × 5%</p>
+                    </div>
+                    <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "monospace" }}>{fmtAED(g.taxAmount)}</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "7px", paddingTop: "7px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
+                  <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "monospace" }}>{fmtAED(totalTax)}</span>
+                </div>
+              </div>
+
+              {/* Right — grand total + action */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
+                <div style={{ textAlign: "right" }}>
+                  <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Grand Total (incl. VAT)</p>
+                  <p className="ob-jakarta" style={{ fontSize: "20px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "monospace" }}>{fmtAED(totalValue)}</p>
+                </div>
+                <button className="ob-btn" onClick={handleReceive}
+                  style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
+                  <MdMoveToInbox size={14} /> Receive Goods
+                </button>
+              </div>
+
             </div>
           </div>
         )}

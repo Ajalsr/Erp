@@ -4,7 +4,7 @@ import {
   FaPlus, FaTimes, FaSearch, FaBuilding, FaEnvelope,
   FaPhone, FaDownload, FaUpload, FaStore, FaCheckCircle,
   FaClock, FaFileInvoiceDollar, FaChevronLeft, FaChevronRight,
-  FaBoxOpen, FaEdit, FaSortAmountDown, FaSortAmountUp,
+  FaEdit, FaSortAmountDown, FaSortAmountUp,
   FaTruck, FaTag, FaGlobe, FaIdCard
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
@@ -793,15 +793,66 @@ const Vendors = () => {
                 )}
 
                 {/* ── Purchases tab ── */}
-                {activeTab === "purchases" && (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "12px" }}>
-                    <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textSec }}>
-                      <FaBoxOpen />
+                {activeTab === "purchases" && (() => {
+                  const payables  = parseFloat(v.payables || v.outstanding || 0);
+                  const taxAmt    = Math.round(payables * 0.05 * 100) / 100;
+                  const grandTotal = Math.round((payables + taxAmt) * 100) / 100;
+                  const fmt = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+
+                      {/* Summary rows */}
+                      <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "12px", overflow: "hidden" }}>
+                        {[
+                          { label: "Outstanding Payables", value: fmt(payables), color: payables > 0 ? "#ef4444" : T.textPri },
+                          { label: "Credit Limit",         value: v.creditLimit ? fmt(v.creditLimit) : "—" },
+                          { label: "Payment Terms",        value: v.paymentTerms || "—" },
+                          { label: "Currency",             value: v.currency || "AED" },
+                        ].map(({ label, value, color }, i, arr) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                            <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>{label}</span>
+                            <span style={{ fontSize: "13px", fontWeight: "600", color: color || T.textPri }}>{value}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* VAT Breakdown */}
+                      <div>
+                        <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Tax Breakdown</p>
+                        <div style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "12px", padding: "12px 14px" }}>
+                          <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 10px" }}>VAT 5% — Grouped by Rate</p>
+                          {payables > 0 ? (
+                            <>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
+                                <div>
+                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Payables Amount</p>
+                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "monospace" }}>{fmt(payables)} × 5%</p>
+                                </div>
+                                <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "monospace" }}>{fmt(taxAmt)}</span>
+                              </div>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "8px", paddingTop: "8px" }}>
+                                <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
+                                <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "monospace" }}>{fmt(taxAmt)}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>No outstanding payables to calculate tax on.</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Grand Total */}
+                      {payables > 0 && (
+                        <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "12px", padding: "14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span className="vnd-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: T.textPri }}>Grand Total (incl. VAT)</span>
+                          <span className="vnd-jakarta" style={{ fontSize: "17px", fontWeight: "800", color: T.blue, fontFamily: "monospace" }}>{fmt(grandTotal)}</span>
+                        </div>
+                      )}
+
+                      <p style={{ fontSize: "11px", color: T.textMuted, margin: 0, textAlign: "center" }}>Full purchase history will appear once orders are linked.</p>
                     </div>
-                    <p className="vnd-jakarta" style={{ fontWeight: "700", color: T.textPri, fontSize: "14px", margin: 0 }}>No purchase orders</p>
-                    <p style={{ color: T.textSec, fontSize: "12px", margin: 0, textAlign: "center" }}>Purchase orders linked to this vendor will appear here.</p>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* ── History tab ── */}
                 {activeTab === "history" && (
