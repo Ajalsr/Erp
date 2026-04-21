@@ -23,6 +23,7 @@ func StockRoutes(router *gin.Engine) {
 	{
 		stockRoutes.GET("/getitem", controllers.GetAllStocks())
 		stockRoutes.POST("/additem", controllers.AddItem())
+		stockRoutes.PATCH("/:id/reduce", controllers.ReduceStock())
 	}
 }
 
@@ -43,6 +44,7 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.DELETE("/:id", controllers.DeleteCustomer())
 	custRoutes.GET("/:id/transactions", controllers.GetCustomerTransactions())
 	custRoutes.GET("/:id/history", controllers.GetCustomerHistory())
+	custRoutes.POST("/:id/history", controllers.AddCustomerHistory())
 }
 
 func SaleOrderRoutes(router *gin.Engine) {
@@ -57,6 +59,17 @@ func SaleOrderRoutes(router *gin.Engine) {
 		salesOrderRoutes.PUT("/:id", controllers.UpdateSalesOrder())
 		salesOrderRoutes.PATCH("/:id/status", controllers.UpdateSalesOrderStatus())
 		salesOrderRoutes.DELETE("/:id", controllers.DeleteSalesOrder())
+	}
+}
+
+func InvoiceRoutes(router *gin.Engine) {
+	invRoutes := router.Group("/api/invoices")
+	invRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		invRoutes.POST("", controllers.CreateInvoice())
+		invRoutes.GET("", controllers.GetAllInvoices())
+		invRoutes.GET("/:id", controllers.GetInvoiceByID())
+		invRoutes.PATCH("/:id/status", controllers.UpdateInvoiceStatus())
 	}
 }
 

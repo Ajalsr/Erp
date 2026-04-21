@@ -12,6 +12,7 @@ import useGetCustomers from "../../helper/useGetCustomers";
 import useWebSocket from "../../helper/useWebSocket";
 import debounce from "lodash/debounce";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import axiosInstance from "../../helper/axiosInstance";
 
 
 
@@ -211,6 +212,9 @@ const Customers = () => {
   const [isDrawerOpen, setIsDrawerOpen]       = useState(false);
   const [selectedItem, setSelectedItem]       = useState(null);
   const [activeTab, setActiveTab]             = useState("overview");
+  const [custInvoices, setCustInvoices]         = useState([]);
+  const [txnLoading,   setTxnLoading]           = useState(false);
+  const [invoiceMap,   setInvoiceMap]           = useState({});
   const [searchTerm, setSearchTerm]           = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -225,11 +229,12 @@ const Customers = () => {
   // ── helpers ──────────────────────────────────────────────────────
   const getStats = () => {
     if (!data) return { total: 0, active: 0, pending: 0, receivables: 0 };
+    const receivables = Object.values(invoiceMap).reduce((s, v) => s + v.receivables, 0);
     return {
       total:       data.length,
       active:      data.filter(i => (i.status || "active") === "active").length,
       pending:     data.filter(i => (i.status || "active") === "pending").length,
-      receivables: data.reduce((s, i) => s + (parseFloat(i.selling_price) || 0), 0),
+      receivables,
     };
   };
   const stats = getStats();
@@ -248,8 +253,8 @@ const Customers = () => {
     if (selectedStatus !== "all") list = list.filter(i => (i.status || "active").toLowerCase() === selectedStatus);
     list.sort((a, b) => {
       const key = sortBy;
-      let av = key === "date" ? new Date(a.createdAt || 0) : (key === "receivables" ? parseFloat(a.selling_price) || 0 : (a[key === "name" ? "customerDisplayName" : "companyName"] || "").toLowerCase());
-      let bv = key === "date" ? new Date(b.createdAt || 0) : (key === "receivables" ? parseFloat(b.selling_price) || 0 : (b[key === "name" ? "customerDisplayName" : "companyName"] || "").toLowerCase());
+      let av = key === "date" ? new Date(a.createdAt || 0) : (key === "receivables" ? (invoiceMap[a._id]?.receivables || 0) : (a[key === "name" ? "customerDisplayName" : "companyName"] || "").toLowerCase());
+      let bv = key === "date" ? new Date(b.createdAt || 0) : (key === "receivables" ? (invoiceMap[b._id]?.receivables || 0) : (b[key === "name" ? "customerDisplayName" : "companyName"] || "").toLowerCase());
       return sortOrder === "asc" ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
     });
     return list;
@@ -327,6 +332,35 @@ const Customers = () => {
   };
 
   useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
+
+  useEffect(() => {
+    axiosInstance.get("/api/invoices?limit=500")
+      .then(res => {
+        const map = {};
+        (res.data?.data?.invoices || []).forEach(inv => {
+          const cid = inv.customerId;
+          if (!cid) return;
+          if (!map[cid]) map[cid] = { receivables: 0, total: 0, lastDate: null };
+          map[cid].total += 1;
+          if (inv.status !== "paid" && inv.status !== "void") {
+            map[cid].receivables += inv.totals?.grandTotal ?? 0;
+          }
+          const d = inv.issueDate || inv.createdAt;
+          if (d && (!map[cid].lastDate || d > map[cid].lastDate)) map[cid].lastDate = d;
+        });
+        setInvoiceMap(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "transactions" || !selectedItem?._id) return;
+    setTxnLoading(true);
+    axiosInstance.get(`/api/invoices?customerId=${selectedItem._id}&limit=100`)
+      .then(res => setCustInvoices(res.data?.data?.invoices || []))
+      .catch(() => setCustInvoices([]))
+      .finally(() => setTxnLoading(false));
+  }, [activeTab, selectedItem]);
 
   useWebSocket((event) => {
     if (event.type === "customers_updated") handleGetCustomers();
@@ -628,8 +662,10 @@ const Customers = () => {
 
                     {/* Receivables */}
                     <td style={{ padding: "13px 16px", textAlign: "right" }}>
-                      {item.selling_price
-                        ? <span className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "13px" }}>AED {item.selling_price}</span>
+                      {invoiceMap[item._id]?.receivables > 0
+                        ? <span className="cust-jakarta" style={{ fontWeight: "600", color: T.amber, fontSize: "13px" }}>
+                            AED {invoiceMap[item._id].receivables.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
                         : <span style={{ color: T.textMuted }}>—</span>}
                     </td>
 
@@ -797,7 +833,7 @@ const Customers = () => {
 
                 {/* Tabs */}
                 <div style={{ display: "flex" }}>
-                  {["overview", "contacts", "financials"].map(tab => (
+                  {["overview", "contacts", "financials", "transactions"].map(tab => (
                     <button key={tab} onClick={() => setActiveTab(tab)}
                       className={`drawer-tab${activeTab === tab ? " drawer-tab-active" : ""}`}
                       style={{ padding: "9px 18px", background: "none", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: "500", fontFamily: "inherit", color: T.textSec, textTransform: "capitalize" }}>
@@ -855,9 +891,9 @@ const Customers = () => {
                       <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Financial Snapshot</p>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                         {[
-                          { label: "Outstanding",    value: selectedItem.selling_price ? `AED ${parseFloat(selectedItem.selling_price).toLocaleString()}` : "—", color: T.amber,  dim: T.amberDim,  icon: <FaCreditCard /> },
-                          { label: "Total Orders",   value: "—",                                                                                                  color: T.blue,   dim: T.blueDim,   icon: <FaBoxOpen /> },
-                          { label: "Last Order",     value: "—",                                                                                                  color: T.purple, dim: T.purpleDim, icon: <FaClock /> },
+                          { label: "Outstanding",    value: (invoiceMap[selectedItem._id]?.receivables > 0) ? `AED ${invoiceMap[selectedItem._id].receivables.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "AED 0.00", color: T.amber,  dim: T.amberDim,  icon: <FaCreditCard /> },
+                          { label: "Total Invoices", value: invoiceMap[selectedItem._id]?.total > 0 ? String(invoiceMap[selectedItem._id].total) : "0",           color: T.blue,   dim: T.blueDim,   icon: <FaBoxOpen /> },
+                          { label: "Last Invoice",   value: invoiceMap[selectedItem._id]?.lastDate ? new Date(invoiceMap[selectedItem._id].lastDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—", color: T.purple, dim: T.purpleDim, icon: <FaClock /> },
                           { label: "Customer Since", value: selectedItem.createdAt ? new Date(selectedItem.createdAt).toLocaleDateString("en-GB", { month: "short", year: "numeric" }) : "—", color: T.green, dim: T.greenDim, icon: <FaCalendarAlt /> },
                         ].map((stat, i) => (
                           <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border2}`, borderRadius: "11px", padding: "14px", display: "flex", alignItems: "center", gap: "10px" }}>
@@ -919,7 +955,7 @@ const Customers = () => {
                 )}
 
                 {activeTab === "financials" && (() => {
-                  const outstanding  = parseFloat(selectedItem.selling_price || 0);
+                  const outstanding  = invoiceMap[selectedItem._id]?.receivables || 0;
                   const taxBase      = outstanding;
                   const taxAmt       = Math.round(taxBase * 0.05 * 100) / 100;
                   const grandTotal   = Math.round((taxBase + taxAmt) * 100) / 100;
@@ -975,6 +1011,57 @@ const Customers = () => {
                       )}
 
                       <p style={{ fontSize: "11px", color: T.textMuted, margin: 0, textAlign: "center" }}>Full invoice history will appear once orders are created.</p>
+                    </div>
+                  );
+                })()}
+
+                {activeTab === "transactions" && (() => {
+                  const STATUS_COLORS = {
+                    paid:    { text: "#10b981", bg: "rgba(16,185,129,.12)",  border: "rgba(16,185,129,.3)"  },
+                    unpaid:  { text: "#f59e0b", bg: "rgba(245,158,11,.12)", border: "rgba(245,158,11,.3)"  },
+                    overdue: { text: "#ef4444", bg: "rgba(239,68,68,.12)",   border: "rgba(239,68,68,.3)"   },
+                    partial: { text: "#3b82f6", bg: "rgba(59,130,246,.12)",  border: "rgba(59,130,246,.3)"  },
+                    draft:   { text: "#94a3b8", bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.3)" },
+                    void:    { text: "#94a3b8", bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.3)" },
+                  };
+                  const fmtAmt = (n) => `AED ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  const fmtD   = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+                  return (
+                    <div>
+                      {txnLoading ? (
+                        <div style={{ textAlign: "center", padding: "40px 0", color: T.textMuted, fontSize: 13 }}>Loading…</div>
+                      ) : custInvoices.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: "48px 0" }}>
+                          <div style={{ fontSize: 28, marginBottom: 10 }}>📄</div>
+                          <p style={{ color: T.textPri, fontWeight: 600, fontSize: 14, margin: "0 0 4px" }}>No invoices yet</p>
+                          <p style={{ color: T.textMuted, fontSize: 12, margin: 0 }}>Invoices issued to this customer will appear here.</p>
+                        </div>
+                      ) : (
+                        <div style={{ background: T.surface2, border: `1px solid ${T.border2}`, borderRadius: 12, overflow: "hidden" }}>
+                          {/* Table header */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 1fr 1fr 90px", gap: 0, padding: "8px 14px", borderBottom: `1px solid ${T.border2}` }}>
+                            {["Date", "Invoice #", "Amount", "Balance Due", "Status"].map(h => (
+                              <span key={h} style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: ".06em" }}>{h}</span>
+                            ))}
+                          </div>
+                          {custInvoices.map((inv, i) => {
+                            const sc = STATUS_COLORS[inv.status] || STATUS_COLORS.draft;
+                            const amt = inv.totals?.grandTotal ?? 0;
+                            return (
+                              <div key={inv._id || i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 1fr 1fr 90px", gap: 0, padding: "10px 14px", borderBottom: i < custInvoices.length - 1 ? `1px solid ${T.border2}` : "none", alignItems: "center" }}>
+                                <span style={{ fontSize: 12, color: T.textSec }}>{fmtD(inv.issueDate || inv.createdAt)}</span>
+                                <span style={{ fontSize: 12, color: T.blueLight, fontWeight: 600, fontFamily: "monospace" }}>{inv.invoiceNumber || "—"}</span>
+                                <span style={{ fontSize: 12, color: T.textPri, fontFamily: "monospace" }}>{fmtAmt(amt)}</span>
+                                <span style={{ fontSize: 12, color: T.textPri, fontFamily: "monospace" }}>{fmtAmt(amt)}</span>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 600, background: sc.bg, border: `1px solid ${sc.border}`, color: sc.text, textTransform: "capitalize", width: "fit-content" }}>
+                                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: sc.text, flexShrink: 0 }} />
+                                  {inv.status}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })()}

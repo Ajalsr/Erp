@@ -501,7 +501,7 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 		}
 
 		var req struct {
-			Status string `json:"status" binding:"required,oneof=draft pending approved shipped completed cancelled open"`
+			Status string `json:"status" binding:"required,oneof=draft pending approved shipped completed cancelled open invoiced"`
 		}
 
 		if err := c.BindJSON(&req); err != nil {
