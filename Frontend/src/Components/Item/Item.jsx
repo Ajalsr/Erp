@@ -2,11 +2,12 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import {
   FaPlus, FaTimes, FaSearch, FaBox, FaTag, FaLayerGroup,
   FaExclamationTriangle, FaCheckCircle, FaArrowRight, FaEdit,
-  FaBarcode, FaCubes, FaIndustry, FaRuler,
+  FaBarcode, FaCubes, FaIndustry, FaRuler, FaSync,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import axiosInstance from "../../helper/axiosInstance";
 
 /* ─── Utility ───────────────────────────────────────────────────────── */
 const fmt = (v) =>
@@ -75,11 +76,40 @@ export default function Item() {
   const [selectedRows,  setSelectedRows]  = useState(new Set());
   const [cmdOpen,       setCmdOpen]       = useState(false);
   const [mounted,       setMounted]       = useState(false);
+  const [itemOrders,    setItemOrders]    = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const searchRef = useRef(null);
   const cmdRef    = useRef(null);
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { handleGetItem(); }, [handleGetItem]);
+
+  useEffect(() => {
+    if (!selectedItem?._id || (activeTab !== "transactions" && activeTab !== "history")) return;
+    setOrdersLoading(true);
+    axiosInstance.get("/api/sales-orders/getsaleorder?limit=500")
+      .then(res => {
+        const all = res.data?.data?.salesOrders || [];
+        const filtered = all.filter(so =>
+          (so.items || []).some(i => i.itemId === selectedItem._id)
+        ).map(so => {
+          const line = so.items.find(i => i.itemId === selectedItem._id);
+          return {
+            id:           so.id || so._id,
+            orderNumber:  so.orderNumber,
+            customerName: so.customerName || "—",
+            date:         so.orderDate,
+            qty:          line?.quantity ?? 0,
+            price:        line?.rate ?? 0,
+            total:        (line?.quantity ?? 0) * (line?.rate ?? 0),
+            status:       so.status,
+          };
+        });
+        setItemOrders(filtered);
+      })
+      .catch(() => setItemOrders([]))
+      .finally(() => setOrdersLoading(false));
+  }, [activeTab, selectedItem]);
 
   /* ── Data ── */
   const allItems = Array.isArray(data) && data.length > 0 ? data : SEED;
@@ -709,68 +739,96 @@ export default function Item() {
             {/* Drawer body */}
             <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
               {activeTab === "overview" && <DrawerOverview item={selectedItem} T={T} isDark={isDark} surface2={surface2} border={border} />}
-              {activeTab === "transactions" && (() => {
-                const price      = parseFloat(selectedItem.selling_price || 0);
-                const qty        = selectedItem.quantity || 0;
-                const subTotal   = Math.round(price * qty * 100) / 100;
-                const taxAmt     = Math.round(subTotal * 0.05 * 100) / 100;
-                const grandTotal = Math.round((subTotal + taxAmt) * 100) / 100;
-                const fmtV = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                return (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
 
-                    {/* Item valuation rows */}
-                    <div style={{ background: surface2, border: `1px solid ${border}`, borderRadius: "12px", overflow: "hidden" }}>
-                      {[
-                        { label: "Unit Price",     value: fmtV(price) },
-                        { label: "Qty on Hand",    value: `${qty} ${selectedItem.unit || "pcs"}` },
-                        { label: "Sub Total",      value: fmtV(subTotal) },
-                      ].map(({ label, value }, i, arr) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${border}` : "none" }}>
-                          <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>{label}</span>
-                          <span style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, fontFamily: "monospace" }}>{value}</span>
-                        </div>
+              {activeTab === "transactions" && (() => {
+                const fmtA = (n) => `AED ${Number(n||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+                const fmtD = (d) => d ? new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+                const SC = {
+                  open:      { text: T.blue,   bg: T.blueDim  },
+                  invoiced:  { text: T.green,  bg: T.greenDim },
+                  completed: { text: T.green,  bg: T.greenDim },
+                  cancelled: { text: T.red,    bg: T.redDim   },
+                  draft:     { text: T.textSec,bg: isDark?"rgba(255,255,255,.06)":"#f1f5f9" },
+                  pending:   { text: T.amber,  bg: T.amberDim },
+                };
+                const sc = (s) => SC[s] || SC.draft;
+                return ordersLoading ? (
+                  <div style={{textAlign:"center",padding:"48px 0",color:T.textSec,fontSize:13}}>Loading…</div>
+                ) : itemOrders.length === 0 ? (
+                  <DrawerEmpty T={T} icon={<FaBox size={22}/>} title="No Transactions" sub="Sales orders containing this item will appear here." />
+                ) : (
+                  <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                    {/* Header */}
+                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"8px 4px",borderBottom:`1px solid ${border}`}}>
+                      {["Date","Order #","Customer","Qty","Total","Status"].map(h=>(
+                        <span key={h} style={{fontSize:10,fontWeight:700,color:T.textSec,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
                       ))}
                     </div>
-
-                    {/* VAT breakdown */}
-                    <div>
-                      <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Tax Breakdown</p>
-                      <div style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "12px", padding: "12px 16px" }}>
-                        <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 10px" }}>VAT 5% — Grouped by Rate</p>
-                        {price > 0 && qty > 0 ? (
-                          <>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
-                              <div>
-                                <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Rate {fmtV(price)}</p>
-                                <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "monospace" }}>{fmtV(subTotal)} × 5%</p>
-                              </div>
-                              <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "monospace" }}>{fmtV(taxAmt)}</span>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "8px", paddingTop: "8px" }}>
-                              <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
-                              <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "monospace" }}>{fmtV(taxAmt)}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>No stock value to calculate tax on.</p>
-                        )}
-                      </div>
+                    {itemOrders.map((o,i)=>{
+                      const s = sc(o.status);
+                      return (
+                        <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"10px 4px",borderBottom:i<itemOrders.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
+                          <span style={{fontSize:11,color:T.textSec}}>{fmtD(o.date)}</span>
+                          <span style={{fontSize:11,color:T.blue,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
+                          <span style={{fontSize:11,color:T.textPri,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.customerName}</span>
+                          <span style={{fontSize:12,fontWeight:700,color:T.textPri,fontFamily:"'Sora',sans-serif"}}>{o.qty}</span>
+                          <span style={{fontSize:11,color:T.textPri,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
+                          <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600,background:s.bg,color:s.text,textTransform:"capitalize",width:"fit-content"}}>
+                            <span style={{width:5,height:5,borderRadius:"50%",background:s.text,flexShrink:0}}/>
+                            {o.status||"—"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {/* Summary row */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 4px 0",borderTop:`1px solid ${border}`,marginTop:4}}>
+                      <span style={{fontSize:12,color:T.textSec}}>{itemOrders.length} order{itemOrders.length!==1?"s":""} · {itemOrders.reduce((s,o)=>s+o.qty,0)} units sold</span>
+                      <span style={{fontSize:13,fontWeight:700,color:T.textPri,fontFamily:"monospace"}}>{fmtA(itemOrders.reduce((s,o)=>s+o.total,0))}</span>
                     </div>
-
-                    {/* Grand Total */}
-                    {price > 0 && qty > 0 && (
-                      <div style={{ background: surface2, border: `1px solid ${border}`, borderRadius: "12px", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: "14px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Sans',sans-serif" }}>Total Stock Value (incl. VAT)</span>
-                        <span style={{ fontSize: "17px", fontWeight: "800", color: T.blue, fontFamily: "monospace" }}>{fmtV(grandTotal)}</span>
-                      </div>
-                    )}
-
-                    <p style={{ fontSize: "11px", color: T.textMuted, margin: 0, textAlign: "center" }}>Transaction history will appear once sales/purchase orders are linked.</p>
                   </div>
                 );
               })()}
-              {activeTab === "history"      && <DrawerEmpty T={T} icon={<FaBarcode size={24} />} title="No History" sub="Activity history will appear here." />}
+
+              {activeTab === "history" && (() => {
+                const fmtD = (d) => d ? new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+                return ordersLoading ? (
+                  <div style={{textAlign:"center",padding:"48px 0",color:T.textSec,fontSize:13}}>Loading…</div>
+                ) : itemOrders.length === 0 ? (
+                  <DrawerEmpty T={T} icon={<FaBarcode size={22}/>} title="No History" sub="Stock movements will appear here once orders are placed." />
+                ) : (
+                  <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                    {/* Opening stock entry */}
+                    <div style={{display:"flex",gap:14,paddingBottom:18,position:"relative"}}>
+                      <div style={{position:"absolute",left:7,top:18,bottom:0,width:1,background:border}}/>
+                      <div style={{width:15,height:15,borderRadius:"50%",background:T.green,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:T.textPri}}>Opening Stock</div>
+                        <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{selectedItem.opening_stock||0} units · Initial inventory</div>
+                      </div>
+                    </div>
+                    {[...itemOrders].reverse().map((o,i)=>(
+                      <div key={o.id||i} style={{display:"flex",gap:14,paddingBottom:18,position:"relative"}}>
+                        {i<itemOrders.length-1&&<div style={{position:"absolute",left:7,top:18,bottom:0,width:1,background:border}}/>}
+                        <div style={{width:15,height:15,borderRadius:"50%",background:o.status==="cancelled"?T.red:T.amber,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:600,color:T.textPri}}>
+                            {o.status==="cancelled"?"Stock Returned":"Stock Reduced"} — <span style={{fontFamily:"monospace",color:o.status==="cancelled"?T.green:T.red}}>{o.status==="cancelled"?"+":"-"}{o.qty} units</span>
+                          </div>
+                          <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{fmtD(o.date)} · {o.orderNumber} · {o.customerName}</div>
+                        </div>
+                      </div>
+                    ))}
+                    {/* Current stock */}
+                    <div style={{display:"flex",gap:14}}>
+                      <div style={{width:15,height:15,borderRadius:"50%",background:T.blue,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:T.textPri}}>Current Stock</div>
+                        <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{selectedItem.quantity||0} units remaining</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Drawer footer */}

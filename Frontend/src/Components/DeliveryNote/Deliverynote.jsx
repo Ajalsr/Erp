@@ -148,7 +148,7 @@ export default function DeliveryNote() {
 
   // ── Navigate to Create Invoice ────────────────────────────────────
   const handleCreateInvoice = () => {
-    navigate('/Sales/Invoice/Create', {
+    navigate('/Sales/Createinvoices', {
       state: {
         fromDeliveryNote: true,
         outboundData,

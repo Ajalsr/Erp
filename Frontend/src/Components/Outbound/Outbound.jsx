@@ -83,7 +83,7 @@ export default function Outbound() {
   const transformItems = () => {
     if (salesOrdersData?.salesOrders?.length) {
       const result = [];
-      salesOrdersData.salesOrders.forEach(so => {
+      salesOrdersData.salesOrders.filter(so => so.status !== "invoiced").forEach(so => {
         (so.items || []).forEach(oi => {
           const inv = findItem(oi.itemId);
           const ordQty = parseQty(oi.quantity);

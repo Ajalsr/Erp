@@ -4,6 +4,7 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useGetItem from '../../helper/useGetItem';
 import useGetCustomers from '../../helper/useGetCustomers';
 import useAddSalesOrder from '../../helper/useAddSalesOrder';
+import axiosInstance from '../../helper/axiosInstance';
 import { debounce } from 'lodash';
 import DatePicker from 'react-datepicker';
 import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
@@ -613,7 +614,7 @@ const Newsalesorders = () => {
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate(`/sales/salesorders/${r.data.id}`),1500);}}catch(e){setSuccessMessage(e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Sales order created!');setShowSuccessToaster(true);setTimeout(()=>navigate('/sales/salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){await Promise.all(d.items.map(item=>item.itemId?axiosInstance.patch(`/api/stocks/${item.itemId}/reduce`,{reduceBy:item.quantity}):Promise.resolve()));setSuccessMessage('Sales order created!');setShowSuccessToaster(true);setTimeout(()=>navigate('/sales/salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);

@@ -812,3 +812,40 @@ func GetDashboardStats(c *gin.Context) {
 		},
 	})
 }
+
+// ─── ADD CUSTOMER HISTORY ─────────────────────────────────────────────────────
+func AddCustomerHistory() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid customer ID format", "error": err.Error()})
+			return
+		}
+
+		var entry models.HistoryEntry
+		if err := c.ShouldBindJSON(&entry); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+		if entry.Timestamp.IsZero() {
+			entry.Timestamp = time.Now()
+		}
+
+		update := bson.M{"$push": bson.M{"history": entry}}
+		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to add history entry", "error": err.Error()})
+			return
+		}
+		if result.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
+			return
+		}
+
+		c.JSON(http.StatusCreated, gin.H{"status": http.StatusCreated, "message": "History entry added successfully"})
+	}
+}

@@ -69,6 +69,16 @@ type Customer struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
 	CreatedBy string    `json:"created_by,omitempty" bson:"created_by,omitempty"`
 	UpdatedBy string    `json:"updated_by,omitempty" bson:"updated_by,omitempty"`
+
+	// ── History ──────────────────────────────────────────────────────────
+	History []HistoryEntry `json:"history,omitempty" bson:"history,omitempty"`
+}
+
+type HistoryEntry struct {
+	Action    string                 `json:"action"    bson:"action"`
+	Timestamp time.Time              `json:"timestamp" bson:"timestamp"`
+	User      string                 `json:"user,omitempty" bson:"user,omitempty"`
+	Details   map[string]interface{} `json:"details,omitempty" bson:"details,omitempty"`
 }
 
 type ContactPerson struct {

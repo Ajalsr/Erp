@@ -17,7 +17,7 @@ import (
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5175")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Org-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
@@ -46,6 +46,7 @@ func main() {
 	go ws.GlobalHub.Run()
 
 	server := gin.Default()
+	server.RedirectTrailingSlash = false
 
 	server.Use(CORSMiddleware())
 	routes.StockRoutes(server)
@@ -56,6 +57,7 @@ func main() {
 	routes.NotificationRoutes(server)
 	routes.DashboardRoutes(server)
 	routes.PurchaseOrderRoutes(server)
+	routes.InvoiceRoutes(server)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	server.GET("/ws", ws.ServeWs(ws.GlobalHub))
