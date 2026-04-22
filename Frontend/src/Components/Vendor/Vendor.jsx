@@ -94,7 +94,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
       position: "absolute", top: dropPos.top, left: dropPos.left, width: dropPos.width,
       zIndex: 99999, background: bg, border: `1.5px solid ${border}`, borderRadius: "11px",
       boxShadow: isDarkNow ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 32px rgba(0,0,0,0.12)",
-      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif",
       visibility: ready ? "visible" : "hidden", opacity: ready ? 1 : 0, transition: "opacity 0.12s ease",
     }}>
       <div style={{ padding: "5px" }}>
@@ -126,7 +126,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
       boxShadow: open ? `0 0 0 3px ${isDarkNow ? "rgba(59,130,246,0.15)" : "rgba(147,197,253,0.25)"}` : "none",
       transition: "border-color 0.15s, box-shadow 0.15s", gap: "8px",
     }}>
-      <span style={{ fontSize: "12px", fontWeight: "500", color: selected ? textPri : textSec, fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: "12px", fontWeight: "500", color: selected ? textPri : textSec, fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
         {selected ? selected.label : placeholder}
       </span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? activeC : textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
@@ -299,10 +299,10 @@ const Vendors = () => {
 
   // ── Dynamic CSS ───────────────────────────────────────────────
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
     .vnd-root * { box-sizing: border-box; }
-    .vnd-root { font-family: 'Inter', sans-serif; transition: background 0.25s ease, color 0.25s ease; }
-    .vnd-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .vnd-root { font-family: 'DM Sans', sans-serif; transition: background 0.25s ease, color 0.25s ease; }
+    .vnd-jakarta { font-family: 'Sora', sans-serif; }
 
     .vnd-stat { transition: transform 0.18s ease, box-shadow 0.18s ease; }
     .vnd-stat:hover { transform: translateY(-2px); box-shadow: ${isDark ? "0 8px 32px rgba(0,0,0,0.4)" : "0 8px 24px rgba(0,0,0,0.1)"} !important; }
@@ -358,13 +358,13 @@ const Vendors = () => {
       <style>{css}</style>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
         <div className="vnd-spin" style={{ width: "36px", height: "36px", border: `3px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%" }} />
-        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "Inter, sans-serif" }}>Loading vendors…</span>
+        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "DM Sans, sans-serif" }}>Loading vendors…</span>
       </div>
     </div>
   );
 
   if (error) return (
-    <div style={{ padding: "20px", color: "#ef4444", background: "rgba(239,68,68,0.08)", borderRadius: "12px", margin: "24px", border: "1px solid rgba(239,68,68,0.2)", fontFamily: "Inter, sans-serif" }}>
+    <div style={{ padding: "20px", color: "#ef4444", background: "rgba(239,68,68,0.08)", borderRadius: "12px", margin: "24px", border: "1px solid rgba(239,68,68,0.2)", fontFamily: "DM Sans, sans-serif" }}>
       Error: {error}
     </div>
   );

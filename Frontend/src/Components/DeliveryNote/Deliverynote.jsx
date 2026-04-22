@@ -36,10 +36,10 @@ const buildTaxGroups = (items) => {
 
 // ── CSS ───────────────────────────────────────────────────────────
 const buildCSS = (isDark) => `
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
 
   .dn-root * { box-sizing: border-box; }
-  .dn-root { font-family: 'Plus Jakarta Sans', sans-serif; }
+  .dn-root { font-family: 'Sora', sans-serif; }
 
   @keyframes dnFadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
   @keyframes dnFade   { from { opacity:0; } to { opacity:1; } }

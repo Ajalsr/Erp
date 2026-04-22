@@ -29,20 +29,24 @@ const p      = (v)  => parseFloat(v) || 0;
 let _id = 0;
 const uid = () => ++_id;
 
-/** Calculate one line: subtotal (ex-tax), taxAmt, total (inc-tax).
- *  Discount is tracked for display but applied only at summary level (mirrors delivery note). */
+/** Calculate one line: subtotal (ex-tax), discAmt, taxAmt, total (inc-tax). */
 const calcLine = (item) => {
   const subtotal = p(item.qty) * p(item.unitPrice);
-  const discAmt  = p(item.discount);
-  const taxAmt   = subtotal * (p(item.taxRate) / 100);
-  return { subtotal, discAmt, taxAmt, total: subtotal + taxAmt };
+  const discAmt  = item.discountType === "percentage"
+    ? subtotal * (p(item.discount) / 100)
+    : p(item.discount);
+  const taxAmt   = (subtotal - discAmt) * (p(item.taxRate) / 100);
+  return { subtotal, discAmt, taxAmt, total: subtotal - discAmt + taxAmt };
 };
 
 const fmtMoney = (n) =>
   `AED ${Number(n).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const fmtCustAddr = (c) =>
-  [c.streetAddress, c.city, c.postalCode, c.country].filter(Boolean).join("\n");
+const fmtCustAddr = (c) => {
+  const line1 = c.streetAddress || "";
+  const line2 = [c.city, c.postalCode, c.country].filter(Boolean).join(", ");
+  return [line1, line2].filter(Boolean).join("\n");
+};
 
 /* ─── Primitive components ──────────────────────────────────────────────── */
 const base = {
@@ -136,7 +140,7 @@ const CustomerSelect = ({ value, onChange, options, name }) => {
   }, []);
 
   const select = (opt) => {
-    onChange({ target: { name, value: opt.value } });
+    onChange({ target: { name, value: opt.value }, customer: opt.customer || null });
     setOpen(false); setReady(false);
   };
 
@@ -310,8 +314,10 @@ const CreateInvoice = () => {
   const [currency,     setCurrency]     = useState("AED");
   const [terms,        setTerms]        = useState("Net 30");
   const [customerId,   setCustomerId]   = useState("");
+  const [custName,     setCustName]     = useState("");
   const [custAddr,     setCustAddr]     = useState("");
   const [custTrn,      setCustTrn]      = useState("");
+  const [invoiceNumber] = useState(() => `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`);
   const [fromName,     setFromName]     = useState("");
   const [fromAddr,     setFromAddr]     = useState("");
   const [fromTrn,      setFromTrn]      = useState("");
@@ -332,14 +338,16 @@ const CreateInvoice = () => {
 
     /* line items */
     setItems(prefill.items.map(item => ({
-      id:        uid(),
-      desc:      item.name || item.details || "",
-      stockId:   item.itemId || item._id,
-      qty:       p(item.outboundQuantity || item.quantity || 1),
-      unitPrice: p(item.selling_price || item.rate || 0),
-      discount:  p(item.discount || 0),
-      taxRate:   VAT_RATE,
-      _stock:    true,
+      id:           uid(),
+      desc:         item.name || item.details || "",
+      stockId:      item.itemId || item._id,
+      qty:          p(item.outboundQuantity || item.quantity || 1),
+      unitPrice:    p(item.rate || item.selling_price || 0),
+      // Use pre-computed AED discount; invoice always works in fixed AED amounts
+      discount:     p(item.discount || 0),
+      discountType: "fixed",
+      taxRate:      VAT_RATE,
+      _stock:       true,
     })));
 
     /* notes & references */
@@ -368,40 +376,67 @@ const CreateInvoice = () => {
     );
     if (match) {
       setCustomerId(match._id);
+      setCustName(match.customerDisplayName || match.companyName || "");
       setCustAddr(fmtCustAddr(match));
       setCustTrn(match.custom_fields?.trlNumber || "");
     } else {
+      setCustName(prefill?.customer || outboundData?.customerInfo?.name || "");
       setCustAddr(prev => prev || (prefill?.customer || outboundData?.customerInfo?.name || ""));
     }
   }, [customersData, location.state]);
 
-  const handleCustomerChange = (e) => {
-    const id = e.target.value;
-    if (!id) { setCustomerId(""); setCustAddr(""); setCustTrn(""); return; }
-    const c = customersData.find(x => x._id === id);
+  const applyCustomer = (c) => {
     if (!c) return;
-    setCustomerId(id);
+    setCustName(c.customerDisplayName || c.companyName || "");
     setCustAddr(fmtCustAddr(c));
-    setCustTrn(c.custom_fields?.trlNumber || "");
+    setCustTrn(c.custom_fields?.trlNumber || c.customFields?.trlNumber || "");
+  };
+
+  const handleCustomerChange = async (e) => {
+    const id = e.target.value;
+    if (!id) { setCustomerId(""); setCustName(""); setCustAddr(""); setCustTrn(""); return; }
+    setCustomerId(id);
+
+    // First try the pre-attached object (fastest)
+    if (e.customer && e.customer._id) {
+      applyCustomer(e.customer);
+      return;
+    }
+
+    // Fallback: always fetch directly from API to guarantee full field set
+    try {
+      const res = await axiosInstance.get(`/api/customers/${id}`);
+      applyCustomer(res.data?.data);
+    } catch {
+      // ignore — user can type address manually
+    }
   };
 
 
   /* totals */
   const totals = useMemo(() => {
-    const raw = items.reduce((acc, item) => {
+    return items.reduce((acc, item) => {
       const c = calcLine(item);
-      return { subtotal: acc.subtotal + c.subtotal, discountTotal: acc.discountTotal + c.discAmt, taxTotal: acc.taxTotal + c.taxAmt, grandTotal: acc.grandTotal + c.total };
+      return {
+        subtotal:      acc.subtotal      + c.subtotal,
+        discountTotal: acc.discountTotal + c.discAmt,
+        taxTotal:      acc.taxTotal      + c.taxAmt,
+        grandTotal:    acc.grandTotal    + c.total,   // total already has discount & tax applied
+      };
     }, { subtotal: 0, discountTotal: 0, taxTotal: 0, grandTotal: 0 });
-    return { ...raw, grandTotal: raw.grandTotal - raw.discountTotal };
   }, [items]);
 
   /* per-rate breakdown for sidebar */
   const taxBreakdown = useMemo(() => {
     const map = {};
     items.forEach(item => {
-      const rate = p(item.taxRate);
-      const base = p(item.qty) * p(item.unitPrice);
-      map[rate]  = (map[rate] || 0) + base * (rate / 100);
+      const taxRate = p(item.taxRate);
+      const subtotal = p(item.qty) * p(item.unitPrice);
+      const discAmt  = item.discountType === "percentage"
+        ? subtotal * (p(item.discount) / 100)
+        : p(item.discount);
+      const taxableBase = subtotal - discAmt;
+      map[taxRate] = (map[taxRate] || 0) + taxableBase * (taxRate / 100);
     });
     return Object.entries(map).sort((a, b) => Number(a[0]) - Number(b[0]));
   }, [items]);
@@ -419,12 +454,11 @@ const CreateInvoice = () => {
   /* submit */
   const handleSubmit = async () => {
     setSubmitting(true);
-    const invNum = `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
     const payload = {
-      invoiceNumber: invNum,
+      invoiceNumber,
       issueDate, dueDate, currency, paymentTerms: terms,
       from:       { name: fromName, address: fromAddr, trn: fromTrn },
-      billTo:     { name: custAddr.split("\n")[0] || "", address: custAddr, trn: custTrn },
+      billTo:     { name: custName, address: custAddr, trn: custTrn },
       customerId,
       lineItems:  items.map((item) => { const { id: _UNUSED, ...rest } = item; return { ...rest, ...calcLine(rest) }; }),
       totals,
@@ -439,7 +473,7 @@ const CreateInvoice = () => {
           action: "Invoice Issued",
           timestamp: new Date().toISOString(),
           details: {
-            invoiceNumber: invNum,
+            invoiceNumber,
             amount: totals.grandTotal,
             currency,
             status,
@@ -447,6 +481,29 @@ const CreateInvoice = () => {
         }),
         orderId && axiosInstance.patch(`/api/sales-orders/${orderId}/status`, { status: "invoiced" }),
       ].filter(Boolean));
+      navigate("/Sales/Invoices");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    setSubmitting(true);
+    const payload = {
+      invoiceNumber,
+      issueDate, dueDate, currency, paymentTerms: terms,
+      from:       { name: fromName, address: fromAddr, trn: fromTrn },
+      billTo:     { name: custName, address: custAddr, trn: custTrn },
+      customerId,
+      lineItems:  items.map((item) => { const { id: _UNUSED, ...rest } = item; return { ...rest, ...calcLine(rest) }; }),
+      totals,
+      notes:      { customer: custNote, internal: internalNote },
+      status: "draft",
+    };
+    try {
+      await axiosInstance.post("/api/invoices", payload);
       navigate("/Sales/Invoices");
     } catch (err) {
       console.error(err);
@@ -486,11 +543,11 @@ const CreateInvoice = () => {
             <span style={{ color: T.border }}>|</span>
             <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent" }}>← Invoices</button>
             <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 600 }}>Create Invoice</span>
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.accent, background: "rgba(245,158,11,.1)", border: "1px solid rgba(245,158,11,.25)", padding: "3px 10px", borderRadius: 4 }}>INV-2026-0041</span>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.accent, background: "rgba(245,158,11,.1)", border: "1px solid rgba(245,158,11,.25)", padding: "3px 10px", borderRadius: 4 }}>{invoiceNumber}</span>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <Btn v="ghost" onClick={() => navigate(-1)}>Discard</Btn>
-            <Btn v="outline">Save Draft</Btn>
+            <Btn v="outline" onClick={handleSaveDraft} disabled={submitting}>Save Draft</Btn>
             <Btn v="primary" onClick={handleSubmit} disabled={submitting} style={{ opacity: submitting ? .7 : 1 }}>
               {submitting ? "Issuing…" : "Issue Invoice →"}
             </Btn>
@@ -505,7 +562,7 @@ const CreateInvoice = () => {
             {/* Invoice Details */}
             <Section title="Invoice Details">
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <Field label="Invoice #"><Inp value="INV-2026-0041" readOnly style={{ color: T.muted }} /></Field>
+                <Field label="Invoice #"><Inp value={invoiceNumber} readOnly style={{ color: T.muted }} /></Field>
                 <Field label="Issue Date"><Inp type="date" value={issueDate} onChange={e => setIssueDate(e.target.value)} /></Field>
                 <Field label="Due Date"><Inp type="date" value={dueDate}   onChange={e => setDueDate(e.target.value)} /></Field>
               </div>
@@ -543,8 +600,8 @@ const CreateInvoice = () => {
                         value={customerId}
                         onChange={handleCustomerChange}
                         options={[
-                          { value: "", label: "— Select customer —" },
-                          ...customersData.map(c => ({ value: c._id, label: c.customerDisplayName || c.companyName })),
+                          { value: "", label: "— Select customer —", customer: null },
+                          ...customersData.map(c => ({ value: c._id, label: c.customerDisplayName || c.companyName, customer: c })),
                         ]}
                       />
                     </Field>

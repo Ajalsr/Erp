@@ -1,25 +1,25 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../helper/axiosInstance";
+import useThemeStore from "../../store/useThemeStore";
 
-/* ─── Theme (standalone — Amber × Emerald palette) ──────────────────────── */
-const buildTheme = () => ({
-  bg:       "#0a0e1a",
-  surface:  "#111827",
-  surface2: "#1a2234",
-  border:   "#1e2d47",
+/* ─── Theme builder ──────────────────────────────────────────────────────── */
+const buildTheme = (isDark) => ({
+  bg:       isDark ? "#0a0e1a"               : "#f1f5f9",
+  surface:  isDark ? "#111827"               : "#ffffff",
+  surface2: isDark ? "#1a2234"               : "#f8fafc",
+  border:   isDark ? "#1e2d47"               : "#e2e8f0",
   accent:   "#f59e0b",
   accent2:  "#10b981",
   red:      "#ef4444",
   blue:     "#3b82f6",
   purple:   "#a78bfa",
-  text:     "#f1f5f9",
+  text:     isDark ? "#f1f5f9"               : "#0f172a",
   muted:    "#64748b",
-  subtle:   "#334155",
-  input:    "#0f172a",
+  subtle:   isDark ? "#334155"               : "#94a3b8",
+  input:    isDark ? "#0f172a"               : "#ffffff",
+  inputBdr: isDark ? "#1e2d47"               : "#e2e8f0",
 });
-
-const T = buildTheme();
 
 /* mock data removed — invoices loaded from API */
 
@@ -66,7 +66,7 @@ const StatusBadge = ({ status }) => {
 };
 
 /* ─── StatCard ──────────────────────────────────────────────────────────── */
-const StatCard = ({ label, value, sub, accent, icon }) => (
+const StatCard = ({ label, value, sub, accent, icon, T }) => (
   <div style={{
     background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10,
     padding: "18px 20px", display: "flex", flexDirection: "column", gap: 8,
@@ -82,7 +82,7 @@ const StatCard = ({ label, value, sub, accent, icon }) => (
 );
 
 /* ─── DrawerTab ─────────────────────────────────────────────────────────── */
-const DrawerTab = ({ label, active, onClick }) => (
+const DrawerTab = ({ label, active, onClick, T }) => (
   <button
     onClick={onClick}
     style={{
@@ -114,6 +114,8 @@ const toRow = (inv) => ({
 /* ─── Main Component ────────────────────────────────────────────────────── */
 const Invoices = () => {
   const navigate = useNavigate();
+  const isDark = useThemeStore((s) => s.isDark);
+  const T = buildTheme(isDark);
 
   /* data */
   const [invoices,   setInvoices]  = useState([]);
@@ -173,11 +175,14 @@ const Invoices = () => {
   /* drawer line items mapped for display */
   const drawerItems = selected
     ? selected.lineItems.map(li => ({
-        desc:  li.desc || "—",
-        qty:   li.qty  ?? 0,
-        price: li.unitPrice ?? 0,
-        tax:   li.taxRate   ?? 5,
-        amt:   li.total     ?? 0,
+        desc:         li.desc || "—",
+        qty:          li.qty  ?? 0,
+        price:        li.unitPrice ?? 0,
+        tax:          li.taxRate   ?? 5,
+        amt:          li.total     ?? 0,
+        discountAed:  li.discountAed ?? li.discountAED ?? 0,
+        discountType: li.discountType || "fixed",
+        discount:     li.discount ?? 0,
       }))
     : [];
   const drawerHistory = [];
@@ -214,16 +219,16 @@ const Invoices = () => {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #1e2d47; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }
         .inv-row:hover td { background: rgba(245,158,11,.03) !important; }
         .inv-row { cursor: pointer; }
         .filter-pill { transition: .15s; }
-        .filter-pill:hover { border-color: rgba(245,158,11,.4) !important; color: #f1f5f9 !important; }
+        .filter-pill:hover { border-color: rgba(245,158,11,.4) !important; color: ${T.text} !important; }
         .action-btn { transition: .15s; }
         .action-btn:hover { background: rgba(245,158,11,.1) !important; color: #f59e0b !important; }
         input:focus { border-color: rgba(245,158,11,.5) !important; box-shadow: 0 0 0 3px rgba(245,158,11,.08) !important; outline: none; }
         select:focus { outline: none; }
-        select option { background: #111827; }
+        select option { background: ${T.surface}; color: ${T.text}; }
       `}</style>
 
       <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif", position: "relative", overflow: "hidden" }}>
@@ -254,10 +259,10 @@ const Invoices = () => {
 
         {/* ── Stat Cards ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, padding: "24px 28px 0" }}>
-          <StatCard label="Total Invoiced"  value={fmt(stats.total)}       sub={`${invoices.length} invoices`}                                          accent={T.accent}  icon="📄" />
-          <StatCard label="Total Received"  value={fmt(stats.received)}    sub={`${invoices.filter(i=>i.status==="paid").length} paid`}              accent={T.accent2} icon="✅" />
-          <StatCard label="Outstanding"     value={fmt(stats.outstanding)} sub="Awaiting payment"                                                    accent={T.blue}    icon="⏳" />
-          <StatCard label="Overdue"         value={fmt(stats.overdue)}     sub={`${invoices.filter(i=>i.status==="overdue").length} invoices past due`} accent={T.red}  icon="⚠️" />
+          <StatCard T={T} label="Total Invoiced"  value={fmt(stats.total)}       sub={`${invoices.length} invoices`}                                          accent={T.accent}  icon="📄" />
+          <StatCard T={T} label="Total Received"  value={fmt(stats.received)}    sub={`${invoices.filter(i=>i.status==="paid").length} paid`}              accent={T.accent2} icon="✅" />
+          <StatCard T={T} label="Outstanding"     value={fmt(stats.outstanding)} sub="Awaiting payment"                                                    accent={T.blue}    icon="⏳" />
+          <StatCard T={T} label="Overdue"         value={fmt(stats.overdue)}     sub={`${invoices.filter(i=>i.status==="overdue").length} invoices past due`} accent={T.red}  icon="⚠️" />
         </div>
 
         {/* ── Toolbar ── */}
@@ -441,7 +446,7 @@ const Invoices = () => {
                 {/* Drawer Tabs */}
                 <div style={{ display: "flex", gap: 0, marginTop: 8 }}>
                   {["overview", "items", "history"].map(tab => (
-                    <DrawerTab key={tab} label={tab.charAt(0).toUpperCase() + tab.slice(1)} active={drawerTab === tab} onClick={() => setDrawerTab(tab)} />
+                    <DrawerTab key={tab} T={T} label={tab.charAt(0).toUpperCase() + tab.slice(1)} active={drawerTab === tab} onClick={() => setDrawerTab(tab)} />
                   ))}
                 </div>
               </div>
@@ -513,7 +518,7 @@ const Invoices = () => {
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
                         <tr>
-                          {["Description", "Qty", "Unit Price", "Tax", "Total"].map((h, i) => (
+                          {["Description", "Qty", "Unit Price", "Discount", "Tax", "Total"].map((h, i) => (
                             <th key={h} style={{ fontSize: 10, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase", color: T.muted, padding: "0 8px 10px", textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.border}` }}>{h}</th>
                           ))}
                         </tr>
@@ -524,6 +529,13 @@ const Invoices = () => {
                             <td style={{ ...tdStyle, padding: "10px 8px", fontSize: 13 }}>{item.desc}</td>
                             <td style={{ ...tdStyle, padding: "10px 8px", textAlign: "right", color: T.muted, fontFamily: "'DM Mono', monospace", fontSize: 12 }}>{item.qty}</td>
                             <td style={{ ...tdStyle, padding: "10px 8px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 12 }}>AED {item.price.toFixed(2)}</td>
+                            <td style={{ ...tdStyle, padding: "10px 8px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 12, color: item.discountAed > 0 ? "#10b981" : T.muted }}>
+                              {item.discountAed > 0
+                                ? (item.discountType === "percentage"
+                                    ? `${item.discount}% (AED ${Number(item.discountAed).toFixed(2)})`
+                                    : `AED ${Number(item.discountAed).toFixed(2)}`)
+                                : "—"}
+                            </td>
                             <td style={{ ...tdStyle, padding: "10px 8px", textAlign: "right", color: T.muted, fontSize: 12 }}>{item.tax}%</td>
                             <td style={{ ...tdStyle, padding: "10px 8px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 500 }}>AED {item.amt.toFixed(2)}</td>
                           </tr>
@@ -532,15 +544,23 @@ const Invoices = () => {
                     </table>
                     {/* Totals summary */}
                     <div style={{ marginTop: 16, background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}`, padding: 14 }}>
-                      {[
-                        { label: "Subtotal", val: `AED ${(selected.amount / 1.05).toFixed(2)}` },
-                        { label: "VAT (5%)", val: `AED ${(selected.amount - selected.amount / 1.05).toFixed(2)}` },
-                      ].map(({ label, val }) => (
-                        <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
-                          <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
-                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13 }}>{val}</span>
-                        </div>
-                      ))}
+                      {(() => {
+                        const totalDiscount = drawerItems.reduce((s, li) => s + (Number(li.discountAed) || 0), 0);
+                        const subtotalBeforeDiscount = drawerItems.reduce((s, li) => s + (li.qty * li.price), 0);
+                        const subtotalAfterDiscount = subtotalBeforeDiscount - totalDiscount;
+                        const vat = subtotalAfterDiscount * 0.05;
+                        const rows = [
+                          { label: "Subtotal", val: `AED ${subtotalBeforeDiscount.toFixed(2)}` },
+                          ...(totalDiscount > 0 ? [{ label: "Discount", val: `-AED ${totalDiscount.toFixed(2)}`, color: "#10b981" }] : []),
+                          { label: "VAT (5%)", val: `AED ${vat.toFixed(2)}` },
+                        ];
+                        return rows.map(({ label, val, color }) => (
+                          <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
+                            <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
+                            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: color || T.text }}>{val}</span>
+                          </div>
+                        ));
+                      })()}
                       <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 0", marginTop: 8, borderTop: `1px solid ${T.border}` }}>
                         <span style={{ fontSize: 14, fontWeight: 600 }}>Total</span>
                         <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 500, color: T.accent }}>{fmt(selected.amount)}</span>

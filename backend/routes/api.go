@@ -45,6 +45,7 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.GET("/:id/transactions", controllers.GetCustomerTransactions())
 	custRoutes.GET("/:id/history", controllers.GetCustomerHistory())
 	custRoutes.POST("/:id/history", controllers.AddCustomerHistory())
+	custRoutes.POST("/migrate-codes", controllers.MigrateCustomerOrgAndCodes())
 }
 
 func SaleOrderRoutes(router *gin.Engine) {
@@ -83,7 +84,7 @@ func DashboardRoutes(router *gin.Engine) {
 
 func PurchaseOrderRoutes(router *gin.Engine) {
 	poRoutes := router.Group("/api/purchase-orders")
-	poRoutes.Use(middlewares.Authenticate)
+	poRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
 	{
 		poRoutes.POST("/", controllers.CreatePurchaseOrder())
 		poRoutes.GET("/getorders", controllers.GetAllPurchaseOrders())

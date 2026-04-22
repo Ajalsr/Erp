@@ -132,6 +132,7 @@ func GetInvoiceByID() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
+		orgID, _ := c.Get("orgId")
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
@@ -140,7 +141,7 @@ func GetInvoiceByID() gin.HandlerFunc {
 		}
 
 		var inv models.Invoice
-		err = invoiceCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&inv)
+		err = invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&inv)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Invoice not found"})

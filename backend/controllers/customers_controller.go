@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -78,7 +79,8 @@ func AddCustomers() gin.HandlerFunc {
 		}
 
 		// ── Auto-generate customer code ───────────────────────────────────
-		customerCode, err := generateCustomerCodeContinuous(ctx)
+		orgIDVal, _ := c.Get("orgId")
+		customerCode, err := generateCustomerCodeContinuous(ctx, fmt.Sprintf("%v", orgIDVal))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -154,19 +156,15 @@ func AddCustomers() gin.HandlerFunc {
 	}
 }
 
-func generateCustomerCodeContinuous(ctx context.Context) (string, error) {
+func generateCustomerCodeContinuous(ctx context.Context, orgID string) (string, error) {
 	now := time.Now()
 	currentMonth := int(now.Month())
 	currentYear := now.Year() % 100
-	//monthYearPrefix := fmt.Sprintf("%02d%02d", currentMonth, currentYear)
 
-	// filter := bson.M{
-	// 	"customerCode": bson.M{"$regex": "^" + monthYearPrefix},
-	// }
+	// Find the last customer code used by this org, sorted descending
 	opts := options.FindOne().SetSort(bson.D{{Key: "customerCode", Value: -1}})
-
 	var lastCustomer bson.M
-	err := customersCollection.FindOne(ctx, bson.M{}, opts).Decode(&lastCustomer)
+	err := customersCollection.FindOne(ctx, bson.M{"orgId": orgID}, opts).Decode(&lastCustomer)
 
 	nextSequence := 1
 	if err == nil {
@@ -203,14 +201,15 @@ func GetCustomerSuggestions() gin.HandlerFunc {
 		}
 
 		orgID, _ := c.Get("orgId")
+		safeQ := regexp.QuoteMeta(query)
 		filter := bson.M{
 			"orgId": orgID,
 			"$or": []bson.M{
-				{"customerDisplayName": bson.M{"$regex": query, "$options": "i"}},
-				{"companyName": bson.M{"$regex": query, "$options": "i"}},
-				{"customerEmail": bson.M{"$regex": query, "$options": "i"}},
-				{"customerPhone": bson.M{"$regex": query, "$options": "i"}},
-				{"customerCode": bson.M{"$regex": query, "$options": "i"}},
+				{"customerDisplayName": bson.M{"$regex": safeQ, "$options": "i"}},
+				{"companyName": bson.M{"$regex": safeQ, "$options": "i"}},
+				{"customerEmail": bson.M{"$regex": safeQ, "$options": "i"}},
+				{"customerPhone": bson.M{"$regex": safeQ, "$options": "i"}},
+				{"customerCode": bson.M{"$regex": safeQ, "$options": "i"}},
 			},
 			"status": bson.M{"$ne": "deleted"},
 		}
@@ -268,14 +267,15 @@ func SearchCustomers() gin.HandlerFunc {
 		filter := bson.M{"orgId": orgID}
 
 		if query != "" {
+			safe := regexp.QuoteMeta(query)
 			filter["$or"] = []bson.M{
-				{"customerDisplayName": bson.M{"$regex": query, "$options": "i"}},
-				{"companyName": bson.M{"$regex": query, "$options": "i"}},
-				{"customerEmail": bson.M{"$regex": query, "$options": "i"}},
-				{"customerPhone": bson.M{"$regex": query, "$options": "i"}},
-				{"customerCode": bson.M{"$regex": query, "$options": "i"}},
-				{"firstName": bson.M{"$regex": query, "$options": "i"}},
-				{"lastName": bson.M{"$regex": query, "$options": "i"}},
+				{"customerDisplayName": bson.M{"$regex": safe, "$options": "i"}},
+				{"companyName": bson.M{"$regex": safe, "$options": "i"}},
+				{"customerEmail": bson.M{"$regex": safe, "$options": "i"}},
+				{"customerPhone": bson.M{"$regex": safe, "$options": "i"}},
+				{"customerCode": bson.M{"$regex": safe, "$options": "i"}},
+				{"firstName": bson.M{"$regex": safe, "$options": "i"}},
+				{"lastName": bson.M{"$regex": safe, "$options": "i"}},
 			}
 		}
 		if customerType != "" {
@@ -287,13 +287,13 @@ func SearchCustomers() gin.HandlerFunc {
 			filter["status"] = bson.M{"$ne": "deleted"}
 		}
 		if city != "" {
-			filter["city"] = bson.M{"$regex": city, "$options": "i"}
+			filter["city"] = bson.M{"$regex": regexp.QuoteMeta(city), "$options": "i"}
 		}
 		if country != "" {
-			filter["country"] = bson.M{"$regex": country, "$options": "i"}
+			filter["country"] = bson.M{"$regex": regexp.QuoteMeta(country), "$options": "i"}
 		}
 		if company != "" {
-			filter["companyName"] = bson.M{"$regex": company, "$options": "i"}
+			filter["companyName"] = bson.M{"$regex": regexp.QuoteMeta(company), "$options": "i"}
 		}
 
 		var customers []models.Customer
@@ -847,5 +847,75 @@ func AddCustomerHistory() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusCreated, gin.H{"status": http.StatusCreated, "message": "History entry added successfully"})
+	}
+}
+
+// ─── MIGRATE: stamp orgId + reassign sequential customer codes ────────────────
+// Call once per org after upgrading. Safe to call multiple times (idempotent).
+func MigrateCustomerOrgAndCodes() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		// Step 1: stamp orgId on every customer that is missing it, using createdBy
+		// membership — we treat all un-scoped customers as belonging to this org
+		// (safe for single-org setups or first migration).
+		stampResult, err := customersCollection.UpdateMany(ctx,
+			bson.M{"$or": []bson.M{{"orgId": ""}, {"orgId": bson.M{"$exists": false}}}},
+			bson.M{"$set": bson.M{"orgId": orgIDStr}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to stamp orgId", "error": err.Error()})
+			return
+		}
+
+		// Step 2: reassign sequential codes to all customers in this org, ordered by createdAt
+		cursor, err := customersCollection.Find(ctx,
+			bson.M{"orgId": orgIDStr},
+			options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}),
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to fetch customers", "error": err.Error()})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var customers []models.Customer
+		if err := cursor.All(ctx, &customers); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to decode customers", "error": err.Error()})
+			return
+		}
+
+		updated := 0
+		for i, cust := range customers {
+			now := cust.CreatedAt
+			if now.IsZero() {
+				now = time.Now()
+			}
+			month := int(now.Month())
+			year := now.Year() % 100
+			newCode := fmt.Sprintf("%02d%02d%02d", month, year, i+1)
+
+			_, err := customersCollection.UpdateOne(ctx,
+				bson.M{"_id": cust.ID},
+				bson.M{"$set": bson.M{"customerCode": newCode}},
+			)
+			if err == nil {
+				updated++
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Migration complete",
+			"data": gin.H{
+				"orgIdStamped": stampResult.ModifiedCount,
+				"codesFixed":   updated,
+				"total":        len(customers),
+			},
+		})
 	}
 }

@@ -228,7 +228,7 @@ const OrganizationSettings = () => {
   return (
     <div style={{ background: bgPage, minHeight: '100%', padding: '28px 24px', fontFamily: '"Inter", "DM Sans", sans-serif' }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700&family=Inter:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
         .os-select { appearance: none; -webkit-appearance: none; }
         .os-select option { background: #0f172a; color: #e2e8f0; }
         .os-row:hover { background: ${isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc'} !important; }

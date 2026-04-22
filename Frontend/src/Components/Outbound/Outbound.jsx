@@ -83,14 +83,15 @@ export default function Outbound() {
   const transformItems = () => {
     if (salesOrdersData?.salesOrders?.length) {
       const result = [];
-      salesOrdersData.salesOrders.filter(so => so.status !== "invoiced").forEach(so => {
+      salesOrdersData.salesOrders.filter(so => !["invoiced","cancelled","completed"].includes(so.status)).forEach(so => {
         (so.items || []).forEach(oi => {
           const inv = findItem(oi.itemId);
           const ordQty = parseQty(oi.quantity);
           const avail  = inv ? parseQty(inv.quantity) : 0;
           const rate   = parseAmt(oi.rate);
-          const disc   = parseAmt(oi.discount);
-          const finalUnit = rate - (ordQty > 0 ? disc / ordQty : 0);
+          // Always use the pre-computed AED discount value so % discounts display correctly
+          const discAED = parseAmt(oi.discountAed ?? oi.discountAED ?? 0);
+          const finalUnit = rate - (ordQty > 0 ? discAED / ordQty : 0);
           result.push({
             _id:              oi._id || oi.itemId,
             itemId:           oi.itemId,
@@ -99,7 +100,9 @@ export default function Outbound() {
             unit:             oi.unit || inv?.Unit || "Piece",
             description:      oi.details || "",
             rate,
-            discount:         disc,
+            discount:         discAED,
+            discountType:     oi.discountType || "fixed",
+            discountRaw:      parseAmt(oi.discount),
             selling_price:    finalUnit.toFixed(2),
             availableQuantity:avail,
             orderedQuantity:  ordQty,
@@ -250,10 +253,10 @@ export default function Outbound() {
 
   // ── Dynamic CSS ──────────────────────────────────────────────
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
     .ob-root * { box-sizing: border-box; }
     .ob-root { font-family: 'DM Sans', sans-serif; }
-    .ob-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .ob-jakarta { font-family: 'Sora', sans-serif; }
 
     .ob-row { transition: background 0.1s; }
     .ob-row:hover { background: ${isDark ? "rgba(255,255,255,0.025)" : "#f8fafc"} !important; }
