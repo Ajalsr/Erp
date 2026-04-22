@@ -62,7 +62,7 @@ func main() {
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	server.GET("/ws", ws.ServeWs(ws.GlobalHub))
 
-	server.Run(":8080")
+	server.Run(":" + port)
 
 	// defer func() {
 	// 	if err := config.DB.Disconnect(context.Background()); err != nil {

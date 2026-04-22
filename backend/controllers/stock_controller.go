@@ -25,7 +25,6 @@ func GetAllStocks() gin.HandlerFunc {
 
 		orgID, _ := c.Get("orgId")
 		collection := config.GetCollection(config.DB, "stocks")
-		fmt.Println(collection, "this is the collection")
 		results, err := collection.Find(ctx, bson.M{"orgId": orgID})
 
 		if err != nil {
@@ -142,10 +141,11 @@ func ReduceStock() gin.HandlerFunc {
 
 		currentQty := 0.0
 		fmt.Sscanf(stock.Quantity, "%f", &currentQty)
-		newQty := currentQty - body.ReduceBy
-		if newQty < 0 {
-			newQty = 0
+		if body.ReduceBy > currentQty {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Insufficient stock", "data": gin.H{"available": currentQty, "requested": body.ReduceBy}})
+			return
 		}
+		newQty := currentQty - body.ReduceBy
 
 		update := bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}}
 		_, err = stockCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)

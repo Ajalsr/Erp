@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import {
   FaPlus, FaTimes, FaSearch, FaBox, FaTag, FaLayerGroup,
   FaExclamationTriangle, FaCheckCircle, FaArrowRight, FaEdit,
-  FaBarcode, FaCubes, FaIndustry, FaRuler, FaSync,
+  FaBarcode, FaCubes, FaIndustry, FaRuler,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
@@ -20,15 +20,6 @@ const stockStatus = (qty, reorder = 0) => {
   return { label: "In Stock", key: "ok" };
 };
 
-/* ─── Local seed data ────────────────────────────────────────────────── */
-const SEED = [
-  { id: 1, name: "Storage Cabinet",  item_code: "ITM001", sku: "SKU-037", type: "Product", unit: "Piece", description: "Versatile storage cabinet with adjustable shelves.", selling_price: "4610.00", quantity: 50,  reorder_point: 10, brand: "FurnitureCo", image: null },
-  { id: 2, name: "Area Rug",         item_code: "ITM002", sku: "SKU-038", type: "Product", unit: "Piece", description: "Soft, high-quality area rug to add warmth to any room.", selling_price: "2990.00", quantity: 3,   reorder_point: 10, brand: "HomeDecor",  image: null },
-  { id: 3, name: "Office Chair",     item_code: "ITM003", sku: "SKU-039", type: "Product", unit: "Piece", description: "Ergonomic office chair with lumbar support.", selling_price: "1890.00", quantity: 8,   reorder_point: 15, brand: "OfficePro",  image: null },
-  { id: 4, name: "LED Bulb 15W",     item_code: "ITM004", sku: "SKU-040", type: "Product", unit: "Box",   description: "Energy-efficient LED bulb 15W warm white.", selling_price: "45.00",   quantity: 200, reorder_point: 20, brand: "LightTech",  image: null },
-  { id: 5, name: "Ergonomic Desk",   item_code: "ITM005", sku: "SKU-041", type: "Product", unit: "Piece", description: "Height-adjustable standing desk with cable management.", selling_price: "6200.00", quantity: 12,  reorder_point: 5,  brand: "FurnitureCo", image: null },
-  { id: 6, name: "Monitor Stand",    item_code: "ITM006", sku: "SKU-042", type: "Product", unit: "Piece", description: "Dual-arm monitor stand with full motion adjustment.", selling_price: "890.00",  quantity: 0,   reorder_point: 8,  brand: "OfficePro",  image: null },
-];
 
 /* ─── Status color helper (theme-aware) ─────────────────────────────── */
 const statusColors = (key, T, isDark) => ({
@@ -112,7 +103,7 @@ export default function Item() {
   }, [activeTab, selectedItem]);
 
   /* ── Data ── */
-  const allItems = Array.isArray(data) && data.length > 0 ? data : SEED;
+  const allItems = Array.isArray(data) ? data : [];
 
   const filteredItems = allItems.filter((item) => {
     const q = searchTerm.toLowerCase();
@@ -149,7 +140,7 @@ export default function Item() {
     setActiveTab("overview");
   }, []);
 
-  const closeDrawer = () => { setIsDrawerOpen(false); setSelectedItem(null); };
+  const closeDrawer = () => { setIsDrawerOpen(false); setSelectedItem(null); handleGetItem(); };
 
   const toggleRow = (id) => setSelectedRows(prev => {
     const n = new Set(prev);

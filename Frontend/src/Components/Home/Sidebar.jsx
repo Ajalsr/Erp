@@ -101,9 +101,9 @@ const Sidebar = ({ isCollapsed }) => {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&family=Inter:wght@400;500&display=swap');
-        .nx-sb            { font-family: 'Inter', sans-serif; transition: background 0.25s ease, border-color 0.25s ease; }
-        .nx-sb-logo       { font-family: 'Plus Jakarta Sans', sans-serif; }
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
+        .nx-sb            { font-family: 'DM Sans', sans-serif; transition: background 0.25s ease, border-color 0.25s ease; }
+        .nx-sb-logo       { font-family: 'Sora', sans-serif; }
         .nx-nav-item      { color: ${D.navItemColor}; transition: all 0.15s; }
         .nx-nav-item:hover { background: ${D.navItemHoverBg} !important; color: ${D.navItemHoverColor} !important; }
         .nx-nav-item.active { background: ${D.navItemActiveBg} !important; color: ${D.navItemActiveColor} !important; }

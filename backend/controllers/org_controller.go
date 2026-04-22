@@ -20,6 +20,7 @@ import (
 var orgCollection *mongo.Collection = config.GetCollection(config.DB, "organizations")
 var orgMemberCollection *mongo.Collection = config.GetCollection(config.DB, "org_members")
 var invitationCollection *mongo.Collection = config.GetCollection(config.DB, "invitations")
+var usersCollection *mongo.Collection = config.GetCollection(config.DB, "users")
 
 // getMemberRole returns the role of a user in an org, and whether they are a member
 func getMemberRole(ctx context.Context, orgID primitive.ObjectID, userID string) (string, bool) {
@@ -109,6 +110,12 @@ func CreateOrganization() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to add owner member"})
 			return
 		}
+
+		// Stamp the user's primary orgId so signin can return it
+		usersCollection.UpdateOne(ctx,
+			bson.M{"userId": userIDStr},
+			bson.M{"$set": bson.M{"orgId": org.ID}},
+		)
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
@@ -576,6 +583,11 @@ func AcceptInvitation() gin.HandlerFunc {
 			"status": "accepted",
 			"userId": userID.(string),
 		}})
+		// Stamp the user's primary orgId so signin can return it
+		usersCollection.UpdateOne(ctx,
+			bson.M{"userId": userID.(string)},
+			bson.M{"$set": bson.M{"orgId": invitation.OrgID}},
+		)
 
 		// Notify inviter that their invitation was accepted
 		go pushNotification(

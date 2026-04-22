@@ -292,9 +292,9 @@ const Navbar = ({ onToggleSidebar }) => {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700&family=Inter:wght@400;500&display=swap');
-        .nx-navbar  { font-family: 'Inter', sans-serif; transition: background 0.25s ease, border-color 0.25s ease; }
-        .nx-navbar-title { font-family: 'Plus Jakarta Sans', sans-serif; }
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
+        .nx-navbar  { font-family: 'DM Sans', sans-serif; transition: background 0.25s ease, border-color 0.25s ease; }
+        .nx-navbar-title { font-family: 'Sora', sans-serif; }
         .nx-icon-btn {
           display: flex; align-items: center; justify-content: center;
           border-radius: 8px; background: transparent; cursor: pointer;

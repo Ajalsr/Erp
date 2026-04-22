@@ -16,15 +16,15 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 
 // ── Dynamic CSS (theme-aware) ──────────────────────────────────────
 const makeStyles = (T, isDark) => `
-  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
-  .nc-root { font-family: 'Outfit', 'Segoe UI', sans-serif; }
+  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
+  .nc-root { font-family: 'DM Sans', sans-serif; }
 
   .PhoneInput { width: 100%; display: flex; }
   .PhoneInputInput {
     flex: 1; height: 42px; padding: 0 14px;
     border: 1.5px solid ${T.border}; border-left: none;
     border-radius: 0 10px 10px 0;
-    font-size: 13px; font-family: 'Outfit', sans-serif;
+    font-size: 13px; font-family: 'DM Sans', sans-serif;
     background: ${T.surface}; color: ${T.textPri}; outline: none;
     transition: border-color 0.15s;
   }
@@ -42,7 +42,7 @@ const makeStyles = (T, isDark) => `
   .nc-input {
     width: 100%; height: 42px; padding: 0 14px;
     border: 1.5px solid ${T.border}; border-radius: 10px;
-    font-size: 13px; font-family: 'Outfit', sans-serif;
+    font-size: 13px; font-family: 'DM Sans', sans-serif;
     color: ${T.textPri}; background: ${T.surface}; outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;
     box-sizing: border-box;
@@ -53,7 +53,7 @@ const makeStyles = (T, isDark) => `
   .nc-select {
     width: 100%; height: 42px; padding: 0 14px;
     border: 1.5px solid ${T.border}; border-radius: 10px;
-    font-size: 13px; font-family: 'Outfit', sans-serif;
+    font-size: 13px; font-family: 'DM Sans', sans-serif;
     color: ${T.textPri}; background: ${T.surface}; outline: none;
     cursor: pointer; transition: border-color 0.15s;
     appearance: none;
@@ -67,7 +67,7 @@ const makeStyles = (T, isDark) => `
   .nc-textarea {
     width: 100%; padding: 12px 14px;
     border: 1.5px solid ${T.border}; border-radius: 10px;
-    font-size: 13px; font-family: 'Outfit', sans-serif;
+    font-size: 13px; font-family: 'DM Sans', sans-serif;
     color: ${T.textPri}; background: ${T.surface}; outline: none;
     resize: vertical; min-height: 100px;
     transition: border-color 0.15s; box-sizing: border-box;
@@ -389,7 +389,7 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
       style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, width: dropPos.width,
                zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: '12px',
                boxShadow: isDark ? '0 16px 48px rgba(0,0,0,0.5)' : '0 16px 48px rgba(0,0,0,0.12)',
-               overflow: 'hidden', fontFamily: "'Outfit', sans-serif",
+               overflow: 'hidden', fontFamily: "'DM Sans', sans-serif",
                boxSizing: 'border-box', visibility: ready ? 'visible' : 'hidden',
                opacity: ready ? 1 : 0, transition: 'opacity 0.12s ease' }}>
       <div style={{ maxHeight: '244px', overflowY: 'auto', padding: '6px' }}>
@@ -432,7 +432,7 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
                  transition: 'border-color 0.15s, box-shadow 0.15s',
                  boxSizing: 'border-box', userSelect: 'none' }}>
         <span style={{ fontSize: '13px', color: display ? T.textPri : (isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1'),
-                       fontFamily: "'Outfit', sans-serif", fontWeight: display ? '500' : '400' }}>
+                       fontFamily: "'DM Sans', sans-serif", fontWeight: display ? '500' : '400' }}>
           {display || placeholder}
         </span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -528,7 +528,7 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date', T, is
                background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: '14px',
                boxShadow: isDark ? '0 20px 60px rgba(0,0,0,0.5)' : '0 20px 60px rgba(0,0,0,0.15)',
                padding: '16px', width: Math.max(dropPos.width, 280) + 'px',
-               fontFamily: "'Outfit', sans-serif", boxSizing: 'border-box',
+               fontFamily: "'DM Sans', sans-serif", boxSizing: 'border-box',
                visibility: ready ? 'visible' : 'hidden',
                opacity: ready ? 1 : 0, transition: 'opacity 0.12s ease' }}>
 
@@ -586,11 +586,11 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date', T, is
           </div>
           <div style={{ display: 'flex', gap: '6px', marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${T.border}` }}>
             <button type="button" onClick={e => { e.stopPropagation(); const t = new Date(); setViewMonth(t.getMonth()); setViewYear(t.getFullYear()); selectDay(t.getDate()); }}
-              style={{ flex: 1, padding: '7px', background: blueDim, border: `1.5px solid ${blueBrd}`, borderRadius: '8px', fontSize: '12px', fontWeight: '600', color: blueC, cursor: 'pointer', fontFamily: "'Outfit', sans-serif" }}>
+              style={{ flex: 1, padding: '7px', background: blueDim, border: `1.5px solid ${blueBrd}`, borderRadius: '8px', fontSize: '12px', fontWeight: '600', color: blueC, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
               Today
             </button>
             <button type="button" onClick={e => { e.stopPropagation(); onChange(''); setOpen(false); setReady(false); }}
-              style={{ flex: 1, padding: '7px', background: T.surface2, border: `1.5px solid ${T.border}`, borderRadius: '8px', fontSize: '12px', fontWeight: '500', color: T.textSec, cursor: 'pointer', fontFamily: "'Outfit', sans-serif" }}>
+              style={{ flex: 1, padding: '7px', background: T.surface2, border: `1.5px solid ${T.border}`, borderRadius: '8px', fontSize: '12px', fontWeight: '500', color: T.textSec, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
               Clear
             </button>
           </div>
@@ -610,7 +610,7 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date', T, is
                  boxShadow: open ? `0 0 0 3px ${isDark ? 'rgba(59,130,246,0.1)' : 'rgba(147,197,253,0.2)'}` : 'none',
                  transition: 'border-color 0.15s, box-shadow 0.15s',
                  boxSizing: 'border-box', width: '100%', userSelect: 'none' }}>
-        <span style={{ fontSize: '13px', color: display ? T.textPri : (isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1'), fontFamily: "'Outfit', sans-serif", fontWeight: display ? '500' : '400' }}>
+        <span style={{ fontSize: '13px', color: display ? T.textPri : (isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1'), fontFamily: "'DM Sans', sans-serif", fontWeight: display ? '500' : '400' }}>
           {display || placeholder}
         </span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={open ? blueC : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -822,7 +822,7 @@ const Newcustomers = () => {
           <FaChevronLeft size={13} />
         </button>
         <div>
-          <h1 style={{ fontSize: '20px', fontWeight: '800', color: T.textPri, margin: 0, fontFamily: "'Outfit', sans-serif" }}>New Customer</h1>
+          <h1 style={{ fontSize: '20px', fontWeight: '800', color: T.textPri, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>New Customer</h1>
           <p style={{ fontSize: '12px', color: T.textSec, margin: '2px 0 0' }}>Fill in the details to create a new customer record</p>
         </div>
       </div>
@@ -966,7 +966,7 @@ const Newcustomers = () => {
                   {formData.customerDisplayName ? formData.customerDisplayName.charAt(0).toUpperCase() : <FaUser size={20} />}
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ fontSize: '15px', fontWeight: '800', color: formData.customerDisplayName ? T.textPri : T.textSec, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'Outfit', sans-serif" }}>
+                  <p style={{ fontSize: '15px', fontWeight: '800', color: formData.customerDisplayName ? T.textPri : T.textSec, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'DM Sans', sans-serif" }}>
                     {formData.customerDisplayName || 'Display Name'}
                   </p>
                   <p style={{ fontSize: '12px', color: T.textSec, margin: '3px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

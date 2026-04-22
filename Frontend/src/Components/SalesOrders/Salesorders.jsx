@@ -79,7 +79,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
       position: "absolute", top: dropPos.top, left: dropPos.left, width: dropPos.width,
       zIndex: 99999, background: bg, border: `1.5px solid ${border}`, borderRadius: "11px",
       boxShadow: isDarkNow ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 32px rgba(0,0,0,0.12)",
-      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif",
       boxSizing: "border-box", visibility: ready ? "visible" : "hidden",
       opacity: ready ? 1 : 0, transition: "opacity 0.12s ease",
     }}>
@@ -119,7 +119,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
       transition: "border-color 0.15s, box-shadow 0.15s", boxSizing: "border-box", gap: "8px",
     }}>
       <span style={{ fontSize: "12px", fontWeight: "500", color: selected ? textPri : textSec,
-        fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif", whiteSpace: "nowrap" }}>
+        fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
         {selected ? selected.label : placeholder}
       </span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? activeC : textSec}
@@ -236,10 +236,10 @@ const Salesorders = () => {
 
   // ── Dynamic CSS ───────────────────────────────────────────────
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
     .so-root * { box-sizing: border-box; }
-    .so-root { font-family: 'Inter', sans-serif; }
-    .so-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .so-root { font-family: 'DM Sans', sans-serif; }
+    .so-jakarta { font-family: 'Sora', sans-serif; }
 
     html, body, * { scrollbar-width: thin; scrollbar-color: ${isDark ? "rgba(255,255,255,0.12) transparent" : "rgba(0,0,0,0.14) transparent"}; }
     html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -301,13 +301,13 @@ const Salesorders = () => {
       <style>{css}</style>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
         <div className="so-spin" style={{ width: "36px", height: "36px", border: `3px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%" }} />
-        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "Inter, sans-serif" }}>Loading sales orders…</span>
+        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "DM Sans, sans-serif" }}>Loading sales orders…</span>
       </div>
     </div>
   );
 
   if (error) return (
-    <div style={{ padding: "20px", color: T.red, background: T.redDim, borderRadius: "12px", margin: "24px", border: `1px solid rgba(239,68,68,0.2)`, fontFamily: "Inter, sans-serif" }}>
+    <div style={{ padding: "20px", color: T.red, background: T.redDim, borderRadius: "12px", margin: "24px", border: `1px solid rgba(239,68,68,0.2)`, fontFamily: "DM Sans, sans-serif" }}>
       Error: {error}
     </div>
   );

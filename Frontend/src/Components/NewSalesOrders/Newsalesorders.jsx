@@ -553,12 +553,22 @@ const Newsalesorders = () => {
     document.addEventListener('mousedown',h);return()=>document.removeEventListener('mousedown',h);
   },[showItemDropdown,showCustomerDropdown]);
 
+  // Close item dropdown on scroll (portal stays fixed, doesn't follow scroll)
+  useEffect(()=>{
+    if(showItemDropdown===null)return;
+    const close=(e)=>{
+      if(document.querySelector('.item-dropdown-container')?.contains(e.target))return;
+      setShowItemDropdown(null);
+    };
+    window.addEventListener('scroll',close,true);
+    return()=>window.removeEventListener('scroll',close,true);
+  },[showItemDropdown]);
+
   // Close customer dropdown on page scroll, but ignore scrolls inside the dropdown itself
   const custPortalRef = useRef(null);
   useEffect(()=>{
     if(!showCustomerDropdown)return;
     const close=(e)=>{
-      // If scroll happened inside the dropdown portal, don't close
       if(custPortalRef.current?.contains(e.target))return;
       setShowCustomerDropdown(false);
     };
@@ -921,7 +931,7 @@ const Newsalesorders = () => {
                   <>
                     <div style={{padding:'8px 14px',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',color:T.textSec,borderBottom:'1.5px solid #f1f5f9',display:'flex',justifyContent:'space-between'}}><span>{filteredItems.length} item{filteredItems.length!==1?'s':''}</span><span>Click to select</span></div>
                     {filteredItems.map(inv=>(
-                      <div key={inv._id||inv.itemId} className="nso-irow" onClick={()=>handleItemSelect(showItemDropdown,inv)}>
+                      <div key={inv._id||inv.itemId} className="nso-irow" onMouseDown={e=>{e.preventDefault();e.nativeEvent?.stopImmediatePropagation();handleItemSelect(showItemDropdown,inv)}}>
                         <div style={{width:38,height:38,borderRadius:10,background:isDark?'rgba(59,130,246,0.15)':'linear-gradient(135deg,#eff6ff,#dbeafe)',color:T.blue,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:16}}><FaBox/></div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:8}}>

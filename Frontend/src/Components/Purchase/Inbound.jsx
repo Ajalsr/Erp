@@ -148,10 +148,10 @@ export default function Inbound() {
 
   // ── Dynamic CSS ───────────────────────────────────────────────────
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
     .ob-root * { box-sizing: border-box; }
     .ob-root { font-family: 'DM Sans', sans-serif; }
-    .ob-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .ob-jakarta { font-family: 'Sora', sans-serif; }
 
     .ob-row { transition: background 0.1s; }
     .ob-row:hover { background: ${isDark ? "rgba(255,255,255,0.025)" : "#f8fafc"} !important; }

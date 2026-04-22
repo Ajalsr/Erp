@@ -37,9 +37,9 @@ const CreateOrganization = () => {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
         .co-root { font-family: 'DM Sans', sans-serif; }
-        .co-heading { font-family: 'Syne', sans-serif; }
+        .co-heading { font-family: 'Sora', sans-serif; }
         .co-bg {
           background: #0a0f1e;
           background-image:
