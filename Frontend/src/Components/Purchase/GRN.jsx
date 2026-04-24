@@ -342,7 +342,7 @@ export default function GRN() {
                     </td>
                     {/* PO # */}
                     <td style={{ padding: "12px 14px" }}>
-                      <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "monospace" }}>
+                      <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "'DM Mono', monospace" }}>
                         {grn.poNumber}
                       </span>
                     </td>
@@ -569,7 +569,7 @@ export default function GRN() {
                           <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                             <td style={{ padding: "8px 10px" }}>
                               <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{item.name}</p>
-                              <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "monospace" }}>{item.code} · {item.unit}</p>
+                              <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "'DM Mono', monospace" }}>{item.code} · {item.unit}</p>
                             </td>
                             <td style={{ padding: "8px 10px" }}>
                               <span className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textSec }}>{item.ordered}</span>
@@ -609,7 +609,7 @@ export default function GRN() {
                       <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Item Remarks</p>
                       {form.items.map((item, idx) => (
                         <div key={item.id} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                          <span style={{ fontSize: "11px", color: T.textSec, width: "70px", flexShrink: 0, fontFamily: "monospace" }}>{item.code}</span>
+                          <span style={{ fontSize: "11px", color: T.textSec, width: "70px", flexShrink: 0, fontFamily: "'DM Mono', monospace" }}>{item.code}</span>
                           <input value={item.remarks} onChange={e => updateItem(idx, "remarks", e.target.value)}
                             placeholder="Optional remarks…"
                             className="grn-input"
@@ -706,7 +706,7 @@ export default function GRN() {
                         {icon}{l}
                       </p>
                       {badge ? (
-                        <span style={{ fontSize: "12px", fontWeight: "700", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "monospace" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "700", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "'DM Mono', monospace" }}>
                           {value}
                         </span>
                       ) : (
@@ -767,7 +767,7 @@ export default function GRN() {
                           <tr key={item.id} style={{ borderBottom: i < grn.items.length - 1 ? `1px solid ${T.border}` : "none" }}>
                             <td style={{ padding: "10px 12px" }}>
                               <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{item.name}</p>
-                              <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0", fontFamily: "monospace" }}>{item.code} · {item.unit}</p>
+                              <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0", fontFamily: "'DM Mono', monospace" }}>{item.code} · {item.unit}</p>
                               {item.remarks && <p style={{ fontSize: "10px", color: T.amber, margin: "2px 0 0", fontStyle: "italic" }}>{item.remarks}</p>}
                             </td>
                             <td style={{ padding: "10px 12px" }}>

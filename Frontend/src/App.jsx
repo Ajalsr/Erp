@@ -26,6 +26,13 @@ import OrganizationSettings from "./Components/Organization/OrganizationSettings
 import AcceptInvitation from "./Components/Organization/AcceptInvitation"
 import Invoices from "./Components/Invoices/Invoices"
 import Createinvoices from "./Components/Createinvoices/Createinvoices"
+import PaymentsReceived from "./Components/PaymentsReceived/PaymentsReceived"
+import Bills from "./Components/Bills/Bills"
+import PaymentsMade from "./Components/PaymentsMade/PaymentsMade"
+import VendorCredits from "./Components/VendorCredits/VendorCredits"
+import SalesReport from "./Components/Reports/SalesReport"
+import PurchaseReport from "./Components/Reports/PurchaseReport"
+import InventoryReport from "./Components/Reports/InventoryReport"
 
 function App() {
   return (
@@ -85,6 +92,13 @@ function App() {
           <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
           <Route path="/Sales/Invoices" element={<Invoices />} />
           <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
+          <Route path="/Sales/PaymentsReceived" element={<PaymentsReceived />} />
+          <Route path="/Purchase/Bills" element={<Bills />} />
+          <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
+          <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
+          <Route path="/Reports/sales"     element={<SalesReport />} />
+          <Route path="/Reports/purchases" element={<PurchaseReport />} />
+          <Route path="/Reports/inventory" element={<InventoryReport />} />
         </Route>
       </Routes>
     </>

@@ -58,6 +58,11 @@ func main() {
 	routes.DashboardRoutes(server)
 	routes.PurchaseOrderRoutes(server)
 	routes.InvoiceRoutes(server)
+	routes.PaymentRoutes(server)
+	routes.VendorRoutes(server)
+	routes.BillRoutes(server)
+	routes.VendorPaymentRoutes(server)
+	routes.VendorCreditRoutes(server)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	server.GET("/ws", ws.ServeWs(ws.GlobalHub))

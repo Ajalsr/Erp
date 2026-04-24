@@ -51,9 +51,9 @@ const DEFAULT_STATS = {
   inactiveCustomers:     0,
   businessCustomers:     0,
   individualCustomers:   0,
-  recentCustomers:       0,   // last 7 days
+  recentCustomers:       0,
 
-  // ── Customers by status (pre-fetched active list) ─────────────────────────
+  // ── Customers by status ───────────────────────────────────────────────────
   activeCustomersList:   [],
 
   // ── From /sales-orders/stats ─────────────────────────────────────────────
@@ -70,11 +70,21 @@ const DEFAULT_STATS = {
   lowStockItems:         [],
   allItems:              [],
 
+  // ── From /invoices/stats ─────────────────────────────────────────────────
+  pendingInvoicesCount:  0,
+  pendingInvoicesAmount: 0,   // outstanding balance across unpaid/partial/overdue
+  invoicesByStatus:      {},
+
+  // ── From /payments/stats ─────────────────────────────────────────────────
+  totalRevenue:          0,   // all-time payments received
+  thisMonthRevenue:      0,   // payments received this month
+  paymentsCount:         0,
+
   // ── Computed progress-bar percentages (0-100) ────────────────────────────
   todayOrdersPct:        0,
   revenuePct:            0,
   pendingActionsPct:     0,
-  dispatchedPct:         0,   // no outbound endpoint yet — static
+  dispatchedPct:         0,
 };
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -90,15 +100,17 @@ const useGetDashboardStats = () => {
     try {
       // ── Fire all requests in parallel ─────────────────────────────────────
       // allSettled: if one endpoint is down the rest still resolve.
-      const [dashRes, statsRes, activeListRes, salesRes, stocksRes, recentOrdersRes, recentCustRes] =
+      const [dashRes, statsRes, activeListRes, salesRes, stocksRes, recentOrdersRes, recentCustRes, invoiceStatsRes, paymentStatsRes] =
         await Promise.allSettled([
-          axiosInstance.get('/api/customers/dashboard'),                              // GetDashboardStats
-          axiosInstance.get('/api/customers/stats'),                                  // GetCustomerStats
-          axiosInstance.get('/api/customers/status/active'),                          // GetCustomersByStatus('active')
-          axiosInstance.get('/api/sales-orders/stats'),                               // GetSalesOrderStats
-          axiosInstance.get('/api/stocks/getitem'),                                   // GetAllStocks
-          axiosInstance.get('/api/sales-orders/getsaleorder?page=1&limit=10'),        // Recent orders for activity feed
-          axiosInstance.get('/api/customers/getcustomers?limit=5'),                   // Recent customers for activity feed
+          axiosInstance.get('/api/customers/dashboard'),
+          axiosInstance.get('/api/customers/stats'),
+          axiosInstance.get('/api/customers/status/active'),
+          axiosInstance.get('/api/sales-orders/stats'),
+          axiosInstance.get('/api/stocks/getitem'),
+          axiosInstance.get('/api/sales-orders/getsaleorder?page=1&limit=10'),
+          axiosInstance.get('/api/customers/getcustomers?limit=5'),
+          axiosInstance.get('/api/invoices/stats'),
+          axiosInstance.get('/api/payments/stats'),
         ]);
 
       // ── 1. /dashboard ─────────────────────────────────────────────────────
@@ -216,14 +228,38 @@ const useGetDashboardStats = () => {
         ? (stocksRes.value.data?.data ?? [])
         : [];
 
+      // ── 6. /invoices/stats ───────────────────────────────────────────────
+      let pendingInvoicesCount  = 0;
+      let pendingInvoicesAmount = 0;
+      let invoicesByStatus      = {};
+
+      if (invoiceStatsRes.status === 'fulfilled') {
+        const d = invoiceStatsRes.value.data?.data ?? {};
+        invoicesByStatus      = d.byStatus ?? {};
+        pendingInvoicesCount  = safe(d.outstandingCount);
+        pendingInvoicesAmount = safe(d.outstandingTotal);
+      }
+
+      // ── 7. /payments/stats ───────────────────────────────────────────────
+      let totalRevenue     = 0;
+      let thisMonthRevenue = 0;
+      let paymentsCount    = 0;
+
+      if (paymentStatsRes.status === 'fulfilled') {
+        const d = paymentStatsRes.value.data?.data ?? {};
+        totalRevenue     = safe(d.totalReceived);
+        thisMonthRevenue = safe(d.thisMonth);
+        paymentsCount    = safe(d.count);
+      }
+
       // ── Compute progress-bar percentages for Today's Metrics ─────────────
-      const DAILY_ORDER_TARGET   = 20;      // adjust to your business target
+      const DAILY_ORDER_TARGET   = 20;
       const DAILY_REVENUE_TARGET = 50_000;  // AED
 
       const todayOrdersPct     = Math.min(Math.round((todayNewOrders / DAILY_ORDER_TARGET)   * 100), 100);
       const revenuePct         = Math.min(Math.round((todayRevenue   / DAILY_REVENUE_TARGET) * 100), 100);
       const pendingActionsPct  = Math.min(Math.round((pendingOrders  / 20)                   * 100), 100);
-      const dispatchedPct      = 40; // static until outbound stats endpoint exists
+      const dispatchedPct      = 40;
 
       // ── Merge and publish ─────────────────────────────────────────────────
       setStats({
@@ -252,6 +288,14 @@ const useGetDashboardStats = () => {
         lowStockCount,
         lowStockItems,
         allItems,
+
+        pendingInvoicesCount,
+        pendingInvoicesAmount,
+        invoicesByStatus,
+
+        totalRevenue,
+        thisMonthRevenue,
+        paymentsCount,
 
         todayOrdersPct,
         revenuePct,

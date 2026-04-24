@@ -13,6 +13,13 @@ import {
   FaPlus, FaTimes, FaCheckCircle
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import cc from 'currency-codes';
+
+// All ISO 4217 currencies: { label: "UAE Dirham (AED)", value: "AED" }
+const CURRENCY_OPTIONS = cc.codes().map(code => {
+  const d = cc.code(code);
+  return d ? { label: `${d.currency} (${code})`, value: code } : null;
+}).filter(Boolean);
 
 // ── Dynamic CSS (theme-aware) ──────────────────────────────────────
 const makeStyles = (T, isDark) => `
@@ -150,7 +157,7 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
       <div>
         <Label T={T}>Currency</Label>
         <CustomSelect name="currency" value={formData.currency} onChange={handleChange}
-          options={['UAE Dirham', 'USD', 'EUR', 'GBP', 'SAR']} placeholder="Select currency" T={T} isDark={isDark} />
+          options={CURRENCY_OPTIONS} placeholder="Select currency" T={T} isDark={isDark} />
       </div>
     </div>
   </div>
@@ -329,9 +336,16 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
-  const triggerRef = useRef(null);
-  const dropRef    = useRef(null);
-  const rafRef     = useRef(null);
+  const [query,   setQuery]   = useState('');
+  const triggerRef  = useRef(null);
+  const dropRef     = useRef(null);
+  const rafRef      = useRef(null);
+  const searchRef   = useRef(null);
+
+  const searchable = options.length > 10;
+  const filtered   = searchable && query
+    ? options.filter(o => (o.label ?? o).toLowerCase().includes(query.toLowerCase()))
+    : options;
 
   const selected = options.find(o => (o.value ?? o) === value);
   const display  = selected ? (selected.label ?? selected) : null;
@@ -339,18 +353,21 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
   const measurePos = useCallback(() => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    const dropH = Math.min(options.length * 44 + 16, 260);
+    const dropH = Math.min(filtered.length * 44 + (searchable ? 56 : 16), 320);
     const spaceBelow = window.innerHeight - r.bottom;
     const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
     setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width });
     setReady(true);
-  }, [options.length]);
+  }, [filtered.length, searchable]);
 
   const handleOpen = () => {
-    if (open) { setOpen(false); setReady(false); return; }
+    if (open) { setOpen(false); setReady(false); setQuery(''); return; }
     setReady(false); setOpen(true);
     rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = requestAnimationFrame(() => measurePos());
+      rafRef.current = requestAnimationFrame(() => {
+        measurePos();
+        setTimeout(() => searchRef.current?.focus(), 50);
+      });
     });
   };
 
@@ -368,7 +385,7 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
     const h = e => {
       if (triggerRef.current && !triggerRef.current.contains(e.target) &&
           dropRef.current    && !dropRef.current.contains(e.target)) {
-        setOpen(false); setReady(false);
+        setOpen(false); setReady(false); setQuery('');
       }
     };
     document.addEventListener('mousedown', h);
@@ -377,7 +394,7 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
 
   const select = (opt) => {
     onChange({ target: { name, value: opt.value ?? opt } });
-    setOpen(false); setReady(false);
+    setOpen(false); setReady(false); setQuery('');
   };
 
   const activeColor = isDark ? '#60a5fa' : '#1d4ed8';
@@ -392,8 +409,24 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
                overflow: 'hidden', fontFamily: "'DM Sans', sans-serif",
                boxSizing: 'border-box', visibility: ready ? 'visible' : 'hidden',
                opacity: ready ? 1 : 0, transition: 'opacity 0.12s ease' }}>
+      {searchable && (
+        <div style={{ padding: '8px 8px 4px', borderBottom: `1px solid ${T.border}` }}>
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search currency…"
+            onClick={e => e.stopPropagation()}
+            style={{ width: '100%', height: '34px', padding: '0 12px', border: `1.5px solid ${T.border}`, borderRadius: '8px',
+                     fontSize: '12px', background: T.surface2, color: T.textPri, outline: 'none',
+                     fontFamily: 'inherit', boxSizing: 'border-box' }}
+          />
+        </div>
+      )}
       <div style={{ maxHeight: '244px', overflowY: 'auto', padding: '6px' }}>
-        {options.map((opt, i) => {
+        {filtered.length === 0 ? (
+          <div style={{ padding: '16px', textAlign: 'center', fontSize: '12px', color: T.textMuted }}>No results</div>
+        ) : filtered.map((opt, i) => {
           const val   = opt.value ?? opt;
           const lbl   = opt.label ?? opt;
           const isAct = val === value;
@@ -720,7 +753,7 @@ const Newcustomers = () => {
     customerEmail: '', customerPhone: '', workPhone: '', mobile: '',
     streetAddress: '', city: '', postalCode: '', country: '',
     customFields: {}, reportingTags: [], remarks: '', documents: [],
-    currency: 'UAE Dirham', paymentTerms: 'Due on Receipt',
+    currency: 'AED', paymentTerms: 'Due on Receipt',
     credit_limit: '', credit_used: '', no_of_days: '',
   });
 
@@ -778,7 +811,7 @@ const Newcustomers = () => {
         companyName: '', customerDisplayName: '', customerEmail: '', customerPhone: '',
         workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
         customFields: {}, reportingTags: [], remarks: '', documents: [],
-        currency: 'UAE Dirham', paymentTerms: 'Due on Receipt',
+        currency: 'AED', paymentTerms: 'Due on Receipt',
         credit_limit: '', credit_used: '', no_of_days: '',
       });
       setContactPersons([]);

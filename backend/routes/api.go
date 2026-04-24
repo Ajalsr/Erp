@@ -69,6 +69,7 @@ func InvoiceRoutes(router *gin.Engine) {
 	{
 		invRoutes.POST("", controllers.CreateInvoice())
 		invRoutes.GET("", controllers.GetAllInvoices())
+		invRoutes.GET("/stats", controllers.GetInvoiceStats())
 		invRoutes.GET("/:id", controllers.GetInvoiceByID())
 		invRoutes.PATCH("/:id/status", controllers.UpdateInvoiceStatus())
 	}
@@ -89,5 +90,66 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 		poRoutes.POST("/", controllers.CreatePurchaseOrder())
 		poRoutes.GET("/getorders", controllers.GetAllPurchaseOrders())
 		poRoutes.GET("/stats", controllers.GetPurchaseOrderStats())
+	}
+}
+
+func PaymentRoutes(router *gin.Engine) {
+	pmtRoutes := router.Group("/api/payments")
+	pmtRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		pmtRoutes.POST("/", controllers.CreatePayment())
+		pmtRoutes.GET("/", controllers.GetAllPayments())
+		pmtRoutes.GET("/stats", controllers.GetPaymentStats())
+		pmtRoutes.GET("/:id", controllers.GetPaymentByID())
+	}
+}
+
+func VendorRoutes(router *gin.Engine) {
+	vendorRoutes := router.Group("/api/vendors")
+	vendorRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		vendorRoutes.POST("/", controllers.CreateVendor())
+		vendorRoutes.GET("/", controllers.GetAllVendors())
+		vendorRoutes.GET("/stats", controllers.GetVendorStats())
+		vendorRoutes.GET("/search", controllers.SearchVendors())
+		vendorRoutes.GET("/:id", controllers.GetVendorByID())
+		vendorRoutes.PUT("/:id", controllers.UpdateVendor())
+		vendorRoutes.DELETE("/:id", controllers.DeleteVendor())
+	}
+}
+
+func BillRoutes(router *gin.Engine) {
+	billRoutes := router.Group("/api/bills")
+	billRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		billRoutes.POST("/", controllers.CreateBill())
+		billRoutes.GET("/", controllers.GetAllBills())
+		billRoutes.GET("/stats", controllers.GetBillStats())
+		billRoutes.GET("/:id", controllers.GetBillByID())
+		billRoutes.PATCH("/:id/status", controllers.UpdateBillStatus())
+	}
+}
+
+func VendorPaymentRoutes(router *gin.Engine) {
+	vpRoutes := router.Group("/api/vendor-payments")
+	vpRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		vpRoutes.POST("/", controllers.CreateVendorPayment())
+		vpRoutes.GET("/", controllers.GetAllVendorPayments())
+		vpRoutes.GET("/stats", controllers.GetVendorPaymentStats())
+		vpRoutes.GET("/:id", controllers.GetVendorPaymentByID())
+	}
+}
+
+func VendorCreditRoutes(router *gin.Engine) {
+	vcRoutes := router.Group("/api/vendor-credits")
+	vcRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		vcRoutes.POST("/", controllers.CreateVendorCredit())
+		vcRoutes.GET("/", controllers.GetAllVendorCredits())
+		vcRoutes.GET("/stats", controllers.GetVendorCreditStats())
+		vcRoutes.GET("/:id", controllers.GetVendorCreditByID())
+		vcRoutes.POST("/:id/apply", controllers.ApplyVendorCredit())
+		vcRoutes.PATCH("/:id/void", controllers.VoidVendorCredit())
 	}
 }
