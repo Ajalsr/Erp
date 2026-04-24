@@ -155,6 +155,67 @@ func GetInvoiceByID() gin.HandlerFunc {
 	}
 }
 
+func GetInvoiceStats() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+
+		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: bson.M{"orgId": orgID}}},
+			{{Key: "$group", Value: bson.M{
+				"_id":   "$status",
+				"count": bson.M{"$sum": 1},
+				"total": bson.M{"$sum": "$totals.grandTotal"},
+				"paid":  bson.M{"$sum": "$amountPaid"},
+			}}},
+		}
+
+		cursor, err := invoiceCollection.Aggregate(ctx, pipeline)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Stats failed"})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var rows []bson.M
+		cursor.All(ctx, &rows)
+
+		result := map[string]gin.H{}
+		for _, r := range rows {
+			st, _ := r["_id"].(string)
+			cnt, _ := r["count"].(int32)
+			tot, _ := r["total"].(float64)
+			pd, _ := r["paid"].(float64)
+			result[st] = gin.H{"count": cnt, "total": tot, "paid": pd, "balance": tot - pd}
+		}
+
+		// Convenience: sum of unpaid + partial = outstanding
+		outstanding := 0.0
+		outstandingCount := int32(0)
+		for _, st := range []string{"unpaid", "partial", "overdue"} {
+			if v, ok := result[st]; ok {
+				if b, ok := v["balance"].(float64); ok {
+					outstanding += b
+				}
+				if n, ok := v["count"].(int32); ok {
+					outstandingCount += n
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": http.StatusOK,
+			"data": gin.H{
+				"byStatus":          result,
+				"outstandingTotal":  outstanding,
+				"outstandingCount":  outstandingCount,
+			},
+		})
+	}
+}
+
 func UpdateInvoiceStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -10,9 +10,8 @@ import {
 import { useNavigate } from "react-router-dom";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import debounce from "lodash/debounce";
+import axiosInstance from "../../helper/axiosInstance";
 
-// ── NOTE: Replace this stub with your actual useGetVendors hook ──
-// import useGetVendors from "../../helper/useGetVendors";
 const useGetVendors = () => {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(false);
@@ -20,9 +19,8 @@ const useGetVendors = () => {
   const handleGetVendors = useCallback(async () => {
     setLoading(true);
     try {
-      // Replace with: const res = await axiosInstance.get("/vendors");
-      // setData(res.data.vendors || res.data);
-      setData([]); // placeholder
+      const res = await axiosInstance.get("/vendors/?limit=200");
+      setData(res.data?.data?.vendors || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -182,7 +180,7 @@ const Vendors = () => {
   // ── Helpers ────────────────────────────────────────────────────
   const getCode = (v) => {
     if (v.vendorCode) return v.vendorCode;
-    const initials = (v.vendorDisplayName || v.companyName || "V")
+    const initials = (v.displayName || v.companyName || "V")
       .split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 3);
     return `${initials}${(v._id || "0000").slice(-4).toUpperCase()}`;
   };
@@ -196,7 +194,7 @@ const Vendors = () => {
       total:    data.length,
       active:   data.filter(v => (v.status || "active") === "active").length,
       pending:  data.filter(v => (v.status || "active") === "pending").length,
-      payables: data.reduce((s, v) => s + (parseFloat(v.payables || v.outstanding || 0) || 0), 0),
+      payables: data.reduce((s, v) => s + (parseFloat(v.outstandingPayable || 0) || 0), 0),
     };
   };
   const stats = getStats();
@@ -216,10 +214,10 @@ const Vendors = () => {
     if (searchTerm.trim())
       list = list.filter(v => {
         const q = searchTerm.toLowerCase();
-        return (v.vendorDisplayName || "").toLowerCase().includes(q) ||
+        return (v.displayName || "").toLowerCase().includes(q) ||
           (v.companyName || "").toLowerCase().includes(q) ||
-          (v.vendorEmail || "").toLowerCase().includes(q) ||
-          (v.vendorPhone || "").toLowerCase().includes(q) ||
+          (v.email || "").toLowerCase().includes(q) ||
+          (v.phone || "").toLowerCase().includes(q) ||
           (getCode(v) || "").toLowerCase().includes(q);
       });
     list.sort((a, b) => {
@@ -287,7 +285,7 @@ const Vendors = () => {
   // ── Export ────────────────────────────────────────────────────
   const handleExport = () => {
     if (!data?.length) { alert("No vendors to export"); return; }
-    const rows = data.map(v => ({ Code: getCode(v), Name: v.vendorDisplayName || "", Company: v.companyName || "", Email: v.vendorEmail || "", Phone: v.vendorPhone || "", Status: v.status || "active" }));
+    const rows = data.map(v => ({ Code: getCode(v), Name: v.displayName || "", Company: v.companyName || "", Email: v.email || "", Phone: v.phone || "", Status: v.status || "active" }));
     const csv  = Object.keys(rows[0]).join(",") + "\n" + rows.map(r => Object.values(r).join(",")).join("\n");
     const a    = document.createElement("a");
     a.href     = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -464,18 +462,18 @@ const Vendors = () => {
                 <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: "12px", boxShadow: isDark ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, overflow: "hidden" }}>
                   <div style={{ padding: "8px 14px 6px", fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.08em" }}>{searchSuggestions.length} results</div>
                   {searchSuggestions.map((v, idx) => {
-                    const [bg, fg] = getAvatar(v.vendorDisplayName || v.companyName);
+                    const [bg, fg] = getAvatar(v.displayName || v.companyName);
                     return (
                       <div key={v._id || idx} className="vnd-suggestion" onClick={() => handleSuggestionClick(v)}
                         style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", borderTop: `1px solid ${T.border}` }}>
                         <div style={{ width: "30px", height: "30px", borderRadius: "8px", background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: "700", flexShrink: 0 }}>
-                          {(v.vendorDisplayName || v.companyName || "V").charAt(0).toUpperCase()}
+                          {(v.displayName || v.companyName || "V").charAt(0).toUpperCase()}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.vendorDisplayName || v.companyName || "Unnamed"}</p>
-                          <p style={{ fontSize: "11px", color: T.textSec, margin: 0 }}>{v.vendorEmail || v.companyName || ""}</p>
+                          <p style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.displayName || v.companyName || "Unnamed"}</p>
+                          <p style={{ fontSize: "11px", color: T.textSec, margin: 0 }}>{v.email || v.companyName || ""}</p>
                         </div>
-                        <span style={{ fontSize: "10px", fontWeight: "600", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
+                        <span style={{ fontSize: "10px", fontWeight: "600", fontFamily: "'DM Mono', monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
                           {getCode(v)}
                         </span>
                       </div>
@@ -537,7 +535,7 @@ const Vendors = () => {
             </thead>
             <tbody>
               {currentItems.length > 0 ? currentItems.map((v, idx) => {
-                const [avBg, avFg] = getAvatar(v.vendorDisplayName || v.companyName);
+                const [avBg, avFg] = getAvatar(v.displayName || v.companyName);
                 const sc = statusCfg[v.status] || statusCfg.active;
                 return (
                   <tr key={v._id || idx} className="vnd-row" style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -547,15 +545,15 @@ const Vendors = () => {
                     <td style={{ padding: "13px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "11px" }}>
                         <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: avBg, color: avFg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "700", flexShrink: 0 }}>
-                          {(v.vendorDisplayName || v.companyName || "V").charAt(0).toUpperCase()}
+                          {(v.displayName || v.companyName || "V").charAt(0).toUpperCase()}
                         </div>
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                             <span className="vnd-name" onClick={() => openDrawer(v)}
                               style={{ fontWeight: "600", color: T.textPri, cursor: "pointer", transition: "color 0.15s", fontSize: "13px" }}>
-                              {v.vendorDisplayName || v.companyName || "Unnamed"}
+                              {v.displayName || v.companyName || "Unnamed"}
                             </span>
-                            <span style={{ fontSize: "10px", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 7px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
+                            <span style={{ fontSize: "10px", fontFamily: "'DM Mono', monospace", background: T.blueDim, color: T.blueLight, padding: "2px 7px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
                               {getCode(v)}
                             </span>
                             {v.status && (
@@ -580,19 +578,19 @@ const Vendors = () => {
                     {/* Contact */}
                     <td style={{ padding: "13px 16px" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                        {v.vendorEmail && (
+                        {v.email && (
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <FaEnvelope size={10} style={{ color: T.textSec, flexShrink: 0 }} />
-                            <span style={{ fontSize: "12px", color: T.textSec }}>{v.vendorEmail}</span>
+                            <span style={{ fontSize: "12px", color: T.textSec }}>{v.email}</span>
                           </div>
                         )}
-                        {v.vendorPhone && (
+                        {v.phone && (
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <FaPhone size={10} style={{ color: T.textSec, flexShrink: 0 }} />
-                            <span style={{ fontSize: "12px", color: T.textSec }}>{v.vendorPhone}</span>
+                            <span style={{ fontSize: "12px", color: T.textSec }}>{v.phone}</span>
                           </div>
                         )}
-                        {!v.vendorEmail && !v.vendorPhone && <span style={{ color: T.textMuted, fontSize: "12px" }}>—</span>}
+                        {!v.email && !v.phone && <span style={{ color: T.textMuted, fontSize: "12px" }}>—</span>}
                       </div>
                     </td>
 
@@ -608,7 +606,7 @@ const Vendors = () => {
                     {/* Payables */}
                     <td style={{ padding: "13px 16px", textAlign: "right" }}>
                       <span className="vnd-jakarta" style={{ fontWeight: "700", fontSize: "13px", color: parseFloat(v.payables || 0) > 0 ? "#ef4444" : T.textPri }}>
-                        AED {parseFloat(v.payables || v.outstanding || 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })}
+                        AED {parseFloat(v.outstandingPayable || 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })}
                       </span>
                     </td>
 
@@ -689,7 +687,7 @@ const Vendors = () => {
       {drawerOpen && selectedItem && (() => {
         const v  = selectedItem;
         const sc = statusCfg[v.status] || statusCfg.active;
-        const [avBg, avFg] = getAvatar(v.vendorDisplayName || v.companyName);
+        const [avBg, avFg] = getAvatar(v.displayName || v.companyName);
         return (
           <>
             <div className="vnd-overlay" onClick={closeDrawer}
@@ -703,19 +701,19 @@ const Vendors = () => {
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: 0 }}>
                     <div style={{ width: "42px", height: "42px", borderRadius: "12px", background: avBg, color: avFg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "800", flexShrink: 0 }}>
-                      {(v.vendorDisplayName || v.companyName || "V").charAt(0).toUpperCase()}
+                      {(v.displayName || v.companyName || "V").charAt(0).toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "3px" }}>
                         <h3 className="vnd-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.textPri, margin: 0 }}>
-                          {v.vendorDisplayName || v.companyName || "Unnamed"}
+                          {v.displayName || v.companyName || "Unnamed"}
                         </h3>
                         <span style={{ fontSize: "10px", fontWeight: "700", padding: "2px 9px", borderRadius: "999px", background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, display: "inline-flex", alignItems: "center", gap: "4px" }}>
                           <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />
                           {v.status || "active"}
                         </span>
                       </div>
-                      <span style={{ fontSize: "10px", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
+                      <span style={{ fontSize: "10px", fontFamily: "'DM Mono', monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
                         {getCode(v)}
                       </span>
                     </div>
@@ -747,8 +745,8 @@ const Vendors = () => {
                     {/* Contact info rows */}
                     {[
                       { icon: <FaBuilding />, label: "Company",      value: v.companyName          },
-                      { icon: <FaEnvelope />, label: "Email",        value: v.vendorEmail           },
-                      { icon: <FaPhone />,    label: "Phone",        value: v.vendorPhone           },
+                      { icon: <FaEnvelope />, label: "Email",        value: v.email           },
+                      { icon: <FaPhone />,    label: "Phone",        value: v.phone           },
                       { icon: <FaGlobe />,    label: "Website",      value: v.website               },
                       { icon: <FaTag />,      label: "Category",     value: v.category              },
                       { icon: <FaIdCard />,   label: "TRN / Tax ID", value: v.taxNumber || v.trn    },
@@ -778,7 +776,7 @@ const Vendors = () => {
                         <p className="vnd-jakarta" style={{ fontSize: "11px", fontWeight: "700", color: T.textPri, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Financials</p>
                       </div>
                       {[
-                        { label: "Outstanding Payables", value: `AED ${parseFloat(v.payables || v.outstanding || 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })}`, red: parseFloat(v.payables || 0) > 0 },
+                        { label: "Outstanding Payables", value: `AED ${parseFloat(v.outstandingPayable || 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })}`, red: parseFloat(v.payables || 0) > 0 },
                         { label: "Credit Limit",         value: v.creditLimit ? `AED ${parseFloat(v.creditLimit).toLocaleString("en-AE", { minimumFractionDigits: 2 })}` : "—" },
                         { label: "Payment Terms",        value: v.paymentTerms || "—" },
                         { label: "Currency",             value: v.currency || "AED" },
@@ -794,7 +792,7 @@ const Vendors = () => {
 
                 {/* ── Purchases tab ── */}
                 {activeTab === "purchases" && (() => {
-                  const payables  = parseFloat(v.payables || v.outstanding || 0);
+                  const payables  = parseFloat(v.outstandingPayable || 0);
                   const taxAmt    = Math.round(payables * 0.05 * 100) / 100;
                   const grandTotal = Math.round((payables + taxAmt) * 100) / 100;
                   const fmt = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -826,13 +824,13 @@ const Vendors = () => {
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
                                 <div>
                                   <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Payables Amount</p>
-                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "monospace" }}>{fmt(payables)} × 5%</p>
+                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "'DM Mono', monospace" }}>{fmt(payables)} × 5%</p>
                                 </div>
-                                <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "monospace" }}>{fmt(taxAmt)}</span>
+                                <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmt(taxAmt)}</span>
                               </div>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "8px", paddingTop: "8px" }}>
                                 <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
-                                <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "monospace" }}>{fmt(taxAmt)}</span>
+                                <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmt(taxAmt)}</span>
                               </div>
                             </>
                           ) : (
@@ -845,7 +843,7 @@ const Vendors = () => {
                       {payables > 0 && (
                         <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "12px", padding: "14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span className="vnd-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: T.textPri }}>Grand Total (incl. VAT)</span>
-                          <span className="vnd-jakarta" style={{ fontSize: "17px", fontWeight: "800", color: T.blue, fontFamily: "monospace" }}>{fmt(grandTotal)}</span>
+                          <span className="vnd-jakarta" style={{ fontSize: "17px", fontWeight: "800", color: T.blue, fontFamily: "'DM Mono', monospace" }}>{fmt(grandTotal)}</span>
                         </div>
                       )}
 

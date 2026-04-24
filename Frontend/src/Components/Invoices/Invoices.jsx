@@ -97,18 +97,20 @@ const DrawerTab = ({ label, active, onClick, T }) => (
 
 /* ─── API → table row normaliser ────────────────────────────────────────── */
 const toRow = (inv) => ({
-  id:       inv.invoiceNumber || inv._id,
-  _id:      inv._id,
-  customer: inv.billTo?.name || inv.customerId || "—",
-  date:     inv.issueDate || inv.createdAt?.split("T")[0] || "",
-  due:      inv.dueDate   || "",
-  amount:   inv.totals?.grandTotal ?? 0,
-  paid:     0,
-  status:   inv.status || "unpaid",
-  items:    (inv.lineItems || []).length,
-  currency: inv.currency || "AED",
-  lineItems: inv.lineItems || [],
-  notes:    inv.notes || {},
+  id:         inv.invoiceNumber || inv._id,
+  _id:        inv._id,
+  customer:   inv.billTo?.name || inv.customerId || "—",
+  customerId: inv.customerId || "",
+  date:       inv.issueDate || inv.createdAt?.split("T")[0] || "",
+  due:        inv.dueDate   || "",
+  amount:     inv.totals?.grandTotal ?? 0,
+  paid:       inv.amountPaid ?? 0,
+  balance:    inv.balanceDue  ?? (inv.totals?.grandTotal ?? 0),
+  status:     inv.status || "unpaid",
+  items:      (inv.lineItems || []).length,
+  currency:   inv.currency || "AED",
+  lineItems:  inv.lineItems || [],
+  notes:      inv.notes || {},
 });
 
 /* ─── Main Component ────────────────────────────────────────────────────── */
@@ -461,10 +463,10 @@ const Invoices = () => {
                     <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                         {[
-                          { label: "Invoice Total", val: fmt(selected.amount),                              color: T.text },
-                          { label: "Paid",          val: fmt(selected.paid),                                color: T.accent2 },
-                          { label: "Balance Due",   val: fmt(selected.amount - selected.paid),              color: selected.amount - selected.paid > 0 ? T.accent : T.accent2 },
-                          { label: "Tax (VAT)",     val: fmt(selected.amount * (1 - 1/1.05)),               color: T.muted },
+                          { label: "Invoice Total", val: fmt(selected.amount),  color: T.text },
+                          { label: "Paid",          val: fmt(selected.paid),    color: T.accent2 },
+                          { label: "Balance Due",   val: fmt(selected.balance), color: selected.balance > 0 ? T.accent : T.accent2 },
+                          { label: "Tax (VAT)",     val: fmt(selected.amount - selected.amount / 1.05), color: T.muted },
                         ].map(({ label, val, color }) => (
                           <div key={label}>
                             <div style={{ fontSize: 11, color: T.muted, marginBottom: 4, letterSpacing: ".04em", textTransform: "uppercase", fontWeight: 600 }}>{label}</div>

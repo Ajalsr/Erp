@@ -367,7 +367,7 @@ export default function Inbound() {
                             style={{ fontSize: "13px", fontWeight: "700", color: T.blue, margin: 0, cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "color 0.15s" }}>
                             {item.name}
                           </p>
-                          <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0", fontFamily: "monospace" }}>{item.item_code}</p>
+                          <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0", fontFamily: "'DM Mono', monospace" }}>{item.item_code}</p>
                         </div>
                       </div>
                     </td>
@@ -416,14 +416,14 @@ export default function Inbound() {
 
                     {/* Purchase Order */}
                     <td style={{ padding: "12px 14px" }}>
-                      <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "monospace" }}>
+                      <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "'DM Mono', monospace" }}>
                         {item.poNumber}
                       </span>
                     </td>
 
                     {/* Cost / Unit */}
                     <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                      <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0, fontFamily: "monospace" }}>{fmtAED(item.costPrice)}</p>
+                      <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(item.costPrice)}</p>
                       <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>excl. VAT</p>
                     </td>
 
@@ -433,7 +433,7 @@ export default function Inbound() {
                       const lineVat  = round2(lineBase * TAX_RATE);
                       return (
                         <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                          <p style={{ fontSize: "12px", fontWeight: "700", color: "#f59e0b", margin: 0, fontFamily: "monospace" }}>{fmtAED(lineVat)}</p>
+                          <p style={{ fontSize: "12px", fontWeight: "700", color: "#f59e0b", margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(lineVat)}</p>
                           <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>{fmtAED(lineBase)} × 5%</p>
                         </td>
                       );
@@ -446,7 +446,7 @@ export default function Inbound() {
                       const lineTotal = round2(lineBase + lineVat);
                       return (
                         <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                          <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "monospace" }}>{fmtAED(lineTotal)}</p>
+                          <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(lineTotal)}</p>
                           <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>incl. VAT</p>
                         </td>
                       );
@@ -548,14 +548,14 @@ export default function Inbound() {
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < inboundTaxGroups.length - 1 ? `1px solid ${isDark ? "rgba(245,158,11,0.12)" : "#fef3c7"}` : "none" }}>
                     <div>
                       <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Rate {fmtAED(g.rate)}</p>
-                      <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "monospace" }}>{fmtAED(g.baseAmount)} × 5%</p>
+                      <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "'DM Mono', monospace" }}>{fmtAED(g.baseAmount)} × 5%</p>
                     </div>
-                    <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "monospace" }}>{fmtAED(g.taxAmount)}</span>
+                    <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(g.taxAmount)}</span>
                   </div>
                 ))}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "7px", paddingTop: "7px" }}>
                   <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
-                  <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "monospace" }}>{fmtAED(totalTax)}</span>
+                  <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalTax)}</span>
                 </div>
               </div>
 
@@ -563,7 +563,7 @@ export default function Inbound() {
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
                 <div style={{ textAlign: "right" }}>
                   <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Grand Total (incl. VAT)</p>
-                  <p className="ob-jakarta" style={{ fontSize: "20px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "monospace" }}>{fmtAED(totalValue)}</p>
+                  <p className="ob-jakarta" style={{ fontSize: "20px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalValue)}</p>
                 </div>
                 <button className="ob-btn" onClick={handleReceive}
                   style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
@@ -633,7 +633,7 @@ export default function Inbound() {
                           <h3 className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.name}</h3>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "11px", fontFamily: "monospace", color: T.textSec }}>{selected.item_code}</span>
+                          <span style={{ fontSize: "11px", fontFamily: "'DM Mono', monospace", color: T.textSec }}>{selected.item_code}</span>
                           <span style={{ fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "999px", background: sc.dim, color: sc.color, border: `1px solid ${sc.border}`, display: "inline-flex", alignItems: "center", gap: "4px" }}>
                             <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />{sc.label}
                           </span>
@@ -667,7 +667,7 @@ export default function Inbound() {
                     <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "13px 14px" }}>
                       <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>Linked Purchase Order</p>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <span style={{ fontSize: "12px", fontWeight: "700", padding: "4px 10px", borderRadius: "7px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "monospace" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "700", padding: "4px 10px", borderRadius: "7px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "'DM Mono', monospace" }}>
                           {selected.poNumber}
                         </span>
                         <span style={{ fontSize: "12px", color: T.textSec }}>{selected.vendor}</span>

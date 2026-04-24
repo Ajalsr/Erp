@@ -750,9 +750,21 @@ func GetCustomerHistory() gin.HandlerFunc {
 			return
 		}
 
-		history := []gin.H{
-			{"action": "Customer Created", "timestamp": customer.CreatedAt.Format("2006-01-02 15:04:05"), "user": customer.CreatedBy, "details": "Customer record was created in the system"},
-			{"action": "Customer Updated", "timestamp": customer.UpdatedAt.Format("2006-01-02 15:04:05"), "user": customer.UpdatedBy, "details": "Customer information was updated"},
+		// Build history from stored entries + system events
+		history := []gin.H{}
+		history = append(history, gin.H{
+			"action":    "Customer Created",
+			"timestamp": customer.CreatedAt,
+			"user":      customer.CreatedBy,
+			"details":   "Customer record was created in the system",
+		})
+		for _, h := range customer.History {
+			history = append(history, gin.H{
+				"action":    h.Action,
+				"timestamp": h.Timestamp,
+				"user":      h.User,
+				"details":   h.Details,
+			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{

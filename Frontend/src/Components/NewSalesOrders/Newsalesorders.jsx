@@ -501,8 +501,24 @@ const Newsalesorders = () => {
   const navigate=useNavigate();
 
   const salesTypeOptions=[{value:'SO',label:'SO — Standard Sale Order'},{value:'MOA',label:'MOA — Material on Approval'},{value:'MOA_COLLECT',label:'MOA Collect — Material on Approval Collect'},{value:'FREE_DELIVERY',label:'Free Delivery'}];
-  const paymentTermsOptions=[{value:'due_on_receipt',label:'Due on Receipt'},{value:'net_15',label:'Net 15'},{value:'net_30',label:'Net 30'},{value:'net_60',label:'Net 60'}];
-  const salespersonOptions=[{value:'john_doe',label:'John Doe'},{value:'jane_smith',label:'Jane Smith'},{value:'mike_johnson',label:'Mike Johnson'}];
+  const paymentTermsOptions=[
+    {value:'due_on_receipt',   label:'Due on Receipt'},
+    {value:'prepaid',          label:'Prepaid / Advance'},
+    {value:'cod',              label:'Cash on Delivery (COD)'},
+    {value:'net_7',            label:'Net 7'},
+    {value:'net_10',           label:'Net 10'},
+    {value:'net_15',           label:'Net 15'},
+    {value:'net_30',           label:'Net 30'},
+    {value:'net_45',           label:'Net 45'},
+    {value:'net_60',           label:'Net 60'},
+    {value:'net_90',           label:'Net 90'},
+    {value:'2_10_net_30',      label:'2/10 Net 30'},
+    {value:'eom',              label:'End of Month (EOM)'},
+    {value:'15_eom',           label:'15 Days after End of Month'},
+    {value:'30_eom',           label:'30 Days after End of Month'},
+    {value:'letter_of_credit', label:'Letter of Credit (LC)'},
+    {value:'bank_transfer',    label:'Bank Transfer on Delivery'},
+  ];
 
   // Calculate final line amount after discount
   const calcAmt=(q,r,d=0,dt='percentage')=>{
@@ -811,7 +827,7 @@ const Newsalesorders = () => {
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>
             <Field label="Payment Terms" req><Sel value={paymentTerms} onChange={e=>setPaymentTerms(e.target.value)} required options={paymentTermsOptions} placeholder="Select payment terms…" icon="💳"/></Field>
-            <Field label="Salesperson" req><Sel value={salesperson} onChange={e=>setSalesperson(e.target.value)} required options={salespersonOptions} placeholder="Select salesperson…" icon="👤"/></Field>
+            <Field label="Salesperson" req><input className="nso-inp" value={salesperson} onChange={e=>setSalesperson(e.target.value)} placeholder="e.g. Jane Smith"/></Field>
           </div>
         </Section>
 

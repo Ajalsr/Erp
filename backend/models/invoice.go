@@ -51,6 +51,8 @@ type Invoice struct {
 	Totals        InvoiceTotals      `json:"totals"           bson:"totals"`
 	Notes         InvoiceNotes       `json:"notes"            bson:"notes"`
 	Status        string             `json:"status"           bson:"status"`
+	AmountPaid    float64            `json:"amountPaid"       bson:"amountPaid"`
+	BalanceDue    float64            `json:"balanceDue"       bson:"balanceDue"`
 	OrgID         string             `json:"orgId,omitempty"  bson:"orgId,omitempty"`
 	CreatedAt     time.Time          `json:"createdAt"        bson:"createdAt"`
 	UpdatedAt     time.Time          `json:"updatedAt"        bson:"updatedAt"`
