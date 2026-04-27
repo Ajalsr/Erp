@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import ReactDOM from 'react-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useGetItem from '../../helper/useGetItem';
 import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
 import { debounce } from 'lodash';
 import {
-  FaPlus, FaTrash, FaChevronLeft, FaSearch,
+  FaPlus, FaTrash, FaChevronLeft,
   FaBox, FaPercent, FaMoneyBillWave, FaTag,
   FaCheckCircle, FaFileInvoiceDollar, FaBarcode,
-  FaWarehouse, FaMoneyBill,
+  FaWarehouse, FaMoneyBill, FaBuilding,
 } from 'react-icons/fa';
 
-/* ─── CSS ──────────────────────────────────────────────────────────────── */
+/* ─── CSS ─────────────────────────────────────────────────────────── */
 const buildCSS = (isDark) => {
   const bg       = isDark ? '#080d1a' : '#f1f5f9';
   const surface  = isDark ? '#0d1526' : '#ffffff';
@@ -27,21 +27,18 @@ const buildCSS = (isDark) => {
   const inpBdr   = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
   const tblHead  = isDark ? '#0a1220' : '#f8fafc';
   const scrollThumb = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
-
   return `
   @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
   .npo-root*,.npo-root *::before,.npo-root *::after{box-sizing:border-box;}
   .npo-root{font-family:'DM Sans',sans-serif;color:${text};background:${bg};}
-  .npo-root input,.npo-root select,.npo-root textarea,.npo-root button{font-family:'DM Sans',sans-serif;color:${text};}
+  .npo-root input,.npo-root textarea,.npo-root button{font-family:'DM Sans',sans-serif;color:${text};}
   .npo-root input::placeholder,.npo-root textarea::placeholder{color:${textMuted};}
   .npo-root *::-webkit-scrollbar{width:5px;height:5px;}
   .npo-root *::-webkit-scrollbar-track{background:transparent;}
   .npo-root *::-webkit-scrollbar-thumb{background:${scrollThumb};border-radius:99px;}
   @keyframes npoFadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-  @keyframes npoSlide{from{opacity:0;transform:translateY(-8px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
   @keyframes npoSpin{to{transform:rotate(360deg)}}
   .npo-card{animation:npoFadeUp .3s ease both;}
-  .npo-dd{animation:npoSlide .18s ease both;}
   .npo-inp{width:100%;padding:10px 14px;border:1.5px solid ${inpBdr};border-radius:10px;font-size:13px;color:${text};background:${inp};outline:none;transition:border-color .15s,box-shadow .15s;}
   .npo-inp:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12);}
   .npo-lbl{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${textSec};margin-bottom:6px;}
@@ -55,7 +52,7 @@ const buildCSS = (isDark) => {
   .npo-table thead tr th{padding:11px 14px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:${textMuted};background:${tblHead};border-bottom:1.5px solid ${border};text-align:left;white-space:nowrap;}
   .npo-table tbody tr{transition:background .12s;}
   .npo-table tbody tr:hover{background:${surface2};}
-  .npo-table tbody tr td{padding:12px 14px;border-bottom:1.5px solid ${border2};vertical-align:middle;}
+  .npo-table tbody tr td{padding:10px 14px;border-bottom:1.5px solid ${border2};vertical-align:middle;}
   .npo-table tbody tr:last-child td{border-bottom:none;}
   .npo-tinp{width:100%;padding:8px 11px;border:1.5px solid ${inpBdr};border-radius:8px;font-size:13px;color:${text};background:${inp};outline:none;transition:border-color .15s,box-shadow .15s;font-family:'DM Sans',sans-serif;}
   .npo-tinp:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.1);}
@@ -87,35 +84,18 @@ const buildCSS = (isDark) => {
   `;
 };
 
-/* ─── DropdownPortal (same as Newsalesorders) ──────────────────────────── */
-const DropdownPortal = ({ children, targetRef, isVisible }) => {
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
-  useEffect(() => {
-    if (targetRef?.current && isVisible) {
-      const r = targetRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom, left: r.left, width: r.width });
-    }
-  }, [targetRef, isVisible]);
-  if (!children || !isVisible) return null;
-  return ReactDOM.createPortal(
-    <div style={{ position: 'fixed', zIndex: 9999, top: pos.top + 4, left: pos.left, width: Math.max(pos.width, 480) }}>
-      {children}
-    </div>,
-    document.body
-  );
-};
-
-/* ─── Field ────────────────────────────────────────────────────────────── */
-const Field = ({ label, req, children }) => (
-  <div>
-    <label className="npo-lbl">{label}{req && <span className="npo-req">*</span>}</label>
-    {children}
-  </div>
-);
-
-/* ─── Constants ─────────────────────────────────────────────────────────── */
+/* ─── Constants ───────────────────────────────────────────────────── */
 const TAX_RATE = 0.05;
-const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+const PAYMENT_TERMS_OPTS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60'];
+const SHIP_PREFS = [
+  { value: 'standard',  label: 'Standard'  },
+  { value: 'express',   label: 'Express'   },
+  { value: 'overnight', label: 'Overnight' },
+];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+const AVATAR_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4'];
 
 const calcLineBase = (qty, rate, discount, discountType) => {
   const base = qty * rate;
@@ -124,7 +104,7 @@ const calcLineBase = (qty, rate, discount, discountType) => {
   return round2(base);
 };
 
-const buildTaxGroups = (items) => {
+const buildTaxGroups = items => {
   const order = [], groups = {};
   items.forEach(item => {
     if (!item.rate || !item.quantity) return;
@@ -136,11 +116,402 @@ const buildTaxGroups = (items) => {
   return order.map(rate => ({
     rate, taxRate: 5,
     baseAmount: round2(groups[rate].base),
-    taxAmount: round2(groups[rate].base * TAX_RATE),
+    taxAmount:  round2(groups[rate].base * TAX_RATE),
   }));
 };
 
-/* ════════════════════ MAIN ════════════════════════════════════════════════ */
+/* ─── Field wrapper ───────────────────────────────────────────────── */
+const Field = ({ label, req, children }) => (
+  <div>
+    <label className="npo-lbl">{label}{req && <span className="npo-req">*</span>}</label>
+    {children}
+  </div>
+);
+
+/* ─── VendorSelect ────────────────────────────────────────────────── */
+function VendorSelect({ value, onChange, vendors, loading, T, isDark }) {
+  const [open,    setOpen]    = useState(false);
+  const [ready,   setReady]   = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const [query,   setQuery]   = useState('');
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const rafRef     = useRef(null);
+  const searchRef  = useRef(null);
+
+  const filtered = query
+    ? vendors.filter(v =>
+        (v.displayName  || '').toLowerCase().includes(query.toLowerCase()) ||
+        (v.companyName  || '').toLowerCase().includes(query.toLowerCase()) ||
+        (v.email        || '').toLowerCase().includes(query.toLowerCase())
+      )
+    : vendors;
+
+  const getColor    = name  => AVATAR_COLORS[(name?.charCodeAt(0) || 65) % AVATAR_COLORS.length];
+  const getInitials = v     => (v.displayName || v.companyName || '?').trim().split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+
+  const measurePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const dropH = Math.min(filtered.length * 58 + 60, 340);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
+    setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 320) });
+    setReady(true);
+  }, [filtered.length]);
+
+  const handleOpen = () => {
+    if (open) { setOpen(false); setReady(false); setQuery(''); return; }
+    setReady(false); setOpen(true);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = requestAnimationFrame(() => {
+        measurePos();
+        setTimeout(() => searchRef.current?.focus(), 50);
+      });
+    });
+  };
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+  useEffect(() => {
+    if (!open) return;
+    const r = () => measurePos();
+    window.addEventListener('scroll', r, true); window.addEventListener('resize', r);
+    return () => { window.removeEventListener('scroll', r, true); window.removeEventListener('resize', r); };
+  }, [open, measurePos]);
+  useEffect(() => {
+    const h = e => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+          dropRef.current    && !dropRef.current.contains(e.target)) {
+        setOpen(false); setReady(false); setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const select = v => { onChange(v); setOpen(false); setReady(false); setQuery(''); };
+
+  const activeColor = isDark ? '#60a5fa' : '#2563eb';
+  const activeBg    = isDark ? 'rgba(59,130,246,.15)' : '#eff6ff';
+  const hoverBg     = isDark ? 'rgba(255,255,255,.05)' : '#f8fafc';
+
+  const dropdown = (
+    <div ref={dropRef} style={{
+      position: 'absolute', top: dropPos.top, left: dropPos.left, width: dropPos.width,
+      zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14,
+      fontFamily: "'DM Sans',sans-serif",
+      boxShadow: isDark ? '0 20px 60px rgba(0,0,0,.6)' : '0 20px 60px rgba(0,0,0,.15)',
+      overflow: 'hidden', visibility: ready ? 'visible' : 'hidden',
+      opacity: ready ? 1 : 0, transition: 'opacity .12s ease',
+    }}>
+      <div style={{ padding: '10px 10px 6px', borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px', height: 36, border: `1.5px solid ${T.border}`, borderRadius: 9, background: T.surface2 }}>
+          <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth={2.5} strokeLinecap="round">
+            <circle cx={11} cy={11} r={8}/><line x1={21} y1={21} x2={16.65} y2={16.65}/>
+          </svg>
+          <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="Search vendors…" onClick={e => e.stopPropagation()}
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 12, color: T.textPri, fontFamily: 'inherit' }} />
+          {query && (
+            <button onClick={e => { e.stopPropagation(); setQuery(''); }}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: T.textSec, display: 'flex' }}>
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                <line x1={18} y1={6} x2={6} y2={18}/><line x1={6} y1={6} x2={18} y2={18}/>
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+      <div style={{ maxHeight: 280, overflowY: 'auto', padding: 6 }}>
+        {loading ? (
+          <div style={{ padding: 24, textAlign: 'center', color: T.textSec, fontSize: 12 }}>
+            <div style={{ width: 16, height: 16, border: `2px solid ${T.border}`, borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'npoSpin .7s linear infinite', margin: '0 auto 8px' }} />
+            Loading vendors…
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 24, textAlign: 'center', color: T.textSec, fontSize: 12 }}>
+            {query ? 'No vendors match your search' : 'No vendors found. Add vendors first.'}
+          </div>
+        ) : filtered.map(v => {
+          const isAct = value?._id === v._id;
+          const color = getColor(v.displayName || v.companyName);
+          return (
+            <div key={v._id} onClick={() => select(v)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10, cursor: 'pointer', background: isAct ? activeBg : 'transparent', transition: 'background .1s' }}
+              onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = 'transparent'; }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, background: `${color}22`, border: `1.5px solid ${color}44`, color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 800 }}>
+                {getInitials(v)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: isAct ? 700 : 600, color: isAct ? activeColor : T.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {v.displayName || v.companyName || 'Unknown'}
+                </div>
+                <div style={{ fontSize: 11, color: T.textSec, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {(v.companyName && v.displayName !== v.companyName) ? v.companyName : (v.email || '')}
+                </div>
+              </div>
+              {v.vendorType && (
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: `${color}18`, color, border: `1px solid ${color}33`, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  {v.vendorType}
+                </span>
+              )}
+              {isAct && (
+                <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke={activeColor} strokeWidth={2.5} strokeLinecap="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const displayName = value?.displayName || value?.companyName || '';
+  const triggerColor = displayName ? getColor(displayName) : T.textSec;
+
+  return (
+    <div ref={triggerRef} onClick={handleOpen}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 42, border: `1.5px solid ${open ? (isDark ? 'rgba(59,130,246,.55)' : '#93c5fd') : T.border}`, borderRadius: 10, background: T.surface, cursor: 'pointer', boxShadow: open ? `0 0 0 3px ${isDark ? 'rgba(59,130,246,.1)' : 'rgba(147,197,253,.2)'}` : 'none', transition: 'border-color .15s,box-shadow .15s', userSelect: 'none', boxSizing: 'border-box' }}>
+      {displayName ? (
+        <div style={{ width: 24, height: 24, borderRadius: 7, background: `${triggerColor}22`, border: `1.5px solid ${triggerColor}44`, color: triggerColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, fontFamily: "'Sora',sans-serif", flexShrink: 0 }}>
+          {getInitials(value)}
+        </div>
+      ) : (
+        <FaBuilding size={13} style={{ color: T.textSec, flexShrink: 0 }} />
+      )}
+      <span style={{ flex: 1, fontSize: 13, color: displayName ? T.textPri : (isDark ? 'rgba(255,255,255,.25)' : '#cbd5e1'), fontWeight: displayName ? 500 : 400 }}>
+        {displayName || 'Select vendor…'}
+      </span>
+      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={open ? (isDark ? '#60a5fa' : '#2563eb') : T.textSec} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'transform .2s', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+      {open && createPortal(dropdown, document.body)}
+    </div>
+  );
+}
+
+/* ─── CustomSelect ────────────────────────────────────────────────── */
+function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isDark }) {
+  const [open,    setOpen]    = useState(false);
+  const [ready,   setReady]   = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const rafRef     = useRef(null);
+
+  const measurePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const dropH = Math.min(options.length * 40 + 12, 280);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
+    setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width });
+    setReady(true);
+  }, [options.length]);
+
+  const handleOpen = () => {
+    if (open) { setOpen(false); setReady(false); return; }
+    setReady(false); setOpen(true);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = requestAnimationFrame(() => measurePos());
+    });
+  };
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+  useEffect(() => {
+    if (!open) return;
+    const r = () => measurePos();
+    window.addEventListener('scroll', r, true); window.addEventListener('resize', r);
+    return () => { window.removeEventListener('scroll', r, true); window.removeEventListener('resize', r); };
+  }, [open, measurePos]);
+  useEffect(() => {
+    const h = e => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+          dropRef.current    && !dropRef.current.contains(e.target)) {
+        setOpen(false); setReady(false);
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const select = opt => { onChange(opt.value ?? opt); setOpen(false); setReady(false); };
+  const selected = options.find(o => (o.value ?? o) === value);
+  const display  = selected ? (selected.label ?? selected) : null;
+
+  const activeColor = isDark ? '#60a5fa' : '#2563eb';
+  const activeBg    = isDark ? 'rgba(59,130,246,.15)' : '#eff6ff';
+  const hoverBg     = isDark ? 'rgba(255,255,255,.05)' : '#f8fafc';
+
+  const dropdown = (
+    <div ref={dropRef} style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12, fontFamily: "'DM Sans',sans-serif", boxShadow: isDark ? '0 16px 48px rgba(0,0,0,.5)' : '0 16px 48px rgba(0,0,0,.12)', overflow: 'hidden', visibility: ready ? 'visible' : 'hidden', opacity: ready ? 1 : 0, transition: 'opacity .12s ease' }}>
+      <div style={{ maxHeight: 268, overflowY: 'auto', padding: 6 }}>
+        {options.map((opt, i) => {
+          const val = opt.value ?? opt; const lbl = opt.label ?? opt; const isAct = val === value;
+          return (
+            <div key={i} onClick={() => select(opt)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: isAct ? 600 : 400, color: isAct ? activeColor : T.textPri, background: isAct ? activeBg : 'transparent', transition: 'background .1s' }}
+              onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = 'transparent'; }}>
+              {lbl}
+              {isAct && (
+                <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke={activeColor} strokeWidth={2.5} strokeLinecap="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div ref={triggerRef} onClick={handleOpen}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 42, padding: '0 14px', border: `1.5px solid ${open ? (isDark ? 'rgba(59,130,246,.55)' : '#93c5fd') : T.border}`, borderRadius: 10, background: T.surface, cursor: 'pointer', boxShadow: open ? `0 0 0 3px ${isDark ? 'rgba(59,130,246,.1)' : 'rgba(147,197,253,.2)'}` : 'none', transition: 'border-color .15s,box-shadow .15s', userSelect: 'none', boxSizing: 'border-box' }}>
+      <span style={{ fontSize: 13, color: display ? T.textPri : (isDark ? 'rgba(255,255,255,.25)' : '#cbd5e1'), fontWeight: display ? 500 : 400 }}>
+        {display || placeholder}
+      </span>
+      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={open ? (isDark ? '#60a5fa' : '#2563eb') : T.textSec} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'transform .2s', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+      {open && createPortal(dropdown, document.body)}
+    </div>
+  );
+}
+
+/* ─── DatePicker ──────────────────────────────────────────────────── */
+function DatePicker({ value, onChange, placeholder = 'Select date', T, isDark }) {
+  const [open,      setOpen]      = useState(false);
+  const [ready,     setReady]     = useState(false);
+  const [viewYear,  setViewYear]  = useState(() => value ? new Date(value).getFullYear()  : new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => value ? new Date(value).getMonth()     : new Date().getMonth());
+  const [pickingY,  setPickingY]  = useState(false);
+  const [dropPos,   setDropPos]   = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const rafRef     = useRef(null);
+
+  const measurePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > 340 ? r.bottom + 6 : r.top - 340 - 6;
+    setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 280) });
+    setReady(true);
+  }, []);
+
+  const handleOpen = () => {
+    if (open) { setOpen(false); setReady(false); setPickingY(false); return; }
+    setReady(false); setOpen(true);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = requestAnimationFrame(() => measurePos());
+    });
+  };
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+  useEffect(() => {
+    if (!open) return;
+    const r = () => measurePos();
+    window.addEventListener('scroll', r, true); window.addEventListener('resize', r);
+    return () => { window.removeEventListener('scroll', r, true); window.removeEventListener('resize', r); };
+  }, [open, measurePos]);
+  useEffect(() => {
+    const h = e => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+          dropRef.current    && !dropRef.current.contains(e.target)) {
+        setOpen(false); setReady(false);
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const parsed      = value ? new Date(value + 'T00:00:00') : null;
+  const display     = parsed ? `${String(parsed.getDate()).padStart(2,'0')} ${MONTHS[parsed.getMonth()].slice(0,3)} ${parsed.getFullYear()}` : '';
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDay    = new Date(viewYear, viewMonth, 1).getDay();
+  const yearRange   = Array.from({ length: 31 }, (_, i) => new Date().getFullYear() - 10 + i);
+
+  const selectDay = d => {
+    onChange(`${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+    setOpen(false); setReady(false);
+  };
+  const prevMonth = e => { e.stopPropagation(); viewMonth === 0 ? (setViewMonth(11), setViewYear(y => y-1)) : setViewMonth(m => m-1); };
+  const nextMonth = e => { e.stopPropagation(); viewMonth === 11 ? (setViewMonth(0), setViewYear(y => y+1)) : setViewMonth(m => m+1); };
+  const isSelected = d => parsed && parsed.getDate()===d && parsed.getMonth()===viewMonth && parsed.getFullYear()===viewYear;
+  const isToday    = d => { const t = new Date(); return t.getDate()===d && t.getMonth()===viewMonth && t.getFullYear()===viewYear; };
+
+  const blueC   = isDark ? '#60a5fa' : '#2563eb';
+  const blueDim = isDark ? 'rgba(59,130,246,.15)' : '#eff6ff';
+  const blueBrd = isDark ? 'rgba(59,130,246,.3)'  : '#bfdbfe';
+
+  const calendar = (
+    <div ref={dropRef} style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, boxShadow: isDark ? '0 20px 60px rgba(0,0,0,.5)' : '0 20px 60px rgba(0,0,0,.15)', padding: 16, width: dropPos.width, fontFamily: "'DM Sans',sans-serif", boxSizing: 'border-box', visibility: ready ? 'visible' : 'hidden', opacity: ready ? 1 : 0, transition: 'opacity .12s ease' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <button type="button" onClick={prevMonth} style={{ width: 30, height: 30, border: `1.5px solid ${T.border}`, borderRadius: 8, background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button type="button" onClick={e => { e.stopPropagation(); setPickingY(p => !p); }} style={{ display: 'flex', alignItems: 'center', gap: 5, background: pickingY ? blueDim : 'transparent', border: pickingY ? `1.5px solid ${blueBrd}` : '1.5px solid transparent', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: T.textPri }}>
+          {MONTHS[viewMonth]} {viewYear}
+          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth={2.5}><polyline points={pickingY ? '18 15 12 9 6 15' : '6 9 12 15 18 9'}/></svg>
+        </button>
+        <button type="button" onClick={nextMonth} style={{ width: 30, height: 30, border: `1.5px solid ${T.border}`, borderRadius: 8, background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+
+      {pickingY ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4, maxHeight: 200, overflowY: 'auto' }}>
+          {yearRange.map(y => (
+            <button key={y} type="button" onClick={e => { e.stopPropagation(); setViewYear(y); setPickingY(false); }}
+              style={{ padding: '7px 2px', borderRadius: 7, fontSize: 12, fontWeight: y === viewYear ? 700 : 400, border: 'none', cursor: 'pointer', background: y === viewYear ? blueC : 'transparent', color: y === viewYear ? '#fff' : T.textPri }}>
+              {y}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 6 }}>
+            {DAYS.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 600, color: T.textSec, padding: '3px 0', textTransform: 'uppercase', letterSpacing: '.04em' }}>{d}</div>)}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+            {Array(firstDay).fill(null).map((_, i) => <div key={`e${i}`} />)}
+            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => (
+              <button key={d} type="button" onClick={e => { e.stopPropagation(); selectDay(d); }}
+                style={{ aspectRatio: '1', borderRadius: 8, fontSize: 12, fontWeight: isSelected(d) ? 700 : isToday(d) ? 600 : 400, border: isToday(d) && !isSelected(d) ? `1.5px solid ${blueBrd}` : 'none', cursor: 'pointer', background: isSelected(d) ? blueC : 'transparent', color: isSelected(d) ? '#fff' : isToday(d) ? blueC : T.textPri, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 30 }}
+                onMouseEnter={e => { if (!isSelected(d)) e.currentTarget.style.background = blueDim; }}
+                onMouseLeave={e => { if (!isSelected(d)) e.currentTarget.style.background = 'transparent'; }}>
+                {d}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+            <button type="button" onClick={e => { e.stopPropagation(); const t = new Date(); setViewMonth(t.getMonth()); setViewYear(t.getFullYear()); selectDay(t.getDate()); }} style={{ flex: 1, padding: 7, background: blueDim, border: `1.5px solid ${blueBrd}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: blueC, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Today</button>
+            <button type="button" onClick={e => { e.stopPropagation(); onChange(''); setOpen(false); setReady(false); }} style={{ flex: 1, padding: 7, background: T.surface2, border: `1.5px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 500, color: T.textSec, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Clear</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div ref={triggerRef} onClick={handleOpen}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 42, padding: '0 14px', border: `1.5px solid ${open ? (isDark ? 'rgba(59,130,246,.55)' : '#93c5fd') : T.border}`, borderRadius: 10, background: T.surface, cursor: 'pointer', boxShadow: open ? `0 0 0 3px ${isDark ? 'rgba(59,130,246,.1)' : 'rgba(147,197,253,.2)'}` : 'none', transition: 'border-color .15s,box-shadow .15s', userSelect: 'none', width: '100%', boxSizing: 'border-box' }}>
+      <span style={{ fontSize: 13, color: display ? T.textPri : (isDark ? 'rgba(255,255,255,.25)' : '#cbd5e1'), fontWeight: display ? 500 : 400 }}>
+        {display || placeholder}
+      </span>
+      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={open ? blueC : T.textSec} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        <rect x={3} y={4} width={18} height={18} rx={2}/><line x1={16} y1={2} x2={16} y2={6}/><line x1={8} y1={2} x2={8} y2={6}/><line x1={3} y1={10} x2={21} y2={10}/>
+      </svg>
+      {open && createPortal(calendar, document.body)}
+    </div>
+  );
+}
+
+/* ════════════════════ MAIN ══════════════════════════════════════════ */
 export default function Newpurchaseorders() {
   const navigate = useNavigate();
   const isDark   = useThemeStore(s => s.isDark);
@@ -157,25 +528,38 @@ export default function Newpurchaseorders() {
   const itemInputRefs = useRef([]);
 
   /* ── Form state ── */
-  const [vendor,        setVendor]        = useState('');
-  const [orderDate,     setOrderDate]     = useState(new Date().toISOString().split('T')[0]);
-  const [expectedDate,  setExpectedDate]  = useState('');
-  const [paymentTerms,  setPaymentTerms]  = useState('Due on Receipt');
-  const [deliveryAddr,  setDeliveryAddr]  = useState('organization');
-  const [shipPref,      setShipPref]      = useState('');
-  const [referenceNo,   setReferenceNo]   = useState('');
-  const [customerNotes, setCustomerNotes] = useState('');
-  const [terms,         setTerms]         = useState('');
-  const [shipping,      setShipping]      = useState('0');
-  const [adjustment,    setAdjustment]    = useState('0');
-  const [saving,        setSaving]        = useState(false);
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [vendors,        setVendors]        = useState([]);
+  const [vendorsLoading, setVendorsLoading] = useState(false);
+  const [orderDate,      setOrderDate]      = useState(new Date().toISOString().split('T')[0]);
+  const [expectedDate,   setExpectedDate]   = useState('');
+  const [paymentTerms,   setPaymentTerms]   = useState('Due on Receipt');
+  const [deliveryAddr,   setDeliveryAddr]   = useState('organization');
+  const [shipPref,       setShipPref]       = useState('');
+  const [referenceNo,    setReferenceNo]    = useState('');
+  const [customerNotes,  setCustomerNotes]  = useState('');
+  const [terms,          setTerms]          = useState('');
+  const [shipping,       setShipping]       = useState('0');
+  const [adjustment,     setAdjustment]     = useState('0');
+  const [saving,         setSaving]         = useState(false);
 
   /* ── Inventory ── */
   const { handleGetItem, data: inventoryData, loading: inventoryLoading } = useGetItem();
+  useEffect(() => { handleGetItem(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { handleGetItem(); }, []);
+  /* ── Vendors ── */
+  useEffect(() => {
+    const fetch = async () => {
+      setVendorsLoading(true);
+      try {
+        const res = await axiosInstance.get('/api/vendors/?limit=200');
+        setVendors(res.data?.data?.vendors || []);
+      } catch { /* silent */ } finally { setVendorsLoading(false); }
+    };
+    fetch();
+  }, []);
 
-  /* ── Filter — same pattern as Newsalesorders ── */
+  /* ── Filter items ── */
   useEffect(() => {
     if (!inventoryData) return;
     setFilteredItems(
@@ -189,7 +573,7 @@ export default function Newpurchaseorders() {
     );
   }, [searchTerm, inventoryData]);
 
-  /* ── Close dropdown on outside click ── */
+  /* ── Close item dropdown on outside click ── */
   useEffect(() => {
     const h = e => {
       if (showItemDropdown !== null) {
@@ -202,7 +586,7 @@ export default function Newpurchaseorders() {
     return () => document.removeEventListener('mousedown', h);
   }, [showItemDropdown]);
 
-  const debouncedSearch = useCallback(debounce(t => setSearchTerm(t), 300), []);
+  const debouncedSearch = useCallback(debounce(t => setSearchTerm(t), 300), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Computed totals ── */
   const computedItems = items.map(item => {
@@ -221,7 +605,7 @@ export default function Newpurchaseorders() {
   const adjAmt     = round2(parseFloat(adjustment) || 0);
   const grandTotal = round2(subTotal + totalTax + shipAmt + adjAmt);
   const hasItemsAdded = items.some(i => i.details && i.quantity > 0);
-  const fmtAED = (n) => `AED ${(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2 })}`;
+  const fmtAED = n => `AED ${(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2 })}`;
 
   /* ── Item handlers ── */
   const addNewRow = () => {
@@ -229,7 +613,7 @@ export default function Newpurchaseorders() {
     setItems([...items, { id, itemId: '', details: '', sku: '', quantity: 1, rate: '', discount: '', discountType: 'percentage', amount: '', unit: '' }]);
   };
 
-  const handleRemoveItem = (idx) => {
+  const handleRemoveItem = idx => {
     if (items.length <= 1) {
       const u = [...items];
       u[idx] = { id: u[idx].id, itemId: '', details: '', sku: '', quantity: 1, rate: '', discount: '', discountType: 'percentage', amount: '', unit: '' };
@@ -246,9 +630,7 @@ export default function Newpurchaseorders() {
     const disc = parseFloat(u[idx].discount) || 0;
     const base = calcLineBase(qty, rate, disc, u[idx].discountType);
     u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.sku || sel.item_code || '', rate, unit: sel.unit || sel.Unit || 'pcs', quantity: qty, amount: String(round2(base + base * TAX_RATE)) };
-    setItems(u);
-    setShowItemDropdown(null);
-    setSearchTerm('');
+    setItems(u); setShowItemDropdown(null); setSearchTerm('');
   };
 
   const handleQuantityChange = (idx, val) => {
@@ -266,27 +648,27 @@ export default function Newpurchaseorders() {
   };
 
   const handleDiscountChange = (idx, val) => {
-    const u = [...items];
-    u[idx].discount = val;
+    const u = [...items]; u[idx].discount = val;
     if (u[idx].quantity && u[idx].rate) { const base = calcLineBase(parseFloat(u[idx].quantity)||0, parseFloat(u[idx].rate)||0, parseFloat(val)||0, u[idx].discountType); u[idx].amount = String(round2(base + base * TAX_RATE)); }
     setItems(u);
   };
 
   const handleDiscountTypeChange = (idx, type) => {
-    const u = [...items];
-    u[idx].discountType = type;
+    const u = [...items]; u[idx].discountType = type;
     if (u[idx].quantity && u[idx].rate && u[idx].discount) { const base = calcLineBase(parseFloat(u[idx].quantity)||0, parseFloat(u[idx].rate)||0, parseFloat(u[idx].discount)||0, type); u[idx].amount = String(round2(base + base * TAX_RATE)); }
     setItems(u);
   };
 
   /* ── Submit ── */
   const handleSubmit = async (status = 'draft') => {
-    if (!vendor.trim()) { nexusToast.error('Vendor name is required'); return; }
-    if (!hasItemsAdded) { nexusToast.error('Add at least one item'); return; }
+    if (!selectedVendor) { nexusToast.error('Vendor is required'); return; }
+    if (!hasItemsAdded)  { nexusToast.error('Add at least one item'); return; }
     setSaving(true);
     try {
       const payload = {
-        vendorName: vendor, orderDate: new Date(orderDate).toISOString(),
+        vendorId:   selectedVendor._id,
+        vendorName: selectedVendor.displayName || selectedVendor.companyName || '',
+        orderDate: new Date(orderDate).toISOString(),
         expectedDeliveryDate: expectedDate ? new Date(expectedDate).toISOString() : null,
         paymentTerms, deliveryAddress: deliveryAddr, shipmentPreference: shipPref, referenceNo,
         items: computedItems.filter(i => i.details && i.quantity > 0).map(i => ({
@@ -303,7 +685,17 @@ export default function Newpurchaseorders() {
     } finally { setSaving(false); }
   };
 
-  /* ─────────────────────────── RENDER ─────────────────────────────────── */
+  /* ── Item dropdown portal ── */
+  const [itemDropPos, setItemDropPos] = useState({ top: 0, left: 0, width: 0 });
+  useEffect(() => {
+    if (showItemDropdown === null) return;
+    const el = itemInputRefs.current[showItemDropdown];
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setItemDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: Math.max(r.width, 480) });
+  }, [showItemDropdown]);
+
+  /* ─────────────────────────── RENDER ──────────────────────────── */
   return (
     <div className="npo-root" style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px' }}>
       <style>{buildCSS(isDark)}</style>
@@ -327,8 +719,10 @@ export default function Newpurchaseorders() {
               <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>
               <button onClick={() => navigate('/Purchase/Purchaseorders')} className="npo-bg">Cancel</button>
               <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save Draft'}</button>
-              <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !vendor.trim() || !hasItemsAdded}>
-                {saving ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</> : <><FaCheckCircle size={12} />Save & Submit</>}
+              <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
+                {saving
+                  ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
+                  : <><FaCheckCircle size={12} />Save & Submit</>}
               </button>
             </div>
           </div>
@@ -338,26 +732,30 @@ export default function Newpurchaseorders() {
         <div className="npo-section npo-card">
           <div className="npo-sbar" style={{ background: 'linear-gradient(90deg,#3b82f6,transparent 80%)' }} />
           <div className="npo-sin">
-            <div className="npo-stitle"><div className="npo-sicon" style={{ background: '#3b82f618', color: '#3b82f6' }}><FaFileInvoiceDollar /></div>Order Details</div>
+            <div className="npo-stitle">
+              <div className="npo-sicon" style={{ background: '#3b82f618', color: '#3b82f6' }}><FaFileInvoiceDollar /></div>
+              Order Details
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
               <div style={{ gridColumn: '1/-1' }}>
-                <Field label="Vendor Name" req><input className="npo-inp" value={vendor} onChange={e => setVendor(e.target.value)} placeholder="Enter vendor name" /></Field>
+                <Field label="Vendor" req>
+                  <VendorSelect value={selectedVendor} onChange={setSelectedVendor} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} />
+                </Field>
               </div>
-              <Field label="Reference #"><input className="npo-inp" value={referenceNo} onChange={e => setReferenceNo(e.target.value)} placeholder="PO-REF-001" style={{ fontFamily: "'DM Mono',monospace" }} /></Field>
-              <Field label="Order Date" req><input className="npo-inp" type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} /></Field>
-              <Field label="Expected Delivery"><input className="npo-inp" type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)} /></Field>
+              <Field label="Reference #">
+                <input className="npo-inp" value={referenceNo} onChange={e => setReferenceNo(e.target.value)} placeholder="PO-REF-001" style={{ fontFamily: "'DM Mono',monospace" }} />
+              </Field>
+              <Field label="Order Date" req>
+                <DatePicker value={orderDate} onChange={setOrderDate} placeholder="Select order date" T={T} isDark={isDark} />
+              </Field>
+              <Field label="Expected Delivery">
+                <DatePicker value={expectedDate} onChange={setExpectedDate} placeholder="Select expected date" T={T} isDark={isDark} />
+              </Field>
               <Field label="Payment Terms">
-                <select className="npo-inp" style={{ appearance: 'none', cursor: 'pointer' }} value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)}>
-                  {['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60'].map(t => <option key={t}>{t}</option>)}
-                </select>
+                <CustomSelect value={paymentTerms} onChange={setPaymentTerms} options={PAYMENT_TERMS_OPTS} placeholder="Select terms" T={T} isDark={isDark} />
               </Field>
               <Field label="Shipment Preference">
-                <select className="npo-inp" style={{ appearance: 'none', cursor: 'pointer' }} value={shipPref} onChange={e => setShipPref(e.target.value)}>
-                  <option value="">Choose preference</option>
-                  <option value="standard">Standard</option>
-                  <option value="express">Express</option>
-                  <option value="overnight">Overnight</option>
-                </select>
+                <CustomSelect value={shipPref} onChange={setShipPref} options={SHIP_PREFS} placeholder="Choose preference" T={T} isDark={isDark} />
               </Field>
               <div style={{ gridColumn: '1/-1' }}>
                 <Field label="Delivery Address">
@@ -403,52 +801,65 @@ export default function Newpurchaseorders() {
                     const comp = computedItems[index];
                     return (
                       <tr key={item.id}>
+                        {/* Item details cell — SKU row always rendered to keep row height stable */}
                         <td>
-                          <div style={{ position: 'relative' }} ref={el => itemInputRefs.current[index] = el}>
+                          <div ref={el => itemInputRefs.current[index] = el}>
                             <input className="npo-tinp" placeholder="Search or type item name…" value={item.details}
                               onChange={e => {
                                 const u = [...items]; u[index].details = e.target.value; setItems(u);
-                                debouncedSearch(e.target.value);
-                                setShowItemDropdown(index);
+                                debouncedSearch(e.target.value); setShowItemDropdown(index);
                               }}
                               onFocus={() => { setShowItemDropdown(index); if (!item.details) setSearchTerm(''); }}
                             />
-                            {item.sku && (
-                              <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: T.textSec }}>
-                                <FaBarcode style={{ fontSize: 9 }} />
-                                <span style={{ fontFamily: "'DM Mono',monospace" }}>{item.sku}</span>
-                                {item.unit && <span>· {item.unit}</span>}
-                              </div>
-                            )}
+                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: T.textSec, visibility: item.sku ? 'visible' : 'hidden', height: 14 }}>
+                              <FaBarcode style={{ fontSize: 9, flexShrink: 0 }} />
+                              <span style={{ fontFamily: "'DM Mono',monospace" }}>{item.sku}</span>
+                              {item.unit && <span>· {item.unit}</span>}
+                            </div>
+                          </div>
+                        </td>
+                        {/* Quantity — wrapped to vertically center within taller cell */}
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: 52 }}>
+                            <div className="npo-qty">
+                              <button className="npo-qbtn" onClick={() => handleQuantityChange(index, Math.max(1, (parseFloat(item.quantity)||1) - 1))}>−</button>
+                              <input type="number" className="npo-qnum" value={item.quantity} onChange={e => handleQuantityChange(index, e.target.value)} min="1" />
+                              <button className="npo-qbtn" onClick={() => handleQuantityChange(index, (parseFloat(item.quantity)||1) + 1)}>+</button>
+                            </div>
                           </div>
                         </td>
                         <td>
-                          <div className="npo-qty">
-                            <button className="npo-qbtn" onClick={() => handleQuantityChange(index, Math.max(1, (parseFloat(item.quantity)||1) - 1))}>−</button>
-                            <input type="number" className="npo-qnum" value={item.quantity} onChange={e => handleQuantityChange(index, e.target.value)} min="1" />
-                            <button className="npo-qbtn" onClick={() => handleQuantityChange(index, (parseFloat(item.quantity)||1) + 1)}>+</button>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: 52 }}>
+                            <input type="text" value={item.rate} onChange={e => handleRateChange(index, e.target.value)} className="npo-tinp" placeholder="0.00" style={{ fontFamily: "'DM Mono',monospace", width: 110 }} />
                           </div>
                         </td>
-                        <td><input type="text" value={item.rate} onChange={e => handleRateChange(index, e.target.value)} className="npo-tinp" placeholder="0.00" style={{ fontFamily: "'DM Mono',monospace", width: 110 }} /></td>
                         <td>
-                          <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <button type="button" className="npo-dtype"
-                              onClick={() => handleDiscountTypeChange(index, item.discountType === 'percentage' ? 'fixed' : 'percentage')}
-                              style={{ minWidth: 52, fontFamily: "'DM Mono',monospace", fontSize: 11, fontWeight: 700 }}>
-                              {item.discountType === 'percentage' ? <><FaPercent style={{ fontSize: 9 }} />&nbsp;<span>%</span></> : <><span style={{ fontSize: 10 }}>AED</span></>}
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: 52 }}>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <button type="button" className="npo-dtype"
+                                onClick={() => handleDiscountTypeChange(index, item.discountType === 'percentage' ? 'fixed' : 'percentage')}
+                                style={{ minWidth: 52, fontFamily: "'DM Mono',monospace", fontSize: 11, fontWeight: 700 }}>
+                                {item.discountType === 'percentage' ? <><FaPercent style={{ fontSize: 9 }} />&nbsp;<span>%</span></> : <><span style={{ fontSize: 10 }}>AED</span></>}
+                              </button>
+                              <input type="number" value={item.discount} onChange={e => handleDiscountChange(index, e.target.value)} className="npo-dinp"
+                                placeholder={item.discountType === 'percentage' ? '0' : '0.00'} min="0" style={{ width: 72 }} />
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-end', height: 52 }}>
+                            <div className="npo-amt">{fmtAED(comp?.base || 0)}</div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: 52 }}>
+                            <button onClick={() => handleRemoveItem(index)}
+                              style={{ width: 28, height: 28, borderRadius: 8, border: '1.5px solid #fecaca', background: '#fef2f2', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, transition: 'all .12s' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#ef4444'; }}>
+                              <FaTrash />
                             </button>
-                            <input type="number" value={item.discount} onChange={e => handleDiscountChange(index, e.target.value)} className="npo-dinp"
-                              placeholder={item.discountType === 'percentage' ? '0' : '0.00'} min="0" style={{ width: 72 }} />
                           </div>
-                        </td>
-                        <td style={{ textAlign: 'right' }}><div className="npo-amt">{fmtAED(comp?.base || 0)}</div></td>
-                        <td>
-                          <button onClick={() => handleRemoveItem(index)}
-                            style={{ width: 28, height: 28, borderRadius: 8, border: '1.5px solid #fecaca', background: '#fef2f2', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, transition: 'all .12s' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#ef4444'; }}>
-                            <FaTrash />
-                          </button>
                         </td>
                       </tr>
                     );
@@ -467,12 +878,12 @@ export default function Newpurchaseorders() {
             </div>
 
             {/* Item Dropdown Portal */}
-            <DropdownPortal targetRef={{ current: itemInputRefs.current[showItemDropdown] }} isVisible={showItemDropdown !== null}>
-              <div className="item-dropdown-po npo-idd npo-dd">
+            {showItemDropdown !== null && createPortal(
+              <div className="item-dropdown-po npo-idd"
+                style={{ position: 'absolute', top: itemDropPos.top, left: itemDropPos.left, width: itemDropPos.width, zIndex: 9999 }}>
                 {inventoryLoading ? (
                   <div style={{ padding: 20, textAlign: 'center', color: T.textSec, fontSize: 13 }}>
-                    <div style={{ width: 16, height: 16, border: `2px solid ${T.border}`, borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'npoSpin .7s linear infinite', margin: '0 auto 8px' }} />
-                    Loading items…
+                    <div style={{ width: 16, height: 16, border: `2px solid ${T.border}`, borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'npoSpin .7s linear infinite', margin: '0 auto 8px' }} />Loading items…
                   </div>
                 ) : filteredItems.length === 0 ? (
                   <div style={{ padding: 24, textAlign: 'center', color: T.textSec, fontSize: 13 }}>
@@ -508,14 +919,14 @@ export default function Newpurchaseorders() {
                               </div>
                             ))}
                           </div>
-                          {inv.item_code && <div style={{ marginTop: 6, fontSize: 10, color: T.textSec, fontFamily: "'DM Mono',monospace" }}>Code: {inv.item_code}</div>}
                         </div>
                       </div>
                     ))}
                   </>
                 )}
-              </div>
-            </DropdownPortal>
+              </div>,
+              document.body
+            )}
           </div>
         </div>
 
@@ -562,7 +973,7 @@ export default function Newpurchaseorders() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16, paddingTop: 16, borderTop: `1.5px solid ${T.border}` }}>
                 {[
                   { label: 'Line Items', val: items.filter(i => i.details).length, color: T.blue, bg: isDark ? 'rgba(59,130,246,0.12)' : '#eff6ff' },
-                  { label: 'Total Qty', val: items.reduce((t, i) => t + (parseFloat(i.quantity)||0), 0), color: T.green, bg: isDark ? 'rgba(16,185,129,0.12)' : '#f0fdf4' },
+                  { label: 'Total Qty',  val: items.reduce((t, i) => t + (parseFloat(i.quantity)||0), 0), color: T.green, bg: isDark ? 'rgba(16,185,129,0.12)' : '#f0fdf4' },
                 ].map(s => (
                   <div key={s.label} style={{ textAlign: 'center', padding: '12px 8px', background: s.bg, borderRadius: 12 }}>
                     <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 22, fontWeight: 800, color: s.color }}>{s.val}</div>
@@ -598,8 +1009,10 @@ export default function Newpurchaseorders() {
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={() => navigate('/Purchase/Purchaseorders')} className="npo-bg">Cancel</button>
             <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save as Draft'}</button>
-            <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !vendor.trim() || !hasItemsAdded}>
-              {saving ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</> : <><FaCheckCircle size={12} />Save & Submit</>}
+            <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
+              {saving
+                ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
+                : <><FaCheckCircle size={12} />Save & Submit</>}
             </button>
           </div>
         </div>
