@@ -19,7 +19,7 @@ const useGetVendors = () => {
   const handleGetVendors = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axiosInstance.get("/vendors/?limit=200");
+      const res = await axiosInstance.get("/api/vendors/?limit=200");
       setData(res.data?.data?.vendors || []);
     } catch (e) {
       setError(e.message);
