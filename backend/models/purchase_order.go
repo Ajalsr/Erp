@@ -54,6 +54,7 @@ type PurchaseOrder struct {
 	CustomerNotes      string `json:"customerNotes"      bson:"customerNotes"`
 	TermsAndConditions string `json:"termsAndConditions" bson:"termsAndConditions"`
 	Status             string `json:"status"             bson:"status"`
+	OrgID              string `json:"orgId,omitempty"    bson:"orgId,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt" bson:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt" bson:"updatedAt"`

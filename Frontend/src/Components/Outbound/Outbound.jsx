@@ -183,8 +183,10 @@ export default function Outbound() {
   const updateQty = (id, val) => {
     const item = outboundItems.find(i => i._id === id);
     if (!item) return;
-    const max = item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity;
-    const qty = Math.max(1, Math.min(parseInt(val) || 1, max));
+    const qty = Math.min(
+      Math.max(item.orderedQuantity, parseInt(val) || item.orderedQuantity),
+      item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity
+    );
     setOutboundItems(p => p.map(i => i._id === id ? { ...i, outboundQuantity: qty } : i));
   };
 
@@ -540,20 +542,22 @@ export default function Outbound() {
                     {/* Dispatch qty — custom stepper */}
                     <td style={{ padding: "12px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || 1) - 1)}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || item.orderedQuantity) - 1)}
+                          disabled={item.outboundQuantity <= item.orderedQuantity}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.outboundQuantity <= item.orderedQuantity ? T.textMuted : T.textSec, cursor: item.outboundQuantity <= item.orderedQuantity ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           −
                         </button>
-                        <input type="number" min="1" max={item.maxQuantity} value={item.outboundQuantity}
-                          onChange={e => updateQty(item._id, parseInt(e.target.value) || 1)}
+                        <input type="number" min={item.orderedQuantity} max={item.availableQuantity} value={item.outboundQuantity}
+                          onChange={e => updateQty(item._id, parseInt(e.target.value) || item.orderedQuantity)}
                           className="ob-qty-input"
                           style={{ width: "44px", height: "24px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface2, color: T.textPri, fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || 1) + 1)}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || item.orderedQuantity) + 1)}
+                          disabled={item.outboundQuantity >= item.availableQuantity}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.outboundQuantity >= item.availableQuantity ? T.textMuted : T.textSec, cursor: item.outboundQuantity >= item.availableQuantity ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           +
                         </button>
                       </div>
-                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>max {item.maxQuantity}</p>
+                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>ordered: {item.orderedQuantity} · avail: {item.availableQuantity}</p>
                     </td>
 
                     {/* Status */}
@@ -861,16 +865,18 @@ export default function Outbound() {
                     <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "14px" }}>
                       <p style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 10px" }}>Adjust Dispatch Qty</p>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || 1) - 1)}
-                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                        <input type="number" min="1" max={selected.maxQuantity} value={selected.outboundQuantity}
-                          onChange={e => { updateQty(selected._id, parseInt(e.target.value) || 1); setSelected(prev => ({ ...prev, outboundQuantity: Math.max(1, Math.min(parseInt(e.target.value) || 1, prev.maxQuantity)) })); }}
+                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || selected.orderedQuantity) - 1)}
+                          disabled={selected.outboundQuantity <= selected.orderedQuantity}
+                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: selected.outboundQuantity <= selected.orderedQuantity ? T.textMuted : T.textSec, cursor: selected.outboundQuantity <= selected.orderedQuantity ? "not-allowed" : "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                        <input type="number" min={selected.orderedQuantity} max={selected.availableQuantity} value={selected.outboundQuantity}
+                          onChange={e => updateQty(selected._id, parseInt(e.target.value) || selected.orderedQuantity)}
                           className="ob-qty-input"
                           style={{ flex: 1, height: "32px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "8px", background: T.surface, color: T.textPri, fontSize: "14px", fontWeight: "700", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || 1) + 1)}
-                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || selected.orderedQuantity) + 1)}
+                          disabled={selected.outboundQuantity >= selected.availableQuantity}
+                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: selected.outboundQuantity >= selected.availableQuantity ? T.textMuted : T.textSec, cursor: selected.outboundQuantity >= selected.availableQuantity ? "not-allowed" : "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                       </div>
-                      <p style={{ fontSize: "11px", color: T.textSec, margin: "7px 0 0" }}>Max dispatchable: <strong>{selected.maxQuantity}</strong></p>
+                      <p style={{ fontSize: "11px", color: T.textSec, margin: "7px 0 0" }}>Ordered: <strong>{selected.orderedQuantity}</strong> · Available: <strong>{selected.availableQuantity}</strong></p>
                     </div>
                   </div>
 

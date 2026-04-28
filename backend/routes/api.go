@@ -24,6 +24,7 @@ func StockRoutes(router *gin.Engine) {
 		stockRoutes.GET("/getitem", controllers.GetAllStocks())
 		stockRoutes.POST("/additem", controllers.AddItem())
 		stockRoutes.PATCH("/:id/reduce", controllers.ReduceStock())
+		stockRoutes.PATCH("/:id/increase", controllers.IncreaseStock())
 	}
 }
 
@@ -90,6 +91,7 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 		poRoutes.POST("/", controllers.CreatePurchaseOrder())
 		poRoutes.GET("/getorders", controllers.GetAllPurchaseOrders())
 		poRoutes.GET("/stats", controllers.GetPurchaseOrderStats())
+		poRoutes.PATCH("/:id/status", controllers.UpdatePurchaseOrderStatus())
 	}
 }
 
