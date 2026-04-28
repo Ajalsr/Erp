@@ -78,28 +78,56 @@ export default function Item() {
   useEffect(() => {
     if (!selectedItem?._id || (activeTab !== "transactions" && activeTab !== "history")) return;
     setOrdersLoading(true);
-    axiosInstance.get("/api/sales-orders/getsaleorder?limit=500")
-      .then(res => {
-        const all = res.data?.data?.salesOrders || [];
-        const filtered = all.filter(so =>
-          (so.items || []).some(i => i.itemId === selectedItem._id)
-        ).map(so => {
+    Promise.allSettled([
+      axiosInstance.get("/api/sales-orders/getsaleorder?limit=500"),
+      axiosInstance.get("/api/purchase-orders/getorders?limit=500"),
+    ]).then(([soResult, poResult]) => {
+      const salesOrders = soResult.status === "fulfilled"
+        ? (soResult.value.data?.data?.salesOrders || [])
+        : [];
+      const purchaseOrders = poResult.status === "fulfilled"
+        ? (poResult.value.data?.data?.purchaseOrders || [])
+        : [];
+
+      const saleEntries = salesOrders
+        .filter(so => (so.items || []).some(i => i.itemId === selectedItem._id))
+        .map(so => {
           const line = so.items.find(i => i.itemId === selectedItem._id);
           return {
-            id:           so.id || so._id,
-            orderNumber:  so.orderNumber,
-            customerName: so.customerName || "—",
-            date:         so.orderDate,
-            qty:          line?.quantity ?? 0,
-            price:        line?.rate ?? 0,
-            total:        (line?.quantity ?? 0) * (line?.rate ?? 0),
-            status:       so.status,
+            type:        "sale",
+            id:          so.id || so._id,
+            orderNumber: so.orderNumber,
+            partyName:   so.customerName || "—",
+            date:        so.orderDate,
+            qty:         line?.quantity ?? 0,
+            price:       line?.rate ?? 0,
+            total:       (line?.quantity ?? 0) * (line?.rate ?? 0),
+            status:      so.status,
           };
         });
-        setItemOrders(filtered);
-      })
-      .catch(() => setItemOrders([]))
-      .finally(() => setOrdersLoading(false));
+
+      const purchaseEntries = purchaseOrders
+        .filter(po => (po.items || []).some(i => i.itemId === selectedItem._id))
+        .map(po => {
+          const line = po.items.find(i => i.itemId === selectedItem._id);
+          return {
+            type:        "purchase",
+            id:          po.id || po._id,
+            orderNumber: po.orderNumber,
+            partyName:   po.vendorName || "—",
+            date:        po.orderDate,
+            qty:         line?.quantity ?? 0,
+            price:       line?.rate ?? 0,
+            total:       (line?.quantity ?? 0) * (line?.rate ?? 0),
+            status:      po.status,
+          };
+        });
+
+      const merged = [...saleEntries, ...purchaseEntries].sort(
+        (a, b) => new Date(a.date) - new Date(b.date)
+      );
+      setItemOrders(merged);
+    }).finally(() => setOrdersLoading(false));
   }, [activeTab, selectedItem]);
 
   /* ── Data ── */
@@ -140,7 +168,7 @@ export default function Item() {
     setActiveTab("overview");
   }, []);
 
-  const closeDrawer = () => { setIsDrawerOpen(false); setSelectedItem(null); handleGetItem(); };
+  const closeDrawer = useCallback(() => { setIsDrawerOpen(false); setSelectedItem(null); handleGetItem(); }, [handleGetItem]);
 
   const toggleRow = (id) => setSelectedRows(prev => {
     const n = new Set(prev);
@@ -161,7 +189,7 @@ export default function Item() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [closeDrawer]);
 
   /* ── Click outside ── */
   useEffect(() => {
@@ -738,50 +766,100 @@ export default function Item() {
                   open:      { text: T.blue,   bg: T.blueDim  },
                   invoiced:  { text: T.green,  bg: T.greenDim },
                   completed: { text: T.green,  bg: T.greenDim },
+                  received:  { text: T.green,  bg: T.greenDim },
                   cancelled: { text: T.red,    bg: T.redDim   },
                   draft:     { text: T.textSec,bg: isDark?"rgba(255,255,255,.06)":"#f1f5f9" },
                   pending:   { text: T.amber,  bg: T.amberDim },
                 };
                 const sc = (s) => SC[s] || SC.draft;
+                const sales     = itemOrders.filter(o => o.type === "sale");
+                const purchases = itemOrders.filter(o => o.type === "purchase");
                 return ordersLoading ? (
                   <div style={{textAlign:"center",padding:"48px 0",color:T.textSec,fontSize:13}}>Loading…</div>
                 ) : itemOrders.length === 0 ? (
-                  <DrawerEmpty T={T} icon={<FaBox size={22}/>} title="No Transactions" sub="Sales orders containing this item will appear here." />
+                  <DrawerEmpty T={T} icon={<FaBox size={22}/>} title="No Transactions" sub="Sales and purchase orders containing this item will appear here." />
                 ) : (
-                  <div style={{display:"flex",flexDirection:"column",gap:0}}>
-                    {/* Header */}
-                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"8px 4px",borderBottom:`1px solid ${border}`}}>
-                      {["Date","Order #","Customer","Qty","Total","Status"].map(h=>(
-                        <span key={h} style={{fontSize:10,fontWeight:700,color:T.textSec,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
-                      ))}
-                    </div>
-                    {itemOrders.map((o,i)=>{
-                      const s = sc(o.status);
-                      return (
-                        <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"10px 4px",borderBottom:i<itemOrders.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
-                          <span style={{fontSize:11,color:T.textSec}}>{fmtD(o.date)}</span>
-                          <span style={{fontSize:11,color:T.blue,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
-                          <span style={{fontSize:11,color:T.textPri,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.customerName}</span>
-                          <span style={{fontSize:12,fontWeight:700,color:T.textPri,fontFamily:"'Sora',sans-serif"}}>{o.qty}</span>
-                          <span style={{fontSize:11,color:T.textPri,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
-                          <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600,background:s.bg,color:s.text,textTransform:"capitalize",width:"fit-content"}}>
-                            <span style={{width:5,height:5,borderRadius:"50%",background:s.text,flexShrink:0}}/>
-                            {o.status||"—"}
-                          </span>
+                  <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                    {/* Purchase receipts section */}
+                    {purchases.length > 0 && (
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                          <span style={{width:8,height:8,borderRadius:"50%",background:T.green,flexShrink:0}}/>
+                          <span style={{fontSize:10,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:".08em"}}>Inbound — Purchase Orders</span>
                         </div>
-                      );
-                    })}
-                    {/* Summary row */}
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 4px 0",borderTop:`1px solid ${border}`,marginTop:4}}>
-                      <span style={{fontSize:12,color:T.textSec}}>{itemOrders.length} order{itemOrders.length!==1?"s":""} · {itemOrders.reduce((s,o)=>s+o.qty,0)} units sold</span>
-                      <span style={{fontSize:13,fontWeight:700,color:T.textPri,fontFamily:"monospace"}}>{fmtA(itemOrders.reduce((s,o)=>s+o.total,0))}</span>
-                    </div>
+                        <div style={{border:`1px solid ${border}`,borderRadius:10,overflow:"hidden"}}>
+                          <div style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"8px 12px",background:isDark?"rgba(16,185,129,.05)":"#f0fdf4",borderBottom:`1px solid ${border}`}}>
+                            {["Date","PO #","Vendor","Qty","Total","Status"].map(h=>(
+                              <span key={h} style={{fontSize:10,fontWeight:700,color:T.textSec,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
+                            ))}
+                          </div>
+                          {purchases.map((o,i)=>{
+                            const s = sc(o.status);
+                            return (
+                              <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"10px 12px",borderBottom:i<purchases.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
+                                <span style={{fontSize:11,color:T.textSec}}>{fmtD(o.date)}</span>
+                                <span style={{fontSize:11,color:T.green,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
+                                <span style={{fontSize:11,color:T.textPri,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.partyName}</span>
+                                <span style={{fontSize:12,fontWeight:700,color:T.green,fontFamily:"'Sora',sans-serif"}}>+{o.qty}</span>
+                                <span style={{fontSize:11,color:T.textPri,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
+                                <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600,background:s.bg,color:s.text,textTransform:"capitalize",width:"fit-content"}}>
+                                  <span style={{width:5,height:5,borderRadius:"50%",background:s.text,flexShrink:0}}/>
+                                  {o.status||"—"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          <div style={{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:isDark?"rgba(16,185,129,.04)":"#f0fdf4",borderTop:`1px solid ${border}`}}>
+                            <span style={{fontSize:12,color:T.textSec}}>{purchases.length} order{purchases.length!==1?"s":""} · +{purchases.reduce((s,o)=>s+o.qty,0)} units received</span>
+                            <span style={{fontSize:13,fontWeight:700,color:T.green,fontFamily:"monospace"}}>{fmtA(purchases.reduce((s,o)=>s+o.total,0))}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sales orders section */}
+                    {sales.length > 0 && (
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                          <span style={{width:8,height:8,borderRadius:"50%",background:T.blue,flexShrink:0}}/>
+                          <span style={{fontSize:10,fontWeight:700,color:T.blue,textTransform:"uppercase",letterSpacing:".08em"}}>Outbound — Sales Orders</span>
+                        </div>
+                        <div style={{border:`1px solid ${border}`,borderRadius:10,overflow:"hidden"}}>
+                          <div style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"8px 12px",background:isDark?"rgba(59,130,246,.05)":"#eff6ff",borderBottom:`1px solid ${border}`}}>
+                            {["Date","Order #","Customer","Qty","Total","Status"].map(h=>(
+                              <span key={h} style={{fontSize:10,fontWeight:700,color:T.textSec,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
+                            ))}
+                          </div>
+                          {sales.map((o,i)=>{
+                            const s = sc(o.status);
+                            return (
+                              <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"10px 12px",borderBottom:i<sales.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
+                                <span style={{fontSize:11,color:T.textSec}}>{fmtD(o.date)}</span>
+                                <span style={{fontSize:11,color:T.blue,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
+                                <span style={{fontSize:11,color:T.textPri,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.partyName}</span>
+                                <span style={{fontSize:12,fontWeight:700,color:T.red,fontFamily:"'Sora',sans-serif"}}>−{o.qty}</span>
+                                <span style={{fontSize:11,color:T.textPri,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
+                                <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600,background:s.bg,color:s.text,textTransform:"capitalize",width:"fit-content"}}>
+                                  <span style={{width:5,height:5,borderRadius:"50%",background:s.text,flexShrink:0}}/>
+                                  {o.status||"—"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          <div style={{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:isDark?"rgba(59,130,246,.04)":"#eff6ff",borderTop:`1px solid ${border}`}}>
+                            <span style={{fontSize:12,color:T.textSec}}>{sales.length} order{sales.length!==1?"s":""} · −{sales.reduce((s,o)=>s+o.qty,0)} units sold</span>
+                            <span style={{fontSize:13,fontWeight:700,color:T.textPri,fontFamily:"monospace"}}>{fmtA(sales.reduce((s,o)=>s+o.total,0))}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
 
               {activeTab === "history" && (() => {
                 const fmtD = (d) => d ? new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+                const timeline = [...itemOrders].sort((a,b) => new Date(a.date) - new Date(b.date));
                 return ordersLoading ? (
                   <div style={{textAlign:"center",padding:"48px 0",color:T.textSec,fontSize:13}}>Loading…</div>
                 ) : itemOrders.length === 0 ? (
@@ -797,18 +875,36 @@ export default function Item() {
                         <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{selectedItem.opening_stock||0} units · Initial inventory</div>
                       </div>
                     </div>
-                    {[...itemOrders].reverse().map((o,i)=>(
-                      <div key={o.id||i} style={{display:"flex",gap:14,paddingBottom:18,position:"relative"}}>
-                        {i<itemOrders.length-1&&<div style={{position:"absolute",left:7,top:18,bottom:0,width:1,background:border}}/>}
-                        <div style={{width:15,height:15,borderRadius:"50%",background:o.status==="cancelled"?T.red:T.amber,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>
-                        <div>
-                          <div style={{fontSize:13,fontWeight:600,color:T.textPri}}>
-                            {o.status==="cancelled"?"Stock Returned":"Stock Reduced"} — <span style={{fontFamily:"monospace",color:o.status==="cancelled"?T.green:T.red}}>{o.status==="cancelled"?"+":"-"}{o.qty} units</span>
+
+                    {timeline.map((o, i) => {
+                      const isPurchase  = o.type === "purchase";
+                      const isReturned  = o.type === "sale" && o.status === "cancelled";
+                      const dotColor    = isPurchase ? T.green : isReturned ? T.blue : T.amber;
+                      const qtyColor    = isPurchase ? T.green : isReturned ? T.green : T.red;
+                      const qtySign     = isPurchase || isReturned ? "+" : "−";
+                      const label       = isPurchase
+                        ? "Stock Received"
+                        : isReturned
+                          ? "Stock Returned"
+                          : "Stock Reduced";
+                      const isLast = i === timeline.length - 1;
+                      return (
+                        <div key={o.id||i} style={{display:"flex",gap:14,paddingBottom:18,position:"relative"}}>
+                          {!isLast && <div style={{position:"absolute",left:7,top:18,bottom:0,width:1,background:border}}/>}
+                          <div style={{width:15,height:15,borderRadius:"50%",background:dotColor,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:600,color:T.textPri}}>
+                              {label} — <span style={{fontFamily:"monospace",color:qtyColor}}>{qtySign}{o.qty} units</span>
+                            </div>
+                            <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
+                              {fmtD(o.date)} · {o.orderNumber} · {o.partyName}
+                              {isPurchase && <span style={{marginLeft:6,padding:"1px 6px",borderRadius:8,fontSize:10,fontWeight:600,background:T.greenDim,color:T.green}}>Purchase</span>}
+                            </div>
                           </div>
-                          <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{fmtD(o.date)} · {o.orderNumber} · {o.customerName}</div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+
                     {/* Current stock */}
                     <div style={{display:"flex",gap:14}}>
                       <div style={{width:15,height:15,borderRadius:"50%",background:T.blue,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>

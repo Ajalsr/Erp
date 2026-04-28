@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FaTimes, FaSearch, FaBoxOpen, FaChevronLeft, FaChevronRight,
   FaCheck, FaBan, FaExclamationTriangle, FaTag, FaWarehouse,
@@ -6,6 +7,8 @@ import {
 } from "react-icons/fa";
 import { MdMoveToInbox } from "react-icons/md";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useGetAllPurchaseOrders from "../../helper/useGetAllPurchaseOrders";
+import useGetItem from "../../helper/useGetItem";
 
 // ── Helpers ───────────────────────────────────────────────────────
 const fmtAED  = (n) =>
@@ -39,24 +42,56 @@ const STATUS_CFG = {
 };
 const getStatus = (s) => STATUS_CFG[s] || STATUS_CFG.pending;
 
-// ── Mock data ─────────────────────────────────────────────────────
-const MOCK_ITEMS = [
-  { _id: "1", name: "Steel Pipe 2\"",      item_code: "SP-200",  unit: "Pcs", vendor: "Al Futtaim Trading",  poNumber: "PO-2024-001", orderedQty: 100, stockOnHand: 40,  costPrice: 45.00,  receiveQty: 100, status: "pending"          },
-  { _id: "2", name: "PVC Elbow 90° 1\"",  item_code: "PE-100",  unit: "Pcs", vendor: "Gulf Supplies LLC",   poNumber: "PO-2024-002", orderedQty: 200, stockOnHand: 18,  costPrice: 3.50,   receiveQty: 200, status: "pending"          },
-  { _id: "3", name: "Copper Wire 6mm",    item_code: "CW-006",  unit: "Mtr", vendor: "Emirates Wholesale",  poNumber: "PO-2024-003", orderedQty: 500, stockOnHand: 0,   costPrice: 12.00,  receiveQty: 500, status: "pending_approval" },
-  { _id: "4", name: "Hydraulic Pump 5HP", item_code: "HP-005",  unit: "Pcs", vendor: "Nasser Trading Co.",  poNumber: "PO-2024-004", orderedQty: 5,   stockOnHand: 12,  costPrice: 850.00, receiveQty: 5,   status: "pending"          },
-  { _id: "5", name: "Safety Gloves L",    item_code: "SG-L",    unit: "Pair",vendor: "Al Ain Distribution", poNumber: "PO-2024-005", orderedQty: 50,  stockOnHand: 7,   costPrice: 8.00,   receiveQty: 50,  status: "pending"          },
-  { _id: "6", name: "Industrial Bolt M12",item_code: "IB-M12",  unit: "Box", vendor: "Al Futtaim Trading",  poNumber: "PO-2024-001", orderedQty: 20,  stockOnHand: 55,  costPrice: 22.00,  receiveQty: 20,  status: "received"         },
-  { _id: "7", name: "Air Filter 12\"",    item_code: "AF-012",  unit: "Pcs", vendor: "Gulf Supplies LLC",   poNumber: "PO-2024-002", orderedQty: 10,  stockOnHand: 3,   costPrice: 65.00,  receiveQty: 10,  status: "pending"          },
-  { _id: "8", name: "Valve Ball 1/2\"",   item_code: "VB-050",  unit: "Pcs", vendor: "Emirates Wholesale",  poNumber: "PO-2024-003", orderedQty: 30,  stockOnHand: 0,   costPrice: 18.00,  receiveQty: 30,  status: "pending"          },
-];
+// ── Helpers ──────────────────────────────────────────────────────
+const parseQty = (v) => {
+  if (v === undefined || v === null) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const p = parseFloat(v); return isNaN(p) ? 0 : p; }
+  return 0;
+};
+
+const transformPOsToItems = (poData, stockData) => {
+  if (!poData?.purchaseOrders?.length) return [];
+  const stockMap = {};
+  if (Array.isArray(stockData)) {
+    stockData.forEach(s => { stockMap[s._id] = s; });
+  }
+  const result = [];
+  poData.purchaseOrders
+    .filter(po => po.status !== "received")
+    .forEach(po => {
+      (po.items || []).forEach(oi => {
+        const stock = stockMap[oi.itemId];
+        result.push({
+          _id:         String(oi._id || `${po._id}-${oi.itemId}`),
+          itemId:      oi.itemId,
+          poId:        String(po._id),
+          name:        oi.details || stock?.name || `Item ${oi.itemId}`,
+          item_code:   stock?.item_code || "-",
+          unit:        oi.unit || stock?.Unit || "Pcs",
+          vendor:      po.vendorName,
+          poNumber:    po.orderNumber,
+          orderedQty:  parseQty(oi.quantity),
+          stockOnHand: parseFloat(stock?.quantity || "0"),
+          costPrice:   oi.rate,
+          receiveQty:  parseQty(oi.quantity),
+          status:      "pending",
+        });
+      });
+    });
+  return result;
+};
 
 export default function Inbound() {
-  const isDark = useThemeStore((s) => s.isDark);
-  const T      = getTheme(isDark);
+  const isDark   = useThemeStore((s) => s.isDark);
+  const T        = getTheme(isDark);
+  const navigate = useNavigate();
 
-  const [items,            setItems]            = useState(MOCK_ITEMS.map(i => ({ ...i })));
-  const [selectedIds,      setSelectedIds]      = useState(new Set(MOCK_ITEMS.map(i => i._id)));
+  const { handleGetPurchaseOrders, data: poData, loading: poLoading } = useGetAllPurchaseOrders();
+  const { handleGetItem, data: stockData, loading: stockLoading }     = useGetItem();
+
+  const [items,            setItems]            = useState([]);
+  const [selectedIds,      setSelectedIds]      = useState(new Set());
   const [searchTerm,       setSearchTerm]       = useState("");
   const [showDrop,         setShowDrop]         = useState(false);
   const [filteredItems,    setFilteredItems]    = useState([]);
@@ -71,6 +106,19 @@ export default function Inbound() {
   const [page,             setPage]             = useState(1);
   const perPage   = 8;
   const searchRef = useRef(null);
+
+  // ── Fetch on mount ───────────────────────────────────────────────
+  useEffect(() => {
+    handleGetItem();
+    handleGetPurchaseOrders();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Transform API data into flat item list ───────────────────────
+  useEffect(() => {
+    const transformed = transformPOsToItems(poData, stockData);
+    setItems(transformed);
+    setSelectedIds(new Set(transformed.map(i => i._id)));
+  }, [poData, stockData]);
 
   // ── Search filter ────────────────────────────────────────────────
   useEffect(() => {
@@ -103,12 +151,12 @@ export default function Inbound() {
   const updateQty = (id, val) => {
     setItems(p => p.map(i => {
       if (i._id !== id) return i;
-      const qty = Math.max(1, Math.min(parseInt(val) || 1, i.orderedQty));
+      const qty = Math.max(i.orderedQty, parseInt(val) || i.orderedQty);
       return { ...i, receiveQty: qty };
     }));
     if (selected?._id === id) {
       setSelected(prev => {
-        const qty = Math.max(1, Math.min(parseInt(val) || 1, prev.orderedQty));
+        const qty = Math.max(prev.orderedQty, parseInt(val) || prev.orderedQty);
         return { ...prev, receiveQty: qty };
       });
     }
@@ -116,8 +164,28 @@ export default function Inbound() {
 
   const handleReceive = () => {
     const sel = items.filter(i => selectedIds.has(i._id));
-    setItems(p => p.map(i => selectedIds.has(i._id) ? { ...i, status: requiresApproval ? "pending_approval" : "received" } : i));
-    alert(`Received ${sel.length} item(s). GRN would be created here.`);
+    if (!sel.length) return;
+    const grnNumber = `GRN-${Date.now().toString().slice(-6).padStart(6, "0")}`;
+    const totalQty  = sel.reduce((s, i) => s + (i.receiveQty || 0), 0);
+    const subTotal  = round2(sel.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0));
+    navigate("/Purchase/GRN", {
+      state: {
+        inboundData: {
+          items: sel,
+          summary: { totalItems: sel.length, totalQuantity: totalQty, subTotal },
+          note: inboundNote,
+          requiresApproval,
+        },
+        grn: {
+          number:   grnNumber,
+          date:     new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+          vendor:   sel[0]?.vendor || "Vendor",
+          poNumber: sel[0]?.poNumber || "N/A",
+          status:   "Received",
+          note:     inboundNote,
+        },
+      },
+    });
   };
 
   const handleCancelRequest = (id) => { setItemToCancel(id); setShowCancelModal(true); };
@@ -186,6 +254,7 @@ export default function Inbound() {
     @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
     @keyframes fadeUp  { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
     @keyframes pulse   { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    @keyframes spin    { to { transform: rotate(360deg); } }
 
     .ob-slide { animation: slideIn 0.25s cubic-bezier(0.16,1,0.3,1) forwards; }
     .ob-fade  { animation: fadeIn 0.2s ease forwards; }
@@ -345,7 +414,16 @@ export default function Inbound() {
               </tr>
             </thead>
             <tbody>
-              {currentItems.length > 0 ? currentItems.map((item) => {
+              {(poLoading || stockLoading) ? (
+                <tr>
+                  <td colSpan="11" style={{ padding: "64px 20px", textAlign: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "36px", height: "36px", borderRadius: "50%", border: `3px solid ${T.border}`, borderTopColor: T.blue, animation: "spin 0.8s linear infinite" }} />
+                      <p style={{ color: T.textSec, fontSize: "13px", margin: 0 }}>Loading purchase orders…</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : currentItems.length > 0 ? currentItems.map((item) => {
                 const sc         = getStatus(item.status);
                 const isZeroStock = item.stockOnHand === 0;
                 return (
@@ -390,20 +468,21 @@ export default function Inbound() {
                     {/* Receive qty — stepper */}
                     <td style={{ padding: "12px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.receiveQty || 1) - 1)}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.receiveQty || item.orderedQty) - 1)}
+                          disabled={item.receiveQty <= item.orderedQty}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.receiveQty <= item.orderedQty ? T.textMuted : T.textSec, cursor: item.receiveQty <= item.orderedQty ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           −
                         </button>
-                        <input type="number" min="1" max={item.orderedQty} value={item.receiveQty}
-                          onChange={e => updateQty(item._id, parseInt(e.target.value) || 1)}
+                        <input type="number" min={item.orderedQty} value={item.receiveQty}
+                          onChange={e => updateQty(item._id, parseInt(e.target.value) || item.orderedQty)}
                           className="ob-qty-input"
                           style={{ width: "44px", height: "24px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface2, color: T.textPri, fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.receiveQty || 1) + 1)}
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.receiveQty || item.orderedQty) + 1)}
                           style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           +
                         </button>
                       </div>
-                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>max {item.orderedQty}</p>
+                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>ordered: {item.orderedQty}</p>
                     </td>
 
                     {/* Status */}
@@ -700,16 +779,17 @@ export default function Inbound() {
                     <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "14px" }}>
                       <p style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 10px" }}>Adjust Receive Qty</p>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.receiveQty || 1) - 1)}
-                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                        <input type="number" min="1" max={selected.orderedQty} value={selected.receiveQty}
-                          onChange={e => updateQty(selected._id, parseInt(e.target.value) || 1)}
+                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.receiveQty || selected.orderedQty) - 1)}
+                          disabled={selected.receiveQty <= selected.orderedQty}
+                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: selected.receiveQty <= selected.orderedQty ? T.textMuted : T.textSec, cursor: selected.receiveQty <= selected.orderedQty ? "not-allowed" : "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                        <input type="number" min={selected.orderedQty} value={selected.receiveQty}
+                          onChange={e => updateQty(selected._id, parseInt(e.target.value) || selected.orderedQty)}
                           className="ob-qty-input"
                           style={{ flex: 1, height: "32px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "8px", background: T.surface, color: T.textPri, fontSize: "14px", fontWeight: "700", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.receiveQty || 1) + 1)}
+                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.receiveQty || selected.orderedQty) + 1)}
                           style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                       </div>
-                      <p style={{ fontSize: "11px", color: T.textSec, margin: "7px 0 0" }}>Max receivable: <strong>{selected.orderedQty}</strong></p>
+                      <p style={{ fontSize: "11px", color: T.textSec, margin: "7px 0 0" }}>Ordered: <strong>{selected.orderedQty}</strong></p>
                     </div>
                   </div>
 

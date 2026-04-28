@@ -4,9 +4,10 @@ import {
   FaPrint, FaTimes, FaEnvelope, FaFileDownload,
   FaTruck, FaBoxOpen, FaChevronLeft, FaCheckCircle,
   FaHashtag, FaUser, FaClipboardCheck, FaFileInvoiceDollar,
-  FaPaperPlane, FaSpinner,
+  FaPaperPlane, FaSpinner, FaWarehouse,
 } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import api from '../../helper/axiosInstance';
 
 // ── helpers ───────────────────────────────────────────────────────
 const round2   = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -55,6 +56,10 @@ const buildCSS = (isDark) => `
   .dn-invoice-btn { transition: all 0.18s cubic-bezier(0.16,1,0.3,1); }
   .dn-invoice-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.35) !important; }
 
+  .dn-dispatch-btn { transition: all 0.18s cubic-bezier(0.16,1,0.3,1); }
+  .dn-dispatch-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.35) !important; }
+  .dn-dispatch-btn:disabled { opacity: 0.45; cursor: not-allowed !important; }
+
   .dn-row { transition: background 0.1s; }
   .dn-row:hover { background: ${isDark ? 'rgba(255,255,255,0.025)' : '#f8fafc'} !important; }
 
@@ -83,8 +88,10 @@ export default function DeliveryNote() {
   const T         = getTheme(isDark);
   const printRef  = useRef(null);
 
-  const [sendLoading, setSendLoading] = useState(false);
-  const [toast, setToast]             = useState(null);
+  const [sendLoading,    setSendLoading]    = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmed,      setConfirmed]      = useState(false);
+  const [toast,          setToast]          = useState(null);
 
   const { outboundData, deliveryNote: dn } = location.state || {};
 
@@ -143,6 +150,61 @@ export default function DeliveryNote() {
       showToast('Failed to send. Please try again.', '❌');
     } finally {
       setSendLoading(false);
+    }
+  };
+
+  // ── Confirm Dispatch & Reduce Stock ─────────────────────────────
+  const handleConfirmDispatch = async () => {
+    setConfirmLoading(true);
+    try {
+      const eligible = items.filter((i) => i.itemId && (i.outboundQuantity || i.quantity || 0) > 0);
+      if (eligible.length === 0) {
+        showToast('No items with valid stock ID and quantity > 0.', '⚠️');
+        setConfirmLoading(false);
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        eligible.map((i) =>
+          api.patch(`/api/stocks/${i.itemId}/reduce`, { reduceBy: i.outboundQuantity || i.quantity })
+        )
+      );
+
+      const pairs = results.map((r, idx) => ({ result: r, item: eligible[idx] }));
+      const notFound   = pairs.filter((p) => p.result.status === 'rejected' && p.result.reason?.response?.status === 404);
+      const realFailed = pairs.filter((p) => p.result.status === 'rejected' && p.result.reason?.response?.status !== 404);
+
+      if (realFailed.length === 0) {
+        // Mark all related sales orders as completed
+        const soIds = [...new Set(items.map((i) => i.salesOrderId).filter(Boolean))];
+        await Promise.allSettled(
+          soIds.map((id) => api.patch(`/api/sales-orders/${id}/status`, { status: 'completed' }))
+        );
+
+        setConfirmed(true);
+        let note = '';
+        if (notFound.length > 0) {
+          const names = notFound.map((p) => p.item.name || p.item.itemId).join(', ');
+          note = ` — ${notFound.length} skipped (no stock record): ${names}`;
+        }
+        showToast(`Dispatch confirmed! Stock reduced.${note}`, notFound.length > 0 ? '⚠️' : '✅');
+      } else {
+        const reasons = realFailed
+          .map((p) => {
+            const name   = p.item.name || p.item.itemId;
+            const reason = p.result.reason?.response?.data?.message || p.result.reason?.message || 'Unknown error';
+            return `${name}: ${reason}`;
+          })
+          .join(' | ');
+        console.error('Dispatch stock reduce failures:', realFailed.map((p) => p.result.reason));
+        showToast(`${realFailed.length} item(s) failed — ${reasons}`, '❌');
+        if (realFailed.length < results.length) setConfirmed(true);
+      }
+    } catch (err) {
+      console.error('Dispatch confirm error:', err);
+      showToast('Failed to confirm dispatch. Please try again.', '❌');
+    } finally {
+      setConfirmLoading(false);
     }
   };
 
@@ -246,11 +308,34 @@ export default function DeliveryNote() {
             {/* Divider */}
             <div style={{ width: 1, height: 22, background: T.border }} />
 
+            {/* Confirm Dispatch — reduce stock + complete SO */}
+            <button
+              className="dn-dispatch-btn dn-action-btn"
+              onClick={handleConfirmDispatch}
+              disabled={confirmLoading || confirmed}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 18px',
+                background: confirmed ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg, #10b981, #059669)',
+                border: confirmed ? '1px solid rgba(16,185,129,0.3)' : 'none',
+                borderRadius: 9, fontSize: 13, fontWeight: 700,
+                color: confirmed ? '#10b981' : '#fff',
+                cursor: (confirmLoading || confirmed) ? 'not-allowed' : 'pointer',
+                boxShadow: confirmed ? 'none' : '0 4px 14px rgba(16,185,129,0.3)',
+              }}>
+              {confirmLoading
+                ? <><FaSpinner size={13} className="dn-spin" /> Confirming…</>
+                : confirmed
+                  ? <><FaCheckCircle size={13} /> Dispatched</>
+                  : <><FaWarehouse size={13} /> Confirm Dispatch & Reduce Stock</>}
+            </button>
+
+            <div style={{ width: 1, height: 22, background: T.border }} />
+
             {/* Create Invoice — primary CTA */}
             <button
               className="dn-invoice-btn dn-action-btn"
               onClick={handleCreateInvoice}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 18px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 18px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,0.3)' }}>
               <FaFileInvoiceDollar size={13} /> Create Invoice
             </button>
           </div>

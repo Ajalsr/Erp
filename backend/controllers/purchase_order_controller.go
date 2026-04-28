@@ -135,11 +135,13 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			req.OrderNumber = generatePONumber(ctx)
 		}
 
-		// ── CreatedBy from JWT ────────────────────────────────────────────
+		// ── CreatedBy / OrgID from JWT ───────────────────────────────────
 		createdBy := ""
 		if uid, exists := c.Get("userId"); exists {
 			createdBy = fmt.Sprintf("%v", uid)
 		}
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 
 		po := models.PurchaseOrder{
 			ID:                   primitive.NewObjectID(),
@@ -162,6 +164,7 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			CustomerNotes:        req.CustomerNotes,
 			TermsAndConditions:   req.TermsAndConditions,
 			Status:               "draft",
+			OrgID:                orgIDStr,
 			CreatedAt:            time.Now(),
 			UpdatedAt:            time.Now(),
 			CreatedBy:            createdBy,
@@ -193,6 +196,42 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 	}
 }
 
+func UpdatePurchaseOrderStatus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid purchase order ID"})
+			return
+		}
+
+		var body struct {
+			Status string `json:"status"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || body.Status == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "status field is required"})
+			return
+		}
+
+		result, err := purchaseOrderCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID},
+			bson.M{"$set": bson.M{"status": body.Status, "updatedAt": time.Now()}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update purchase order status"})
+			return
+		}
+		if result.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Purchase order not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Purchase order status updated"})
+	}
+}
+
 func generatePONumber(ctx context.Context) string {
 	now := time.Now()
 	prefix := fmt.Sprintf("PO%02d%02d", int(now.Month()), now.Year()%100)
@@ -219,16 +258,25 @@ func GetAllPurchaseOrders() gin.HandlerFunc {
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "15"))
 		skip := (page - 1) * limit
 
-		filter := bson.M{}
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		andClauses := []bson.M{
+			{"$or": []bson.M{
+				{"orgId": orgIDStr},
+				{"orgId": bson.M{"$exists": false}},
+			}},
+		}
 		if status := c.Query("status"); status != "" {
-			filter["status"] = status
+			andClauses = append(andClauses, bson.M{"status": status})
 		}
 		if q := c.Query("q"); q != "" {
-			filter["$or"] = []bson.M{
+			andClauses = append(andClauses, bson.M{"$or": []bson.M{
 				{"orderNumber": bson.M{"$regex": q, "$options": "i"}},
 				{"vendorName": bson.M{"$regex": q, "$options": "i"}},
-			}
+			}})
 		}
+		filter := bson.M{"$and": andClauses}
 
 		total, _ := purchaseOrderCollection.CountDocuments(ctx, filter)
 		opts := options.Find().
@@ -268,13 +316,23 @@ func GetPurchaseOrderStats() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		total, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{})
-		pending, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"status": "pending"})
-		ordered, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"status": "ordered"})
-		received, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"status": "received"})
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		orgFilter := bson.M{"$or": []bson.M{
+			{"orgId": orgIDStr},
+			{"orgId": bson.M{"$exists": false}},
+		}}
+
+		total, _ := purchaseOrderCollection.CountDocuments(ctx, orgFilter)
+		pending, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "pending"}}})
+		ordered, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "ordered"}}})
+		received, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "received"}}})
 
 		// Total value pipeline
-		pipeline := []bson.M{{"$group": bson.M{"_id": nil, "totalAmount": bson.M{"$sum": "$total"}}}}
+		pipeline := []bson.M{
+			{"$match": orgFilter},
+			{"$group": bson.M{"_id": nil, "totalAmount": bson.M{"$sum": "$total"}}},
+		}
 		cursor, _ := purchaseOrderCollection.Aggregate(ctx, pipeline)
 		var aggResult []bson.M
 		cursor.All(ctx, &aggResult)
