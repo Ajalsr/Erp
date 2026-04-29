@@ -500,6 +500,8 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var req struct {
 			Status string `json:"status" binding:"required,oneof=draft pending approved shipped completed cancelled open invoiced"`
 		}
@@ -520,7 +522,7 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			},
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -569,6 +571,8 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var req models.UpdateSalesOrderRequest
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -580,7 +584,7 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		}
 
 		var existingOrder models.SalesOrder
-		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingOrder)
+		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingOrder)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{
@@ -629,7 +633,7 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			setFields["total"] = newTotal
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": setFields})
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": setFields})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -691,8 +695,10 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var existingOrder models.SalesOrder
-		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingOrder)
+		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingOrder)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{
@@ -716,7 +722,7 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			},
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,

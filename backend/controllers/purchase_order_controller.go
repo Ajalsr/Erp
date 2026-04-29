@@ -180,6 +180,25 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
+		// Push vendor history entry
+		if po.VendorID != "" {
+			histEntry := bson.M{
+				"action":    "po_created",
+				"timestamp": time.Now(),
+				"user":      createdBy,
+				"details":   fmt.Sprintf("Purchase order %s created. Total: AED %.2f", po.OrderNumber, po.Total),
+			}
+			if vObjID, err := primitive.ObjectIDFromHex(po.VendorID); err == nil {
+				vendorCollection.UpdateOne(ctx,
+					bson.M{"_id": vObjID, "orgId": orgIDStr},
+					bson.M{
+						"$push": bson.M{"history": histEntry},
+						"$set":  bson.M{"updatedAt": time.Now()},
+					},
+				)
+			}
+		}
+
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Purchase order created successfully",
@@ -215,8 +234,11 @@ func UpdatePurchaseOrderStatus() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
 		result, err := purchaseOrderCollection.UpdateOne(ctx,
-			bson.M{"_id": objectID},
+			bson.M{"_id": objectID, "orgId": orgIDStr},
 			bson.M{"$set": bson.M{"status": body.Status, "updatedAt": time.Now()}},
 		)
 		if err != nil {
@@ -229,6 +251,34 @@ func UpdatePurchaseOrderStatus() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Purchase order status updated"})
+	}
+}
+
+func GetPurchaseOrderByID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		objID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid purchase order ID"})
+			return
+		}
+
+		var po models.PurchaseOrder
+		err = purchaseOrderCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr}).Decode(&po)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Purchase order not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve purchase order"})
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Purchase order retrieved", "data": po})
 	}
 }
 
@@ -262,10 +312,7 @@ func GetAllPurchaseOrders() gin.HandlerFunc {
 		orgIDStr := fmt.Sprintf("%v", orgID)
 
 		andClauses := []bson.M{
-			{"$or": []bson.M{
-				{"orgId": orgIDStr},
-				{"orgId": bson.M{"$exists": false}},
-			}},
+			{"orgId": orgIDStr},
 		}
 		if status := c.Query("status"); status != "" {
 			andClauses = append(andClauses, bson.M{"status": status})
@@ -318,10 +365,7 @@ func GetPurchaseOrderStats() gin.HandlerFunc {
 
 		orgID, _ := c.Get("orgId")
 		orgIDStr := fmt.Sprintf("%v", orgID)
-		orgFilter := bson.M{"$or": []bson.M{
-			{"orgId": orgIDStr},
-			{"orgId": bson.M{"$exists": false}},
-		}}
+		orgFilter := bson.M{"orgId": orgIDStr}
 
 		total, _ := purchaseOrderCollection.CountDocuments(ctx, orgFilter)
 		pending, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "pending"}}})

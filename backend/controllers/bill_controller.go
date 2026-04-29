@@ -63,15 +63,22 @@ func CreateBill() gin.HandlerFunc {
 			return
 		}
 
-		// Update vendor outstanding payable
+		// Update vendor outstanding payable + push history
 		if b.VendorID != "" && b.Status != "draft" {
 			vendorFilter := bson.M{"orgId": orgID}
 			if vObjID, err := primitive.ObjectIDFromHex(b.VendorID); err == nil {
 				vendorFilter["_id"] = vObjID
 			}
+			histEntry := bson.M{
+				"action":    "bill_created",
+				"timestamp": time.Now(),
+				"user":      b.CreatedBy,
+				"details":   fmt.Sprintf("Bill %s created. Amount: AED %.2f. Due: %s", b.BillNumber, b.Totals.GrandTotal, b.DueDate),
+			}
 			vendorCollection.UpdateOne(ctx, vendorFilter, bson.M{
-				"$inc": bson.M{"outstandingPayable": b.Totals.GrandTotal},
-				"$set": bson.M{"updatedAt": time.Now()},
+				"$inc":  bson.M{"outstandingPayable": b.Totals.GrandTotal},
+				"$push": bson.M{"history": histEntry},
+				"$set":  bson.M{"updatedAt": time.Now()},
 			})
 		}
 

@@ -91,7 +91,18 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 		poRoutes.POST("/", controllers.CreatePurchaseOrder())
 		poRoutes.GET("/getorders", controllers.GetAllPurchaseOrders())
 		poRoutes.GET("/stats", controllers.GetPurchaseOrderStats())
+		poRoutes.GET("/:id", controllers.GetPurchaseOrderByID())
 		poRoutes.PATCH("/:id/status", controllers.UpdatePurchaseOrderStatus())
+	}
+}
+
+func GRNRoutes(router *gin.Engine) {
+	grnRoutes := router.Group("/api/grns")
+	grnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		grnRoutes.POST("/", controllers.CreateGRN())
+		grnRoutes.GET("/", controllers.GetAllGRNs())
+		grnRoutes.GET("/:id", controllers.GetGRNByID())
 	}
 }
 
@@ -115,6 +126,7 @@ func VendorRoutes(router *gin.Engine) {
 		vendorRoutes.GET("/stats", controllers.GetVendorStats())
 		vendorRoutes.GET("/search", controllers.SearchVendors())
 		vendorRoutes.GET("/:id", controllers.GetVendorByID())
+		vendorRoutes.GET("/:id/transactions", controllers.GetVendorTransactions())
 		vendorRoutes.PUT("/:id", controllers.UpdateVendor())
 		vendorRoutes.DELETE("/:id", controllers.DeleteVendor())
 	}

@@ -28,6 +28,7 @@ import Invoices from "./Components/Invoices/Invoices"
 import Createinvoices from "./Components/Createinvoices/Createinvoices"
 import PaymentsReceived from "./Components/PaymentsReceived/PaymentsReceived"
 import Bills from "./Components/Bills/Bills"
+import NewBill from "./Components/Bills/NewBill"
 import PaymentsMade from "./Components/PaymentsMade/PaymentsMade"
 import VendorCredits from "./Components/VendorCredits/VendorCredits"
 import SalesReport from "./Components/Reports/SalesReport"
@@ -94,6 +95,7 @@ function App() {
           <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
           <Route path="/Sales/PaymentsReceived" element={<PaymentsReceived />} />
           <Route path="/Purchase/Bills" element={<Bills />} />
+          <Route path="/Purchase/Bills/New" element={<NewBill />} />
           <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
           <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
           <Route path="/Reports/sales"     element={<SalesReport />} />
