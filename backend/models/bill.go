@@ -40,6 +40,10 @@ type Bill struct {
 	PurchaseOrderID string `json:"purchaseOrderId,omitempty" bson:"purchaseOrderId,omitempty"`
 	PONumber        string `json:"poNumber,omitempty"        bson:"poNumber,omitempty"`
 
+	// Linked GRN (optional)
+	GRNID     string `json:"grnId,omitempty"     bson:"grnId,omitempty"`
+	GRNNumber string `json:"grnNumber,omitempty" bson:"grnNumber,omitempty"`
+
 	// Line items & totals
 	LineItems []BillLineItem `json:"lineItems" bson:"lineItems"`
 	Totals    BillTotals     `json:"totals"    bson:"totals"`

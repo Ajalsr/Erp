@@ -5,6 +5,7 @@ import {
   FaBoxOpen, FaChevronLeft, FaCheckCircle,
   FaHashtag, FaBuilding, FaClipboardCheck,
   FaPaperPlane, FaSpinner, FaWarehouse,
+  FaFileInvoiceDollar,
 } from 'react-icons/fa';
 import { MdMoveToInbox } from 'react-icons/md';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -142,26 +143,67 @@ export default function GRN() {
     }
   };
 
+  const [savedGRN, setSavedGRN] = useState(null);
+
   // ── Confirm Receipt ───────────────────────────────────────────────
   const handleConfirm = async () => {
     setConfirmLoading(true);
     try {
-      const poIds = [...new Set(items.map((i) => i.poId).filter(Boolean))];
-      if (poIds.length === 0) {
-        showToast('No purchase orders linked to these items.', '⚠️');
-        return;
-      }
-      await Promise.allSettled(
-        poIds.map((id) => api.patch(`/api/purchase-orders/${id}/status`, { status: 'received' }))
-      );
+      // Build GRN payload for backend
+      const grnPayload = {
+        grnNumber:        grn.number,
+        purchaseOrderId:  items[0]?.poId || '',
+        poNumber:         grn.poNumber || '',
+        vendorId:         inboundData.vendorId || '',
+        vendorName:       grn.vendor || '',
+        receiptDate:      new Date().toISOString(),
+        notes:            grnNote,
+        requiresApproval: inboundData.requiresApproval || false,
+        items: items.map((i) => ({
+          itemId:      i.itemId || '',
+          details:     i.name || '',
+          itemCode:    i.item_code || '',
+          orderedQty:  i.orderedQty || 0,
+          receivedQty: i.receiveQty || 0,
+          unit:        i.unit || 'Pcs',
+          rate:        parseFloat(i.costPrice || 0),
+        })),
+      };
+
+      const res = await api.post('/api/grns/', grnPayload);
+      const saved = res.data?.data || {};
+      setSavedGRN({ id: saved.id, grnNumber: saved.grnNumber || grn.number, total: saved.total || grandTotal });
+
       setConfirmed(true);
-      showToast('Receipt confirmed! Goods marked as received.', '✅');
+      showToast(`Receipt confirmed! GRN ${saved.grnNumber || grn.number} saved.`, '✅');
     } catch (err) {
       console.error('GRN confirm error:', err);
       showToast('Failed to confirm receipt. Please try again.', '❌');
     } finally {
       setConfirmLoading(false);
     }
+  };
+
+  const handleCreateBill = () => {
+    navigate('/Purchase/Bills/New', {
+      state: {
+        fromGRN: true,
+        grnId:     savedGRN?.id || '',
+        grnNumber: savedGRN?.grnNumber || grn.number,
+        poNumber:  grn.poNumber || '',
+        vendorId:  inboundData.vendorId || '',
+        vendorName: grn.vendor || '',
+        total:     savedGRN?.total || grandTotal,
+        items: items.map((i) => ({
+          description:  i.name,
+          qty:          i.receiveQty || 0,
+          unitPrice:    parseFloat(i.costPrice || 0),
+          taxRate:      5,
+          discount:     i.discount || 0,
+          discountType: i.discountType || 'fixed',
+        })),
+      },
+    });
   };
 
   // ── Shared card style ────────────────────────────────────────────
@@ -253,6 +295,15 @@ export default function GRN() {
                   ? <><FaCheckCircle size={13} /> Receipt Confirmed</>
                   : <><FaWarehouse size={13} /> Confirm Receipt</>}
             </button>
+
+            {confirmed && (
+              <button
+                className="grn-action-btn"
+                onClick={handleCreateBill}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 18px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,0.35)' }}>
+                <FaFileInvoiceDollar size={13} /> Create Bill
+              </button>
+            )}
           </div>
         </div>
 

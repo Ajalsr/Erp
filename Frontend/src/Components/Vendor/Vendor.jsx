@@ -166,6 +166,8 @@ const Vendors = () => {
   const [drawerOpen,        setDrawerOpen]        = useState(false);
   const [selectedItem,      setSelectedItem]      = useState(null);
   const [activeTab,         setActiveTab]         = useState("overview");
+  const [txData,            setTxData]            = useState({ bills: [], payments: [], purchaseOrders: [], grns: [] });
+  const [txLoading,         setTxLoading]         = useState(false);
   const [searchTerm,        setSearchTerm]        = useState("");
   const [isSearchFocused,   setIsSearchFocused]   = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -280,7 +282,16 @@ const Vendors = () => {
 
   // ── Drawer ────────────────────────────────────────────────────
   const openDrawer  = (v) => { setSelectedItem(v); setDrawerOpen(true); setActiveTab("overview"); };
-  const closeDrawer = ()  => { setDrawerOpen(false); setSelectedItem(null); };
+  const closeDrawer = ()  => { setDrawerOpen(false); setSelectedItem(null); setTxData({ bills: [], payments: [], purchaseOrders: [], grns: [] }); };
+
+  useEffect(() => {
+    if (!selectedItem?._id) return;
+    setTxLoading(true);
+    axiosInstance.get(`/api/vendors/${selectedItem._id}/transactions`)
+      .then(res => setTxData(res.data?.data || { bills: [], payments: [], purchaseOrders: [], grns: [] }))
+      .catch(() => setTxData({ bills: [], payments: [], purchaseOrders: [], grns: [] }))
+      .finally(() => setTxLoading(false));
+  }, [selectedItem?._id]);
 
   // ── Export ────────────────────────────────────────────────────
   const handleExport = () => {
@@ -792,76 +803,174 @@ const Vendors = () => {
 
                 {/* ── Purchases tab ── */}
                 {activeTab === "purchases" && (() => {
-                  const payables  = parseFloat(v.outstandingPayable || 0);
-                  const taxAmt    = Math.round(payables * 0.05 * 100) / 100;
-                  const grandTotal = Math.round((payables + taxAmt) * 100) / 100;
+                  const payables = parseFloat(v.outstandingPayable || 0);
                   const fmt = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+
+                  const statusColor = {
+                    draft:     { bg: T.surface2,                              fg: T.textSec  },
+                    confirmed: { bg: isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4",   fg: "#10b981" },
+                    received:  { bg: isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4",   fg: "#10b981" },
+                    approved:  { bg: isDark ? "rgba(59,130,246,0.1)" : "#eff6ff",   fg: T.blue    },
+                    paid:      { bg: isDark ? "rgba(59,130,246,0.1)" : "#eff6ff",   fg: T.blue    },
+                    unpaid:    { bg: isDark ? "rgba(239,68,68,0.1)"  : "#fef2f2",   fg: "#ef4444" },
+                    partial:   { bg: isDark ? "rgba(245,158,11,0.1)" : "#fffbeb",   fg: "#f59e0b" },
+                    sent:      { bg: isDark ? "rgba(245,158,11,0.1)" : "#fffbeb",   fg: "#f59e0b" },
+                  };
+                  const pill = (s) => {
+                    const c = statusColor[s?.toLowerCase()] || statusColor.draft;
+                    return <span style={{ fontSize: "10px", fontWeight: "600", padding: "2px 8px", borderRadius: "99px", background: c.bg, color: c.fg }}>{s || "—"}</span>;
+                  };
+
+                  const SectionHeader = ({ title, count }) => (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px" }}>
+                      <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>{title}</p>
+                      <span style={{ fontSize: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, padding: "1px 7px", borderRadius: "99px" }}>{count}</span>
+                    </div>
+                  );
+
                   return (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
 
-                      {/* Summary rows */}
-                      <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "12px", overflow: "hidden" }}>
-                        {[
-                          { label: "Outstanding Payables", value: fmt(payables), color: payables > 0 ? "#ef4444" : T.textPri },
-                          { label: "Credit Limit",         value: v.creditLimit ? fmt(v.creditLimit) : "—" },
-                          { label: "Payment Terms",        value: v.paymentTerms || "—" },
-                          { label: "Currency",             value: v.currency || "AED" },
-                        ].map(({ label, value, color }, i, arr) => (
-                          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                            <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>{label}</span>
-                            <span style={{ fontSize: "13px", fontWeight: "600", color: color || T.textPri }}>{value}</span>
-                          </div>
-                        ))}
+                      {/* Outstanding payables summary */}
+                      <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "12px", padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>Outstanding Payables</span>
+                        <span className="vnd-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: payables > 0 ? "#ef4444" : T.textPri }}>{fmt(payables)}</span>
                       </div>
 
-                      {/* VAT Breakdown */}
-                      <div>
-                        <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Tax Breakdown</p>
-                        <div style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "12px", padding: "12px 14px" }}>
-                          <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 10px" }}>VAT 5% — Grouped by Rate</p>
-                          {payables > 0 ? (
-                            <>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
+                      {txLoading ? (
+                        <div style={{ display: "flex", justifyContent: "center", padding: "32px 0" }}>
+                          <div className="vnd-spin" style={{ width: "24px", height: "24px", border: `2px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%" }} />
+                        </div>
+                      ) : (
+                        <>
+                          {/* Purchase Orders */}
+                          <SectionHeader title="Purchase Orders" count={txData.purchaseOrders?.length || 0} />
+                          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                            {txData.purchaseOrders?.length > 0 ? txData.purchaseOrders.map((po, i, arr) => (
+                              <div key={po._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
                                 <div>
-                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Payables Amount</p>
-                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "'DM Mono', monospace" }}>{fmt(payables)} × 5%</p>
+                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{po.orderNumber || po.poNumber || "PO"}</p>
+                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(po.createdAt)}</p>
                                 </div>
-                                <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmt(taxAmt)}</span>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  {pill(po.status)}
+                                  <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(po.total)}</span>
+                                </div>
                               </div>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "8px", paddingTop: "8px" }}>
-                                <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
-                                <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmt(taxAmt)}</span>
-                              </div>
-                            </>
-                          ) : (
-                            <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>No outstanding payables to calculate tax on.</p>
-                          )}
-                        </div>
-                      </div>
+                            )) : (
+                              <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No purchase orders yet.</p>
+                            )}
+                          </div>
 
-                      {/* Grand Total */}
-                      {payables > 0 && (
-                        <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "12px", padding: "14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span className="vnd-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: T.textPri }}>Grand Total (incl. VAT)</span>
-                          <span className="vnd-jakarta" style={{ fontSize: "17px", fontWeight: "800", color: T.blue, fontFamily: "'DM Mono', monospace" }}>{fmt(grandTotal)}</span>
-                        </div>
+                          {/* GRNs */}
+                          <SectionHeader title="Goods Receipts (GRN)" count={txData.grns?.length || 0} />
+                          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                            {txData.grns?.length > 0 ? txData.grns.map((grn, i, arr) => (
+                              <div key={grn._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                <div>
+                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{grn.grnNumber || "GRN"}</p>
+                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(grn.receiptDate || grn.createdAt)}</p>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  {pill(grn.status)}
+                                  <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(grn.total)}</span>
+                                </div>
+                              </div>
+                            )) : (
+                              <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No goods receipts yet.</p>
+                            )}
+                          </div>
+
+                          {/* Bills */}
+                          <SectionHeader title="Bills" count={txData.bills?.length || 0} />
+                          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                            {txData.bills?.length > 0 ? txData.bills.map((bill, i, arr) => (
+                              <div key={bill._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                <div>
+                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{bill.billNumber || "Bill"}</p>
+                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>Due: {fmtDate(bill.dueDate)}</p>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  {pill(bill.status)}
+                                  <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(bill.totals?.grandTotal || bill.total)}</span>
+                                </div>
+                              </div>
+                            )) : (
+                              <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No bills yet.</p>
+                            )}
+                          </div>
+
+                          {/* Payments */}
+                          <SectionHeader title="Payments Made" count={txData.payments?.length || 0} />
+                          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                            {txData.payments?.length > 0 ? txData.payments.map((pay, i, arr) => (
+                              <div key={pay._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                <div>
+                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{pay.paymentNumber || pay.referenceNumber || "Payment"}</p>
+                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(pay.paymentDate || pay.createdAt)}</p>
+                                </div>
+                                <span style={{ fontSize: "12px", fontWeight: "700", color: "#10b981", fontFamily: "'DM Mono', monospace" }}>{fmt(pay.amount)}</span>
+                              </div>
+                            )) : (
+                              <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No payments yet.</p>
+                            )}
+                          </div>
+                        </>
                       )}
-
-                      <p style={{ fontSize: "11px", color: T.textMuted, margin: 0, textAlign: "center" }}>Full purchase history will appear once orders are linked.</p>
                     </div>
                   );
                 })()}
 
                 {/* ── History tab ── */}
-                {activeTab === "history" && (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "12px" }}>
-                    <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textSec }}>
-                      <FaClock />
+                {activeTab === "history" && (() => {
+                  const history = [...(v.history || [])].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                  const actionLabel = {
+                    po_created:     { label: "PO Created",      color: T.blue,    dim: T.blueDim    },
+                    grn_received:   { label: "GRN Received",    color: "#10b981", dim: isDark ? "rgba(16,185,129,0.12)" : "#f0fdf4" },
+                    bill_created:   { label: "Bill Created",    color: "#f59e0b", dim: isDark ? "rgba(245,158,11,0.12)" : "#fffbeb" },
+                    payment_made:   { label: "Payment Made",    color: "#10b981", dim: isDark ? "rgba(16,185,129,0.12)" : "#f0fdf4" },
+                    credit_applied: { label: "Credit Applied",  color: T.blue,    dim: T.blueDim    },
+                  };
+                  if (history.length === 0) return (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "12px" }}>
+                      <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textSec }}>
+                        <FaClock />
+                      </div>
+                      <p className="vnd-jakarta" style={{ fontWeight: "700", color: T.textPri, fontSize: "14px", margin: 0 }}>No history yet</p>
+                      <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>Activity will appear here once recorded.</p>
                     </div>
-                    <p className="vnd-jakarta" style={{ fontWeight: "700", color: T.textPri, fontSize: "14px", margin: 0 }}>No history yet</p>
-                    <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>Activity will appear here once recorded.</p>
-                  </div>
-                )}
+                  );
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+                      {history.map((entry, i) => {
+                        const cfg = actionLabel[entry.action] || { label: entry.action, color: T.textSec, dim: T.surface2 };
+                        const ts  = entry.timestamp ? new Date(entry.timestamp) : null;
+                        return (
+                          <div key={i} style={{ display: "flex", gap: "12px", paddingBottom: "16px", position: "relative" }}>
+                            {/* Timeline line */}
+                            {i < history.length - 1 && (
+                              <div style={{ position: "absolute", left: "14px", top: "28px", bottom: 0, width: "1px", background: T.border }} />
+                            )}
+                            {/* Dot */}
+                            <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: cfg.dim, border: `2px solid ${cfg.color}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: cfg.color }} />
+                            </div>
+                            {/* Content */}
+                            <div style={{ flex: 1, minWidth: 0, paddingTop: "4px" }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "2px" }}>
+                                <span style={{ fontSize: "11px", fontWeight: "700", padding: "2px 8px", borderRadius: "99px", background: cfg.dim, color: cfg.color }}>{cfg.label}</span>
+                                {ts && <span style={{ fontSize: "10px", color: T.textSec, flexShrink: 0 }}>{ts.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" })}</span>}
+                              </div>
+                              <p style={{ fontSize: "12px", color: T.textSec, margin: 0, lineHeight: "1.5" }}>{entry.details}</p>
+                              {entry.user && <p style={{ fontSize: "10px", color: T.textMuted, margin: "2px 0 0" }}>by {entry.user}</p>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Drawer footer */}

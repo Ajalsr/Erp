@@ -366,8 +366,10 @@ func UpdateCustomer() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var existingCustomer models.Customer
-		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingCustomer)
+		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingCustomer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
@@ -461,14 +463,14 @@ func UpdateCustomer() gin.HandlerFunc {
 			update["contactPersons"] = updateData.ContactPersons
 		}
 
-		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": update})
+		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": update})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update customer", "error": err.Error()})
 			return
 		}
 
 		var updatedCustomer models.Customer
-		_ = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedCustomer)
+		_ = customersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&updatedCustomer)
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "update", ID: id})
 
@@ -838,6 +840,8 @@ func AddCustomerHistory() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var entry models.HistoryEntry
 		if err := c.ShouldBindJSON(&entry); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
@@ -848,7 +852,7 @@ func AddCustomerHistory() gin.HandlerFunc {
 		}
 
 		update := bson.M{"$push": bson.M{"history": entry}}
-		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to add history entry", "error": err.Error()})
 			return

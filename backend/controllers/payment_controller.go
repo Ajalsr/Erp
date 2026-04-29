@@ -82,7 +82,7 @@ func CreatePayment() gin.HandlerFunc {
 							"updatedAt":  time.Now(),
 						},
 					}
-					invoiceCollection.UpdateOne(ctx, bson.M{"_id": invObjID}, invUpdate)
+					invoiceCollection.UpdateOne(ctx, bson.M{"_id": invObjID, "orgId": orgID}, invUpdate)
 
 					if p.InvoiceNumber == "" {
 						p.InvoiceNumber = inv.InvoiceNumber

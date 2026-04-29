@@ -63,19 +63,22 @@ const transformPOsToItems = (poData, stockData) => {
       (po.items || []).forEach(oi => {
         const stock = stockMap[oi.itemId];
         result.push({
-          _id:         String(oi._id || `${po._id}-${oi.itemId}`),
-          itemId:      oi.itemId,
-          poId:        String(po._id),
-          name:        oi.details || stock?.name || `Item ${oi.itemId}`,
-          item_code:   stock?.item_code || "-",
-          unit:        oi.unit || stock?.Unit || "Pcs",
-          vendor:      po.vendorName,
-          poNumber:    po.orderNumber,
-          orderedQty:  parseQty(oi.quantity),
-          stockOnHand: parseFloat(stock?.quantity || "0"),
-          costPrice:   oi.rate,
-          receiveQty:  parseQty(oi.quantity),
-          status:      "pending",
+          _id:          String(oi._id || `${po._id}-${oi.itemId}`),
+          itemId:       oi.itemId,
+          poId:         String(po._id),
+          vendorId:     po.vendorId || '',
+          name:         oi.details || stock?.name || `Item ${oi.itemId}`,
+          item_code:    stock?.item_code || "-",
+          unit:         oi.unit || stock?.Unit || "Pcs",
+          vendor:       po.vendorName,
+          poNumber:     po.orderNumber,
+          orderedQty:   parseQty(oi.quantity),
+          stockOnHand:  parseFloat(stock?.quantity || "0"),
+          costPrice:    oi.rate,
+          receiveQty:   parseQty(oi.quantity),
+          discount:     oi.discount || 0,
+          discountType: oi.discountType || 'fixed',
+          status:       "pending",
         });
       });
     });
@@ -175,6 +178,7 @@ export default function Inbound() {
           summary: { totalItems: sel.length, totalQuantity: totalQty, subTotal },
           note: inboundNote,
           requiresApproval,
+          vendorId: sel[0]?.vendorId || '',
         },
         grn: {
           number:   grnNumber,

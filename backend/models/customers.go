@@ -75,10 +75,10 @@ type Customer struct {
 }
 
 type HistoryEntry struct {
-	Action    string                 `json:"action"    bson:"action"`
-	Timestamp time.Time              `json:"timestamp" bson:"timestamp"`
-	User      string                 `json:"user,omitempty" bson:"user,omitempty"`
-	Details   map[string]interface{} `json:"details,omitempty" bson:"details,omitempty"`
+	Action    string      `json:"action"    bson:"action"`
+	Timestamp time.Time   `json:"timestamp" bson:"timestamp"`
+	User      string      `json:"user,omitempty" bson:"user,omitempty"`
+	Details   interface{} `json:"details,omitempty" bson:"details,omitempty"`
 }
 
 type ContactPerson struct {

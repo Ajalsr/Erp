@@ -294,3 +294,68 @@ func SearchVendors() gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": vendors})
 	}
 }
+
+func GetVendorTransactions() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		vendorID := c.Param("id")
+
+		billsColl := config.GetCollection(config.DB, "bills")
+		paysColl := config.GetCollection(config.DB, "vendor_payments")
+		posColl := config.GetCollection(config.DB, "purchase_orders")
+		grnsColl := config.GetCollection(config.DB, "grns")
+
+		filter := bson.M{"orgId": orgIDStr, "vendorId": vendorID}
+		sortDesc := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})
+
+		var bills []bson.M
+		if cur, err := billsColl.Find(ctx, filter, sortDesc); err == nil {
+			cur.All(ctx, &bills)
+			cur.Close(ctx)
+		}
+		if bills == nil {
+			bills = []bson.M{}
+		}
+
+		var payments []bson.M
+		if cur, err := paysColl.Find(ctx, filter, sortDesc); err == nil {
+			cur.All(ctx, &payments)
+			cur.Close(ctx)
+		}
+		if payments == nil {
+			payments = []bson.M{}
+		}
+
+		var pos []bson.M
+		if cur, err := posColl.Find(ctx, bson.M{"orgId": orgIDStr, "vendorId": vendorID}, sortDesc); err == nil {
+			cur.All(ctx, &pos)
+			cur.Close(ctx)
+		}
+		if pos == nil {
+			pos = []bson.M{}
+		}
+
+		var grns []bson.M
+		if cur, err := grnsColl.Find(ctx, filter, sortDesc); err == nil {
+			cur.All(ctx, &grns)
+			cur.Close(ctx)
+		}
+		if grns == nil {
+			grns = []bson.M{}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": http.StatusOK,
+			"data": gin.H{
+				"bills":          bills,
+				"payments":       payments,
+				"purchaseOrders": pos,
+				"grns":           grns,
+			},
+		})
+	}
+}

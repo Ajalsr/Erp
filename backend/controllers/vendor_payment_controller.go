@@ -75,7 +75,7 @@ func CreateVendorPayment() gin.HandlerFunc {
 					if newBalance <= 0 {
 						newStatus = "paid"
 					}
-					billCollection.UpdateOne(ctx, bson.M{"_id": billObjID}, bson.M{
+					billCollection.UpdateOne(ctx, bson.M{"_id": billObjID, "orgId": orgID}, bson.M{
 						"$set": bson.M{
 							"amountPaid": newPaid,
 							"balanceDue": newBalance,

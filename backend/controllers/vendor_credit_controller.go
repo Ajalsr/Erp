@@ -196,7 +196,7 @@ func ApplyVendorCredit() gin.HandlerFunc {
 		}
 
 		// Update bill
-		billCollection.UpdateOne(ctx, bson.M{"_id": billObjID}, bson.M{
+		billCollection.UpdateOne(ctx, bson.M{"_id": billObjID, "orgId": orgID}, bson.M{
 			"$set": bson.M{
 				"amountPaid": newPaid,
 				"balanceDue": newBalance,
@@ -206,7 +206,7 @@ func ApplyVendorCredit() gin.HandlerFunc {
 		})
 
 		// Mark credit as applied
-		vendorCreditCollection.UpdateOne(ctx, bson.M{"_id": crObjID}, bson.M{
+		vendorCreditCollection.UpdateOne(ctx, bson.M{"_id": crObjID, "orgId": orgID}, bson.M{
 			"$set": bson.M{
 				"status":     "applied",
 				"billId":     body.BillID,
@@ -215,15 +215,21 @@ func ApplyVendorCredit() gin.HandlerFunc {
 			},
 		})
 
-		// Reduce vendor outstanding payable
+		// Reduce vendor outstanding payable + push history
 		if cr.VendorID != "" {
 			vendorFilter := bson.M{"orgId": orgID}
 			if vObjID, err := primitive.ObjectIDFromHex(cr.VendorID); err == nil {
 				vendorFilter["_id"] = vObjID
 			}
+			histEntry := bson.M{
+				"action":    "credit_applied",
+				"timestamp": time.Now(),
+				"details":   fmt.Sprintf("Credit %s applied to Bill %s. Amount: AED %.2f", cr.CreditNumber, b.BillNumber, creditAmt),
+			}
 			vendorCollection.UpdateOne(ctx, vendorFilter, bson.M{
-				"$inc": bson.M{"outstandingPayable": -creditAmt},
-				"$set": bson.M{"updatedAt": time.Now()},
+				"$inc":  bson.M{"outstandingPayable": -creditAmt},
+				"$push": bson.M{"history": histEntry},
+				"$set":  bson.M{"updatedAt": time.Now()},
 			})
 		}
 

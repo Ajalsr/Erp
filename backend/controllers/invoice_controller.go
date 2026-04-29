@@ -236,8 +236,9 @@ func UpdateInvoiceStatus() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
 		update := bson.M{"$set": bson.M{"status": req.Status, "updatedAt": time.Now()}}
-		result, err := invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+		result, err := invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil || result.MatchedCount == 0 {
 			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Invoice not found"})
 			return
