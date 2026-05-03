@@ -52,6 +52,8 @@ type Bill struct {
 	AmountPaid float64 `json:"amountPaid" bson:"amountPaid"`
 	BalanceDue float64 `json:"balanceDue" bson:"balanceDue"`
 
+	PaymentTerms string `json:"paymentTerms,omitempty" bson:"paymentTerms,omitempty"`
+
 	// Status: draft | open | partial | paid | overdue | void
 	Status string `json:"status" bson:"status"`
 

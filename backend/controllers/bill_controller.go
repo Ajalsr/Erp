@@ -29,6 +29,7 @@ func CreateBill() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 		userID, _ := c.Get("userId")
 
 		var b models.Bill
@@ -42,7 +43,7 @@ func CreateBill() gin.HandlerFunc {
 		}
 
 		b.ID = primitive.NewObjectID()
-		b.OrgID = orgID.(string)
+		b.OrgID = orgIDStr
 		b.CreatedAt = time.Now()
 		b.UpdatedAt = time.Now()
 		if userID != nil {
@@ -65,7 +66,7 @@ func CreateBill() gin.HandlerFunc {
 
 		// Update vendor outstanding payable + push history
 		if b.VendorID != "" && b.Status != "draft" {
-			vendorFilter := bson.M{"orgId": orgID}
+			vendorFilter := bson.M{"orgId": orgIDStr}
 			if vObjID, err := primitive.ObjectIDFromHex(b.VendorID); err == nil {
 				vendorFilter["_id"] = vObjID
 			}
@@ -96,8 +97,9 @@ func GetAllBills() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 
-		filter := bson.M{"orgId": orgID}
+		filter := bson.M{"orgId": orgIDStr}
 		if status := c.Query("status"); status != "" {
 			filter["status"] = status
 		}
@@ -138,6 +140,7 @@ func GetBillByID() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 		id := c.Param("id")
 		objID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
@@ -146,7 +149,7 @@ func GetBillByID() gin.HandlerFunc {
 		}
 
 		var b models.Bill
-		err = billCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgID}).Decode(&b)
+		err = billCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr}).Decode(&b)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Bill not found"})
@@ -166,6 +169,7 @@ func UpdateBillStatus() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 		id := c.Param("id")
 		objID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
@@ -188,7 +192,7 @@ func UpdateBillStatus() gin.HandlerFunc {
 		}
 
 		result, err := billCollection.UpdateOne(ctx,
-			bson.M{"_id": objID, "orgId": orgID},
+			bson.M{"_id": objID, "orgId": orgIDStr},
 			bson.M{"$set": bson.M{"status": body.Status, "updatedAt": time.Now()}},
 		)
 		if err != nil || result.MatchedCount == 0 {
@@ -206,9 +210,10 @@ func GetBillStats() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 
 		pipeline := mongo.Pipeline{
-			{{Key: "$match", Value: bson.M{"orgId": orgID}}},
+			{{Key: "$match", Value: bson.M{"orgId": orgIDStr}}},
 			{{Key: "$group", Value: bson.M{
 				"_id":        "$status",
 				"count":      bson.M{"$sum": 1},

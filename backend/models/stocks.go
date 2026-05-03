@@ -10,7 +10,7 @@ type Stock struct {
 	ID               primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	Name             string             `json:"name" bson:"name"`
 	ItemCode         string             `json:"item_code" bson:"item_code"`
-	Unit             string             `json:"Unit" bson:"unit"`
+	Unit             string             `json:"unit" bson:"unit"`
 	Length           string             `json:"length" bson:"length"`
 	Width            string             `json:"width" bson:"width"`
 	Height           string             `json:"height" bson:"height"`

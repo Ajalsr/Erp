@@ -613,7 +613,7 @@ export default function NewVendor() {
     };
 
     try {
-      await axiosInstance.post('/api/vendors/addvendor', payload);
+      await axiosInstance.post('/api/vendors/', payload);
       nexusToast.success('Vendor created successfully!');
       setTimeout(() => navigate('/Purchase/Vendors'), 1500);
     } catch (err) {

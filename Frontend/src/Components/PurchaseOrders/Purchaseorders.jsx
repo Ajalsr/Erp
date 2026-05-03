@@ -335,7 +335,7 @@ export default function Purchaseorders() {
                   <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>
                   <DRow label="Shipping"      value={fmtAmt(selected.shippingCharges)} T={T}/>
                   <DRow label="Adjustment"    value={fmtAmt(selected.adjustment)} T={T}/>
-                  <DRow label="VAT (5%)"      value={fmtAmt(selected.vat)} T={T}/>
+                  <DRow label="VAT (5%)"      value={fmtAmt(selected.totalTax ?? selected.vat)} T={T}/>
                   {selected.notes && (
                     <div style={{ marginTop:14, padding:12, background:T.surface2, border:`1px solid ${border}`, borderRadius:10 }}>
                       <p style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:T.textSec, margin:'0 0 6px' }}>Notes</p>
@@ -361,7 +361,7 @@ export default function Purchaseorders() {
                           <div style={{ display:'flex', gap:16 }}>
                             <span style={{ fontSize:11, color:T.textSec }}>Qty: <strong style={{ color:T.textPri }}>{item.quantity}</strong></span>
                             <span style={{ fontSize:11, color:T.textSec }}>Rate: <strong style={{ color:T.textPri, fontFamily:"'DM Mono',monospace" }}>AED {item.rate}</strong></span>
-                            {item.discount>0 && <span style={{ fontSize:11, color:T.amber }}>Disc: {item.discount}%</span>}
+                            {item.discount>0 && <span style={{ fontSize:11, color:T.amber }}>Disc: {item.discountType==='fixed' ? `AED ${item.discount}` : `${item.discount}%`}</span>}
                           </div>
                         </div>
                       ))}
