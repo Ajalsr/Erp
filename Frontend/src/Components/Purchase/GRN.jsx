@@ -174,6 +174,12 @@ export default function GRN() {
       const saved = res.data?.data || {};
       setSavedGRN({ id: saved.id, grnNumber: saved.grnNumber || grn.number, total: saved.total || grandTotal });
 
+      // Increase stock for each received item
+      const stockUpdates = items
+        .filter((i) => i.itemId && (i.receiveQty || 0) > 0)
+        .map((i) => api.patch(`/api/stocks/${i.itemId}/increase`, { increaseBy: i.receiveQty }));
+      await Promise.allSettled(stockUpdates);
+
       setConfirmed(true);
       showToast(`Receipt confirmed! GRN ${saved.grnNumber || grn.number} saved.`, '✅');
     } catch (err) {

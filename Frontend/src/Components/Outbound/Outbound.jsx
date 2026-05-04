@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   FaTimes, FaSearch, FaShippingFast, FaBoxOpen,
   FaChevronLeft, FaChevronRight, FaCheck, FaBan,
-  FaClipboardCheck, FaExclamationTriangle, FaTag,
+  FaExclamationTriangle, FaTag,
   FaWarehouse, FaTruck, FaFileAlt
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
@@ -81,76 +81,53 @@ export default function Outbound() {
   const findItem = (id) => Array.isArray(itemsData) ? itemsData.find(i => i._id === id) : null;
 
   const transformItems = () => {
-    if (salesOrdersData?.salesOrders?.length) {
-      const result = [];
-      salesOrdersData.salesOrders.filter(so => !["invoiced","cancelled","completed"].includes(so.status)).forEach(so => {
+    if (!salesOrdersData?.salesOrders) return [];
+    const result = [];
+    salesOrdersData.salesOrders
+      .filter(so => !["invoiced", "cancelled", "completed"].includes((so.status || "").toLowerCase()))
+      .forEach(so => {
         (so.items || []).forEach(oi => {
-          const inv = findItem(oi.itemId);
-          const ordQty = parseQty(oi.quantity);
-          const avail  = inv ? parseQty(inv.quantity) : 0;
-          const rate   = parseAmt(oi.rate);
-          // Always use the pre-computed AED discount value so % discounts display correctly
+          const inv     = findItem(oi.itemId);
+          const ordQty  = parseQty(oi.quantity);
+          const avail   = inv ? parseQty(inv.quantity) : 0;
+          const rate    = parseAmt(oi.rate);
           const discAED = parseAmt(oi.discountAed ?? oi.discountAED ?? 0);
           const finalUnit = rate - (ordQty > 0 ? discAED / ordQty : 0);
           result.push({
-            _id:              oi._id || oi.itemId,
-            itemId:           oi.itemId,
-            name:             oi.details || inv?.name || `Item ${oi.itemId}`,
-            item_code:        inv?.item_code || oi.itemId,
-            unit:             oi.unit || inv?.Unit || "Piece",
-            description:      oi.details || "",
+            _id:               `${so.id}-${oi.itemId}`,
+            itemId:            oi.itemId,
+            name:              oi.details || inv?.name || `Item ${oi.itemId}`,
+            item_code:         inv?.item_code || oi.itemId,
+            unit:              oi.unit || inv?.unit || "Piece",
+            description:       oi.details || "",
             rate,
-            discount:         discAED,
-            discountType:     oi.discountType || "fixed",
-            discountRaw:      parseAmt(oi.discount),
-            selling_price:    finalUnit.toFixed(2),
-            availableQuantity:avail,
-            orderedQuantity:  ordQty,
-            outboundQuantity: ordQty > 0 ? ordQty : 1,
-            maxQuantity:      avail > 0 ? avail : ordQty,
-            brand:            inv?.brand || "",
-            status:           "pending",
-            salesOrderNumber: so.orderNumber,
-            salesOrderId:     so.id,
+            discount:          discAED,
+            discountType:      oi.discountType || "fixed",
+            discountRaw:       parseAmt(oi.discount),
+            selling_price:     finalUnit.toFixed(2),
+            availableQuantity: avail,
+            orderedQuantity:   ordQty,
+            outboundQuantity:  ordQty > 0 ? ordQty : 1,
+            maxQuantity:       avail > 0 ? avail : ordQty,
+            brand:             inv?.brand || "",
+            status:            "pending",
+            salesOrderNumber:  so.orderNumber,
+            salesOrderId:      so.id,
           });
         });
       });
-      return result;
-    }
-    if (Array.isArray(itemsData)) {
-      return itemsData.map(i => ({
-        _id:              i._id,
-        itemId:           i._id,
-        name:             i.name || "Unnamed Item",
-        item_code:        i.item_code || i._id,
-        unit:             i.Unit || "Piece",
-        description:      "",
-        rate:             parseAmt(i.selling_price),
-        discount:         0,
-        selling_price:    i.selling_price || "0.00",
-        availableQuantity:parseQty(i.quantity),
-        orderedQuantity:  1,
-        outboundQuantity: 1,
-        maxQuantity:      parseQty(i.quantity),
-        brand:            i.brand || "",
-        status:           "pending",
-        salesOrderNumber: null,
-        salesOrderId:     null,
-      }));
-    }
-    return [];
+    return result;
   };
 
-  useEffect(() => { handleGetItem(); handleGetSalesorder(); }, []);
+  useEffect(() => { handleGetItem(); handleGetSalesorder(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (salesOrdersData === null) return;
     const items = transformItems();
-    if (items.length) {
-      const ids = new Set(items.map(i => i._id));
-      setSelectedIds(ids);
-      setOutboundItems(items.map(i => ({ ...i, isSelected: true })));
-    }
-  }, [itemsData, salesOrdersData]);
+    const ids = new Set(items.map(i => i._id));
+    setSelectedIds(ids);
+    setOutboundItems(items.map(i => ({ ...i, isSelected: true })));
+  }, [itemsData, salesOrdersData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const q = searchTerm.trim().toLowerCase();

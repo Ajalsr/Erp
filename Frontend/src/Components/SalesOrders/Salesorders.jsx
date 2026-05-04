@@ -640,40 +640,7 @@ const Salesorders = () => {
                     ))}
                   </div>
 
-                  {/* Action buttons */}
-                  <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
-                    <button onClick={() => navigate(`/Sales/Invoices/New?orderId=${selected.id}`)} style={{
-                      flex: 2, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                      padding: "8px 0", borderRadius: 9, background: T.blue, border: "none",
-                      fontSize: 12, fontWeight: 600, color: "white", cursor: "pointer", fontFamily: "inherit",
-                      transition: "all 0.15s",
-                    }} onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.1)"}
-                       onMouseLeave={e => e.currentTarget.style.filter = "none"}>
-                      <FaFileInvoiceDollar size={11} /> Generate Invoice
-                    </button>
-                    <button style={{
-                      flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                      padding: "8px 0", borderRadius: 9,
-                      background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
-                      border: `1px solid ${T.border}`,
-                      fontSize: 12, fontWeight: 600, color: T.textSec, cursor: "pointer", fontFamily: "inherit",
-                      transition: "all 0.15s",
-                    }} onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.1)" : "#f1f5f9"}
-                       onMouseLeave={e => e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"}>
-                      <FaEdit size={11} /> Edit
-                    </button>
-                    <button style={{
-                      padding: "8px 14px", borderRadius: 9,
-                      background: isDark ? "rgba(239,68,68,0.1)" : "#fef2f2",
-                      border: `1px solid rgba(239,68,68,0.25)`,
-                      color: "#ef4444", cursor: "pointer", fontFamily: "inherit",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      transition: "all 0.15s",
-                    }} onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(239,68,68,0.18)" : "#fee2e2"}
-                       onMouseLeave={e => e.currentTarget.style.background = isDark ? "rgba(239,68,68,0.1)" : "#fef2f2"}>
-                      <FaBan size={12} />
-                    </button>
-                  </div>
+                  
                 </div>
 
                 {/* Pill tab bar */}
