@@ -32,7 +32,7 @@ const buildCSS = (isDark) => {
   const inpBdr    = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
   const tblHead   = isDark ? '#0a1220' : '#f8fafc';
   const sticky    = isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)';
-  const sbar      = isDark ? 'rgba(255,255,255,0.04)' : '#ffffff';
+  const _sbar     = isDark ? 'rgba(255,255,255,0.04)' : '#ffffff';
   const scrollThumb = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
 
   return `
@@ -126,7 +126,7 @@ const Field = ({ label, req, children, hint }) => {
 };
 
 /* ── PortalSelect — matches customer dropdown style ── */
-const Sel = ({ value, onChange, required, options=[], placeholder='Select…', icon=null }) => {
+const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null }) => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const [open,setOpen]=useState(false);
@@ -640,7 +640,7 @@ const Newsalesorders = () => {
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate(`/sales/salesorders/${r.data.id}`),1500);}}catch(e){setSuccessMessage(e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){await Promise.all(d.items.map(item=>item.itemId?axiosInstance.patch(`/api/stocks/${item.itemId}/reduce`,{reduceBy:item.quantity}):Promise.resolve()));setSuccessMessage('Sales order created!');setShowSuccessToaster(true);setTimeout(()=>navigate('/sales/salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){await Promise.all(d.items.map(item=>item.itemId?axiosInstance.patch(`/api/stocks/${item.itemId}/reduce`,{reduceBy:item.quantity}):Promise.resolve()));handleGetItem();setSuccessMessage('Sales order created!');setShowSuccessToaster(true);setTimeout(()=>navigate('/sales/salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
@@ -877,7 +877,7 @@ const Newsalesorders = () => {
                         <div style={{position:'relative'}} ref={el=>itemInputRefs.current[index]=el}>
                           <input className="nso-tinp" placeholder="Search or type item name…" value={item.details}
                             onChange={e=>{const u=[...items];u[index].details=e.target.value;setItems(u);debouncedSearch(e.target.value);setShowItemDropdown(index);}}
-                            onFocus={()=>{setShowItemDropdown(index);if(!item.details)setSearchTerm('');}}
+                            onFocus={()=>{setShowItemDropdown(index);if(!item.details)setSearchTerm('');handleGetItem();}}
                           />
                           {item.sku&&<div style={{marginTop:5,display:'flex',alignItems:'center',gap:6,fontSize:10,color:T.textSec}}><FaBarcode style={{fontSize:9}}/><span style={{fontFamily:"'DM Mono',monospace"}}>{item.sku}</span>{item.unit&&<span>· {item.unit}</span>}</div>}
                         </div>

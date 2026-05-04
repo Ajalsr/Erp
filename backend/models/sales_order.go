@@ -236,6 +236,7 @@ type SalesOrderStats struct {
 	CompletedOrders int64         `json:"completedOrders"`
 	CancelledOrders int64         `json:"cancelledOrders"`
 	TodayOrders     int64         `json:"todayOrders"`
+	TodayRevenue    float64       `json:"todayRevenue"`
 	ThisWeekOrders  int64         `json:"thisWeekOrders"`
 	ThisMonthOrders int64         `json:"thisMonthOrders"`
 	TopCustomers    []TopCustomer `json:"topCustomers"`

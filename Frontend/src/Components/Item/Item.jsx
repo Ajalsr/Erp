@@ -69,6 +69,9 @@ export default function Item() {
   const [mounted,       setMounted]       = useState(false);
   const [itemOrders,    setItemOrders]    = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [adjustItem,    setAdjustItem]    = useState(null);
+  const [adjustQty,     setAdjustQty]     = useState('');
+  const [adjustLoading, setAdjustLoading] = useState(false);
   const searchRef = useRef(null);
   const cmdRef    = useRef(null);
 
@@ -179,6 +182,30 @@ export default function Item() {
   const toggleAll = () => {
     if (selectedRows.size === filteredItems.length) setSelectedRows(new Set());
     else setSelectedRows(new Set(filteredItems.map(i => i._id || i.id)));
+  };
+
+  const handleAdjustStock = async () => {
+    const newQty = parseFloat(adjustQty);
+    if (isNaN(newQty) || newQty < 0) return;
+    const itemId = adjustItem._id || adjustItem.id;
+    const currentQty = parseFloat(adjustItem.quantity || 0);
+    const diff = newQty - currentQty;
+    if (diff === 0) { setAdjustItem(null); return; }
+    setAdjustLoading(true);
+    try {
+      if (diff > 0) {
+        await axiosInstance.patch(`/api/stocks/${itemId}/increase`, { increaseBy: diff });
+      } else {
+        await axiosInstance.patch(`/api/stocks/${itemId}/reduce`, { reduceBy: Math.abs(diff) });
+      }
+      setAdjustItem(null);
+      setAdjustQty('');
+      handleGetItem();
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Failed to adjust stock');
+    } finally {
+      setAdjustLoading(false);
+    }
   };
 
   /* ── Keyboard: Cmd+K ── */
@@ -542,6 +569,13 @@ export default function Item() {
                       }}>
                         {st.label}
                       </span>
+                      <button
+                        title="Adjust stock"
+                        onClick={e => { e.stopPropagation(); setAdjustItem(item); setAdjustQty(String(item.quantity ?? 0)); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: "2px 4px", display: "flex", alignItems: "center", opacity: 0.6, fontSize: 10 }}
+                      >
+                        <FaEdit size={10} />
+                      </button>
                     </div>
                   </td>
 
@@ -918,36 +952,49 @@ export default function Item() {
               })()}
             </div>
 
-            {/* Drawer footer */}
-            <div style={{ padding: "14px 20px", borderTop: `1px solid ${border}`, flexShrink: 0, display: "flex", gap: 8 }}>
-              <button
-                className="itm-btn"
-                onClick={() => navigate(`/Items/Items/Edit/${selectedItem._id || selectedItem.id}`)}
-                style={{
-                  flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-                  padding: "10px", background: T.blue, border: "none", borderRadius: 10,
-                  color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  fontFamily: "'DM Sans',sans-serif",
-                  boxShadow: `0 3px 12px ${isDark ? "rgba(59,130,246,.3)" : "rgba(37,99,235,.22)"}`,
-                }}
-              >
-                <FaEdit size={11} /> Edit Item
-              </button>
-              <button
-                className="itm-btn"
-                onClick={closeDrawer}
-                style={{
-                  flex: 1, padding: "10px", background: surface2, border: `1px solid ${border}`,
-                  borderRadius: 10, color: T.textSec, fontSize: 13, fontWeight: 600,
-                  cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-                }}
-              >
-                Close
-              </button>
-            </div>
+            
           </>
         )}
       </div>
+
+      {/* ══ STOCK ADJUST MODAL ══════════════════════════════════════════ */}
+      {adjustItem && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setAdjustItem(null)}>
+          <div style={{ background: isDark ? "#0f172a" : "#fff", border: `1px solid ${border}`, borderRadius: 16, padding: "24px 28px", width: 340, boxShadow: "0 32px 80px rgba(0,0,0,.45)" }}
+            onClick={e => e.stopPropagation()}>
+            <p className="sora" style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: "0 0 4px" }}>Adjust Stock</p>
+            <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 20px" }}>{adjustItem.name} · Current: <strong style={{ color: T.textPri }}>{adjustItem.quantity ?? 0}</strong></p>
+            <label style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>New Quantity</label>
+            <input
+              autoFocus
+              type="number"
+              min="0"
+              value={adjustQty}
+              onChange={e => setAdjustQty(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleAdjustStock()}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: `1.5px solid ${border}`, background: T.surface2, color: T.textPri, fontSize: 15, fontWeight: 700, fontFamily: "'DM Mono',monospace", outline: "none", boxSizing: "border-box" }}
+            />
+            {adjustQty !== '' && parseFloat(adjustQty) !== parseFloat(adjustItem.quantity ?? 0) && (
+              <p style={{ fontSize: 11, color: parseFloat(adjustQty) > parseFloat(adjustItem.quantity ?? 0) ? "#10b981" : "#f59e0b", margin: "6px 0 0" }}>
+                {parseFloat(adjustQty) > parseFloat(adjustItem.quantity ?? 0)
+                  ? `+${parseFloat(adjustQty) - parseFloat(adjustItem.quantity ?? 0)} units will be added`
+                  : `${parseFloat(adjustItem.quantity ?? 0) - parseFloat(adjustQty)} units will be removed`}
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <button onClick={handleAdjustStock} disabled={adjustLoading || adjustQty === '' || parseFloat(adjustQty) < 0}
+                style={{ flex: 1, padding: "10px", background: "linear-gradient(135deg,#3b82f6,#2563eb)", color: "#fff", border: "none", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: adjustLoading ? 0.7 : 1 }}>
+                {adjustLoading ? "Saving…" : "Save"}
+              </button>
+              <button onClick={() => setAdjustItem(null)}
+                style={{ flex: 1, padding: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${border}`, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

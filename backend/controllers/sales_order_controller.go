@@ -803,6 +803,22 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		todayOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
 			"orgId": orgID, "createdAt": bson.M{"$gte": todayStart},
 		})
+
+		todayRevenue := 0.0
+		todayRevPipeline := []bson.M{
+			{"$match": bson.M{"orgId": orgID, "createdAt": bson.M{"$gte": todayStart}}},
+			{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$total"}}},
+		}
+		if trCursor, err := salesOrdersCollection.Aggregate(ctx, todayRevPipeline); err == nil {
+			defer trCursor.Close(ctx)
+			var trResult []bson.M
+			if trCursor.All(ctx, &trResult) == nil && len(trResult) > 0 {
+				if v, ok := trResult[0]["total"].(float64); ok {
+					todayRevenue = v
+				}
+			}
+		}
+
 		thisWeekOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
 			"orgId": orgID, "createdAt": bson.M{"$gte": weekStart},
 		})
@@ -860,6 +876,7 @@ func GetSalesOrderStats() gin.HandlerFunc {
 			CompletedOrders: statusStats["completed"],
 			CancelledOrders: statusStats["cancelled"],
 			TodayOrders:     todayOrders,
+			TodayRevenue:    todayRevenue,
 			ThisWeekOrders:  thisWeekOrders,
 			ThisMonthOrders: thisMonthOrders,
 			TopCustomers:    topCustomers,
