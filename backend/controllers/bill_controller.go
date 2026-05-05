@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/backend/config"
@@ -109,7 +110,20 @@ func GetAllBills() gin.HandlerFunc {
 
 		total, _ := billCollection.CountDocuments(ctx, filter)
 
-		opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})
+		limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "50"), 10, 64)
+		if limit < 1 || limit > 200 {
+			limit = 50
+		}
+		page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
+		if page < 1 {
+			page = 1
+		}
+		skip := (page - 1) * limit
+
+		opts := options.Find().
+			SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+			SetSkip(skip).
+			SetLimit(limit)
 		cursor, err := billCollection.Find(ctx, filter, opts)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to fetch bills"})

@@ -34,6 +34,14 @@ import VendorCredits from "./Components/VendorCredits/VendorCredits"
 import SalesReport from "./Components/Reports/SalesReport"
 import PurchaseReport from "./Components/Reports/PurchaseReport"
 import InventoryReport from "./Components/Reports/InventoryReport"
+import Accounts from "./Components/Accounts/Accounts"
+import NewAccount from "./Components/NewAccount/NewAccount"
+import ItemGroups from "./Components/ItemGroups/ItemGroups"
+import PriceLists from "./Components/PriceLists/PriceLists"
+import NewPriceList from "./Components/NewPriceList/NewPriceList"
+import StockSummary from "./Components/Inventory/StockSummary"
+import Warehouses from "./Components/Inventory/Warehouses"
+import Adjustments from "./Components/Inventory/Adjustments"
 
 function App() {
   return (
@@ -101,6 +109,14 @@ function App() {
           <Route path="/Reports/sales"     element={<SalesReport />} />
           <Route path="/Reports/purchases" element={<PurchaseReport />} />
           <Route path="/Reports/inventory" element={<InventoryReport />} />
+          <Route path="/Finance/Accounts"        element={<Accounts />} />
+          <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
+          <Route path="/Items/item-groups"        element={<ItemGroups />} />
+          <Route path="/Items/price-lists"        element={<PriceLists />} />
+          <Route path="/Items/price-lists/new"    element={<NewPriceList />} />
+          <Route path="/Inventory/stock-summary"  element={<StockSummary />} />
+          <Route path="/Inventory/warehouses"     element={<Warehouses />} />
+          <Route path="/Inventory/adjustments"    element={<Adjustments />} />
         </Route>
       </Routes>
     </>

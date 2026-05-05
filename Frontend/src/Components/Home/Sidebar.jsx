@@ -5,6 +5,7 @@ import { FaBoxOpen, FaCartArrowDown } from 'react-icons/fa'
 import { MdInventory2 } from 'react-icons/md'
 import { HiShoppingCart } from 'react-icons/hi'
 import { TbReportAnalytics } from 'react-icons/tb'
+import { MdAccountBalance } from 'react-icons/md'
 import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
 
@@ -43,6 +44,9 @@ const MENU = [
     { name: 'Sales Report',     route: '/Reports/sales' },
     { name: 'Purchase Report',  route: '/Reports/purchases' },
     { name: 'Inventory Report', route: '/Reports/inventory' },
+  ]},
+  { icon: MdAccountBalance,   label: 'Finance',    subItems: [
+    { name: 'Chart of Accounts', route: '/Finance/Accounts' },
   ]},
 ]
 

@@ -64,6 +64,11 @@ func main() {
 	routes.VendorPaymentRoutes(server)
 	routes.VendorCreditRoutes(server)
 	routes.GRNRoutes(server)
+	routes.AccountRoutes(server)
+	routes.WarehouseRoutes(server)
+	routes.AdjustmentRoutes(server)
+	routes.ItemGroupRoutes(server)
+	routes.PriceListRoutes(server)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	server.GET("/ws", ws.ServeWs(ws.GlobalHub))

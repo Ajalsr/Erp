@@ -870,7 +870,7 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		stats := models.SalesOrderStats{
 			TotalOrders:     totalOrders,
 			TotalAmount:     totalAmount,
-			PendingOrders:   statusStats["pending"],
+			PendingOrders:   statusStats["pending"] + statusStats["open"] + statusStats["draft"],
 			ApprovedOrders:  statusStats["approved"],
 			ShippedOrders:   statusStats["shipped"],
 			CompletedOrders: statusStats["completed"],

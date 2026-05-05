@@ -104,6 +104,7 @@ const makeStyles = (T, isDark) => `
   .tag-chip:hover { background: ${isDark ? 'rgba(239,68,68,0.1)' : '#fef2f2'} !important; }
 
   @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes ncModalIn { from { opacity: 0; transform: scale(.92) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 `;
 
 // ── Shared sub-components (accept T + isDark as props) ─────────────
@@ -329,6 +330,34 @@ const DocumentsTab = ({ documents, handleFileUpload, removeDocument, getFileIcon
     </div>
   </div>
 );
+
+// ── Discard Modal ─────────────────────────────────────────────────
+function DiscardModal({ onConfirm, onCancel, T, isDark }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }} onClick={onCancel} />
+      <div style={{
+        position: 'relative', zIndex: 1, width: 360, background: T.surface,
+        border: `1.5px solid ${T.border}`, borderRadius: 20,
+        padding: '32px 28px', textAlign: 'center',
+        boxShadow: isDark ? '0 24px 64px rgba(0,0,0,0.6)' : '0 24px 64px rgba(0,0,0,0.14)',
+        animation: 'ncModalIn .2s cubic-bezier(.34,1.56,.64,1) both',
+      }}>
+        <div style={{ width: 52, height: 52, borderRadius: '50%', background: isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: 22 }}>⚠</div>
+        <h2 style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 18, color: T.textPri, margin: '0 0 8px', fontWeight: 700 }}>Discard this customer?</h2>
+        <p style={{ fontSize: 13, color: T.textSec, margin: '0 0 24px', lineHeight: 1.5 }}>All unsaved data will be permanently lost.</p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onConfirm} style={{ flex: 1, padding: '11px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Yes, discard
+          </button>
+          <button onClick={onCancel} style={{ flex: 1, padding: '11px', background: T.surface2, color: T.textPri, border: `1.5px solid ${T.border}`, borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Keep editing
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Custom Select — portal-based dropdown ──────────────────────────
 const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select', name, T, isDark }) => {
@@ -900,6 +929,7 @@ const Newcustomers = () => {
 
   const [activeTab,     setActiveTab]     = useState('finance');
   const [isSubmitting,  setIsSubmitting]  = useState(false);
+  const [showDiscard,   setShowDiscard]   = useState(false);
   const [contactPersons,setContactPersons]= useState([]);
 
   const [formData, setFormData] = useState({
@@ -1003,9 +1033,17 @@ const Newcustomers = () => {
     <div className="nc-root" style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px' }}>
       <style>{makeStyles(T, isDark)}</style>
 
+      {showDiscard && (
+        <DiscardModal
+          T={T} isDark={isDark}
+          onConfirm={() => { setShowDiscard(false); navigate('/Sales/Customers'); }}
+          onCancel={() => setShowDiscard(false)}
+        />
+      )}
+
       {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '28px' }}>
-        <button type="button" onClick={() => navigate('/Sales/Customers')}
+        <button type="button" onClick={() => setShowDiscard(true)}
           style={{ width: '36px', height: '36px', borderRadius: '10px', background: T.surface, border: `1.5px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: T.textSec }}>
           <FaChevronLeft size={13} />
         </button>
@@ -1203,7 +1241,7 @@ const Newcustomers = () => {
                   <><FaCheckCircle size={14} /> Save Customer</>
                 )}
               </button>
-              <button type="button" className="action-btn-secondary" onClick={() => navigate('/Sales/Customers')} disabled={isSubmitting}
+              <button type="button" className="action-btn-secondary" onClick={() => setShowDiscard(true)} disabled={isSubmitting}
                 style={{ width: '100%', padding: '12px', background: T.surface2, color: T.textSec, border: `1.5px solid ${T.border}`, borderRadius: '11px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>
                 Cancel
               </button>

@@ -155,6 +155,64 @@ func VendorPaymentRoutes(router *gin.Engine) {
 	}
 }
 
+func WarehouseRoutes(router *gin.Engine) {
+	wRoutes := router.Group("/api/warehouses")
+	wRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		wRoutes.POST("/", controllers.CreateWarehouse())
+		wRoutes.GET("/", controllers.GetAllWarehouses())
+		wRoutes.GET("/:id", controllers.GetWarehouseByID())
+		wRoutes.PUT("/:id", controllers.UpdateWarehouse())
+		wRoutes.DELETE("/:id", controllers.DeleteWarehouse())
+	}
+}
+
+func AdjustmentRoutes(router *gin.Engine) {
+	adjRoutes := router.Group("/api/inventory/adjustments")
+	adjRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		adjRoutes.POST("/", controllers.CreateAdjustment())
+		adjRoutes.GET("/", controllers.GetAllAdjustments())
+	}
+}
+
+func ItemGroupRoutes(router *gin.Engine) {
+	igRoutes := router.Group("/api/item-groups")
+	igRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		igRoutes.POST("/", controllers.CreateItemGroup())
+		igRoutes.GET("/", controllers.GetAllItemGroups())
+		igRoutes.GET("/:id", controllers.GetItemGroupByID())
+		igRoutes.PUT("/:id", controllers.UpdateItemGroup())
+		igRoutes.DELETE("/:id", controllers.DeleteItemGroup())
+	}
+}
+
+func PriceListRoutes(router *gin.Engine) {
+	plRoutes := router.Group("/api/price-lists")
+	plRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		plRoutes.POST("/", controllers.CreatePriceList())
+		plRoutes.GET("/", controllers.GetAllPriceLists())
+		plRoutes.GET("/:id", controllers.GetPriceListByID())
+		plRoutes.PUT("/:id", controllers.UpdatePriceList())
+		plRoutes.DELETE("/:id", controllers.DeletePriceList())
+	}
+}
+
+func AccountRoutes(router *gin.Engine) {
+	accRoutes := router.Group("/api/accounts")
+	accRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		accRoutes.POST("/", controllers.CreateAccount())
+		accRoutes.GET("/", controllers.GetAllAccounts())
+		accRoutes.GET("/stats", controllers.GetAccountStats())
+		accRoutes.GET("/:id", controllers.GetAccountByID())
+		accRoutes.PUT("/:id", controllers.UpdateAccount())
+		accRoutes.DELETE("/:id", controllers.DeleteAccount())
+	}
+}
+
 func VendorCreditRoutes(router *gin.Engine) {
 	vcRoutes := router.Group("/api/vendor-credits")
 	vcRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
