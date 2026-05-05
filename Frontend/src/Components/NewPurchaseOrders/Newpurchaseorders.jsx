@@ -715,13 +715,6 @@ export default function Newpurchaseorders() {
         shippingCharges: shipAmt, adjustment: adjAmt, customerNotes, termsAndConditions: terms, status,
       };
       await axiosInstance.post('/api/purchase-orders/', payload);
-      if (status !== 'draft') {
-        await Promise.all(payload.items.map(item =>
-          item.itemId
-            ? axiosInstance.patch(`/api/stocks/${item.itemId}/increase`, { increaseBy: item.quantity })
-            : Promise.resolve()
-        ));
-      }
       nexusToast.success('Purchase order created successfully!');
       setTimeout(() => navigate('/Purchase/Purchaseorders'), 1500);
     } catch (err) {

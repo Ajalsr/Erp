@@ -30,7 +30,15 @@ func GetAllCustomers() gin.HandlerFunc {
 
 		orgID, _ := c.Get("orgId")
 		collection := config.GetCollection(config.DB, "customers")
-		results, err := collection.Find(ctx, bson.M{"orgId": orgID})
+
+		findOpts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if lim, err := strconv.ParseInt(limitStr, 10, 64); err == nil && lim > 0 {
+				findOpts.SetLimit(lim)
+			}
+		}
+
+		results, err := collection.Find(ctx, bson.M{"orgId": orgID}, findOpts)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

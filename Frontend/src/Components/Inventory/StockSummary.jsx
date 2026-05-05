@@ -1,0 +1,194 @@
+import { useState, useEffect, useCallback } from 'react';
+import { FaSearch, FaBoxOpen, FaExclamationTriangle } from 'react-icons/fa';
+import { IoClose } from 'react-icons/io5';
+import axiosInstance from '../../helper/axiosInstance';
+import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import nexusToast from '../../helper/nexusToast';
+
+const STATUS = {
+  in_stock:  { label: 'In Stock',   color: '#10b981', bg: 'rgba(16,185,129,0.15)',  bgL: '#f0fdf4'  },
+  low_stock: { label: 'Low Stock',  color: '#f59e0b', bg: 'rgba(245,158,11,0.15)',  bgL: '#fffbeb'  },
+  out:       { label: 'Out of Stock',color: '#ef4444', bg: 'rgba(239,68,68,0.15)',   bgL: '#fef2f2'  },
+};
+
+function stockStatus(qty, reorder) {
+  if (qty <= 0)                              return 'out';
+  if (reorder > 0 && qty <= reorder)         return 'low_stock';
+  return 'in_stock';
+}
+
+export default function StockSummary() {
+  const isDark = useThemeStore((s) => s.isDark);
+  const T = { ...getTheme(isDark), isDark };
+
+  const [items, setItems]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [drawer, setDrawer] = useState(null);
+
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await axiosInstance.get('/api/stocks/getitem');
+      setItems(res.data?.data || []);
+    } catch {
+      nexusToast.error('Failed to load stock data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  const enriched = items.map(item => {
+    const qty     = parseFloat(item.quantity || 0);
+    const reorder = parseFloat(item.reorder_point || 0);
+    const cost    = parseFloat(item.cost_price || 0);
+    return { ...item, qty, reorder, cost, status: stockStatus(qty, reorder), stockValue: qty * cost };
+  });
+
+  const filtered = enriched.filter(i => {
+    const matchFilter = filter === 'all' || i.status === filter;
+    const matchSearch = !search || i.name?.toLowerCase().includes(search.toLowerCase()) || i.item_code?.toLowerCase().includes(search.toLowerCase());
+    return matchFilter && matchSearch;
+  });
+
+  const totalValue  = enriched.reduce((s, i) => s + i.stockValue, 0);
+  const inStock     = enriched.filter(i => i.status === 'in_stock').length;
+  const lowStock    = enriched.filter(i => i.status === 'low_stock').length;
+  const outOfStock  = enriched.filter(i => i.status === 'out').length;
+
+  const s = (key, shade) => isDark ? STATUS[key].bg : STATUS[key].bgL;
+
+  return (
+    <div style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px', fontFamily: "'DM Sans',sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@400;500&display=swap');
+        * { box-sizing: border-box; }
+        .ss-row:hover { background: ${isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc'} !important; }
+      `}</style>
+
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Stock Summary</h1>
+        <p style={{ fontSize: 13, color: T.textSec, margin: '4px 0 0' }}>Real-time overview of all inventory levels</p>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+        {[
+          { label: 'Total Items',    val: enriched.length,                                          color: '#3b82f6',            mono: true  },
+          { label: 'In Stock',       val: inStock,                                                   color: STATUS.in_stock.color, mono: true  },
+          { label: 'Low Stock',      val: lowStock,                                                  color: STATUS.low_stock.color,mono: true  },
+          { label: 'Out of Stock',   val: outOfStock,                                                color: STATUS.out.color,      mono: true  },
+        ].map(st => (
+          <div key={st.label} onClick={() => setFilter(f => f === st.label.toLowerCase().replace(/ /g,'_') ? 'all' : (st.label === 'Total Items' ? 'all' : st.label.toLowerCase().replace(/ /g,'_')))}
+            style={{ padding: '14px 18px', background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12, cursor: 'pointer', transition: 'all .15s' }}>
+            <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, margin: '0 0 6px' }}>{st.label}</p>
+            <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 24, fontWeight: 700, color: st.color, margin: 0 }}>{st.val}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Stock value */}
+      <div style={{ padding: '16px 20px', background: isDark ? 'rgba(59,130,246,0.1)' : '#eff6ff', border: `1.5px solid ${isDark ? 'rgba(59,130,246,0.3)' : '#bfdbfe'}`, borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>Total Stock Value</p>
+        <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 20, fontWeight: 800, color: '#3b82f6', margin: 0 }}>
+          AED {totalValue.toLocaleString('en-AE', { minimumFractionDigits: 2 })}
+        </p>
+      </div>
+
+      {/* Search + filter */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 40, border: `1.5px solid ${T.border}`, borderRadius: 10, background: T.surface }}>
+          <FaSearch size={12} color={T.textSec} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or code…"
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: T.textPri, fontFamily: 'inherit' }} />
+          {search && <IoClose size={14} color={T.textSec} style={{ cursor: 'pointer' }} onClick={() => setSearch('')} />}
+        </div>
+        {['all','in_stock','low_stock','out'].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ padding: '0 16px', height: 40, borderRadius: 10, border: `1.5px solid ${filter === f ? (f === 'all' ? '#3b82f6' : STATUS[f]?.color || '#3b82f6') : T.border}`, background: filter === f ? (f === 'all' ? (isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff') : s(f === 'all' ? 'in_stock' : f)) : T.surface2, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: filter === f ? (f === 'all' ? '#3b82f6' : STATUS[f]?.color) : T.textSec, fontFamily: 'inherit', transition: 'all .15s', whiteSpace: 'nowrap' }}>
+            {f === 'all' ? 'All' : STATUS[f]?.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px 100px 100px 120px', padding: '9px 18px', borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
+          {['Code','Name','Unit','Qty','Reorder','Status'].map(h => (
+            <span key={h} style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec }}>{h}</span>
+          ))}
+        </div>
+        {loading ? (
+          <div style={{ padding: 48, textAlign: 'center', fontSize: 13, color: T.textSec }}>Loading stock data…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 48, textAlign: 'center' }}>
+            <FaBoxOpen size={28} color={T.border} style={{ marginBottom: 10 }} />
+            <p style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: '0 0 4px' }}>No items found</p>
+            <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Try adjusting your search or filter.</p>
+          </div>
+        ) : filtered.map((item, i) => {
+          const st = STATUS[item.status];
+          return (
+            <div key={item._id} className="ss-row" onClick={() => setDrawer(item)}
+              style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px 100px 100px 120px', padding: '12px 18px', borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : 'none', alignItems: 'center', background: T.surface, cursor: 'pointer' }}>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, fontWeight: 600, color: T.textPri }}>{item.item_code || '—'}</span>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{item.name}</p>
+                {item.category && <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', textTransform: 'capitalize' }}>{item.category}</p>}
+              </div>
+              <span style={{ fontSize: 12, color: T.textSec }}>{item.unit || '—'}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: st.color }}>{item.qty}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: T.textSec }}>{item.reorder || '—'}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: isDark ? st.bg : st.bgL, color: st.color, width: 'fit-content' }}>
+                {item.status === 'low_stock' && <FaExclamationTriangle size={9} />}
+                {st.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Drawer */}
+      {drawer && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', justifyContent: 'flex-end' }} onClick={() => setDrawer(null)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
+          <div onClick={e => e.stopPropagation()}
+            style={{ position: 'relative', width: 360, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri, margin: 0 }}>Stock Detail</h2>
+              <button onClick={() => setDrawer(null)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}><IoClose size={14} /></button>
+            </div>
+            {/* Stock bar */}
+            <div style={{ padding: 16, background: isDark ? STATUS[drawer.status].bg : STATUS[drawer.status].bgL, borderRadius: 12, marginBottom: 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <p style={{ fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>{drawer.name}</p>
+                <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: STATUS[drawer.status].color }}>{drawer.qty} {drawer.unit}</span>
+              </div>
+              <div style={{ height: 6, background: isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
+                <div style={{ height: '100%', borderRadius: 999, background: STATUS[drawer.status].color, width: drawer.reorder > 0 ? `${Math.min((drawer.qty / (drawer.reorder * 2)) * 100, 100)}%` : drawer.qty > 0 ? '60%' : '0%', transition: 'width .4s' }} />
+              </div>
+            </div>
+            {[
+              ['Item Code', drawer.item_code || '—'],
+              ['Category',  drawer.category  || '—'],
+              ['Unit',      drawer.unit       || '—'],
+              ['Qty on Hand',    drawer.qty],
+              ['Reorder Point',  drawer.reorder || '—'],
+              ['Cost Price', drawer.cost ? `AED ${drawer.cost.toFixed(2)}` : '—'],
+              ['Stock Value', `AED ${drawer.stockValue.toFixed(2)}`],
+              ['Selling Price', drawer.selling_price ? `AED ${parseFloat(drawer.selling_price).toFixed(2)}` : '—'],
+            ].map(([l, v]) => (
+              <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: `1px solid ${T.border}` }}>
+                <span style={{ fontSize: 12, color: T.textSec }}>{l}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: T.textPri, textAlign: 'right', maxWidth: '55%' }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
