@@ -118,6 +118,8 @@ type SalesOrder struct {
 	CustomerNotes        string             `json:"customerNotes,omitempty" bson:"customerNotes,omitempty"`
 	TermsAndConditions   string             `json:"termsAndConditions,omitempty" bson:"termsAndConditions,omitempty"`
 	Status               string             `json:"status" bson:"status"`
+	CancelReason         string             `json:"cancelReason,omitempty" bson:"cancelReason,omitempty"`
+	CancelRequestedBy    string             `json:"cancelRequestedBy,omitempty" bson:"cancelRequestedBy,omitempty"`
 	Attachments          []Attachment       `json:"attachments,omitempty" bson:"attachments,omitempty"`
 	OrgID                string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt            time.Time          `json:"createdAt" bson:"createdAt"`
@@ -215,6 +217,8 @@ type SalesOrderResponse struct {
 	CustomerNotes        string           `json:"customerNotes,omitempty"`
 	TermsAndConditions   string           `json:"termsAndConditions,omitempty"`
 	Status               string           `json:"status"`
+	CancelReason         string           `json:"cancelReason,omitempty"`
+	CancelRequestedBy    string           `json:"cancelRequestedBy,omitempty"`
 	CreatedAt            time.Time        `json:"createdAt"`
 	UpdatedAt            time.Time        `json:"updatedAt"`
 }

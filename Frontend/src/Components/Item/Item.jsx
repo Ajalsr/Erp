@@ -14,9 +14,11 @@ const fmt = (v) =>
   v ? `AED ${parseFloat(v).toLocaleString("en-AE", { minimumFractionDigits: 2 })}` : "—";
 
 const stockStatus = (qty, reorder = 0) => {
-  if (qty <= 0) return { label: "Out of Stock", key: "out" };
-  if (reorder > 0 && qty <= reorder / 2) return { label: "Critical", key: "critical" };
-  if (reorder > 0 && qty <= reorder) return { label: "Low", key: "low" };
+  qty    = parseFloat(qty)    || 0;
+  reorder = parseFloat(reorder) || 0;
+  if (qty <= 0)                              return { label: "Out of Stock", key: "out"      };
+  if (reorder > 0 && qty <= reorder / 2)    return { label: "Critical",     key: "critical" };
+  if (reorder > 0 && qty <= reorder)        return { label: "Low",          key: "low"      };
   return { label: "In Stock", key: "ok" };
 };
 
@@ -569,13 +571,13 @@ export default function Item() {
                       }}>
                         {st.label}
                       </span>
-                      <button
+                      {/* <button
                         title="Adjust stock"
                         onClick={e => { e.stopPropagation(); setAdjustItem(item); setAdjustQty(String(item.quantity ?? 0)); }}
                         style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: "2px 4px", display: "flex", alignItems: "center", opacity: 0.6, fontSize: 10 }}
                       >
                         <FaEdit size={10} />
-                      </button>
+                      </button> */}
                     </div>
                   </td>
 
@@ -827,6 +829,7 @@ export default function Item() {
                               <span key={h} style={{fontSize:10,fontWeight:700,color:T.textSec,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
                             ))}
                           </div>
+                          <div style={{maxHeight:220,overflowY:"auto"}}>
                           {purchases.map((o,i)=>{
                             const s = sc(o.status);
                             return (
@@ -843,6 +846,7 @@ export default function Item() {
                               </div>
                             );
                           })}
+                          </div>
                           <div style={{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:isDark?"rgba(16,185,129,.04)":"#f0fdf4",borderTop:`1px solid ${border}`}}>
                             <span style={{fontSize:12,color:T.textSec}}>{purchases.length} order{purchases.length!==1?"s":""} · +{purchases.reduce((s,o)=>s+o.qty,0)} units received</span>
                             <span style={{fontSize:13,fontWeight:700,color:T.green,fontFamily:"monospace"}}>{fmtA(purchases.reduce((s,o)=>s+o.total,0))}</span>
@@ -864,6 +868,7 @@ export default function Item() {
                               <span key={h} style={{fontSize:10,fontWeight:700,color:T.textSec,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
                             ))}
                           </div>
+                          <div style={{maxHeight:220,overflowY:"auto"}}>
                           {sales.map((o,i)=>{
                             const s = sc(o.status);
                             return (
@@ -880,6 +885,7 @@ export default function Item() {
                               </div>
                             );
                           })}
+                          </div>
                           <div style={{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:isDark?"rgba(59,130,246,.04)":"#eff6ff",borderTop:`1px solid ${border}`}}>
                             <span style={{fontSize:12,color:T.textSec}}>{sales.length} order{sales.length!==1?"s":""} · −{sales.reduce((s,o)=>s+o.qty,0)} units sold</span>
                             <span style={{fontSize:13,fontWeight:700,color:T.textPri,fontFamily:"monospace"}}>{fmtA(sales.reduce((s,o)=>s+o.total,0))}</span>

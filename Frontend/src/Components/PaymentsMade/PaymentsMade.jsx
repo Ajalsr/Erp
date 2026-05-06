@@ -1,14 +1,472 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import ReactDOM from "react-dom";
 import { FaPlus, FaTimes, FaSearch, FaMoneyBillWave, FaChevronLeft, FaChevronRight, FaCheckCircle } from "react-icons/fa";
 import { useSearchParams } from "react-router-dom";
+import DatePicker from "react-datepicker";
+import { format, isSameDay, addDays, addMonths } from "date-fns";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
+import "react-datepicker/dist/react-datepicker.css";
 
 const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
 const PAYMENT_MODES = ["Cash", "Bank Transfer", "Cheque", "Card", "Other"];
+
+/* ── shared animation keyframe (injected once) ─────────────────── */
+const PORTAL_ANIM = `@keyframes pmSelIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}`;
+
+/* ── Avatar color palette — seeded by first char code ─────────── */
+const AVATAR_PALETTE = [
+  ["rgba(59,130,246,.18)",  "#3b82f6"],
+  ["rgba(139,92,246,.18)",  "#8b5cf6"],
+  ["rgba(16,185,129,.18)",  "#10b981"],
+  ["rgba(245,158,11,.18)",  "#f59e0b"],
+  ["rgba(239,68,68,.18)",   "#ef4444"],
+  ["rgba(6,182,212,.18)",   "#06b6d4"],
+];
+const avatarColor = (name = "") => AVATAR_PALETTE[(name.charCodeAt(0) || 0) % AVATAR_PALETTE.length];
+
+/* ── VendorSelect — portal dropdown with avatar initials ────────── */
+const VendorSelect = ({ value, onChange, vendors = [], T, isDark, error }) => {
+  const [open,   setOpen]   = useState(false);
+  const [search, setSearch] = useState("");
+  const triggerRef = useRef(null);
+  const portalRef  = useRef(null);
+  const inputRef   = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+
+  const selected = vendors.find(v => v._id === value) || null;
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return vendors.filter(v =>
+      !q ||
+      v.displayName?.toLowerCase().includes(q) ||
+      v.companyName?.toLowerCase().includes(q) ||
+      v.vendorCode?.toLowerCase().includes(q)
+    ).slice(0, 12);
+  }, [vendors, search]);
+
+  const updatePos = () => {
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom, left: r.left, width: r.width });
+    }
+  };
+
+  useEffect(() => {
+    if (open) { updatePos(); setTimeout(() => inputRef.current?.focus(), 50); }
+    else setSearch("");
+  }, [open]);
+
+  useEffect(() => {
+    const h = e => {
+      if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    const onScroll = e => { if (open && !portalRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    window.addEventListener("scroll", onScroll, true);
+    return () => { document.removeEventListener("mousedown", h); window.removeEventListener("scroll", onScroll, true); };
+  }, [open]);
+
+  const selName = selected ? (selected.displayName || selected.companyName || "") : "";
+  const [selBg, selFg] = avatarColor(selName);
+
+  return (
+    <div>
+      <style>{PORTAL_ANIM}</style>
+      <button type="button" ref={triggerRef} onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+        border: `1.5px solid ${error ? "#ef4444" : open ? T.blue : selected ? T.blue : T.border}`,
+        borderRadius: 10, background: selected ? T.blueDim : isDark ? T.inputBg : T.surface2,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? "0 0 0 3px rgba(59,130,246,.12)" : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        {selected ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: selBg, color: selFg,
+              display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12,
+              border: `1.5px solid ${selFg}44` }}>
+              {selName.charAt(0).toUpperCase()}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600, color: T.textPri, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {selName}
+              </div>
+              {selected.vendorCode && (
+                <div style={{ fontSize: 10, color: T.textSec, fontFamily: "'DM Mono', monospace" }}>{selected.vendorCode}</div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <span style={{ color: T.textSec }}>Select a vendor…</span>
+        )}
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? T.blue : T.textSec }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {open && ReactDOM.createPortal(
+        <div ref={portalRef} style={{
+          position: "fixed", zIndex: 20000, top: pos.top + 6, left: pos.left, width: Math.max(pos.width, 280),
+          background: isDark ? T.surface : "#fff", borderRadius: 14, border: `1.5px solid ${T.border}`,
+          boxShadow: "0 24px 64px rgba(0,0,0,.22)", overflow: "hidden",
+          animation: "pmSelIn .15s ease both",
+        }}>
+          {/* Search bar */}
+          <div style={{ padding: "10px 12px", borderBottom: `1.5px solid ${T.border}`, background: isDark ? T.surface2 : "#f8fafc" }}>
+            <div style={{ position: "relative" }}>
+              <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textSec, pointerEvents: "none" }}
+                width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx={11} cy={11} r={8}/><path d="M21 21l-4.35-4.35"/>
+              </svg>
+              <input ref={inputRef} placeholder="Search vendor…" value={search} onChange={e => setSearch(e.target.value)} style={{
+                width: "100%", padding: "7px 10px 7px 30px",
+                border: `1.5px solid ${T.border}`, borderRadius: 8,
+                background: isDark ? T.inputBg : "#fff",
+                color: T.textPri, fontSize: 12, outline: "none",
+                fontFamily: "'DM Sans', sans-serif",
+              }} />
+            </div>
+          </div>
+
+          {/* Options */}
+          <div style={{ maxHeight: 240, overflowY: "auto" }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: "18px 16px", color: T.textSec, fontSize: 13, textAlign: "center" }}>No vendors found</div>
+            ) : filtered.map(v => {
+              const name = v.displayName || v.companyName || "";
+              const isActive = value === v._id;
+              const [bg, fg] = avatarColor(name);
+              return (
+                <div key={v._id} onClick={() => { onChange(v); setOpen(false); }}
+                  style={{
+                    padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${T.border}`,
+                    background: isActive ? T.blueDim : "transparent",
+                    display: "flex", alignItems: "center", gap: 11, transition: "background .1s",
+                  }}
+                  onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = isDark ? T.surface2 : "#f8fafc"; }}
+                  onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 9, flexShrink: 0,
+                    background: isActive ? `${T.blue}25` : bg, color: isActive ? T.blue : fg,
+                    display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12,
+                    border: `1.5px solid ${isActive ? T.blue + "55" : fg + "44"}`,
+                  }}>{name.charAt(0).toUpperCase()}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: isActive ? 700 : 500, color: isActive ? T.blue : T.textPri, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {name}
+                    </div>
+                    {v.companyName && v.displayName && (
+                      <div style={{ fontSize: 11, color: T.textSec, marginTop: 1 }}>{v.companyName}</div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
+                    {v.vendorCode && (
+                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.textSec, background: isDark ? T.surface2 : "#f1f5f9", padding: "2px 7px", borderRadius: 5, border: `1px solid ${T.border}` }}>
+                        {v.vendorCode}
+                      </span>
+                    )}
+                    {isActive && (
+                      <div style={{ width: 18, height: 18, borderRadius: 6, background: T.blue, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>✓</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+/* ── ModeSelect — portal dropdown with colored emoji icons ──────── */
+const MODE_ICONS   = { Cash: "💵", "Bank Transfer": "🏦", Cheque: "📄", Card: "💳", Other: "🔄" };
+const MODE_ACCENTS = { Cash: "#16a34a", "Bank Transfer": "#2563eb", Cheque: "#d97706", Card: "#9333ea", Other: "#94a3b8" };
+
+const ModeSelect = ({ value, onChange, T, isDark }) => {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const portalRef  = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+
+  const accent = MODE_ACCENTS[value] || T.textSec;
+
+  const updatePos = () => {
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom, left: r.left, width: r.width });
+    }
+  };
+
+  useEffect(() => { if (open) updatePos(); }, [open]);
+  useEffect(() => {
+    const h = e => {
+      if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  return (
+    <div>
+      <button type="button" ref={triggerRef} onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${open ? accent : value ? accent : T.border}`,
+        borderRadius: 10, background: value ? `${accent}14` : isDark ? T.inputBg : T.surface2,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? `0 0 0 3px ${accent}22` : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 8, flexShrink: 0, fontSize: 14,
+            background: value ? `${accent}22` : isDark ? T.surface2 : "#f1f5f9",
+            border: `1.5px solid ${value ? accent + "55" : T.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>{MODE_ICONS[value] || "💳"}</div>
+          <span style={{ color: value ? T.textPri : T.textSec, fontWeight: value ? 600 : 400 }}>
+            {value || "Select payment mode…"}
+          </span>
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? accent : T.textSec }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {open && ReactDOM.createPortal(
+        <div ref={portalRef} style={{
+          position: "fixed", zIndex: 20000, top: pos.top + 6, left: pos.left, width: Math.max(pos.width, 240),
+          background: isDark ? T.surface : "#fff", borderRadius: 14, border: `1.5px solid ${T.border}`,
+          boxShadow: "0 24px 64px rgba(0,0,0,.22)", overflow: "hidden",
+          animation: "pmSelIn .15s ease both",
+        }}>
+          <div style={{ padding: "8px 13px 7px", borderBottom: `1px solid ${T.border}`, background: isDark ? T.surface2 : "#f8fafc" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: T.textSec }}>
+              {PAYMENT_MODES.length} payment methods
+            </span>
+          </div>
+          {PAYMENT_MODES.map(m => {
+            const isActive = value === m;
+            const ac = MODE_ACCENTS[m];
+            return (
+              <div key={m} onClick={() => { onChange(m); setOpen(false); }}
+                style={{
+                  padding: "11px 14px", cursor: "pointer", borderBottom: `1px solid ${T.border}`,
+                  background: isActive ? `${ac}18` : "transparent",
+                  display: "flex", alignItems: "center", gap: 12, transition: "background .1s",
+                }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = isDark ? T.surface2 : "#f8fafc"; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                <div style={{
+                  width: 34, height: 34, borderRadius: 9, flexShrink: 0, fontSize: 16,
+                  background: isActive ? `${ac}25` : isDark ? T.surface2 : "#f1f5f9",
+                  border: `1.5px solid ${isActive ? ac + "55" : T.border}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>{MODE_ICONS[m]}</div>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: isActive ? 700 : 500, color: isActive ? ac : T.textPri }}>{m}</span>
+                {isActive && (
+                  <div style={{ width: 18, height: 18, borderRadius: 6, background: ac, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>✓</div>
+                )}
+              </div>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+/* ── ModernDatePicker — portal calendar with presets ────────────── */
+const DATE_PRESETS = [
+  { label: "Today",      fn: () => new Date() },
+  { label: "Yesterday",  fn: () => addDays(new Date(), -1) },
+  { label: "Last Week",  fn: () => addDays(new Date(), -7) },
+  { label: "Last Month", fn: () => addMonths(new Date(), -1) },
+];
+
+const ModernDatePicker = ({ value, onChange, T, isDark, error }) => {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState("calendar");
+  const triggerRef = useRef(null);
+  const portalRef  = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+
+  const sel = value ? new Date(value) : null;
+
+  const updatePos = () => {
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom, left: r.left, width: r.width });
+    }
+  };
+
+  useEffect(() => { if (open) updatePos(); }, [open]);
+  useEffect(() => {
+    const h = e => {
+      if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    const onScroll = e => { if (open && !portalRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    window.addEventListener("scroll", onScroll, true);
+    return () => { document.removeEventListener("mousedown", h); window.removeEventListener("scroll", onScroll, true); };
+  }, [open]);
+
+  const handlePick = (d) => { onChange(d.toISOString().split("T")[0]); setOpen(false); setMode("calendar"); };
+
+  return (
+    <div>
+      <button type="button" ref={triggerRef} onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${error ? "#ef4444" : open ? T.blue : sel ? T.blue : T.border}`,
+        borderRadius: 10, background: sel ? T.blueDim : isDark ? T.inputBg : T.surface2,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? "0 0 0 3px rgba(59,130,246,.12)" : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 8, flexShrink: 0, fontSize: 13,
+            background: sel ? "rgba(59,130,246,.2)" : isDark ? T.surface2 : "#f1f5f9",
+            border: `1.5px solid ${sel ? T.blue + "55" : T.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>📅</div>
+          <span style={{ color: sel ? T.textPri : T.textSec, fontWeight: sel ? 600 : 400 }}>
+            {sel ? format(sel, "EEE, MMM dd, yyyy") : "Select date…"}
+          </span>
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? T.blue : T.textSec }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {open && ReactDOM.createPortal(
+        <div ref={portalRef} style={{
+          position: "fixed", zIndex: 20000, top: pos.top + 6, left: pos.left, width: Math.max(pos.width, 320),
+          background: isDark ? T.surface : "#fff", borderRadius: 16, border: `1.5px solid ${T.border}`,
+          boxShadow: "0 24px 60px rgba(0,0,0,.25)", overflow: "hidden",
+          animation: "pmSelIn .15s ease both",
+        }}>
+          <style>{`
+            .pm-dp-cal .react-datepicker{font-family:'DM Sans',sans-serif!important;border:none!important;border-radius:0!important;box-shadow:none!important;background:${isDark ? T.surface : "#fff"}!important;width:100%!important;}
+            .pm-dp-cal .react-datepicker__header{background:${isDark ? T.surface2 : "#f8fafc"}!important;border-bottom:1.5px solid ${T.border}!important;border-radius:0!important;padding-top:12px!important;}
+            .pm-dp-cal .react-datepicker__current-month{font-size:14px!important;font-weight:700!important;color:${T.textPri}!important;}
+            .pm-dp-cal .react-datepicker__day-name{color:${T.textSec}!important;font-size:11px!important;font-weight:600!important;}
+            .pm-dp-cal .react-datepicker__day{border-radius:8px!important;font-size:12px!important;color:${T.textPri}!important;transition:all .1s!important;}
+            .pm-dp-cal .react-datepicker__day:hover{background:rgba(59,130,246,.15)!important;color:${T.blue}!important;}
+            .pm-dp-cal .react-datepicker__day--selected{background:${T.blue}!important;color:#fff!important;font-weight:700!important;}
+            .pm-dp-cal .react-datepicker__day--today{background:rgba(59,130,246,.12)!important;color:${T.blue}!important;font-weight:700!important;}
+            .pm-dp-cal .react-datepicker__day--outside-month{opacity:.35!important;}
+            .pm-dp-cal .react-datepicker__month-container{width:100%!important;}
+            .pm-dp-cal .react-datepicker__navigation{top:14px!important;}
+          `}</style>
+
+          {/* Tabs */}
+          <div style={{ display: "flex", borderBottom: `1.5px solid ${T.border}`, background: isDark ? T.surface2 : "#f8fafc" }}>
+            {[["calendar","📅","Calendar"],["presets","⚡","Quick"]].map(([v, icon, lbl]) => (
+              <button key={v} onClick={() => setMode(v)} style={{
+                flex: 1, padding: "11px 8px", fontSize: 12, fontWeight: 700,
+                border: "none", cursor: "pointer", background: "transparent",
+                color: mode === v ? T.blue : T.textSec,
+                borderBottom: mode === v ? `2px solid ${T.blue}` : "2px solid transparent",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                fontFamily: "'DM Sans', sans-serif", transition: "all .15s",
+              }}>
+                <span>{icon}</span>{lbl}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ padding: "14px 14px 10px" }} className="pm-dp-cal">
+            {mode === "calendar" ? (
+              <DatePicker selected={sel} onChange={handlePick} inline
+                renderCustomHeader={({ date, decreaseMonth, increaseMonth, prevMonthButtonDisabled, nextMonthButtonDisabled }) => (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, padding: "0 4px" }}>
+                    <button onClick={decreaseMonth} disabled={prevMonthButtonDisabled} style={{
+                      width: 28, height: 28, borderRadius: 8, border: `1.5px solid ${T.border}`,
+                      background: isDark ? T.surface2 : "#f1f5f9", cursor: "pointer", color: T.textSec,
+                      display: "flex", alignItems: "center", justifyContent: "center", transition: "all .12s",
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = T.blue; e.currentTarget.style.color = T.blue; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>
+                      <FaChevronLeft style={{ fontSize: 10 }} />
+                    </button>
+                    <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 14, color: T.textPri }}>
+                      {format(date, "MMMM yyyy")}
+                    </span>
+                    <button onClick={increaseMonth} disabled={nextMonthButtonDisabled} style={{
+                      width: 28, height: 28, borderRadius: 8, border: `1.5px solid ${T.border}`,
+                      background: isDark ? T.surface2 : "#f1f5f9", cursor: "pointer", color: T.textSec,
+                      display: "flex", alignItems: "center", justifyContent: "center", transition: "all .12s",
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = T.blue; e.currentTarget.style.color = T.blue; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>
+                      <FaChevronRight style={{ fontSize: 10 }} />
+                    </button>
+                  </div>
+                )}
+              />
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {DATE_PRESETS.map(p => {
+                  const d = p.fn();
+                  const active = sel && isSameDay(sel, d);
+                  return (
+                    <button key={p.label} onClick={() => handlePick(d)} style={{
+                      padding: "10px 12px", borderRadius: 10, textAlign: "left", cursor: "pointer",
+                      border: `1.5px solid ${active ? T.blue : T.border}`,
+                      background: active ? T.blueDim : isDark ? T.surface2 : "#f8fafc",
+                      transition: "all .15s", fontFamily: "'DM Sans', sans-serif",
+                    }}
+                      onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = T.blue; e.currentTarget.style.background = T.blueDim; } }}
+                      onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = isDark ? T.surface2 : "#f8fafc"; } }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: active ? T.blue : T.textPri }}>{p.label}</div>
+                      <div style={{ fontSize: 10, color: T.textSec, marginTop: 2, fontFamily: "'DM Mono', monospace" }}>
+                        {format(d, "MMM dd, yyyy")}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {sel && (
+              <div style={{
+                marginTop: 10, padding: "9px 12px", borderRadius: 10,
+                background: T.blueDim, border: `1.5px solid ${T.blue}44`,
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+              }}>
+                <div>
+                  <div style={{ fontSize: 9, color: T.blue, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".08em" }}>Selected</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.textPri, marginTop: 1 }}>
+                    {format(sel, "EEE, MMM dd, yyyy")}
+                  </div>
+                </div>
+                <div style={{ width: 24, height: 24, borderRadius: 8, background: T.blue, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>✓</div>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
 
 /* ── Record Payment Modal ─────────────────────────────────────────── */
 const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
@@ -16,8 +474,6 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
   const [bills,        setBills]        = useState([]);
   const [billsLoading, setBillsLoading] = useState(false);
   const [loading,      setLoading]      = useState(false);
-  const [vendorOpen,   setVendorOpen]   = useState(false);
-  const [vendorSearch, setVendorSearch] = useState(prefill?.vendorName || "");
   const [selectedBill, setSelectedBill] = useState(null);
   const [errors,       setErrors]       = useState({});
 
@@ -60,16 +516,6 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
       if (found) setSelectedBill(found);
     }
   }, [bills, form.billId, selectedBill]);
-
-  const filteredVendors = useMemo(() => {
-    const q = vendorSearch.toLowerCase();
-    return vendors.filter(v =>
-      !q ||
-      v.displayName?.toLowerCase().includes(q) ||
-      v.companyName?.toLowerCase().includes(q) ||
-      v.vendorCode?.toLowerCase().includes(q)
-    ).slice(0, 10);
-  }, [vendors, vendorSearch]);
 
   const selectVendor = (v) => {
     const name = v.displayName || v.companyName || "";
@@ -146,7 +592,6 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
 
       <style>{`
         @keyframes pmtIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-        .pm-vend-opt:hover{background:${T.surface2} !important;}
         .pm-bill-card:hover{border-color:#3b82f6 !important;background:rgba(59,130,246,.05) !important;}
         .pm-bill-sel{border-color:#3b82f6 !important;background:rgba(59,130,246,.08) !important;}
       `}</style>
@@ -169,71 +614,17 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
         <div style={{ padding: "22px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
 
           {/* Vendor dropdown */}
-          <div style={{ position: "relative" }}>
+          <div>
             <label style={lbl}>Vendor <span style={{ color: "#ef4444" }}>*</span></label>
-            <div
-              onClick={() => setVendorOpen(o => !o)}
-              style={{
-                ...inp, display: "flex", alignItems: "center", justifyContent: "space-between",
-                cursor: "pointer", userSelect: "none",
-                borderColor: errors.vendorId ? "#ef4444" : vendorOpen ? "#3b82f6" : T.border,
-                boxShadow: vendorOpen ? "0 0 0 3px rgba(59,130,246,.12)" : "none",
-              }}
-            >
-              {form.vendorId ? (
-                <span style={{ fontWeight: 600, color: T.textPri }}>{form.vendorName}</span>
-              ) : (
-                <span style={{ color: T.textSec }}>Select a vendor…</span>
-              )}
-              <span style={{ color: T.textSec, fontSize: 11, transition: "transform .15s", display: "inline-block", transform: vendorOpen ? "rotate(180deg)" : "none" }}>▼</span>
-            </div>
+            <VendorSelect
+              value={form.vendorId}
+              onChange={selectVendor}
+              vendors={vendors}
+              T={T}
+              isDark={isDark}
+              error={errors.vendorId}
+            />
             {errors.vendorId && <div style={errTxt}>{errors.vendorId}</div>}
-
-            {vendorOpen && (
-              <div style={{
-                position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
-                background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10,
-                boxShadow: "0 16px 40px rgba(0,0,0,.25)", zIndex: 200, overflow: "hidden",
-              }}>
-                <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.border}` }}>
-                  <input
-                    autoFocus
-                    placeholder="Search vendor name or code…"
-                    value={vendorSearch}
-                    onChange={e => setVendorSearch(e.target.value)}
-                    style={{ ...inp, padding: "8px 11px", fontSize: 12 }}
-                    onClick={e => e.stopPropagation()}
-                  />
-                </div>
-                <div style={{ maxHeight: 220, overflowY: "auto" }}>
-                  {filteredVendors.length === 0 ? (
-                    <div style={{ padding: "14px 16px", color: T.textSec, fontSize: 13, textAlign: "center" }}>No vendors found</div>
-                  ) : filteredVendors.map(v => (
-                    <div key={v._id} className="pm-vend-opt"
-                      onClick={() => selectVendor(v)}
-                      style={{
-                        padding: "10px 14px", cursor: "pointer", fontSize: 13,
-                        borderBottom: `1px solid ${T.border}`,
-                        background: form.vendorId === v._id ? "rgba(59,130,246,.08)" : "transparent",
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        transition: "background .1s",
-                      }}>
-                      <div>
-                        <span style={{ fontWeight: 600, color: T.textPri }}>{v.displayName || v.companyName}</span>
-                        {v.companyName && v.displayName && (
-                          <span style={{ color: T.textSec, fontSize: 11, marginLeft: 7 }}>{v.companyName}</span>
-                        )}
-                      </div>
-                      {v.vendorCode && (
-                        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.textSec, background: T.surface2, padding: "2px 7px", borderRadius: 5 }}>
-                          {v.vendorCode}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Bill selection */}
@@ -364,16 +755,23 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
               <label style={lbl}>Payment Date <span style={{ color: "#ef4444" }}>*</span></label>
-              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                style={{ ...inp }} />
+              <ModernDatePicker
+                value={form.date}
+                onChange={d => setForm(f => ({ ...f, date: d }))}
+                T={T}
+                isDark={isDark}
+                error={errors.date}
+              />
               {errors.date && <div style={errTxt}>{errors.date}</div>}
             </div>
             <div>
               <label style={lbl}>Payment Mode <span style={{ color: "#ef4444" }}>*</span></label>
-              <select value={form.paymentMode} onChange={e => setForm(f => ({ ...f, paymentMode: e.target.value }))}
-                style={{ ...inp, appearance: "none", cursor: "pointer" }}>
-                {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <ModeSelect
+                value={form.paymentMode}
+                onChange={m => setForm(f => ({ ...f, paymentMode: m }))}
+                T={T}
+                isDark={isDark}
+              />
             </div>
           </div>
 

@@ -205,18 +205,6 @@ const OrgSwitcher = ({ isDark, D }) => {
             )}
           </div>
           <div style={{ borderTop: `1px solid ${D.border}`, padding: '4px 0' }}>
-            {/* Only owners and admins can create new organizations */}
-            {(activeOrg?.role === 'owner' || activeOrg?.role === 'admin' || !activeOrg) && (
-              <button
-                className="nx-dropdown-item"
-                onClick={() => { setOpen(false); navigate('/organizations/create') }}
-              >
-                <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                New Organization
-              </button>
-            )}
             {activeOrg && (
               <button
                 className="nx-dropdown-item"
@@ -246,12 +234,14 @@ const Navbar = ({ onToggleSidebar }) => {
   const location    = useLocation()
 
   const user              = useAuthStore((s) => s.user)
+  const activeOrg         = useAuthStore((s) => s.activeOrg)
   const clearAuth         = useAuthStore((s) => s.clearAuth)
   const notifications     = useAuthStore((s) => s.notifications)
   const unreadCount       = useAuthStore((s) => s.unreadCount)
   const isDark            = useThemeStore((s) => s.isDark)
   const toggleTheme       = useThemeStore((s) => s.toggleTheme)
   const { markAllRead, deleteNotification } = useNotifications()
+  const isAdmin           = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase())
 
   const { title, parent } = getPageInfo(location.pathname)
   const initials = (user?.userId || 'U').charAt(0).toUpperCase()
@@ -432,7 +422,7 @@ const Navbar = ({ onToggleSidebar }) => {
                       No notifications yet
                     </div>
                   ) : notifications.map((n) => {
-                    const dotColor = { invite: '#60a5fa', accepted: '#4ade80', role_changed: '#fbbf24', removed: '#f87171' }[n.type] || '#94a3b8'
+                    const dotColor = { invite: '#60a5fa', accepted: '#4ade80', role_changed: '#fbbf24', removed: '#f87171', cancel_request: '#ef4444' }[n.type] || '#94a3b8'
                     const ago = (() => {
                       const s = Math.floor((Date.now() - new Date(n.createdAt)) / 1000)
                       if (s < 60) return `${s}s ago`
@@ -440,15 +430,19 @@ const Navbar = ({ onToggleSidebar }) => {
                       if (s < 86400) return `${Math.floor(s / 3600)}h ago`
                       return `${Math.floor(s / 86400)}d ago`
                     })()
+                    const isCancelReq = n.type === 'cancel_request' && isAdmin
                     return (
                       <div
                         key={n._id}
                         className="nx-sep"
+                        onClick={isCancelReq ? () => { setNotifOpen(false); navigate('/Sales/Outbound'); } : undefined}
                         style={{
                           display: 'flex', alignItems: 'flex-start', gap: '10px',
                           padding: '11px 14px',
-                          background: n.read ? 'transparent' : (isDark ? 'rgba(59,130,246,0.04)' : 'rgba(59,130,246,0.03)'),
-                          cursor: 'default',
+                          background: isCancelReq
+                            ? (isDark ? 'rgba(239,68,68,0.06)' : 'rgba(239,68,68,0.04)')
+                            : n.read ? 'transparent' : (isDark ? 'rgba(59,130,246,0.04)' : 'rgba(59,130,246,0.03)'),
+                          cursor: isCancelReq ? 'pointer' : 'default',
                         }}
                       >
                         <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotColor, marginTop: '5px', flexShrink: 0 }} />
@@ -456,6 +450,11 @@ const Navbar = ({ onToggleSidebar }) => {
                           <p style={{ color: n.read ? D.textSec : (isDark ? '#cbd5e1' : '#374151'), fontSize: '12px', margin: 0, fontWeight: n.read ? 400 : 500 }}>{n.title}</p>
                           <p style={{ color: D.subText, fontSize: '11px', margin: '2px 0 0', lineHeight: 1.4 }}>{n.message}</p>
                           <p style={{ color: D.subText, fontSize: '10px', margin: '3px 0 0', opacity: 0.7 }}>{ago}</p>
+                          {isCancelReq && (
+                            <p style={{ color: '#ef4444', fontSize: '10px', margin: '4px 0 0', fontWeight: '600' }}>
+                              Click to review in Outbound →
+                            </p>
+                          )}
                         </div>
                         <button
                           onClick={() => deleteNotification(n._id)}
