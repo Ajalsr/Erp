@@ -14,9 +14,25 @@ import (
 	"github.com/backend/ws"
 )
 
+var allowedOrigins = map[string]bool{
+	"http://localhost:5175":   true, // Vite dev server
+	"http://localhost:5173":   true, // Vite alt port
+	"tauri://localhost":       true, // Tauri macOS / Linux
+	"http://tauri.localhost":  true, // Tauri Windows
+	"https://tauri.localhost": true, // Tauri Windows (https mode)
+}
+
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5175")
+		origin := c.Request.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		} else if origin == "" {
+			// Same-origin / non-browser request (sidecar, curl, etc.) — allow
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		} else {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Org-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -37,9 +53,8 @@ func main() {
 	}
 
 	port := os.Getenv("PORT")
-
 	if port == "" {
-		port = "8000"
+		port = "8080" // must match VITE_API_URL in the frontend
 	}
 
 	// Start the WebSocket hub
