@@ -49,26 +49,18 @@ func CreateOrganization() gin.HandlerFunc {
 		userID, _ := c.Get("userId")
 		userIDStr := userID.(string)
 
-		// Only owners and admins can create additional organizations.
-		// Exception: if the user has no orgs yet (e.g. just signed up), allow it.
+		// Each user may only belong to one organization.
 		existingCount, _ := orgMemberCollection.CountDocuments(ctx, bson.M{
 			"userId": userIDStr,
 			"status": "active",
 		})
 		if existingCount > 0 {
-			adminCount, _ := orgMemberCollection.CountDocuments(ctx, bson.M{
-				"userId": userIDStr,
-				"status": "active",
-				"role":   bson.M{"$in": []string{"owner", "admin"}},
+			c.JSON(http.StatusForbidden, gin.H{
+				"status":  http.StatusForbidden,
+				"message": "You are already part of an organization. Each user can only belong to one organization.",
+				"error":   "forbidden",
 			})
-			if adminCount == 0 {
-				c.JSON(http.StatusForbidden, gin.H{
-					"status":  http.StatusForbidden,
-					"message": "Only organization owners and admins can create new organizations",
-					"error":   "forbidden",
-				})
-				return
-			}
+			return
 		}
 
 		var input struct {

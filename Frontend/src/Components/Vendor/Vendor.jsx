@@ -847,18 +847,22 @@ const Vendors = () => {
                           {/* Purchase Orders */}
                           <SectionHeader title="Purchase Orders" count={txData.purchaseOrders?.length || 0} />
                           <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
-                            {txData.purchaseOrders?.length > 0 ? txData.purchaseOrders.map((po, i, arr) => (
-                              <div key={po._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                                <div>
-                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{po.orderNumber || po.poNumber || "PO"}</p>
-                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(po.createdAt)}</p>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                  {pill(po.status)}
-                                  <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(po.total)}</span>
-                                </div>
+                            {txData.purchaseOrders?.length > 0 ? (
+                              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                                {txData.purchaseOrders.map((po, i, arr) => (
+                                  <div key={po._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                    <div>
+                                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{po.orderNumber || po.poNumber || "PO"}</p>
+                                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(po.createdAt)}</p>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      {pill(po.status)}
+                                      <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(po.total)}</span>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            )) : (
+                            ) : (
                               <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No purchase orders yet.</p>
                             )}
                           </div>
@@ -866,18 +870,22 @@ const Vendors = () => {
                           {/* GRNs */}
                           <SectionHeader title="Goods Receipts (GRN)" count={txData.grns?.length || 0} />
                           <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
-                            {txData.grns?.length > 0 ? txData.grns.map((grn, i, arr) => (
-                              <div key={grn._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                                <div>
-                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{grn.grnNumber || "GRN"}</p>
-                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(grn.receiptDate || grn.createdAt)}</p>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                  {pill(grn.status)}
-                                  <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(grn.total)}</span>
-                                </div>
+                            {txData.grns?.length > 0 ? (
+                              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                                {txData.grns.map((grn, i, arr) => (
+                                  <div key={grn._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                    <div>
+                                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{grn.grnNumber || "GRN"}</p>
+                                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(grn.receiptDate || grn.createdAt)}</p>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      {pill(grn.status)}
+                                      <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(grn.total)}</span>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            )) : (
+                            ) : (
                               <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No goods receipts yet.</p>
                             )}
                           </div>
@@ -885,18 +893,22 @@ const Vendors = () => {
                           {/* Bills */}
                           <SectionHeader title="Bills" count={txData.bills?.length || 0} />
                           <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
-                            {txData.bills?.length > 0 ? txData.bills.map((bill, i, arr) => (
-                              <div key={bill._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                                <div>
-                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{bill.billNumber || "Bill"}</p>
-                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>Due: {fmtDate(bill.dueDate)}</p>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                  {pill(bill.status)}
-                                  <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(bill.totals?.grandTotal || bill.total)}</span>
-                                </div>
+                            {txData.bills?.length > 0 ? (
+                              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                                {txData.bills.map((bill, i, arr) => (
+                                  <div key={bill._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                    <div>
+                                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{bill.billNumber || "Bill"}</p>
+                                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>Due: {fmtDate(bill.dueDate)}</p>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      {pill(bill.status)}
+                                      <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(bill.totals?.grandTotal || bill.total)}</span>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            )) : (
+                            ) : (
                               <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No bills yet.</p>
                             )}
                           </div>
@@ -904,15 +916,19 @@ const Vendors = () => {
                           {/* Payments */}
                           <SectionHeader title="Payments Made" count={txData.payments?.length || 0} />
                           <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
-                            {txData.payments?.length > 0 ? txData.payments.map((pay, i, arr) => (
-                              <div key={pay._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                                <div>
-                                  <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{pay.paymentNumber || pay.referenceNumber || "Payment"}</p>
-                                  <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(pay.paymentDate || pay.createdAt)}</p>
-                                </div>
-                                <span style={{ fontSize: "12px", fontWeight: "700", color: "#10b981", fontFamily: "'DM Mono', monospace" }}>{fmt(pay.amount)}</span>
+                            {txData.payments?.length > 0 ? (
+                              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                                {txData.payments.map((pay, i, arr) => (
+                                  <div key={pay._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                    <div>
+                                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{pay.paymentNumber || pay.referenceNumber || "Payment"}</p>
+                                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(pay.paymentDate || pay.createdAt)}</p>
+                                    </div>
+                                    <span style={{ fontSize: "12px", fontWeight: "700", color: "#10b981", fontFamily: "'DM Mono', monospace" }}>{fmt(pay.amount)}</span>
+                                  </div>
+                                ))}
                               </div>
-                            )) : (
+                            ) : (
                               <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No payments yet.</p>
                             )}
                           </div>

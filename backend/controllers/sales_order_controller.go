@@ -384,6 +384,8 @@ func GetAllSalesOrders() gin.HandlerFunc {
 				CustomerNotes:        order.CustomerNotes,
 				TermsAndConditions:   order.TermsAndConditions,
 				Status:               order.Status,
+				CancelReason:         order.CancelReason,
+				CancelRequestedBy:    order.CancelRequestedBy,
 				CreatedAt:            order.CreatedAt,
 				UpdatedAt:            order.UpdatedAt,
 			})
@@ -503,24 +505,40 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 		orgID, _ := c.Get("orgId")
 
 		var req struct {
-			Status string `json:"status" binding:"required,oneof=draft pending approved shipped completed cancelled open invoiced"`
+			Status            string `json:"status"`
+			CancelReason      string `json:"cancelReason"`
+			CancelRequestedBy string `json:"cancelRequestedBy"`
 		}
 
-		if err := c.BindJSON(&req); err != nil {
+		if err := c.ShouldBindJSON(&req); err != nil || req.Status == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
-				"message": "Invalid request body",
-				"error":   err.Error(),
+				"message": "Invalid request body — status is required",
 			})
 			return
 		}
 
-		update := bson.M{
-			"$set": bson.M{
-				"status":    req.Status,
-				"updatedAt": time.Now(),
-			},
+		validStatuses := map[string]bool{
+			"draft": true, "pending": true, "approved": true, "shipped": true,
+			"completed": true, "cancelled": true, "open": true, "invoiced": true,
+			"cancel_requested": true,
 		}
+		if !validStatuses[req.Status] {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid status value"})
+			return
+		}
+
+		setFields := bson.M{"status": req.Status, "updatedAt": time.Now()}
+		updateDoc := bson.M{"$set": setFields}
+
+		if req.Status == "cancel_requested" {
+			setFields["cancelReason"] = req.CancelReason
+			setFields["cancelRequestedBy"] = req.CancelRequestedBy
+		} else {
+			updateDoc["$unset"] = bson.M{"cancelReason": "", "cancelRequestedBy": ""}
+		}
+
+		update := updateDoc
 
 		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil {
@@ -744,6 +762,61 @@ func DeleteSalesOrder() gin.HandlerFunc {
 				"status":        "cancelled",
 				"matchedCount":  result.MatchedCount,
 				"modifiedCount": result.ModifiedCount,
+			},
+		})
+	}
+}
+
+// POST /api/sales-orders/:id/revert
+// Called by an admin to approve a member's cancellation request.
+// Sets the sales order status to "cancelled" and broadcasts a real-time update.
+func RevertSalesOrder() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		id := c.Param("id")
+
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid sales order ID"})
+			return
+		}
+
+		var existingOrder models.SalesOrder
+		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingOrder)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Sales order not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve sales order", "error": err.Error()})
+			}
+			return
+		}
+
+		_, err = salesOrdersCollection.UpdateOne(
+			ctx,
+			bson.M{"_id": objectID, "orgId": orgID},
+			bson.M{
+				"$set":   bson.M{"status": "cancelled", "updatedAt": time.Now()},
+				"$unset": bson.M{"cancelReason": "", "cancelRequestedBy": ""},
+			},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to revert sales order", "error": err.Error()})
+			return
+		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "delete", ID: id})
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Sales order cancelled successfully",
+			"data": gin.H{
+				"id":          id,
+				"orderNumber": existingOrder.OrderNumber,
+				"status":      "cancelled",
 			},
 		})
 	}

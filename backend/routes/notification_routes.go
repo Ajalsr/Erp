@@ -13,5 +13,6 @@ func NotificationRoutes(router *gin.Engine) {
 		g.GET("", controllers.GetNotifications())
 		g.PUT("/read-all", controllers.MarkAllNotificationsRead())
 		g.DELETE("/:id", controllers.DeleteNotification())
+		g.POST("/cancel-request", middlewares.RequireOrg, controllers.CreateCancelRequest())
 	}
 }
