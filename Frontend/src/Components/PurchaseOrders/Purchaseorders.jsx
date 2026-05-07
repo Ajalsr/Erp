@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FaPlus, FaTimes, FaSearch, FaBoxOpen,
   FaChevronLeft, FaChevronRight,
-  FaFileInvoiceDollar, FaEdit, FaBan,
+  FaFileInvoiceDollar, FaBan,
   FaCheckCircle, FaClock, FaTimesCircle, FaSpinner,
   FaTruck, FaDownload, FaFilter, FaEllipsisV,
 } from 'react-icons/fa';
@@ -73,9 +73,10 @@ export default function Purchaseorders() {
   const [page,        setPage]        = useState(1);
   const [totalPages,  setTotalPages]  = useState(1);
   const [totalCount,  setTotalCount]  = useState(0);
-  const [drawer,      setDrawer]      = useState(false);
-  const [selected,    setSelected]    = useState(null);
-  const [activeTab,   setActiveTab]   = useState('overview');
+  const [drawer,         setDrawer]         = useState(false);
+  const [selected,       setSelected]       = useState(null);
+  const [activeTab,      setActiveTab]      = useState('overview');
+  const [markingReceived,setMarkingReceived]= useState(false);
   const PER_PAGE = 15;
 
   const fetchOrders = useCallback(async () => {
@@ -246,8 +247,7 @@ export default function Purchaseorders() {
                       <td style={{ ...tdS, textAlign:'right', fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:700 }}>{fmtAmt(o.total)}</td>
                       <td style={{ ...tdS, textAlign:'center' }}>
                         <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
-                          <button className="po-icon-btn" title="View"   onClick={()=>openDrawer(o)}><FaFileInvoiceDollar size={12}/></button>
-                          <button className="po-icon-btn" title="Edit"   onClick={()=>navigate(`/Purchase/Purchaseorders/${o._id}/edit`)}><FaEdit size={12}/></button>
+                          <button className="po-icon-btn" title="View" onClick={()=>openDrawer(o)}><FaFileInvoiceDollar size={12}/></button>
                         </div>
                       </td>
                     </tr>
@@ -497,12 +497,22 @@ export default function Purchaseorders() {
 
             {/* Footer */}
             <div style={{ padding:'14px 20px', borderTop:`1px solid ${border}`, flexShrink:0, display:'flex', gap:8 }}>
-              <button onClick={()=>navigate(`/Purchase/Purchaseorders/${selected._id}/edit`)} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-                <FaEdit size={11}/> Edit Order
-              </button>
               {selected.status!=='received' && selected.status!=='cancelled' && (
-                <button style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:T.surface2, color:T.green, border:`1.5px solid ${T.greenDim}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-                  <FaCheckCircle size={11}/> Mark Received
+                <button
+                  disabled={markingReceived}
+                  onClick={async () => {
+                    setMarkingReceived(true);
+                    try {
+                      await axiosInstance.patch(`/api/purchase-orders/${selected._id}/status`, { status: 'received' });
+                      closeDrawer();
+                      fetchOrders();
+                      fetchStats();
+                    } catch (e) {
+                      console.error('Mark received failed', e);
+                    } finally { setMarkingReceived(false); }
+                  }}
+                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:T.surface2, color:T.green, border:`1.5px solid ${T.greenDim}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:markingReceived?'not-allowed':'pointer', opacity:markingReceived?0.6:1, fontFamily:'inherit' }}>
+                  <FaCheckCircle size={11}/> {markingReceived ? 'Updating…' : 'Mark Received'}
                 </button>
               )}
               <button onClick={closeDrawer} style={{ padding:'10px 16px', background:T.surface2, color:T.textSec, border:`1.5px solid ${border}`, borderRadius:11, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Close</button>

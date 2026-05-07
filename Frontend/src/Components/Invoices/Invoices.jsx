@@ -97,20 +97,21 @@ const DrawerTab = ({ label, active, onClick, T }) => (
 
 /* ─── API → table row normaliser ────────────────────────────────────────── */
 const toRow = (inv) => ({
-  id:         inv.invoiceNumber || inv._id,
-  _id:        inv._id,
-  customer:   inv.billTo?.name || inv.customerId || "—",
-  customerId: inv.customerId || "",
-  date:       inv.issueDate || inv.createdAt?.split("T")[0] || "",
-  due:        inv.dueDate   || "",
-  amount:     inv.totals?.grandTotal ?? 0,
-  paid:       inv.amountPaid ?? 0,
-  balance:    inv.balanceDue  ?? (inv.totals?.grandTotal ?? 0),
-  status:     inv.status || "unpaid",
-  items:      (inv.lineItems || []).length,
-  currency:   inv.currency || "AED",
-  lineItems:  inv.lineItems || [],
-  notes:      inv.notes || {},
+  id:           inv.invoiceNumber || inv._id,
+  _id:          inv._id,
+  customer:     inv.billTo?.name || inv.customerId || "—",
+  customerId:   inv.customerId || "",
+  date:         inv.issueDate || inv.createdAt?.split("T")[0] || "",
+  due:          inv.dueDate   || "",
+  amount:       inv.totals?.grandTotal ?? 0,
+  paid:         inv.amountPaid ?? 0,
+  balance:      inv.balanceDue  ?? (inv.totals?.grandTotal ?? 0),
+  status:       inv.status || "unpaid",
+  items:        (inv.lineItems || []).length,
+  currency:     inv.currency || "AED",
+  paymentTerms: inv.paymentTerms || "",
+  lineItems:    inv.lineItems || [],
+  notes:        inv.notes || {},
 });
 
 /* ─── Main Component ────────────────────────────────────────────────────── */
@@ -120,15 +121,19 @@ const Invoices = () => {
   const T = buildTheme(isDark);
 
   /* data */
-  const [invoices,   setInvoices]  = useState([]);
-  const [loading,    setLoading]   = useState(true);
+  const [invoices,     setInvoices]    = useState([]);
+  const [loading,      setLoading]     = useState(true);
+  const [voidLoading,  setVoidLoading] = useState(false);
 
-  useEffect(() => {
+  const loadInvoices = useCallback(() => {
+    setLoading(true);
     axiosInstance.get("/api/invoices")
       .then(res => setInvoices((res.data?.data?.invoices || []).map(toRow)))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { loadInvoices(); }, [loadInvoices]);
 
   /* filters */
   const [search,       setSearch]       = useState("");
@@ -250,12 +255,12 @@ const Invoices = () => {
               onMouseEnter={e => e.currentTarget.style.borderColor = T.subtle}
               onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
             >Export</button>
-            {/* <button
-              onClick={() => navigate("/invoices/create")}
+            <button
+              onClick={() => navigate("/Sales/Createinvoices")}
               style={{ padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none", transition: ".15s" }}
               onMouseEnter={e => e.currentTarget.style.background = "#fbbf24"}
               onMouseLeave={e => e.currentTarget.style.background = T.accent}
-            >+ New Invoice</button> */}
+            >+ New Invoice</button>
           </div>
         </div>
 
@@ -484,7 +489,7 @@ const Invoices = () => {
                         { label: "Customer",       val: selected.customer },
                         { label: "Currency",       val: selected.currency },
                         { label: "Line Items",     val: `${selected.items} items` },
-                        { label: "Payment Terms",  val: "Net 30" },
+                        { label: "Payment Terms",  val: selected.paymentTerms || "—" },
                       ].map(({ label, val, warn }, idx, arr) => (
                         <div key={label} style={{
                           display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -499,16 +504,31 @@ const Invoices = () => {
 
                     {/* Actions */}
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      <button style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
-                        Record Payment
-                      </button>
+                      {selected.status !== "paid" && selected.status !== "void" && (
+                        <button
+                          onClick={() => navigate("/Sales/PaymentsReceived")}
+                          style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                          Record Payment
+                        </button>
+                      )}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        {["Send Reminder", "Download PDF", "Duplicate", "Void Invoice"].map(a => (
-                          <button key={a} style={{ padding: "8px 0", borderRadius: 7, fontSize: 12, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.muted, fontFamily: "'DM Sans', sans-serif", transition: ".15s" }}
-                            onMouseEnter={e => { e.currentTarget.style.borderColor = T.subtle; e.currentTarget.style.color = T.text; }}
-                            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.muted; }}
-                          >{a}</button>
-                        ))}
+                        {selected.status !== "void" && (
+                          <button
+                            disabled={voidLoading}
+                            onClick={async () => {
+                              if (!window.confirm(`Void invoice ${selected.id}? This cannot be undone.`)) return;
+                              setVoidLoading(true);
+                              try {
+                                await axiosInstance.patch(`/api/invoices/${selected._id}/status`, { status: "void" });
+                                setSelected(null);
+                                loadInvoices();
+                              } catch { /* ignore */ }
+                              finally { setVoidLoading(false); }
+                            }}
+                            style={{ padding: "8px 0", borderRadius: 7, fontSize: 12, cursor: voidLoading ? "not-allowed" : "pointer", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif", transition: ".15s", opacity: voidLoading ? 0.6 : 1 }}>
+                            {voidLoading ? "Voiding…" : "Void Invoice"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
