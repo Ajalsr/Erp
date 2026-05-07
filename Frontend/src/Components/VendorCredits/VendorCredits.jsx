@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft, FaChevronRight, FaCheck, FaBan } from "react-icons/fa";
+import { FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft, FaChevronRight, FaBan } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
@@ -15,41 +14,6 @@ const STATUS_CFG = {
   void:    { color: "#6b7280", bg: "rgba(107,114,128,0.1)", label: "Void"  },
 };
 
-// ── Shared Sel + VendorSearch (same as PaymentsMade) ──────────────
-const Sel = ({ value, onChange, options, placeholder = "Select", T }) => {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0, ready: false });
-  const trigRef = useRef(null);
-  const dropRef = useRef(null);
-  const isDark = (() => { try { return JSON.parse(localStorage.getItem("nexus-theme") || "{}").state?.isDark ?? true; } catch { return true; } })();
-  const opts = options.map(o => typeof o === "string" ? { label: o, value: o } : o);
-  const selected = opts.find(o => o.value === value);
-  const bg = isDark ? "#111d30" : "#fff"; const border = isDark ? "rgba(255,255,255,0.07)" : "#e2e8f0";
-  const textPri = isDark ? "#e2e8f0" : "#1e293b"; const textSec = isDark ? "#64748b" : "#94a3b8";
-  const activeBg = isDark ? "rgba(59,130,246,0.15)" : "#eff6ff"; const activeC = isDark ? "#60a5fa" : "#1d4ed8";
-  const measure = () => {
-    if (!trigRef.current) return;
-    const r = trigRef.current.getBoundingClientRect();
-    const dropH = Math.min(opts.length * 40 + 12, 220);
-    const top = (window.innerHeight - r.bottom) > dropH ? r.bottom + 4 : r.top - dropH - 4;
-    setPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width, ready: true });
-  };
-  const toggle = () => { if (open) { setOpen(false); setPos(p => ({ ...p, ready: false })); return; } setPos(p => ({ ...p, ready: false })); setOpen(true); requestAnimationFrame(() => requestAnimationFrame(measure)); };
-  useEffect(() => { const h = e => { if (!trigRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, []);
-  const dropdown = (
-    <div ref={dropRef} style={{ position: "absolute", top: pos.top, left: pos.left, width: pos.width, zIndex: 99999, background: bg, border: `1.5px solid ${border}`, borderRadius: 11, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", overflow: "hidden", visibility: pos.ready ? "visible" : "hidden", opacity: pos.ready ? 1 : 0, transition: "opacity 0.12s" }}>
-      <div style={{ padding: 5 }}>{opts.map((opt, i) => <div key={i} onClick={() => { onChange(opt.value); setOpen(false); }} style={{ padding: "9px 12px", borderRadius: 7, cursor: "pointer", fontSize: 13, color: opt.value === value ? activeC : textPri, background: opt.value === value ? activeBg : "transparent", fontFamily: "inherit" }} onMouseEnter={e => { if (opt.value !== value) e.currentTarget.style.background = isDark ? "rgba(59,130,246,0.08)" : "#eff6ff"; }} onMouseLeave={e => { if (opt.value !== value) e.currentTarget.style.background = "transparent"; }}>{opt.label}</div>)}</div>
-    </div>
-  );
-  return (
-    <div ref={trigRef} onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 13px", border: `1.5px solid ${T.border}`, borderRadius: 10, background: T.surface, cursor: "pointer", userSelect: "none" }}>
-      <span style={{ fontSize: 13, color: selected ? T.textPri : T.textSec }}>{selected ? selected.label : placeholder}</span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9" /></svg>
-      {open && createPortal(dropdown, document.body)}
-    </div>
-  );
-};
-
 const VendorSearch = ({ value, onChange, T }) => {
   const [query, setQuery] = useState(value?.name || "");
   const [results, setResults] = useState([]);
@@ -57,7 +21,7 @@ const VendorSearch = ({ value, onChange, T }) => {
   const ref = useRef(null);
   const search = useCallback(async (q) => {
     if (q.trim().length < 2) { setResults([]); return; }
-    try { const res = await axiosInstance.get(`/vendors/search?q=${encodeURIComponent(q)}`); setResults(res.data?.data || []); setOpen(true); } catch { setResults([]); }
+    try { const res = await axiosInstance.get(`/api/vendors/search?q=${encodeURIComponent(q)}`); setResults(res.data?.data || []); setOpen(true); } catch { setResults([]); }
   }, []);
   const handleChange = (e) => { const v = e.target.value; setQuery(v); search(v); if (!v) onChange(null); };
   useEffect(() => { const h = e => { if (!ref.current?.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, []);
@@ -112,6 +76,7 @@ export default function VendorCredits() {
   const [page, setPage] = useState(1);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [applyingCredit, setApplyingCredit] = useState(false);
 
   const LIMIT = 15;
 
@@ -119,8 +84,8 @@ export default function VendorCredits() {
     setLoading(true);
     try {
       const [credRes, statsRes] = await Promise.allSettled([
-        axiosInstance.get("/vendor-credits/"),
-        axiosInstance.get("/vendor-credits/stats"),
+        axiosInstance.get("/api/vendor-credits/"),
+        axiosInstance.get("/api/vendor-credits/stats"),
       ]);
       if (credRes.status === "fulfilled") setCredits(credRes.value.data?.data?.credits || []);
       if (statsRes.status === "fulfilled") setStats(statsRes.value.data?.data || {});
@@ -164,7 +129,7 @@ export default function VendorCredits() {
     if (form.lineItems.some(i => !i.description.trim())) { nexusToast.error("All line items need a description"); return; }
     setSubmitting(true);
     try {
-      await axiosInstance.post("/vendor-credits/", {
+      await axiosInstance.post("/api/vendor-credits/", {
         vendorId: form.vendorId, vendorName: form.vendorName,
         reason: form.reason, date: form.date,
         lineItems: form.lineItems, totals,
@@ -183,11 +148,26 @@ export default function VendorCredits() {
 
   const handleVoid = async (id) => {
     try {
-      await axiosInstance.patch(`/vendor-credits/${id}/void`);
+      await axiosInstance.patch(`/api/vendor-credits/${id}/void`);
       nexusToast.success("Credit voided");
       load();
     } catch {
       nexusToast.error("Failed to void credit");
+    }
+  };
+
+  const handleApplyCredit = async (id) => {
+    setApplyingCredit(true);
+    try {
+      await axiosInstance.post(`/api/vendor-credits/${id}/apply`);
+      nexusToast.success("Credit applied successfully");
+      setDrawerOpen(false);
+      setSelected(null);
+      load();
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Failed to apply credit");
+    } finally {
+      setApplyingCredit(false);
     }
   };
 
@@ -508,6 +488,12 @@ export default function VendorCredits() {
               </div>
               {cr.status === "open" && (
                 <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8 }}>
+                  <button className="vc-btn"
+                    disabled={applyingCredit}
+                    onClick={() => handleApplyCredit(cr._id)}
+                    style={{ flex: 1, padding: 10, background: T.surface2, color: T.green, border: `1px solid ${T.greenDim}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: applyingCredit ? "not-allowed" : "pointer", opacity: applyingCredit ? 0.6 : 1, fontFamily: "inherit" }}>
+                    {applyingCredit ? "Applying…" : "Apply Credit"}
+                  </button>
                   <button className="vc-btn" onClick={() => handleVoid(cr._id)}
                     style={{ flex: 1, padding: 10, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: `1px solid rgba(239,68,68,0.3)`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
                     Void Credit
