@@ -2,13 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import {
   FaTimes, FaSearch, FaShippingFast, FaBoxOpen,
   FaChevronLeft, FaChevronRight, FaCheck, FaBan,
-  FaClipboardCheck, FaExclamationTriangle, FaTag,
-  FaWarehouse, FaTruck, FaFileAlt
+  FaExclamationTriangle, FaTag,
+  FaWarehouse, FaTruck, FaFileAlt, FaUserShield, FaPrint
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
 import useGetAllSalesOrder from "../../helper/useGetAllSalesOrder";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useAuthStore from "../../store/useAuthStore";
+import axiosInstance from "../../helper/axiosInstance";
 
 // ── Helpers ───────────────────────────────────────────────────────
 const parseQty = (v) => {
@@ -23,7 +25,26 @@ const parseAmt = (v) => {
   if (typeof v === "string") { const p = parseFloat(v.replace(/[^\d.-]/g, "")); return isNaN(p) ? 0 : p; }
   return 0;
 };
-const fmtAED = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const round2  = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const TAX_RATE = 0.05;
+
+const buildObTaxGroups = (selItems) => {
+  const order = [], groups = {};
+  selItems.forEach(item => {
+    const price = parseFloat(item.selling_price || 0);
+    const qty   = item.outboundQuantity || 0;
+    if (!price || !qty) return;
+    const key = String(price);
+    if (!groups[key]) { groups[key] = { rate: price, base: 0 }; order.push(key); }
+    groups[key].base = round2(groups[key].base + qty * price);
+  });
+  return order.map(key => ({
+    rate:       groups[key].rate,
+    baseAmount: round2(groups[key].base),
+    taxAmount:  round2(groups[key].base * TAX_RATE),
+  }));
+};
 
 const STATUS_CFG = {
   pending:          { color: "#f59e0b", dim: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "Pending"          },
@@ -40,6 +61,9 @@ export default function Outbound() {
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
+  const activeOrg  = useAuthStore((s) => s.activeOrg);
+  const authUser   = useAuthStore((s) => s.user);
+  const isAdmin    = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase());
 
   const [drawer,           setDrawer]           = useState(false);
   const [selected,         setSelected]         = useState(null);
@@ -54,6 +78,8 @@ export default function Outbound() {
   const [cancelReason,     setCancelReason]     = useState("");
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvedItems,    setApprovedItems]    = useState(new Set());
+  const [approvingCancel,  setApprovingCancel]  = useState(false);
+  const [showPrintModal,   setShowPrintModal]   = useState(false);
   const [page,             setPage]             = useState(1);
   const perPage = 8;
   const searchRef = useRef(null);
@@ -62,73 +88,57 @@ export default function Outbound() {
   const findItem = (id) => Array.isArray(itemsData) ? itemsData.find(i => i._id === id) : null;
 
   const transformItems = () => {
-    if (salesOrdersData?.salesOrders?.length) {
-      const result = [];
-      salesOrdersData.salesOrders.forEach(so => {
+    if (!salesOrdersData?.salesOrders) return [];
+    const result = [];
+    salesOrdersData.salesOrders
+      .filter(so => !["invoiced", "cancelled", "completed"].includes((so.status || "").toLowerCase()))
+      .forEach(so => {
+        const isCancelRequested = (so.status || "").toLowerCase() === "cancel_requested";
         (so.items || []).forEach(oi => {
-          const inv = findItem(oi.itemId);
-          const ordQty = parseQty(oi.quantity);
-          const avail  = inv ? parseQty(inv.quantity) : 0;
-          const rate   = parseAmt(oi.rate);
-          const disc   = parseAmt(oi.discount);
-          const finalUnit = rate - (ordQty > 0 ? disc / ordQty : 0);
+          const inv     = findItem(oi.itemId);
+          const ordQty  = parseQty(oi.quantity);
+          const avail   = inv ? parseQty(inv.quantity) : 0;
+          const rate    = parseAmt(oi.rate);
+          const discAED = parseAmt(oi.discountAed ?? oi.discountAED ?? 0);
+          const finalUnit = rate - (ordQty > 0 ? discAED / ordQty : 0);
           result.push({
-            _id:              oi._id || oi.itemId,
-            itemId:           oi.itemId,
-            name:             oi.details || inv?.name || `Item ${oi.itemId}`,
-            item_code:        inv?.item_code || oi.itemId,
-            unit:             oi.unit || inv?.Unit || "Piece",
-            description:      oi.details || "",
+            _id:               `${so.id}-${oi.itemId}`,
+            itemId:            oi.itemId,
+            name:              oi.details || inv?.name || `Item ${oi.itemId}`,
+            item_code:         inv?.item_code || oi.itemId,
+            unit:              oi.unit || inv?.unit || "Piece",
+            description:       oi.details || "",
             rate,
-            discount:         disc,
-            selling_price:    finalUnit.toFixed(2),
-            availableQuantity:avail,
-            orderedQuantity:  ordQty,
-            outboundQuantity: ordQty > 0 ? ordQty : 1,
-            maxQuantity:      avail > 0 ? avail : ordQty,
-            brand:            inv?.brand || "",
-            status:           "pending",
-            salesOrderNumber: so.orderNumber,
-            salesOrderId:     so.id,
+            discount:          discAED,
+            discountType:      oi.discountType || "fixed",
+            discountRaw:       parseAmt(oi.discount),
+            selling_price:     finalUnit.toFixed(2),
+            availableQuantity: avail,
+            orderedQuantity:   ordQty,
+            outboundQuantity:  ordQty > 0 ? ordQty : 1,
+            maxQuantity:       avail > 0 ? avail : ordQty,
+            brand:             inv?.brand || "",
+            status:            isCancelRequested ? "pending_approval" : "pending",
+            pendingAction:     isCancelRequested ? "cancel" : null,
+            cancelReason:      isCancelRequested ? (so.cancelReason || "") : null,
+            cancelRequestedBy: isCancelRequested ? (so.cancelRequestedBy || "") : null,
+            salesOrderNumber:  so.orderNumber,
+            salesOrderId:      so.id,
           });
         });
       });
-      return result;
-    }
-    if (Array.isArray(itemsData)) {
-      return itemsData.map(i => ({
-        _id:              i._id,
-        itemId:           i._id,
-        name:             i.name || "Unnamed Item",
-        item_code:        i.item_code || i._id,
-        unit:             i.Unit || "Piece",
-        description:      "",
-        rate:             parseAmt(i.selling_price),
-        discount:         0,
-        selling_price:    i.selling_price || "0.00",
-        availableQuantity:parseQty(i.quantity),
-        orderedQuantity:  1,
-        outboundQuantity: 1,
-        maxQuantity:      parseQty(i.quantity),
-        brand:            i.brand || "",
-        status:           "pending",
-        salesOrderNumber: null,
-        salesOrderId:     null,
-      }));
-    }
-    return [];
+    return result;
   };
 
-  useEffect(() => { handleGetItem(); handleGetSalesorder(); }, []);
+  useEffect(() => { handleGetItem(); handleGetSalesorder({ limit: 500 }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (salesOrdersData === null) return;
     const items = transformItems();
-    if (items.length) {
-      const ids = new Set(items.map(i => i._id));
-      setSelectedIds(ids);
-      setOutboundItems(items.map(i => ({ ...i, isSelected: true })));
-    }
-  }, [itemsData, salesOrdersData]);
+    const ids = new Set(items.map(i => i._id));
+    setSelectedIds(ids);
+    setOutboundItems(items.map(i => ({ ...i, isSelected: true })));
+  }, [itemsData, salesOrdersData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -161,8 +171,10 @@ export default function Outbound() {
   const updateQty = (id, val) => {
     const item = outboundItems.find(i => i._id === id);
     if (!item) return;
-    const max = item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity;
-    const qty = Math.max(1, Math.min(parseInt(val) || 1, max));
+    const qty = Math.min(
+      Math.max(item.orderedQuantity, parseInt(val) || item.orderedQuantity),
+      item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity
+    );
     setOutboundItems(p => p.map(i => i._id === id ? { ...i, outboundQuantity: qty } : i));
   };
 
@@ -200,12 +212,64 @@ export default function Outbound() {
   };
 
   const handleCancelRequest = (id) => { setItemToCancel(id); setShowCancelModal(true); };
+
   const confirmCancel = () => {
     if (!cancelReason.trim()) { alert("Please provide a reason"); return; }
-    setOutboundItems(p => p.map(i => i._id === itemToCancel ? { ...i, status: "cancelled", cancelReason, requiresApproval: true } : i));
-    const s = new Set(selectedIds); s.delete(itemToCancel); setSelectedIds(s);
+    if (isAdmin) {
+      // Admin/owner: cancel immediately
+      setOutboundItems(p => p.map(i => i._id === itemToCancel ? { ...i, status: "cancelled", cancelReason, pendingAction: null } : i));
+      const s = new Set(selectedIds); s.delete(itemToCancel); setSelectedIds(s);
+    } else {
+      // Member: persist cancel request in the SO + notify admin via server
+      const cancelItem   = outboundItems.find(i => i._id === itemToCancel);
+      const itemName     = cancelItem?.name || "Item";
+      const soNum        = cancelItem?.salesOrderNumber || "";
+      const salesOrderId = cancelItem?.salesOrderId;
+      const requesterName = authUser?.name || authUser?.userId || "Member";
+      setOutboundItems(p => p.map(i =>
+        i._id === itemToCancel
+          ? { ...i, status: "pending_approval", pendingAction: "cancel", cancelReason, cancelRequestedBy: requesterName }
+          : i
+      ));
+      // Persist in backend so admin sees it after navigating fresh to Outbound
+      if (salesOrderId) {
+        axiosInstance.patch(`/api/sales-orders/${salesOrderId}/status`, {
+          status:            "cancel_requested",
+          cancelReason,
+          cancelRequestedBy: requesterName,
+        }).catch(() => {});
+      }
+      axiosInstance.post("/api/notifications/cancel-request", {
+        title:       "Cancellation Approval Required",
+        message:     `${requesterName} requested to cancel "${itemName}" (${soNum}) from outbound. Reason: ${cancelReason}`,
+        itemName,
+        itemId:      itemToCancel,
+        requestedBy: requesterName,
+        reason:      cancelReason,
+      }).catch(() => {});
+    }
     setShowCancelModal(false); setCancelReason(""); setItemToCancel(null);
   };
+
+  // Admin approves the member's cancellation request → cancel SO in backend + remove item locally
+  const handleApproveCancellation = async (id) => {
+    const item = outboundItems.find(i => i._id === id);
+    if (item?.salesOrderId) {
+      try { await axiosInstance.post(`/api/sales-orders/${item.salesOrderId}/revert`); } catch { /* remove locally regardless */ }
+    }
+    setOutboundItems(p => p.filter(i => i._id !== id));
+    const s = new Set(selectedIds); s.delete(id); setSelectedIds(s);
+  };
+
+  // Admin rejects the cancellation request → item reverts to pending
+  const handleRejectCancellation = (id) => {
+    const item = outboundItems.find(i => i._id === id);
+    if (item?.salesOrderId) {
+      axiosInstance.patch(`/api/sales-orders/${item.salesOrderId}/status`, { status: "open" }).catch(() => {});
+    }
+    setOutboundItems(p => p.map(i => i._id === id ? { ...i, status: "pending", pendingAction: null, cancelReason: null, cancelRequestedBy: null } : i));
+  };
+
   const handleApprove = (id) => {
     const s = new Set(approvedItems); s.add(id); setApprovedItems(s);
     setOutboundItems(p => p.map(i => i._id === id ? { ...i, status: "approved" } : i));
@@ -213,10 +277,13 @@ export default function Outbound() {
   const handleReject = (id) => setOutboundItems(p => p.map(i => i._id === id ? { ...i, status: "rejected" } : i));
 
   // ── Derived stats ────────────────────────────────────────────
-  const selItems   = outboundItems.filter(i => selectedIds.has(i._id));
-  const totalQty   = selItems.reduce((s, i) => s + (i.outboundQuantity || 0), 0);
-  const totalValue = selItems.reduce((s, i) => s + (i.outboundQuantity || 0) * parseFloat(i.selling_price || 0), 0);
-  const totalDisc  = selItems.reduce((s, i) => s + parseFloat(i.discount || 0), 0);
+  const selItems    = outboundItems.filter(i => selectedIds.has(i._id));
+  const totalQty    = selItems.reduce((s, i) => s + (i.outboundQuantity || 0), 0);
+  const totalDisc   = selItems.reduce((s, i) => s + parseFloat(i.discount || 0), 0);
+  const subTotal    = round2(selItems.reduce((s, i) => s + (i.outboundQuantity || 0) * parseFloat(i.selling_price || 0), 0));
+  const obTaxGroups = buildObTaxGroups(selItems);
+  const totalTax    = round2(obTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
+  const totalValue  = round2(subTotal + totalTax);
   const stockWarn  = outboundItems.filter(i => i.availableQuantity === 0).length;
 
   // ── Pagination ───────────────────────────────────────────────
@@ -228,10 +295,10 @@ export default function Outbound() {
 
   // ── Dynamic CSS ──────────────────────────────────────────────
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
     .ob-root * { box-sizing: border-box; }
     .ob-root { font-family: 'DM Sans', sans-serif; }
-    .ob-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .ob-jakarta { font-family: 'Sora', sans-serif; }
 
     .ob-row { transition: background 0.1s; }
     .ob-row:hover { background: ${isDark ? "rgba(255,255,255,0.025)" : "#f8fafc"} !important; }
@@ -378,6 +445,12 @@ export default function Outbound() {
               )}
             </div>
 
+            {/* Print button */}
+            <button className="ob-btn" onClick={() => setShowPrintModal(true)} disabled={outboundItems.length === 0}
+              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 14px", background: T.surface, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: outboundItems.length === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: outboundItems.length === 0 ? 0.5 : 1 }}>
+              <FaPrint size={12} /> Print
+            </button>
+
             {/* Save button */}
             <button className="ob-btn" onClick={handleSave} disabled={selectedIds.size === 0}
               style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 18px", background: selectedIds.size === 0 ? T.surface2 : T.blue, color: selectedIds.size === 0 ? T.textMuted : "white", border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
@@ -448,6 +521,23 @@ export default function Outbound() {
           )}
         </div>
 
+        {/* ── ADMIN: pending cancellation requests banner ─── */}
+        {isAdmin && outboundItems.some(i => i.pendingAction === "cancel") && (
+          <div style={{ marginBottom: "12px", padding: "12px 16px", background: isDark ? "rgba(239,68,68,0.08)" : "#fef2f2", border: `1.5px solid ${isDark ? "rgba(239,68,68,0.25)" : "#fca5a5"}`, borderRadius: "12px", display: "flex", alignItems: "center", gap: "12px" }}>
+            <div style={{ width: 32, height: 32, borderRadius: "9px", background: "rgba(239,68,68,0.12)", color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <FaUserShield size={14} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: "13px", fontWeight: "700", color: "#ef4444", margin: "0 0 2px" }}>
+                {outboundItems.filter(i => i.pendingAction === "cancel").length} Cancellation Request{outboundItems.filter(i => i.pendingAction === "cancel").length > 1 ? "s" : ""} Pending Your Approval
+              </p>
+              <p style={{ fontSize: "11px", color: isDark ? "#fca5a5" : "#b91c1c", margin: 0 }}>
+                Review the highlighted rows below — click <strong>Cancel</strong> to approve or <strong>Keep</strong> to reject each request.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── TABLE ──────────────────────────────────────────── */}
         <div style={{ ...card, overflow: "hidden", marginBottom: "12px" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
@@ -458,7 +548,7 @@ export default function Outbound() {
                     checked={selectedIds.size === outboundItems.length && outboundItems.length > 0}
                     onChange={e => e.target.checked ? selectAll() : deselectAll()} />
                 </th>
-                {["Item", "Available", "Ordered", "Dispatch Qty", "Status", "Sales Order", "Price / unit", "Actions"].map((h, i) => (
+                {["Item", "Available", "Ordered", "Dispatch Qty", "Status", "Sales Order", "Price / Unit", "VAT (5%)", "Line Total", "Actions"].map((h, i) => (
                   <th key={i} style={{ padding: "11px 14px", textAlign: i >= 6 ? "right" : "left", fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -469,7 +559,7 @@ export default function Outbound() {
                 const isZeroStock = item.availableQuantity === 0;
                 const hasDiscount = item.discount > 0;
                 return (
-                  <tr key={item._id} className="ob-row" style={{ borderBottom: `1px solid ${T.border || T.border}` }}>
+                  <tr key={item._id} className="ob-row" style={{ borderBottom: `1px solid ${T.border}`, background: item.pendingAction === "cancel" ? (isDark ? "rgba(239,68,68,0.05)" : "#fff5f5") : undefined }}>
                     <td style={{ padding: "12px 14px" }}>
                       <input type="checkbox" style={{ accentColor: T.blue }}
                         checked={selectedIds.has(item._id)}
@@ -487,7 +577,7 @@ export default function Outbound() {
                             style={{ fontSize: "13px", fontWeight: "700", color: T.blue, margin: 0, cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "color 0.15s" }}>
                             {item.name}
                           </p>
-                          <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0", fontFamily: "monospace" }}>{item.item_code}</p>
+                          <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0", fontFamily: "'DM Mono', monospace" }}>{item.item_code}</p>
                           {hasDiscount && (
                             <p style={{ fontSize: "10px", color: "#f59e0b", margin: "2px 0 0", fontWeight: "600" }}>
                               Disc: {fmtAED(item.discount)}
@@ -515,20 +605,22 @@ export default function Outbound() {
                     {/* Dispatch qty — custom stepper */}
                     <td style={{ padding: "12px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || 1) - 1)}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || item.orderedQuantity) - 1)}
+                          disabled={item.outboundQuantity <= item.orderedQuantity}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.outboundQuantity <= item.orderedQuantity ? T.textMuted : T.textSec, cursor: item.outboundQuantity <= item.orderedQuantity ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           −
                         </button>
-                        <input type="number" min="1" max={item.maxQuantity} value={item.outboundQuantity}
-                          onChange={e => updateQty(item._id, parseInt(e.target.value) || 1)}
+                        <input type="number" min={item.orderedQuantity} max={item.availableQuantity} value={item.outboundQuantity}
+                          onChange={e => updateQty(item._id, parseInt(e.target.value) || item.orderedQuantity)}
                           className="ob-qty-input"
                           style={{ width: "44px", height: "24px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface2, color: T.textPri, fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || 1) + 1)}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || item.orderedQuantity) + 1)}
+                          disabled={item.outboundQuantity >= item.availableQuantity}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.outboundQuantity >= item.availableQuantity ? T.textMuted : T.textSec, cursor: item.outboundQuantity >= item.availableQuantity ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           +
                         </button>
                       </div>
-                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>max {item.maxQuantity}</p>
+                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>ordered: {item.orderedQuantity} · avail: {item.availableQuantity}</p>
                     </td>
 
                     {/* Status */}
@@ -542,44 +634,113 @@ export default function Outbound() {
                     {/* Sales order */}
                     <td style={{ padding: "12px 14px" }}>
                       {item.salesOrderNumber ? (
-                        <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "monospace" }}>
+                        <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "'DM Mono', monospace" }}>
                           {item.salesOrderNumber}
                         </span>
                       ) : <span style={{ color: T.textMuted, fontSize: "12px" }}>—</span>}
                     </td>
 
-                    {/* Price */}
+                    {/* Price / Unit */}
                     <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                      {item.rate > parseFloat(item.selling_price) ? (
-                        <div>
-                          <p style={{ fontSize: "11px", color: T.textMuted, textDecoration: "line-through", margin: "0 0 2px" }}>{fmtAED(item.rate)}</p>
-                          <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.green, margin: 0 }}>{fmtAED(item.selling_price)}</p>
-                        </div>
-                      ) : (
-                        <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>{fmtAED(item.selling_price)}</p>
+                      {item.rate > parseFloat(item.selling_price) && (
+                        <p style={{ fontSize: "10px", color: T.textMuted, textDecoration: "line-through", margin: "0 0 1px", fontFamily: "'DM Mono', monospace" }}>{fmtAED(item.rate)}</p>
                       )}
+                      <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: item.rate > parseFloat(item.selling_price) ? T.green : T.textPri, margin: 0, fontFamily: "'DM Mono', monospace" }}>
+                        {fmtAED(item.selling_price)}
+                      </p>
+                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>excl. VAT</p>
                     </td>
+
+                    {/* VAT (5%) */}
+                    {(() => {
+                      const unitPrice = parseFloat(item.selling_price || 0);
+                      const qty       = item.outboundQuantity || 0;
+                      const lineBase  = round2(unitPrice * qty);
+                      const lineVat   = round2(lineBase * TAX_RATE);
+                      return (
+                        <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                          <p style={{ fontSize: "12px", fontWeight: "700", color: "#f59e0b", margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(lineVat)}</p>
+                          <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>{fmtAED(lineBase)} × 5%</p>
+                        </td>
+                      );
+                    })()}
+
+                    {/* Line Total (incl. VAT) */}
+                    {(() => {
+                      const unitPrice  = parseFloat(item.selling_price || 0);
+                      const qty        = item.outboundQuantity || 0;
+                      const lineBase   = round2(unitPrice * qty);
+                      const lineVat    = round2(lineBase * TAX_RATE);
+                      const lineTotal  = round2(lineBase + lineVat);
+                      return (
+                        <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                          <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(lineTotal)}</p>
+                          <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>incl. VAT</p>
+                        </td>
+                      );
+                    })()}
 
                     {/* Actions */}
                     <td style={{ padding: "12px 10px", textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: "5px", justifyContent: "flex-end" }}>
-                        {item.status === "pending_approval" && requiresApproval && (
+                      <div style={{ display: "flex", gap: "5px", justifyContent: "flex-end", alignItems: "center" }}>
+
+                        {/* Admin: approve/reject a member's cancellation request */}
+                        {isAdmin && item.pendingAction === "cancel" ? (
                           <>
-                            <button className="ob-icon-btn" onClick={() => handleApprove(item._id)}
-                              style={{ padding: "5px 9px", borderRadius: "7px", border: `1px solid rgba(16,185,129,0.25)`, background: "rgba(16,185,129,0.1)", color: "#10b981", cursor: "pointer", fontSize: "11px", fontWeight: "600", fontFamily: "inherit" }}>
-                              <FaCheck size={9} />
+                            <button className="ob-icon-btn" title={`Reason: ${item.cancelReason}\nBy: ${item.cancelRequestedBy}`}
+                              onClick={() => handleApproveCancellation(item._id)}
+                              style={{ padding: "4px 8px", borderRadius: "7px", border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.1)", color: "#ef4444", cursor: "pointer", fontSize: "10px", fontWeight: "700", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <FaCheck size={8} /> Cancel
                             </button>
-                            <button className="ob-icon-btn" onClick={() => handleReject(item._id)}
-                              style={{ padding: "5px 9px", borderRadius: "7px", border: `1px solid rgba(239,68,68,0.25)`, background: "rgba(239,68,68,0.1)", color: "#ef4444", cursor: "pointer", fontSize: "11px", fontWeight: "600", fontFamily: "inherit" }}>
-                              <FaTimes size={9} />
+                            <button className="ob-icon-btn" title="Reject cancellation — restore to pending"
+                              onClick={() => handleRejectCancellation(item._id)}
+                              style={{ padding: "4px 8px", borderRadius: "7px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "10px", fontWeight: "700", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <FaTimes size={8} /> Keep
                             </button>
                           </>
+                        ) : (
+                          <>
+                            {/* Regular approve/reject for pending_approval items */}
+                            {item.status === "pending_approval" && requiresApproval && !item.pendingAction && (
+                              <>
+                                <button className="ob-icon-btn" onClick={() => handleApprove(item._id)}
+                                  style={{ padding: "5px 9px", borderRadius: "7px", border: "1px solid rgba(16,185,129,0.25)", background: "rgba(16,185,129,0.1)", color: "#10b981", cursor: "pointer", fontSize: "11px", fontWeight: "600", fontFamily: "inherit" }}>
+                                  <FaCheck size={9} />
+                                </button>
+                                <button className="ob-icon-btn" onClick={() => handleReject(item._id)}
+                                  style={{ padding: "5px 9px", borderRadius: "7px", border: "1px solid rgba(239,68,68,0.25)", background: "rgba(239,68,68,0.1)", color: "#ef4444", cursor: "pointer", fontSize: "11px", fontWeight: "600", fontFamily: "inherit" }}>
+                                  <FaTimes size={9} />
+                                </button>
+                              </>
+                            )}
+                            {/* Withdraw (member) or Cancel (others) button */}
+                            {(() => {
+                              const isPendingCancel = item.pendingAction === "cancel";
+                              const blocked = item.status === "cancelled" || item.status === "approved";
+
+                              // Member sees a "Withdraw" button when their request is pending
+                              if (!isAdmin && isPendingCancel) {
+                                return (
+                                  <button className="ob-icon-btn"
+                                    title="Withdraw your cancellation request"
+                                    onClick={() => setOutboundItems(p => p.map(i => i._id === item._id ? { ...i, status: "pending", pendingAction: null, cancelReason: null, cancelRequestedBy: null } : i))}
+                                    style={{ padding: "4px 8px", borderRadius: "7px", border: "1px solid rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.1)", color: "#8b5cf6", cursor: "pointer", fontSize: "10px", fontWeight: "700", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
+                                    <FaTimes size={8} /> Withdraw
+                                  </button>
+                                );
+                              }
+
+                              return (
+                                <button className="ob-icon-btn" onClick={() => !blocked && !isPendingCancel && handleCancelRequest(item._id)}
+                                  disabled={blocked || isPendingCancel}
+                                  title={isPendingCancel ? "Awaiting admin approval" : "Request cancellation"}
+                                  style={{ padding: "5px 9px", borderRadius: "7px", border: `1px solid ${isPendingCancel ? "rgba(139,92,246,0.3)" : T.border}`, background: isPendingCancel ? "rgba(139,92,246,0.1)" : "transparent", color: (blocked || isPendingCancel) ? (isPendingCancel ? "#8b5cf6" : T.textMuted) : T.textSec, cursor: (blocked || isPendingCancel) ? "not-allowed" : "pointer", fontSize: "11px", fontFamily: "inherit" }}>
+                                  <FaBan size={9} />
+                                </button>
+                              );
+                            })()}
+                          </>
                         )}
-                        <button className="ob-icon-btn" onClick={() => handleCancelRequest(item._id)}
-                          disabled={item.status === "cancelled" || item.status === "approved"}
-                          style={{ padding: "5px 9px", borderRadius: "7px", border: `1px solid ${T.border}`, background: "transparent", color: item.status === "cancelled" || item.status === "approved" ? T.textMuted : T.textSec, cursor: item.status === "cancelled" || item.status === "approved" ? "not-allowed" : "pointer", fontSize: "11px", fontWeight: "600", fontFamily: "inherit" }}>
-                          <FaBan size={9} />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -629,26 +790,56 @@ export default function Outbound() {
 
         {/* ── SUMMARY FOOTER ─────────────────────────────────── */}
         {selectedIds.size > 0 && (
-          <div style={{ ...card, padding: "16px 20px", background: isDark ? "rgba(59,130,246,0.05)" : "#f8faff", borderColor: isDark ? "rgba(59,130,246,0.15)" : "#dbeafe" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
-              <div style={{ display: "flex", gap: "28px", flexWrap: "wrap" }}>
+          <div style={{ ...card, padding: "18px 22px", background: isDark ? "rgba(59,130,246,0.04)" : "#f8faff", borderColor: isDark ? "rgba(59,130,246,0.15)" : "#dbeafe" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "20px" }}>
+
+              {/* Left — quick stats */}
+              <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "flex-start" }}>
                 {[
-                  { label: "Items", value: selectedIds.size },
+                  { label: "Items",      value: selectedIds.size },
                   { label: "Total Units", value: `${totalQty} pcs` },
-                  { label: "Subtotal",    value: fmtAED(selItems.reduce((s, i) => s + i.outboundQuantity * parseFloat(i.rate || 0), 0)) },
-                  { label: "Discount",   value: fmtAED(totalDisc), red: true },
-                  { label: "Total Value", value: fmtAED(totalValue), bold: true },
-                ].map(({ label, value, red, bold }) => (
+                  { label: "Discount",   value: fmtAED(totalDisc), red: totalDisc > 0 },
+                ].map(({ label, value, red }) => (
                   <div key={label}>
                     <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
-                    <p className="ob-jakarta" style={{ fontSize: bold ? "16px" : "14px", fontWeight: bold ? "800" : "700", color: red ? "#ef4444" : bold ? T.blue : T.textPri, margin: 0 }}>{value}</p>
+                    <p className="ob-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: red ? "#ef4444" : T.textPri, margin: 0 }}>{value}</p>
                   </div>
                 ))}
               </div>
-              <button className="ob-btn" onClick={handleSave}
-                style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                <FaShippingFast size={13} /> Create Delivery Note
-              </button>
+
+              {/* Centre — tax breakdown box */}
+              <div style={{ flex: 1, minWidth: "220px", maxWidth: "340px", background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "10px", padding: "10px 14px" }}>
+                <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 7px" }}>VAT 5% — Grouped by Rate</p>
+                {obTaxGroups.length === 0 && (
+                  <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>—</p>
+                )}
+                {obTaxGroups.map((g, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < obTaxGroups.length - 1 ? `1px solid ${isDark ? "rgba(245,158,11,0.12)" : "#fef3c7"}` : "none" }}>
+                    <div>
+                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Rate {fmtAED(g.rate)}</p>
+                      <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "'DM Mono', monospace" }}>{fmtAED(g.baseAmount)} × 5%</p>
+                    </div>
+                    <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(g.taxAmount)}</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "7px", paddingTop: "7px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
+                  <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalTax)}</span>
+                </div>
+              </div>
+
+              {/* Right — grand total + action */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
+                <div style={{ textAlign: "right" }}>
+                  <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Grand Total (incl. VAT)</p>
+                  <p className="ob-jakarta" style={{ fontSize: "20px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalValue)}</p>
+                </div>
+                <button className="ob-btn" onClick={handleSave}
+                  style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
+                  <FaShippingFast size={13} /> Create Delivery Note
+                </button>
+              </div>
+
             </div>
           </div>
         )}
@@ -661,14 +852,29 @@ export default function Outbound() {
             style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.75)" : "rgba(15,23,42,0.45)", backdropFilter: "blur(6px)", zIndex: 100 }} />
           <div className="ob-up" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 101, width: "400px", maxWidth: "calc(100vw - 32px)", ...card, padding: "24px", boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.6)" : "0 16px 48px rgba(0,0,0,0.15)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-              <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: "rgba(239,68,68,0.1)", color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", flexShrink: 0 }}>
-                <FaBan />
+              <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: isAdmin ? "rgba(239,68,68,0.1)" : "rgba(139,92,246,0.1)", color: isAdmin ? "#ef4444" : "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", flexShrink: 0 }}>
+                {isAdmin ? <FaBan /> : <FaUserShield />}
               </div>
               <div>
-                <h3 className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "700", color: T.textPri, margin: 0 }}>Cancel Item</h3>
-                <p style={{ fontSize: "12px", color: T.textSec, margin: "2px 0 0" }}>This will require manager approval</p>
+                <h3 className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "700", color: T.textPri, margin: 0 }}>
+                  {isAdmin ? "Cancel Item" : "Request Cancellation"}
+                </h3>
+                <p style={{ fontSize: "12px", color: T.textSec, margin: "2px 0 0" }}>
+                  {isAdmin ? "Item will be immediately removed from this dispatch." : "Your request will be sent to the admin / owner for approval."}
+                </p>
               </div>
             </div>
+
+            {/* Member info strip */}
+            {!isAdmin && (
+              <div style={{ marginBottom: "14px", padding: "9px 12px", background: isDark ? "rgba(139,92,246,0.08)" : "#f5f3ff", border: `1px solid ${isDark ? "rgba(139,92,246,0.25)" : "#ddd6fe"}`, borderRadius: "9px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <FaExclamationTriangle size={11} style={{ color: "#8b5cf6", flexShrink: 0 }} />
+                <p style={{ fontSize: "11px", color: isDark ? "#c4b5fd" : "#6d28d9", margin: 0, fontWeight: "600" }}>
+                  Only admins and owners can approve cancellations. The item will show as <em>awaiting approval</em> until reviewed.
+                </p>
+              </div>
+            )}
+
             <label style={{ fontSize: "11px", fontWeight: "600", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: "6px" }}>
               Reason for Cancellation <span style={{ color: "#ef4444" }}>*</span>
             </label>
@@ -683,8 +889,8 @@ export default function Outbound() {
                 Dismiss
               </button>
               <button className="ob-btn" onClick={confirmCancel}
-                style={{ padding: "8px 18px", background: "#ef4444", color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                Submit for Approval
+                style={{ padding: "8px 18px", background: isAdmin ? "#ef4444" : "#8b5cf6", color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                {isAdmin ? "Cancel Item" : "Submit for Approval"}
               </button>
             </div>
           </div>
@@ -711,7 +917,7 @@ export default function Outbound() {
                           <h3 className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.name}</h3>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "11px", fontFamily: "monospace", color: T.textSec }}>{selected.item_code}</span>
+                          <span style={{ fontSize: "11px", fontFamily: "'DM Mono', monospace", color: T.textSec }}>{selected.item_code}</span>
                           <span style={{ fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "999px", background: sc.dim, color: sc.color, border: `1px solid ${sc.border}`, display: "inline-flex", alignItems: "center", gap: "4px" }}>
                             <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />{sc.label}
                           </span>
@@ -745,7 +951,7 @@ export default function Outbound() {
                     {selected.salesOrderNumber && (
                       <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "13px 14px" }}>
                         <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>Linked Sales Order</p>
-                        <span style={{ fontSize: "12px", fontWeight: "700", padding: "4px 10px", borderRadius: "7px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "monospace" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "700", padding: "4px 10px", borderRadius: "7px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "'DM Mono', monospace" }}>
                           {selected.salesOrderNumber}
                         </span>
                       </div>
@@ -774,40 +980,85 @@ export default function Outbound() {
                       </div>
                     </div>
 
+                    {/* Cancellation request info (admin view) */}
+                    {isAdmin && selected.pendingAction === "cancel" && (
+                      <div style={{ background: isDark ? "rgba(239,68,68,0.07)" : "#fff5f5", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "10px", padding: "13px 14px" }}>
+                        <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.07em", color: "#ef4444", margin: "0 0 8px" }}>Cancellation Request</p>
+                        {selected.cancelRequestedBy && (
+                          <p style={{ fontSize: "12px", color: isDark ? "#fca5a5" : "#b91c1c", margin: "0 0 4px" }}>
+                            <strong>Requested by:</strong> {selected.cancelRequestedBy}
+                          </p>
+                        )}
+                        {selected.cancelReason && (
+                          <p style={{ fontSize: "12px", color: isDark ? "#fca5a5" : "#b91c1c", margin: 0 }}>
+                            <strong>Reason:</strong> {selected.cancelReason}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     {/* Dispatch qty adjuster */}
                     <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "14px" }}>
                       <p style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 10px" }}>Adjust Dispatch Qty</p>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || 1) - 1)}
-                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                        <input type="number" min="1" max={selected.maxQuantity} value={selected.outboundQuantity}
-                          onChange={e => { updateQty(selected._id, parseInt(e.target.value) || 1); setSelected(prev => ({ ...prev, outboundQuantity: Math.max(1, Math.min(parseInt(e.target.value) || 1, prev.maxQuantity)) })); }}
+                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || selected.orderedQuantity) - 1)}
+                          disabled={selected.outboundQuantity <= selected.orderedQuantity}
+                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: selected.outboundQuantity <= selected.orderedQuantity ? T.textMuted : T.textSec, cursor: selected.outboundQuantity <= selected.orderedQuantity ? "not-allowed" : "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                        <input type="number" min={selected.orderedQuantity} max={selected.availableQuantity} value={selected.outboundQuantity}
+                          onChange={e => updateQty(selected._id, parseInt(e.target.value) || selected.orderedQuantity)}
                           className="ob-qty-input"
                           style={{ flex: 1, height: "32px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "8px", background: T.surface, color: T.textPri, fontSize: "14px", fontWeight: "700", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || 1) + 1)}
-                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.outboundQuantity || selected.orderedQuantity) + 1)}
+                          disabled={selected.outboundQuantity >= selected.availableQuantity}
+                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: selected.outboundQuantity >= selected.availableQuantity ? T.textMuted : T.textSec, cursor: selected.outboundQuantity >= selected.availableQuantity ? "not-allowed" : "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                       </div>
-                      <p style={{ fontSize: "11px", color: T.textSec, margin: "7px 0 0" }}>Max dispatchable: <strong>{selected.maxQuantity}</strong></p>
+                      <p style={{ fontSize: "11px", color: T.textSec, margin: "7px 0 0" }}>Ordered: <strong>{selected.orderedQuantity}</strong> · Available: <strong>{selected.availableQuantity}</strong></p>
                     </div>
                   </div>
 
                   {/* Drawer footer */}
                   <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "8px" }}>
-                    <button className="ob-btn" onClick={() => handleCancelRequest(selected._id)}
-                      disabled={selected.status === "cancelled" || selected.status === "approved"}
-                      style={{ flex: 1, padding: "9px", background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", opacity: selected.status === "cancelled" || selected.status === "approved" ? 0.5 : 1 }}>
-                      <FaBan size={11} /> Cancel
-                    </button>
-                    {selected.status === "pending_approval" && requiresApproval && (
+                    {isAdmin && selected.pendingAction === "cancel" ? (
                       <>
-                        <button className="ob-btn" onClick={() => { handleApprove(selected._id); setDrawer(false); }}
-                          style={{ flex: 1, padding: "9px", background: "rgba(16,185,129,0.1)", color: "#10b981", border: "1px solid rgba(16,185,129,0.25)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                          <FaCheck size={10} /> Approve
+                        {/* Admin reviewing a member's cancellation request */}
+                        <button className="ob-btn"
+                          disabled={approvingCancel}
+                          onClick={async () => {
+                            setApprovingCancel(true);
+                            await handleApproveCancellation(selected._id);
+                            setDrawer(false);
+                            setSelected(null);
+                            setApprovingCancel(false);
+                          }}
+                          style={{ flex: 1, padding: "9px", background: approvingCancel ? T.surface2 : "rgba(239,68,68,0.1)", color: approvingCancel ? T.textMuted : "#ef4444", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: approvingCancel ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                          <FaCheck size={10} /> {approvingCancel ? "Approving…" : "Approve Cancellation"}
                         </button>
-                        <button className="ob-btn" onClick={() => { handleReject(selected._id); setDrawer(false); }}
-                          style={{ flex: 1, padding: "9px", background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                          <FaTimes size={10} /> Reject
+                        <button className="ob-btn"
+                          disabled={approvingCancel}
+                          onClick={() => { handleRejectCancellation(selected._id); setDrawer(false); setSelected(null); }}
+                          style={{ flex: 1, padding: "9px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                          <FaTimes size={10} /> Reject Request
                         </button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="ob-btn" onClick={() => handleCancelRequest(selected._id)}
+                          disabled={selected.status === "cancelled" || selected.status === "approved"}
+                          style={{ flex: 1, padding: "9px", background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", opacity: selected.status === "cancelled" || selected.status === "approved" ? 0.5 : 1 }}>
+                          <FaBan size={11} /> Cancel
+                        </button>
+                        {selected.status === "pending_approval" && requiresApproval && (
+                          <>
+                            <button className="ob-btn" onClick={() => { handleApprove(selected._id); setDrawer(false); }}
+                              style={{ flex: 1, padding: "9px", background: "rgba(16,185,129,0.1)", color: "#10b981", border: "1px solid rgba(16,185,129,0.25)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                              <FaCheck size={10} /> Approve
+                            </button>
+                            <button className="ob-btn" onClick={() => { handleReject(selected._id); setDrawer(false); }}
+                              style={{ flex: 1, padding: "9px", background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                              <FaTimes size={10} /> Reject
+                            </button>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -817,6 +1068,214 @@ export default function Outbound() {
           </div>
         </>
       )}
+
+      {/* ── PRINT MODAL ──────────────────────────────────────── */}
+      {showPrintModal && (() => {
+        const printItems  = selItems.length > 0 ? selItems : outboundItems;
+        const printDate   = new Date().toLocaleDateString("en-AE", { day: "2-digit", month: "long", year: "numeric" });
+        const docNum      = `DO-${Date.now().toString().slice(-8)}`;
+        const orgName     = activeOrg?.name || "Organization";
+        const orgInitial  = orgName.charAt(0).toUpperCase();
+        const soRefs      = [...new Set(printItems.map(i => i.salesOrderNumber).filter(Boolean))];
+        const customers   = [...new Set(
+          printItems.map(i => salesOrdersData?.salesOrders?.find(s => s.id === i.salesOrderId)?.customerName).filter(Boolean)
+        )];
+        const pSubtotal   = round2(printItems.reduce((s, i) => s + (i.outboundQuantity || 0) * parseFloat(i.selling_price || 0), 0));
+        const pVat        = round2(pSubtotal * TAX_RATE);
+        const pTotal      = round2(pSubtotal + pVat);
+        const pDiscount   = round2(printItems.reduce((s, i) => s + parseFloat(i.discount || 0), 0));
+
+        return (
+          <>
+            <style>{`
+              @media print {
+                body > * { visibility: hidden !important; }
+                #ob-print-root, #ob-print-root * { visibility: visible !important; }
+                #ob-print-root {
+                  position: fixed !important; inset: 0 !important;
+                  background: white !important; z-index: 99999 !important;
+                  padding: 0 !important; margin: 0 !important;
+                }
+                #ob-print-doc {
+                  box-shadow: none !important; border-radius: 0 !important;
+                  width: 100% !important; max-width: 100% !important;
+                  max-height: none !important; overflow: visible !important;
+                }
+                .ob-print-no-print { display: none !important; }
+                @page { size: A4; margin: 14mm 14mm 14mm 14mm; }
+              }
+            `}</style>
+
+            {/* Backdrop */}
+            <div className="ob-fade ob-print-no-print" onClick={() => setShowPrintModal(false)}
+              style={{ position: "fixed", inset: 0, background: "rgba(5,10,25,0.65)", backdropFilter: "blur(6px)", zIndex: 200 }} />
+
+            {/* Modal shell */}
+            <div id="ob-print-root" style={{ position: "fixed", inset: 0, zIndex: 201, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflowY: "auto", padding: "24px 16px" }}>
+
+              {/* Toolbar */}
+              <div className="ob-print-no-print" style={{ width: "100%", maxWidth: "794px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: "rgba(59,130,246,0.15)", color: "#60a5fa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <FaPrint size={12} />
+                  </div>
+                  <span style={{ color: "white", fontWeight: "700", fontSize: "14px", fontFamily: "inherit" }}>Print Preview</span>
+                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>— {printItems.length} item{printItems.length !== 1 ? "s" : ""}</span>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button onClick={() => setShowPrintModal(false)}
+                    style={{ padding: "7px 16px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "rgba(255,255,255,0.7)", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <FaTimes size={10} /> Close
+                  </button>
+                  <button onClick={() => window.print()}
+                    style={{ padding: "7px 18px", borderRadius: "8px", border: "none", background: "#3b82f6", color: "white", fontSize: "12px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <FaPrint size={10} /> Print Document
+                  </button>
+                </div>
+              </div>
+
+              {/* ── THE DOCUMENT ── */}
+              <div id="ob-print-doc" style={{ width: "794px", maxWidth: "100%", background: "white", borderRadius: "6px", boxShadow: "0 24px 64px rgba(0,0,0,0.5)", overflow: "hidden", fontFamily: "'DM Sans', Arial, sans-serif", color: "#111827" }}>
+
+                {/* Header band */}
+                <div style={{ background: "#1e3a5f", padding: "28px 32px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                    <div style={{ width: "48px", height: "48px", borderRadius: "12px", background: "rgba(255,255,255,0.15)", border: "1.5px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <span style={{ color: "white", fontSize: "22px", fontWeight: "800" }}>{orgInitial}</span>
+                    </div>
+                    <div>
+                      <p style={{ color: "white", fontSize: "18px", fontWeight: "800", margin: 0, letterSpacing: "-0.3px" }}>{orgName}</p>
+                      <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "11px", margin: "2px 0 0" }}>Dispatch & Outbound Management</p>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 4px" }}>Dispatch Order</p>
+                    <p style={{ color: "white", fontSize: "20px", fontWeight: "800", margin: "0 0 6px", letterSpacing: "-0.3px" }}>{docNum}</p>
+                    <p style={{ color: "rgba(255,255,255,0.65)", fontSize: "11px", margin: 0 }}>{printDate}</p>
+                  </div>
+                </div>
+
+                {/* Meta row */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderBottom: "1.5px solid #e5e7eb" }}>
+                  {[
+                    { label: "Dispatch To", value: customers.length > 0 ? customers.join(", ") : "—" },
+                    { label: "Sales Orders", value: soRefs.length > 0 ? soRefs.join(" · ") : "—" },
+                    { label: "Prepared On", value: printDate },
+                  ].map(({ label, value }, i) => (
+                    <div key={i} style={{ padding: "16px 24px", borderRight: i < 2 ? "1px solid #e5e7eb" : "none" }}>
+                      <p style={{ fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#6b7280", margin: "0 0 4px" }}>{label}</p>
+                      <p style={{ fontSize: "12px", fontWeight: "600", color: "#111827", margin: 0, wordBreak: "break-word" }}>{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Items table */}
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                  <thead>
+                    <tr style={{ background: "#f8fafc" }}>
+                      {["#", "Item Description", "SKU / Code", "Ordered", "Dispatch Qty", "Unit Price", "Disc.", "Amount"].map((h, i) => (
+                        <th key={i} style={{ padding: "10px 14px", textAlign: i >= 5 ? "right" : i === 0 ? "center" : "left", fontSize: "9px", fontWeight: "700", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.09em", borderBottom: "1.5px solid #e5e7eb", whiteSpace: "nowrap" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {printItems.map((item, idx) => {
+                      const unitPrice = parseFloat(item.selling_price || 0);
+                      const lineAmt   = round2(unitPrice * (item.outboundQuantity || 0));
+                      const disc      = parseFloat(item.discount || 0);
+                      const isEven    = idx % 2 === 1;
+                      return (
+                        <tr key={item._id} style={{ background: isEven ? "#f9fafb" : "white", borderBottom: "1px solid #f0f0f0" }}>
+                          <td style={{ padding: "11px 14px", textAlign: "center", color: "#9ca3af", fontSize: "11px", fontWeight: "600" }}>{idx + 1}</td>
+                          <td style={{ padding: "11px 14px" }}>
+                            <p style={{ fontWeight: "700", color: "#111827", margin: 0, fontSize: "12px" }}>{item.name}</p>
+                            {item.salesOrderNumber && (
+                              <p style={{ fontSize: "10px", color: "#6b7280", margin: "2px 0 0" }}>SO: {item.salesOrderNumber}</p>
+                            )}
+                          </td>
+                          <td style={{ padding: "11px 14px", fontFamily: "monospace", fontSize: "11px", color: "#374151" }}>{item.item_code}</td>
+                          <td style={{ padding: "11px 14px", textAlign: "left" }}>
+                            <span style={{ fontWeight: "600", color: "#374151" }}>{item.orderedQuantity}</span>
+                            <span style={{ color: "#9ca3af", fontSize: "10px", marginLeft: "3px" }}>{item.unit}</span>
+                          </td>
+                          <td style={{ padding: "11px 14px", textAlign: "left" }}>
+                            <span style={{ fontWeight: "800", color: "#1e3a5f", fontSize: "13px" }}>{item.outboundQuantity}</span>
+                            <span style={{ color: "#9ca3af", fontSize: "10px", marginLeft: "3px" }}>{item.unit}</span>
+                          </td>
+                          <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", color: "#374151" }}>
+                            {fmtAED(unitPrice)}
+                          </td>
+                          <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "monospace", color: disc > 0 ? "#ef4444" : "#9ca3af", fontSize: "11px" }}>
+                            {disc > 0 ? `− ${fmtAED(disc)}` : "—"}
+                          </td>
+                          <td style={{ padding: "11px 14px", textAlign: "right" }}>
+                            <span style={{ fontWeight: "700", color: "#111827", fontFamily: "monospace" }}>{fmtAED(lineAmt)}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {/* Totals + notes */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", borderTop: "1.5px solid #e5e7eb" }}>
+
+                  {/* Left: notes */}
+                  <div style={{ padding: "20px 24px", borderRight: "1px solid #e5e7eb" }}>
+                    <p style={{ fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#6b7280", margin: "0 0 6px" }}>Dispatch Notes</p>
+                    <p style={{ fontSize: "11px", color: "#374151", margin: 0 }}>{outboundNote || "No notes specified."}</p>
+                    {soRefs.length > 0 && (
+                      <p style={{ fontSize: "10px", color: "#9ca3af", margin: "8px 0 0" }}>Reference: {soRefs.join(", ")}</p>
+                    )}
+                  </div>
+
+                  {/* Right: totals */}
+                  <div style={{ padding: "20px 28px", minWidth: "240px" }}>
+                    {[
+                      { label: "Subtotal (excl. VAT)", value: fmtAED(pSubtotal), dim: true },
+                      pDiscount > 0 && { label: "Total Discount", value: `− ${fmtAED(pDiscount)}`, red: true },
+                      { label: "VAT (5%)", value: fmtAED(pVat), dim: true },
+                    ].filter(Boolean).map(({ label, value, dim, red }) => (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <span style={{ fontSize: "11px", color: dim ? "#6b7280" : red ? "#ef4444" : "#374151" }}>{label}</span>
+                        <span style={{ fontSize: "12px", fontWeight: "600", color: red ? "#ef4444" : "#374151", fontFamily: "monospace" }}>{value}</span>
+                      </div>
+                    ))}
+                    <div style={{ borderTop: "2px solid #1e3a5f", marginTop: "10px", paddingTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "13px", fontWeight: "800", color: "#1e3a5f" }}>TOTAL (incl. VAT)</span>
+                      <span style={{ fontSize: "15px", fontWeight: "800", color: "#1e3a5f", fontFamily: "monospace" }}>{fmtAED(pTotal)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Signature strip */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderTop: "1.5px solid #e5e7eb", background: "#f8fafc" }}>
+                  {["Prepared By", "Checked By", "Received By"].map((label, i) => (
+                    <div key={i} style={{ padding: "18px 24px", borderRight: i < 2 ? "1px solid #e5e7eb" : "none" }}>
+                      <p style={{ fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#6b7280", margin: "0 0 28px" }}>{label}</p>
+                      <div style={{ borderBottom: "1px solid #d1d5db", marginBottom: "6px" }} />
+                      <p style={{ fontSize: "9px", color: "#9ca3af", margin: 0 }}>Signature &amp; Date</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Footer */}
+                <div style={{ padding: "12px 24px", background: "#1e3a5f", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "9px", margin: 0 }}>
+                    Generated by {orgName} · {printDate}
+                  </p>
+                  <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "9px", margin: 0 }}>
+                    {docNum} · {printItems.length} line item{printItems.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+
+              </div>
+              {/* bottom spacing */}
+              <div style={{ height: "40px" }} className="ob-print-no-print" />
+            </div>
+          </>
+        );
+      })()}
     </>
   );
 }

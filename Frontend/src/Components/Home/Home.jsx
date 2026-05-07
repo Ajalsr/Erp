@@ -1,211 +1,124 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  FaBox, FaShoppingCart, FaTruck, FaFileInvoice,
-  FaUser, FaExclamationTriangle,
-  FaArrowUp, FaArrowDown, FaPlus, FaCheckCircle,
-  FaTimesCircle, FaLayerGroup, FaBell,
-  FaArrowRight, FaClock,
+  FaBox, FaShoppingCart, FaTruck, FaFileInvoice, FaUser,
+  FaExclamationTriangle, FaArrowUp, FaArrowRight,
+  FaClock, FaMoneyBillWave, FaBuilding, FaFileAlt,
+  FaReceipt,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useAuthStore from "../../store/useAuthStore";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useGetDashboardStats from "../../helper/useGetDashboardStats";
 
-/* ─── SVG Sparkline ─────────────────────────────────────────────── */
-const Spark = ({ data, color, h = 38, filled = true }) => {
-  const W = 120;
-  const min = Math.min(...data), max = Math.max(...data), rng = max - min || 1;
-  const pts = data.map((v, i) => [
-    (i / (data.length - 1)) * W,
-    h - ((v - min) / rng) * (h * 0.82) - h * 0.08,
-  ]);
+/* ─── Sparkline ──────────────────────────────────────────────────── */
+const Spark = ({ data, color, h = 38 }) => {
+  if (!data || data.length < 2) return null;
+  const W = 120, min = Math.min(...data), max = Math.max(...data), rng = max - min || 1;
+  const pts = data.map((v, i) => [(i / (data.length - 1)) * W, h - ((v - min) / rng) * (h * 0.82) - h * 0.08]);
   const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
-  const uid = `sg${color.replace(/[^a-z0-9]/gi, "")}${h}`;
+  const uid = `sg${color.replace(/[^a-z0-9]/gi, "")}`;
   return (
     <svg viewBox={`0 0 ${W} ${h}`} style={{ width: "100%", height: h }} preserveAspectRatio="none">
       <defs>
         <linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" /><stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      {filled && <path d={`${d} L${W},${h} L0,${h} Z`} fill={`url(#${uid})`} />}
+      <path d={`${d} L${W},${h} L0,${h} Z`} fill={`url(#${uid})`} />
       <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx={pts.at(-1)[0]} cy={pts.at(-1)[1]} r="2.8" fill={color} />
     </svg>
   );
 };
 
-const greeting = () => {
-  const h = new Date().getHours();
-  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
+
+const fmtAED = (n, compact = false) => {
+  const v = Number(n || 0);
+  if (compact && v >= 1_000_000) return `AED ${(v / 1_000_000).toFixed(1)}M`;
+  if (compact && v >= 1_000)     return `AED ${(v / 1_000).toFixed(1)}K`;
+  return `AED ${v.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const fmtAgo = (date) => {
+  if (!date) return "—";
+  const secs = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (secs < 0) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+};
+
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "numeric", month: "short" }) : "—";
+
+const STATUS_COLORS = (status, T) => {
+  const s = (status || "").toLowerCase();
+  if (["paid", "completed", "received", "delivered"].includes(s)) return { bg: T.greenDim, c: T.green, dot: T.green };
+  if (["partial", "ordered", "open"].includes(s))                  return { bg: T.blueDim,  c: T.blue,  dot: T.blue };
+  if (["overdue", "cancelled", "void"].includes(s))                return { bg: T.redDim,   c: T.red,   dot: T.red };
+  if (["pending", "draft"].includes(s))                            return { bg: T.amberDim, c: T.amber, dot: T.amber };
+  return { bg: T.surface2, c: T.textSec, dot: T.textSec };
 };
 
 export default function Dashboard() {
-  const navigate  = useNavigate();
-  const user      = useAuthStore((s) => s.user);
-  const isDark    = useThemeStore((s) => s.isDark);
-  const T         = getTheme(isDark);
-  const initials  = (user?.userId || "A").charAt(0).toUpperCase();
+  const navigate = useNavigate();
+  const user   = useAuthStore((s) => s.user);
+  const isDark = useThemeStore((s) => s.isDark);
+  const T      = getTheme(isDark);
+  const initials = (user?.userId || "A").charAt(0).toUpperCase();
 
-  // ── Live dashboard data from backend ──────────────────────────────
-  const { stats, loading: statsLoading, error: statsError, refresh } = useGetDashboardStats();
+  const { stats, loading, error, refresh } = useGetDashboardStats();
 
   const [time, setTime] = useState(new Date());
-  const [pendingApprovals, setPendingApprovals] = useState([
-    { id: 1, type: "outbound_cancel", item: "Office Chair",        by: "John Doe",     ago: "2h ago" },
-    { id: 2, type: "outbound_cancel", item: "Storage Cabinet",     by: "Sarah Smith",  ago: "4h ago" },
-    { id: 3, type: "new_item",        item: "New Product Request", by: "Mike Johnson", ago: "1d ago" },
-  ]);
+  useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
 
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  const {
+    totalCustomers, activeCustomers, pendingCustomers,
+    todayNewCustomers, thisMonthNewCustomers,
+    pendingOrders, todayNewOrders, todayRevenue,
+    totalItems, lowStockCount, lowStockItems,
+    recentOrders, activeCustomersList,
+    pendingInvoicesCount, pendingInvoicesAmount,
+    totalRevenue, thisMonthRevenue, paymentsCount,
+    todayOrdersPct, revenuePct, pendingActionsPct,
+    totalPayable, openBillsCount, partialBillsCount, overdueBillsCount, recentBills,
+    totalPOs, pendingPOs, receivedPOs, totalPOValue, recentPOs,
+    totalVendors, totalPaid, thisMonthPaid, vendorPaymentsCount,
+  } = stats;
 
-  // ── Live values — keys match GetDashboardStats response exactly ──────
-  // /api/customers/dashboard  → totalCustomers, activeCustomers, pendingCustomers,
-  //                              todayNewCustomers, thisMonthNewCustomers, growthRate
-  const totalCustomers       = stats.totalCustomers;
-  const activeCustomers      = stats.activeCustomers;
-  const pendingCustomers     = stats.pendingCustomers;
-  const todayNewCustomers    = stats.todayNewCustomers;
-  const thisMonthNewCustomers = stats.thisMonthNewCustomers;
-  const growthRate           = stats.growthRate;
-  // /api/customers/stats      → inactiveCustomers, businessCustomers, recentCustomers
-  const inactiveCustomers    = stats.inactiveCustomers;
-  const businessCustomers    = stats.businessCustomers;
-  const recentCustomers      = stats.recentCustomers;
-  // /api/stocks/getitem       → totalItems, lowStockCount, lowStockItems
-  const totalItems           = stats.totalItems;
-  const lowStockCount        = stats.lowStockCount;
-  // /api/sales-orders/stats   → pendingOrders, todayNewOrders, todayRevenue
-  const pendingOrders        = stats.pendingOrders;
-  // Use live low-stock list when loaded, static fallback while loading
-  const lowStock = stats.lowStockItems.length > 0
-    ? stats.lowStockItems
-    : [
-        { id: 1, name: "Storage Cabinet", code: "ITM001", cur: 5,  min: 10, s: "critical" },
-        { id: 2, name: "Office Chair",    code: "ITM003", cur: 8,  min: 15, s: "warning"  },
-        { id: 3, name: "LED Bulb 15W",    code: "ITM004", cur: 15, min: 20, s: "warning"  },
-        { id: 4, name: "Area Rug",        code: "ITM002", cur: 3,  min: 10, s: "critical" },
-      ];
-  // Recent orders: use live if available, static fallback otherwise
-  const orders = stats.recentOrders.length > 0
-    ? stats.recentOrders.map(o => ({
-        id:   o.salesOrderNumber ?? o._id?.substring(0,10) ?? "—",
-        cust: o.customerName     ?? o.customer ?? "—",
-        amt:  Number(o.totalAmount ?? 0).toLocaleString("en-AE"),
-        st:   o.status === "completed" || o.status === "delivered" ? "completed" : "open",
-        date: o.createdAt
-              ? new Date(o.createdAt).toLocaleDateString("en-AE", { day:"numeric", month:"short" })
-              : "—",
-      }))
-    : [
-        { id: "SO-2023-156", cust: "ABC Corporation",   amt: "45,000", st: "open",      date: "Today"      },
-        { id: "SO-2023-155", cust: "XYZ Ltd",           amt: "28,500", st: "completed", date: "Yesterday"  },
-        { id: "SO-2023-154", cust: "Global Industries", amt: "62,000", st: "completed", date: "2 days ago" },
-        { id: "SO-2023-153", cust: "Tech Solutions",    amt: "15,750", st: "open",      date: "3 days ago" },
-      ];
+  const weeklyOrders = useMemo(() => {
+    const map = [0, 0, 0, 0, 0, 0, 0];
+    const now = Date.now();
+    recentOrders.forEach(o => {
+      const daysAgo = Math.floor((now - new Date(o.createdAt || 0).getTime()) / 86400000);
+      if (daysAgo >= 0 && daysAgo < 7) map[6 - daysAgo]++;
+    });
+    return map;
+  }, [recentOrders]);
 
-  /* ── Activity Feed — built from already-loaded stats data ── */
-  // Converts agoSecs → readable string
-  const fmtAgo = (date) => {
-    if (!date) return "—";
-    const secs = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-    if (secs < 0)    return "just now";
-    if (secs < 60)   return `${secs}s`;
-    if (secs < 3600) return `${Math.floor(secs / 60)}m`;
-    if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
-    return `${Math.floor(secs / 86400)}d`;
-  };
-
-  const activities = (() => {
+  const activities = useMemo(() => {
     const evts = [];
+    recentOrders.slice(0, 3).forEach((o, i) => {
+      const num = o.salesOrderNumber ?? o._id?.slice(-6) ?? "—";
+      evts.push({ id: `so-${i}`, k: "cart", text: `Sale order #${num}${o.customerName ? " — " + o.customerName : ""}`, ago: fmtAgo(o.updatedAt ?? o.createdAt), _ts: new Date(o.updatedAt ?? o.createdAt ?? 0).getTime() });
+    });
+    recentBills.slice(0, 3).forEach((b, i) => {
+      evts.push({ id: `bl-${i}`, k: "invoice", text: `Bill ${b.billNumber} — ${b.vendorName || "Vendor"}`, ago: fmtAgo(b.createdAt), _ts: new Date(b.createdAt ?? 0).getTime() });
+    });
+    recentPOs.slice(0, 2).forEach((p, i) => {
+      evts.push({ id: `po-${i}`, k: "truck", text: `PO ${p.orderNumber} — ${p.vendorName || "Vendor"}`, ago: fmtAgo(p.createdAt), _ts: new Date(p.createdAt ?? 0).getTime() });
+    });
+    activeCustomersList.slice(0, 2).forEach((cu, i) => {
+      const name = cu.customerDisplayName ?? cu.companyName ?? "Unknown";
+      evts.push({ id: `cu-${i}`, k: "user", text: `New customer: ${name}`, ago: fmtAgo(cu.created_at ?? cu.createdAt), _ts: new Date(cu.created_at ?? cu.createdAt ?? 0).getTime() });
+    });
+    lowStockItems.slice(0, 2).forEach((item, i) => {
+      evts.push({ id: `ls-${i}`, k: "box", text: `Low stock: ${item.name} (${item.cur} left)`, ago: "now", _ts: Date.now() - i * 1000 });
+    });
+    return evts.sort((a, b) => b._ts - a._ts).slice(0, 10);
+  }, [recentOrders, recentBills, recentPOs, activeCustomersList, lowStockItems]);
 
-    // 1. Recent sales orders (already in stats.recentOrders)
-    if (stats.recentOrders && stats.recentOrders.length > 0) {
-      stats.recentOrders.slice(0, 5).forEach((o, i) => {
-        const num  = o.salesOrderNumber ?? o.orderNumber ?? o._id?.substring(0,10) ?? "—";
-        const cust = o.customerName ?? o.customer ?? "";
-        const by   = o.salesperson ?? o.createdBy ?? "—";
-        const status = (o.status || "").toLowerCase();
-        const ts   = o.updatedAt ?? o.createdAt;
-        const isNew = !status || status === "draft" || status === "pending";
-        evts.push({
-          id:  `so-${i}`,
-          k:   isNew ? "cart" : "invoice",
-          text: isNew
-            ? `New sale order #${num} created${cust ? " — " + cust : ""}`
-            : `Sale order #${num} ${status}${cust ? " — " + cust : ""}`,
-          by,
-          ago: fmtAgo(ts),
-          _ts: ts ? new Date(ts).getTime() : 0,
-        });
-      });
-    }
-
-    // 2. Recent customers (from stats data — use activeCustomersList which is already fetched)
-    if (stats.activeCustomersList && stats.activeCustomersList.length > 0) {
-      stats.activeCustomersList.slice(0, 3).forEach((cu, i) => {
-        const name = cu.customerDisplayName ?? cu.companyName ?? "Unknown";
-        const by   = cu.created_by ?? cu.createdBy ?? "System";
-        const ts   = cu.created_at ?? cu.createdAt;
-        evts.push({
-          id:  `cu-${i}`,
-          k:   "user",
-          text: `New customer: ${name}`,
-          by,
-          ago: fmtAgo(ts),
-          _ts: ts ? new Date(ts).getTime() : 0,
-        });
-      });
-    }
-
-    // 3. Low stock alerts (from stats.lowStockItems — already loaded)
-    if (stats.lowStockItems && stats.lowStockItems.length > 0) {
-      stats.lowStockItems.slice(0, 3).forEach((item, i) => {
-        evts.push({
-          id:  `ls-${i}`,
-          k:   "box",
-          text: `Low stock alert: ${item.name}${item.cur !== undefined ? ` (${item.cur} left)` : ""}`,
-          by:  "System",
-          ago: "now",
-          _ts: Date.now() - i * 1000,
-        });
-      });
-    }
-
-    // 4. Recently added items (all items have created_at after stock_controller fix)
-    if (stats.allItems && stats.allItems.length > 0) {
-      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      stats.allItems
-        .filter(item => {
-          const ts = item.created_at || item.createdAt;
-          return ts && new Date(ts).getTime() > sevenDaysAgo;
-        })
-        .slice(0, 4)
-        .forEach((item, i) => {
-          const ts = item.created_at || item.createdAt;
-          evts.push({
-            id:  `ni-${i}`,
-            k:   "invoice",
-            text: `New item added: ${item.name || item.itemName || "Unknown"}`,
-            by:  item.created_by || item.createdBy || "System",
-            ago: fmtAgo(ts),
-            _ts: ts ? new Date(ts).getTime() : 0,
-          });
-        });
-    }
-
-    // Sort newest-first, cap at 8
-    evts.sort((a, b) => (b._ts || 0) - (a._ts || 0));
-    return evts.slice(0, 8);
-  })();
-
-  const actLoading = statsLoading;
-
-  /* Icon + colors per activity type — recalculated when T changes */
   const actMeta = {
     cart:    { icon: <FaShoppingCart />, c: T.blue,   dim: T.blueDim   },
     truck:   { icon: <FaTruck />,        c: T.green,  dim: T.greenDim  },
@@ -214,563 +127,595 @@ export default function Dashboard() {
     user:    { icon: <FaUser />,         c: T.purple, dim: T.purpleDim },
   };
 
-  const spkRevenue   = [18, 26, 21, 34, 28, 40, 35, 48, 44, 55, 50, 62];
-  const spkOrders    = [4, 7, 5, 9, 6, 11, 8, 12, 9, 10, 11, 12];
-  const spkCustomers = [31, 35, 37, 40, 43, 46, 45, 47, 46, 47, 48, 48];
-  const spkWeek      = [8, 14, 11, 17, 13, 19, 22];
+  const surf  = T.surface;
+  const surf2 = T.surface2;
+  const bdr   = T.border;
+  const track = isDark ? "rgba(255,255,255,0.07)" : "#e2e8f0";
 
-  /* ── light/dark aware shortcuts ── */
-  const surfaceBg   = T.surface;
-  const surface2Bg  = T.surface2;
-  const borderColor = T.border;
-  const trackBg     = isDark ? "rgba(255,255,255,0.07)" : "#e2e8f0";
+  const card = (ex = {}) => ({ background: surf, border: `1px solid ${bdr}`, borderRadius: "16px", transition: "background .25s,border-color .25s", ...ex });
 
-  /* ── CSS injected on theme change ── */
+  const Sk = ({ w = "100%", h = 14, r = 6 }) => (
+    <div style={{ width: w, height: h, borderRadius: r, background: isDark ? "rgba(255,255,255,.06)" : "#e2e8f0", animation: "pulse 1.2s ease infinite" }} />
+  );
+
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
-
-    html,body,*{scrollbar-width:thin;scrollbar-color:${isDark ? "rgba(255,255,255,.09) transparent" : "rgba(0,0,0,.09) transparent"}}
-    *::-webkit-scrollbar{width:4px}
-    *::-webkit-scrollbar-track{background:transparent}
-    *::-webkit-scrollbar-thumb{background:${isDark ? "rgba(255,255,255,.1)" : "rgba(0,0,0,.12)"};border-radius:99px}
-
-    .hd *{box-sizing:border-box}
+    *{box-sizing:border-box}
     .hd{font-family:'DM Sans',sans-serif}
     .sora{font-family:'Sora',sans-serif}
-
-    /* stagger entrance */
-    @keyframes hdup{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-    .s0{animation:hdup .38s ease both}
-    .s1{animation:hdup .38s .06s ease both}
-    .s2{animation:hdup .38s .12s ease both}
-    .s3{animation:hdup .38s .18s ease both}
-    .s4{animation:hdup .38s .24s ease both}
-    .s5{animation:hdup .38s .30s ease both}
-    .s6{animation:hdup .38s .36s ease both}
-
-    /* live dot */
-    @keyframes hdpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.75)}}
-    .live{animation:hdpulse 2.4s ease infinite}
-
-    /* progress bars */
-    @keyframes hdgrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
-    .prog{transform-origin:left;animation:hdgrow .9s .5s cubic-bezier(.34,1,.64,1) both}
-
-    /* kpi card */
-    .kpi{transition:transform .22s cubic-bezier(.34,1.56,.64,1),box-shadow .22s;cursor:pointer}
-    .kpi:hover{transform:translateY(-4px) scale(1.015);box-shadow:${isDark ? "0 18px 50px rgba(0,0,0,.55)" : "0 14px 40px rgba(0,0,0,.12)"} !important}
-
-    /* quick action */
-    .qa{transition:all .18s;cursor:pointer;position:relative;overflow:hidden}
-    .qa:hover{transform:translateY(-2px);border-color:${isDark ? "rgba(255,255,255,.13)" : "rgba(37,99,235,.3)"} !important;box-shadow:${isDark ? "0 10px 36px rgba(0,0,0,.45)" : "0 6px 24px rgba(0,0,0,.1)"} !important}
-    .qa:active{transform:scale(.98)}
-
-    /* activity row */
-    .act{transition:background .12s,padding-left .14s;border-radius:11px}
+    @keyframes hdup{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    .s0{animation:hdup .35s ease both}   .s1{animation:hdup .35s .06s ease both}
+    .s2{animation:hdup .35s .12s ease both} .s3{animation:hdup .35s .18s ease both}
+    .s4{animation:hdup .35s .24s ease both} .s5{animation:hdup .35s .30s ease both}
+    .s6{animation:hdup .35s .36s ease both} .s7{animation:hdup .35s .42s ease both}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+    .live{animation:pulse 2.4s ease infinite}
+    @keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+    .prog{transform-origin:left;animation:grow .9s .4s cubic-bezier(.34,1,.64,1) both}
+    .kpi{transition:transform .2s cubic-bezier(.34,1.56,.64,1),box-shadow .2s;cursor:pointer}
+    .kpi:hover{transform:translateY(-3px) scale(1.012);box-shadow:${isDark ? "0 16px 48px rgba(0,0,0,.5)" : "0 10px 32px rgba(0,0,0,.1)"} !important}
+    .qa{transition:all .16s;cursor:pointer}
+    .qa:hover{transform:translateY(-2px);border-color:${isDark ? "rgba(255,255,255,.12)" : "rgba(37,99,235,.25)"} !important}
+    .act{transition:background .12s,padding-left .12s;border-radius:10px}
     .act:hover{background:${isDark ? "rgba(255,255,255,.04)" : "#f0f4f8"} !important;padding-left:14px !important}
-    .act .arr{opacity:0;transform:translateX(-4px);transition:opacity .14s,transform .14s}
-    .act:hover .arr{opacity:1;transform:translateX(0)}
-
-    /* approval card */
-    .appc{transition:border-color .15s}
-    .appc:hover{border-color:${isDark ? "rgba(255,255,255,.12)" : "#94a3b8"} !important}
-
-    /* order row */
-    .ordr{transition:all .15s;cursor:pointer}
-    .ordr:hover{border-color:${isDark ? "rgba(59,130,246,.35)" : "#93c5fd"} !important;background:${isDark ? "rgba(59,130,246,.04)" : "#eff6ff"} !important}
-
-    /* stock row */
+    .ordr{transition:all .14s;cursor:pointer}
+    .ordr:hover{border-color:${isDark ? "rgba(59,130,246,.4)" : "#93c5fd"} !important;background:${isDark ? "rgba(59,130,246,.05)" : "#eff6ff"} !important}
     .stk{transition:background .12s;border-radius:10px}
-    .stk:hover{background:${isDark ? "rgba(255,255,255,.035)" : "#f0f4f8"} !important}
-
-    /* btn micro */
-    .gbtn{transition:all .13s}
-    .gbtn:hover{filter:brightness(${isDark ? "1.14" : ".94"});transform:translateY(-1px)}
-    .rbtn{transition:all .13s}
-    .rbtn:hover{filter:brightness(${isDark ? "1.14" : ".94"});transform:translateY(-1px)}
+    .stk:hover{background:${isDark ? "rgba(255,255,255,.03)" : "#f0f4f8"} !important}
     .lnk{transition:color .12s}
     .lnk:hover{color:${isDark ? "#93c5fd" : "#1d4ed8"} !important}
-
-    /* bar chart */
-    .bar{transition:opacity .12s}
-    .bar:hover{opacity:.85 !important}
-
-    /* refresh spin */
+    .bar{transition:opacity .12s}.bar:hover{opacity:.8 !important}
     @keyframes spin{to{transform:rotate(360deg)}}
+    *::-webkit-scrollbar{width:4px;height:4px}
+    *::-webkit-scrollbar-track{background:transparent}
+    *::-webkit-scrollbar-thumb{background:${isDark ? "rgba(255,255,255,.1)" : "rgba(0,0,0,.1)"};border-radius:99px}
+    .div-sep{height:1px;background:${bdr};margin:16px 0;}
   `;
 
-  const card = (ex = {}) => ({
-    background: surfaceBg,
-    border: `1px solid ${borderColor}`,
-    borderRadius: "16px",
-    transition: "background .25s,border-color .25s",
-    ...ex,
-  });
-
-  const fmtClock = (d) =>
-    d.toLocaleTimeString("en-AE", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-
-  /* ────────────────────────────── RENDER ──────────────────────────── */
   return (
-    <div className="hd" style={{ minHeight: "100vh", background: T.bg, padding: "24px 28px", color: T.textPri }}>
+    <div className="hd" style={{ minHeight: "100vh", background: T.bg, padding: "22px 26px", color: T.textPri }}>
       <style>{css}</style>
 
-      {/* ── Error banner ── */}
-      {statsError && (
-        <div style={{ marginBottom: "14px", padding: "10px 16px", borderRadius: "10px", background: isDark ? "rgba(239,68,68,.1)" : "#fef2f2", border: `1px solid ${isDark ? "rgba(239,68,68,.22)" : "#fca5a5"}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-          <span style={{ fontSize: "12px", color: T.red, fontWeight: "500" }}>⚠ Could not load dashboard data — showing cached values.{stats.dashboardUpdatedAt ? ` Last success: ${stats.dashboardUpdatedAt}` : ""}</span>
-          <button onClick={refresh} style={{ fontSize: "11px", fontWeight: "700", color: T.red, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Retry</button>
+      {error && (
+        <div style={{ marginBottom: 14, padding: "10px 16px", borderRadius: 10, background: isDark ? "rgba(239,68,68,.1)" : "#fef2f2", border: `1px solid ${isDark ? "rgba(239,68,68,.2)" : "#fca5a5"}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 12, color: T.red, fontWeight: 500 }}>⚠ Could not load all dashboard data.</span>
+          <button onClick={refresh} style={{ fontSize: 11, fontWeight: 700, color: T.red, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Retry</button>
         </div>
       )}
 
       {/* ══ HEADER ══════════════════════════════════════════════════ */}
-      <div className="s0" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "26px" }}>
+      <div className="s0" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "7px", marginBottom: "5px" }}>
-            <span className="live" style={{ width: "7px", height: "7px", borderRadius: "50%", background: T.green, display: "inline-block" }} />
-            <span style={{ fontSize: "10px", color: T.green, fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em" }}>Live</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            <span className="live" style={{ width: 7, height: 7, borderRadius: "50%", background: T.green, display: "inline-block" }} />
+            <span style={{ fontSize: 10, color: T.green, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".1em" }}>Live Dashboard</span>
           </div>
-          <h1 className="sora" style={{ fontSize: "22px", fontWeight: "700", color: T.textPri, margin: 0, letterSpacing: "-0.03em" }}>
+          <h1 className="sora" style={{ fontSize: 21, fontWeight: 700, color: T.textPri, margin: 0, letterSpacing: "-0.03em" }}>
             {greeting()},{" "}
-            {/* Safe on both modes: dark uses gradient clip, light uses solid color */}
-            <span style={isDark
-              ? { background: `linear-gradient(120deg,${T.blue},${T.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }
-              : { color: T.blue }
-            }>
+            <span style={isDark ? { background: `linear-gradient(120deg,${T.blue},${T.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: T.blue }}>
               {user?.userId || "Admin"}
             </span>
           </h1>
-          <p style={{ fontSize: "12px", color: T.textSec, margin: "4px 0 0" }}>
+          <p style={{ fontSize: 12, color: T.textSec, margin: "3px 0 0" }}>
             {new Date().toLocaleDateString("en-AE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          {/* live clock */}
-          <div className="sora" style={{ padding: "7px 15px", background: surfaceBg, border: `1px solid ${borderColor}`, borderRadius: "10px", fontSize: "13px", fontWeight: "600", color: T.textPri, letterSpacing: "0.06em", minWidth: "96px", textAlign: "center" }}>
-            {fmtClock(time)}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="sora" style={{ padding: "7px 14px", background: surf, border: `1px solid ${bdr}`, borderRadius: 10, fontSize: 13, fontWeight: 600, color: T.textPri, letterSpacing: ".06em", minWidth: 90, textAlign: "center" }}>
+            {time.toLocaleTimeString("en-AE", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
           </div>
-          {/* refresh */}
-          <button onClick={refresh} title="Refresh dashboard" style={{ width: "38px", height: "38px", borderRadius: "10px", background: statsLoading ? T.blueDim : surfaceBg, border: `1px solid ${statsLoading ? T.blue : borderColor}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: statsLoading ? T.blue : T.textSec, transition: "all .2s" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ animation: statsLoading ? "spin 0.9s linear infinite" : "none" }}>
+          <button onClick={refresh} title="Refresh" style={{ width: 36, height: 36, borderRadius: 10, background: loading ? T.blueDim : surf, border: `1px solid ${loading ? T.blue : bdr}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: loading ? T.blue : T.textSec }}>
+            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.3} strokeLinecap="round" strokeLinejoin="round" style={{ animation: loading ? "spin .9s linear infinite" : "none" }}>
               <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
             </svg>
           </button>
-          {/* bell */}
-          <button style={{ position: "relative", width: "38px", height: "38px", borderRadius: "10px", background: surfaceBg, border: `1px solid ${borderColor}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.textSec }}>
-            <FaBell size={13} />
-            <span style={{ position: "absolute", top: "7px", right: "7px", width: "7px", height: "7px", borderRadius: "50%", background: "#ef4444", border: `2px solid ${surfaceBg}` }} />
-          </button>
-          {/* avatar — gradient always fine since it has white text */}
-          <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: `linear-gradient(135deg,${T.blue},${T.purple})`, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 14px ${isDark ? "rgba(59,130,246,.35)" : "rgba(59,130,246,.28)"}` }}>
-            <span className="sora" style={{ color: "#fff", fontSize: "14px", fontWeight: "700" }}>{initials}</span>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg,${T.blue},${T.purple})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span className="sora" style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>{initials}</span>
           </div>
         </div>
       </div>
 
-      {/* ══ HERO BENTO ROW ══════════════════════════════════════════ */}
-      <div className="s1" style={{ display: "grid", gridTemplateColumns: "2.5fr 1fr 1fr", gap: "14px", marginBottom: "14px" }}>
+      {/* ══ HERO: SALES SIDE ═══════════════════════════════════════ */}
+      <div className="s1" style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
 
-        {/* Big revenue card */}
-        <div style={{
-          ...card({
-            padding: "26px 28px", overflow: "hidden", position: "relative",
-            background: isDark
-              ? "linear-gradient(145deg,#0d1526 0%,#101e3a 55%,#0c1828 100%)"
-              : "linear-gradient(145deg,#f0f6ff 0%,#e8f2ff 55%,#ddeeff 100%)",
-            border: `1px solid ${isDark ? "rgba(255,255,255,.07)" : "#b8d4f8"}`,
-          })
-        }}>
-          {/* decorative orbs */}
-          <div style={{ position: "absolute", top: "-60px", right: "-50px", width: "200px", height: "200px", borderRadius: "50%", background: isDark ? "rgba(59,130,246,.07)" : "rgba(59,130,246,.08)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", bottom: "-30px", left: "38%", width: "130px", height: "130px", borderRadius: "50%", background: isDark ? "rgba(139,92,246,.05)" : "rgba(139,92,246,.06)", pointerEvents: "none" }} />
-
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", position: "relative" }}>
+        {/* Revenue */}
+        <div style={{ ...card({ padding: "24px 26px", overflow: "hidden", position: "relative",
+          background: isDark ? "linear-gradient(145deg,#0d1526,#101e3a,#0c1828)" : "linear-gradient(145deg,#f0f6ff,#e8f2ff,#ddeeff)",
+          border: `1px solid ${isDark ? "rgba(255,255,255,.07)" : "#b8d4f8"}`,
+        }) }}>
+          <div style={{ position: "absolute", top: -60, right: -50, width: 180, height: 180, borderRadius: "50%", background: isDark ? "rgba(59,130,246,.07)" : "rgba(59,130,246,.09)", pointerEvents: "none" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, position: "relative" }}>
             <div>
-              <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 10px" }}>Total Revenue · 2024</p>
-              <p className="sora" style={{ fontSize: "34px", fontWeight: "800", margin: 0, lineHeight: 1, letterSpacing: "-0.04em", color: T.textPri }}>
-                AED{" "}
-                {/* gradient text only on dark; solid blue on light */}
-                <span style={isDark
-                  ? { background: `linear-gradient(120deg,${T.blueLight},${T.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }
-                  : { color: T.blue }
-                }>245,600</span>
-              </p>
+              <p style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".1em", margin: "0 0 8px" }}>Total Revenue Received</p>
+              {loading ? <Sk w={180} h={36} r={8} /> : <p className="sora" style={{ fontSize: 32, fontWeight: 800, margin: 0, lineHeight: 1, letterSpacing: "-0.04em", color: T.textPri }}>{fmtAED(totalRevenue, true)}</p>}
             </div>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 11px", borderRadius: "999px", background: isDark ? "rgba(16,185,129,.14)" : "#dcfce7", color: T.green, fontSize: "11px", fontWeight: "700", border: `1px solid ${isDark ? "rgba(16,185,129,.28)" : "#86efac"}`, flexShrink: 0 }}>
-              <FaArrowUp size={8} /> +18% MoM
-            </span>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: isDark ? "rgba(16,185,129,.14)" : "#dcfce7", color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, border: `1px solid ${isDark ? "rgba(16,185,129,.25)" : "#86efac"}` }}>
+              <FaMoneyBillWave />
+            </div>
           </div>
-
-          {/* Sparkline */}
-          <div style={{ height: "52px", marginBottom: "16px", position: "relative" }}>
-            <Spark data={spkRevenue} color={T.blue} h={52} filled />
-          </div>
-
-          {/* Month bar strip */}
-          <div style={{ display: "flex", gap: "6px", alignItems: "flex-end" }}>
-            {["J","F","M","A","M","J","J","A","S","O","N","D"].map((m, i) => {
-              const vals = [18,22,16,29,24,31,27,35,32,40,38,45];
-              const last = i === 11;
-              return (
-                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" }}>
-                  <div style={{ width: "100%", height: "18px", borderRadius: "3px 3px 0 0", background: last ? T.blue : (isDark ? "rgba(255,255,255,.09)" : "#c7ddf5"), position: "relative", overflow: "hidden" }}>
-                    {!last && (
-                      <div className="prog" style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: `${(vals[i] / 45) * 100}%`, background: isDark ? "rgba(59,130,246,.5)" : "rgba(37,99,235,.55)", borderRadius: "3px 3px 0 0" }} />
-                    )}
-                  </div>
-                  <span style={{ fontSize: "8px", color: last ? T.blue : T.textSec, fontWeight: last ? "700" : "400" }}>{m}</span>
-                </div>
-              );
-            })}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            {[
+              { label: "This Month",   value: fmtAED(thisMonthRevenue, true),    color: T.green },
+              { label: "Outstanding",  value: fmtAED(pendingInvoicesAmount, true), color: T.amber },
+              { label: "Payments",     value: String(paymentsCount),              color: T.blue  },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ background: isDark ? "rgba(255,255,255,.04)" : "rgba(255,255,255,.7)", borderRadius: 10, padding: "10px 12px", border: `1px solid ${isDark ? "rgba(255,255,255,.07)" : "rgba(0,0,0,.06)"}` }}>
+                <p style={{ fontSize: 9, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".07em", margin: "0 0 4px" }}>{label}</p>
+                {loading ? <Sk w="80%" h={16} /> : <p className="sora" style={{ fontSize: 14, fontWeight: 700, color, margin: 0 }}>{value}</p>}
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* This Month card */}
+        {/* Pending Invoices */}
         <div style={{ ...card({ padding: "22px", position: "relative", overflow: "hidden" }), display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent,${T.green},transparent)`, opacity: isDark ? .45 : .65 }} />
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent,${T.amber},transparent)`, opacity: isDark ? .45 : .6 }} />
           <div>
-            <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 10px" }}>This Month</p>
-            <p className="sora" style={{ fontSize: "24px", fontWeight: "700", color: T.textPri, margin: "0 0 6px", letterSpacing: "-0.03em", lineHeight: 1 }}>AED 45,200</p>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: "600", color: T.green }}>
-              <FaArrowUp size={8} /> +18% vs last month
-            </span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <p style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".1em", margin: 0 }}>Pending Invoices</p>
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: T.amberDim, color: T.amber, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}><FaFileInvoice /></div>
+            </div>
+            {loading ? <Sk w="60%" h={34} r={8} /> : <p className="sora" style={{ fontSize: 32, fontWeight: 800, color: T.textPri, margin: "0 0 4px", lineHeight: 1 }}>{pendingInvoicesCount}</p>}
+            <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>Awaiting · {fmtAED(pendingInvoicesAmount, true)}</p>
           </div>
-          <div style={{ marginTop: "12px" }}>
-            <Spark data={spkRevenue.slice(-7)} color={T.green} h={36} filled />
-          </div>
+          <button className="qa" onClick={() => navigate("/Sales/Invoices")}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", marginTop: 16, background: T.amberDim, color: T.amber, border: `1px solid ${isDark ? "rgba(245,158,11,.22)" : "#fcd34d"}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            View Invoices <FaArrowRight size={9} />
+          </button>
         </div>
 
-        {/* Active Customers card */}
+        {/* Active Customers */}
         <div style={{ ...card({ padding: "22px", position: "relative", overflow: "hidden" }), display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent,${T.purple},transparent)`, opacity: isDark ? .45 : .65 }} />
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent,${T.purple},transparent)`, opacity: isDark ? .45 : .6 }} />
           <div>
-            <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 10px" }}>Active Customers</p>
-            <p className="sora" style={{ fontSize: "24px", fontWeight: "700", color: T.textPri, margin: "0 0 6px", letterSpacing: "-0.03em", lineHeight: 1 }}>{statsLoading ? "—" : activeCustomers}</p>
-            <p style={{ fontSize: "10px", color: T.textSec, margin: "0 0 6px" }}>{statsLoading ? "" : `${totalCustomers} total · ${pendingCustomers} pending`}</p>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: "600", color: T.purple }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <p style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".1em", margin: 0 }}>Customers</p>
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: T.purpleDim, color: T.purple, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}><FaUser /></div>
+            </div>
+            {loading ? <Sk w="50%" h={34} r={8} /> : <p className="sora" style={{ fontSize: 32, fontWeight: 800, color: T.textPri, margin: "0 0 4px", lineHeight: 1 }}>{activeCustomers}</p>}
+            <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>{totalCustomers} total · {pendingCustomers} pending</p>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color: T.purple, marginTop: 6 }}>
               <FaArrowUp size={8} /> +{thisMonthNewCustomers} this month
             </span>
           </div>
-          <div style={{ marginTop: "12px" }}>
-            <Spark data={spkCustomers.slice(-7)} color={T.purple} h={36} filled />
+          <button className="qa" onClick={() => navigate("/Sales/Customers")}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", marginTop: 16, background: T.purpleDim, color: T.purple, border: `1px solid ${isDark ? "rgba(139,92,246,.22)" : "#c4b5fd"}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            View Customers <FaArrowRight size={9} />
+          </button>
+        </div>
+      </div>
+
+      {/* ══ HERO: PURCHASING SIDE ═══════════════════════════════════ */}
+      <div className="s2" style={{ display: "grid", gridTemplateColumns: "2.2fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+
+        {/* Bills Payable */}
+        <div style={{ ...card({ padding: "24px 26px", overflow: "hidden", position: "relative",
+          background: isDark ? "linear-gradient(145deg,#12100e,#1a1208,#1c1500)" : "linear-gradient(145deg,#fffbeb,#fef3c7,#fde68a22)",
+          border: `1px solid ${isDark ? "rgba(245,158,11,.12)" : "#fcd34d"}`,
+        }) }}>
+          <div style={{ position: "absolute", top: -60, right: -50, width: 180, height: 180, borderRadius: "50%", background: isDark ? "rgba(245,158,11,.06)" : "rgba(245,158,11,.08)", pointerEvents: "none" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, position: "relative" }}>
+            <div>
+              <p style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".1em", margin: "0 0 8px" }}>Total Outstanding Payable</p>
+              {loading ? <Sk w={180} h={36} r={8} /> : <p className="sora" style={{ fontSize: 32, fontWeight: 800, margin: 0, lineHeight: 1, letterSpacing: "-0.04em", color: T.amber }}>{fmtAED(totalPayable, true)}</p>}
+            </div>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: isDark ? "rgba(245,158,11,.14)" : "#fef3c7", color: T.amber, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, border: `1px solid ${isDark ? "rgba(245,158,11,.25)" : "#fcd34d"}` }}>
+              <FaReceipt />
+            </div>
           </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+            {[
+              { label: "Open",     value: String(openBillsCount),    color: T.blue    },
+              { label: "Partial",  value: String(partialBillsCount), color: T.amber   },
+              { label: "Overdue",  value: String(overdueBillsCount), color: T.red     },
+              { label: "Paid Out", value: fmtAED(totalPaid, true),   color: T.green   },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ background: isDark ? "rgba(255,255,255,.04)" : "rgba(255,255,255,.7)", borderRadius: 10, padding: "10px 12px", border: `1px solid ${isDark ? "rgba(255,255,255,.07)" : "rgba(0,0,0,.06)"}` }}>
+                <p style={{ fontSize: 9, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".07em", margin: "0 0 4px" }}>{label}</p>
+                {loading ? <Sk w="80%" h={16} /> : <p className="sora" style={{ fontSize: 14, fontWeight: 700, color, margin: 0 }}>{value}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Purchase Orders */}
+        <div style={{ ...card({ padding: "22px", position: "relative", overflow: "hidden" }), display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent,${T.blue},transparent)`, opacity: isDark ? .45 : .6 }} />
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <p style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".1em", margin: 0 }}>Purchase Orders</p>
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: T.blueDim, color: T.blue, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}><FaTruck /></div>
+            </div>
+            {loading ? <Sk w="50%" h={34} r={8} /> : <p className="sora" style={{ fontSize: 32, fontWeight: 800, color: T.textPri, margin: "0 0 4px", lineHeight: 1 }}>{totalPOs}</p>}
+            <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>{pendingPOs} pending · {receivedPOs} received</p>
+            <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>{fmtAED(totalPOValue, true)} total value</p>
+          </div>
+          <button className="qa" onClick={() => navigate("/Purchase/Purchaseorders")}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", marginTop: 16, background: T.blueDim, color: T.blue, border: `1px solid ${isDark ? "rgba(59,130,246,.22)" : "#93c5fd"}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            View POs <FaArrowRight size={9} />
+          </button>
+        </div>
+
+        {/* Vendors */}
+        <div style={{ ...card({ padding: "22px", position: "relative", overflow: "hidden" }), display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent,${T.cyan},transparent)`, opacity: isDark ? .45 : .6 }} />
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <p style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".1em", margin: 0 }}>Vendors</p>
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: T.cyanDim, color: T.cyan, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}><FaBuilding /></div>
+            </div>
+            {loading ? <Sk w="50%" h={34} r={8} /> : <p className="sora" style={{ fontSize: 32, fontWeight: 800, color: T.textPri, margin: "0 0 4px", lineHeight: 1 }}>{totalVendors}</p>}
+            <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>{vendorPaymentsCount} payments made</p>
+            <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>{fmtAED(thisMonthPaid, true)} this month</p>
+          </div>
+          <button className="qa" onClick={() => navigate("/Purchase/Vendor")}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", marginTop: 16, background: T.cyanDim, color: T.cyan, border: `1px solid ${isDark ? "rgba(6,182,212,.22)" : "#67e8f9"}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            View Vendors <FaArrowRight size={9} />
+          </button>
         </div>
       </div>
 
       {/* ══ KPI CARDS ═══════════════════════════════════════════════ */}
-      <div className="s2" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "14px", marginBottom: "14px" }}>
+      <div className="s3" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 14 }}>
         {[
-          { label: "Total Items",      val: statsLoading ? "…" : totalItems,    icon: <FaLayerGroup />,          c: T.blue,  dim: T.blueDim,  up: true,  trend: "+4",  spk: [90,100,108,115,120,128,totalItems||156],   action: () => navigate("/Items/Items") },
-          { label: "Pending Orders",   val: statsLoading ? "…" : pendingOrders,  icon: <FaShoppingCart />,        c: T.amber, dim: T.amberDim, up: true,  trend: "+3",  spk: spkOrders,                                  action: () => navigate("/Sales/Salesorders") },
-          { label: "Outbound Pending", val: 5,                                   icon: <FaTruck />,               c: T.green, dim: T.greenDim, up: false, trend: "−2",  spk: [9,7,8,6,7,5,6,7,6,5,6,5],                action: () => navigate("/Sales/Outbound") },
-          { label: "Low Stock Alerts", val: statsLoading ? "…" : lowStockCount,  icon: <FaExclamationTriangle />, c: T.red,   dim: T.redDim,   up: false, trend: "+2",  spk: [3,4,5,4,6,5,7,6,7,7,8,8],                action: () => navigate("/Items/Items") },
+          { label: "Items in Catalog",  val: loading ? "…" : totalItems,                icon: <FaBox />,              c: T.blue,   dim: T.blueDim,   nav: "/Items/Items" },
+          { label: "Pending SO",        val: loading ? "…" : pendingOrders,              icon: <FaShoppingCart />,     c: T.amber,  dim: T.amberDim,  nav: "/Sales/Salesorders" },
+          { label: "Orders Today",      val: loading ? "…" : todayNewOrders,             icon: <FaFileAlt />,          c: T.green,  dim: T.greenDim,  nav: "/Sales/Salesorders" },
+          { label: "Bills Outstanding", val: loading ? "…" : (openBillsCount + partialBillsCount + overdueBillsCount), icon: <FaReceipt />, c: T.amber, dim: T.amberDim, nav: "/Purchase/Bills" },
+          { label: "Low Stock Alerts",  val: loading ? "…" : lowStockCount,              icon: <FaExclamationTriangle />, c: T.red,  dim: T.redDim,    nav: "/Items/Items" },
         ].map((k, i) => (
-          <div key={i} className="kpi" onClick={k.action}
+          <div key={i} className="kpi" onClick={() => navigate(k.nav)}
             style={{ ...card({ padding: "18px 20px", position: "relative", overflow: "hidden" }) }}>
-            {/* top accent line */}
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent 5%,${k.c},transparent 95%)`, opacity: isDark ? .38 : .6 }} />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: k.dim, color: k.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px" }}>{k.icon}</div>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "999px", background: k.up ? (isDark ? "rgba(16,185,129,.12)" : "#dcfce7") : (isDark ? "rgba(239,68,68,.12)" : "#fee2e2"), color: k.up ? T.green : T.red, border: `1px solid ${k.up ? (isDark ? "rgba(16,185,129,.22)" : "#86efac") : (isDark ? "rgba(239,68,68,.22)" : "#fca5a5")}` }}>
-                {k.up ? <FaArrowUp size={7} /> : <FaArrowDown size={7} />} {k.trend}
-              </span>
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent 5%,${k.c},transparent 95%)`, opacity: isDark ? .35 : .55 }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: k.dim, color: k.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>{k.icon}</div>
+              <FaArrowRight size={9} style={{ color: T.textSec, marginTop: 4 }} />
             </div>
-            <p className="sora" style={{ fontSize: "28px", fontWeight: "800", color: T.textPri, margin: "0 0 3px", letterSpacing: "-0.03em", lineHeight: 1 }}>{k.val}</p>
-            <p style={{ fontSize: "11px", color: T.textSec, margin: "0 0 12px", fontWeight: "500" }}>{k.label}</p>
-            <Spark data={k.spk} color={k.c} h={28} filled={false} />
+            <p className="sora" style={{ fontSize: 28, fontWeight: 800, color: T.textPri, margin: "0 0 3px", lineHeight: 1 }}>{k.val}</p>
+            <p style={{ fontSize: 11, color: T.textSec, margin: 0, fontWeight: 500 }}>{k.label}</p>
           </div>
         ))}
       </div>
 
       {/* ══ QUICK ACTIONS ═══════════════════════════════════════════ */}
-      <div className="s3" style={{ marginBottom: "14px" }}>
-        <p className="sora" style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 11px" }}>Quick Actions</p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "10px" }}>
+      <div className="s4" style={{ marginBottom: 14 }}>
+        <p className="sora" style={{ fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: ".1em", margin: "0 0 10px" }}>Quick Actions</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 9 }}>
           {[
-            { label: "New Sale Order",  sub: "Create a sales order",  icon: <FaShoppingCart />, c: T.blue,   dim: T.blueDim,   path: "/Sales/Salesorders" },
-            { label: "Create Outbound", sub: "Dispatch inventory",    icon: <FaTruck />,        c: T.green,  dim: T.greenDim,  path: "/Sales/Outbound"    },
-            { label: "Add New Item",    sub: "Add to catalog",        icon: <FaBox />,          c: T.purple, dim: T.purpleDim, path: "/Items/Items/New"   },
-            { label: "Create Invoice",  sub: "Issue an invoice",      icon: <FaFileInvoice />,  c: T.amber,  dim: T.amberDim,  path: "/Sales/Invoices"    },
+            { label: "New Sale",        icon: <FaShoppingCart />, c: T.blue,   dim: T.blueDim,   path: "/Sales/Salesorders/Newsalesorders" },
+            { label: "New Invoice",     icon: <FaFileInvoice />,  c: T.amber,  dim: T.amberDim,  path: "/Sales/Createinvoices" },
+            { label: "Receive Payment", icon: <FaMoneyBillWave/>, c: T.green,  dim: T.greenDim,  path: "/Sales/PaymentsReceived" },
+            { label: "Add Item",        icon: <FaBox />,          c: T.purple, dim: T.purpleDim, path: "/Items/Items/New" },
+            { label: "New Customer",    icon: <FaUser />,         c: "#06b6d4", dim: T.cyanDim,  path: "/Sales/Customers/Newcustomers" },
+            { label: "New Bill",        icon: <FaReceipt />,      c: T.amber,  dim: T.amberDim,  path: "/Purchase/Bills/New" },
+            { label: "New PO",          icon: <FaTruck />,        c: T.blue,   dim: T.blueDim,   path: "/Purchase/Purchaseorders/New" },
           ].map((a, i) => (
             <div key={i} className="qa" onClick={() => navigate(a.path)}
-              style={{ ...card({ padding: "15px 17px" }), display: "flex", alignItems: "center", gap: "13px" }}>
-              <div style={{ width: "38px", height: "38px", borderRadius: "11px", background: a.dim, color: a.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", flexShrink: 0 }}>{a.icon}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, margin: 0 }}>{a.label}</p>
-                <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0" }}>{a.sub}</p>
-              </div>
-              <div style={{ width: "26px", height: "26px", borderRadius: "7px", background: isDark ? "rgba(255,255,255,.05)" : "#e8edf2", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, flexShrink: 0 }}>
-                <FaPlus size={9} />
-              </div>
+              style={{ ...card({ padding: "13px 11px" }), display: "flex", flexDirection: "column", alignItems: "center", gap: 8, textAlign: "center" }}>
+              <div style={{ width: 38, height: 38, borderRadius: 11, background: a.dim, color: a.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{a.icon}</div>
+              <p style={{ fontSize: 11, fontWeight: 600, color: T.textPri, margin: 0, lineHeight: 1.3 }}>{a.label}</p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ══ ACTIVITY + APPROVALS ════════════════════════════════════ */}
-      <div className="s4" style={{ display: "grid", gridTemplateColumns: "1.15fr .85fr", gap: "14px", marginBottom: "14px" }}>
+      {/* ══ ACTIVITY + RECENT ORDERS ════════════════════════════════ */}
+      <div className="s5" style={{ display: "grid", gridTemplateColumns: "1.1fr .9fr", gap: 14, marginBottom: 14 }}>
 
-        {/* Activity feed */}
+        {/* Activity Feed */}
         <div style={card({ padding: 0, overflow: "hidden" })}>
-          <div style={{ padding: "17px 20px 13px", borderBottom: `1px solid ${borderColor}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
-              <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>Activity Feed</p>
-              <span className="live" style={{ width: "6px", height: "6px", borderRadius: "50%", background: actLoading ? T.amber : T.green, display: "inline-block", animation: actLoading ? "dhPulse 1.2s ease infinite" : "dhPulse 2.5s ease infinite" }} />
-              {actLoading && <span style={{ fontSize: "9px", color: T.textSec, fontWeight: 600, letterSpacing: ".04em" }}>LOADING…</span>}
+          <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${bdr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Activity Feed</p>
+              <span className="live" style={{ width: 6, height: 6, borderRadius: "50%", background: loading ? T.amber : T.green, display: "inline-block" }} />
             </div>
-            <button className="lnk" style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              View all <FaArrowRight size={8} />
-            </button>
+            <span style={{ fontSize: 10, color: T.textSec }}>{activities.length} events</span>
           </div>
-          <div style={{ padding: "7px 12px" }}>
-            {actLoading
-              ? [1,2,3,4,5].map(i => (
-                  <div key={i} style={{ display:"flex",alignItems:"center",gap:"12px",padding:"10px",opacity:1-(i*.12) }}>
-                    <div style={{ width:34,height:34,borderRadius:10,background:isDark?"rgba(255,255,255,.06)":"#e2e8f0",flexShrink:0,animation:"dhPulse 1.2s ease infinite" }} />
-                    <div style={{ flex:1 }}>
-                      <div style={{ height:11,borderRadius:6,background:isDark?"rgba(255,255,255,.06)":"#e2e8f0",marginBottom:6,width:`${75-i*8}%`,animation:"dhPulse 1.2s ease infinite" }} />
-                      <div style={{ height:9,borderRadius:6,background:isDark?"rgba(255,255,255,.04)":"#f1f5f9",width:"40%",animation:"dhPulse 1.2s ease infinite" }} />
-                    </div>
+          <div style={{ padding: "6px 12px", maxHeight: 320, overflowY: "auto" }}>
+            {loading ? [1,2,3,4].map(i => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: isDark ? "rgba(255,255,255,.06)" : "#e2e8f0", animation: "pulse 1.2s ease infinite", flexShrink: 0 }} />
+                <div style={{ flex: 1 }}><Sk w={`${80 - i * 10}%`} h={11} /><div style={{ marginTop: 5 }}><Sk w="40%" h={9} /></div></div>
+              </div>
+            )) : activities.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "32px 0", color: T.textSec }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>📭</div>
+                <p style={{ fontSize: 13, margin: 0 }}>No recent activity</p>
+              </div>
+            ) : activities.map(a => {
+              const m = actMeta[a.k] || actMeta.cart;
+              return (
+                <div key={a.id} className="act" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 10px" }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: m.dim, color: m.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>{m.icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 12, color: T.textPri, fontWeight: 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</p>
+                    <p style={{ fontSize: 10, color: T.textSec, margin: "2px 0 0", display: "flex", alignItems: "center", gap: 4 }}><FaClock size={8} /> {a.ago}</p>
                   </div>
-                ))
-              : activities.map(a => {
-                  const m = actMeta[a.k] || actMeta["cart"];
-                  return (
-                    <div key={a.id} className="act" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 10px" }}>
-                      <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: m.dim, color: m.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0 }}>{m.icon}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: "12px", color: T.textPri, fontWeight: "500", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</p>
-                        <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0", display: "flex", alignItems: "center", gap: "5px" }}>
-                          {a.by}
-                          <span style={{ width: "3px", height: "3px", borderRadius: "50%", background: T.textSec, display: "inline-block" }} />
-                          <FaClock size={8} /> {a.ago} ago
-                        </p>
-                      </div>
-                      <FaArrowRight className="arr" size={9} style={{ color: T.textSec, flexShrink: 0 }} />
-                    </div>
-                  );
-                })
-            }
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Pending Approvals */}
+        {/* Recent Sales Orders */}
         <div style={card({ padding: 0, overflow: "hidden" })}>
-          <div style={{ padding: "17px 20px 13px", borderBottom: `1px solid ${borderColor}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>Pending Approvals</p>
-            {pendingApprovals.length > 0 && (
-              <span style={{ padding: "3px 9px", borderRadius: "999px", background: isDark ? "rgba(239,68,68,.12)" : "#fee2e2", color: T.red, fontSize: "10px", fontWeight: "700", border: `1px solid ${isDark ? "rgba(239,68,68,.22)" : "#fca5a5"}` }}>
-                {pendingApprovals.length} pending
-              </span>
-            )}
+          <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${bdr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Recent Sales Orders</p>
+            <button className="lnk" onClick={() => navigate("/Sales/Salesorders")}
+              style={{ fontSize: 11, color: T.textSec, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+              View all <FaArrowRight size={8} />
+            </button>
           </div>
-          <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: "8px" }}>
-            {pendingApprovals.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "28px 0" }}>
-                <FaCheckCircle size={26} style={{ color: T.green, opacity: .6, marginBottom: "8px" }} />
-                <p style={{ fontSize: "13px", margin: 0, fontWeight: "500", color: T.textPri }}>All caught up!</p>
-                <p style={{ fontSize: "11px", color: T.textSec, margin: "4px 0 0" }}>No pending approvals</p>
+          <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
+            {loading ? [1,2,3].map(i => (
+              <div key={i} style={{ border: `1px solid ${bdr}`, borderRadius: 12, padding: "12px 14px", background: surf2 }}>
+                <Sk w="60%" h={13} /><div style={{ marginTop: 6 }}><Sk w="40%" h={10} /></div>
               </div>
-            ) : pendingApprovals.map(ap => (
-              <div key={ap.id} className="appc"
-                style={{ border: `1px solid ${borderColor}`, borderRadius: "12px", padding: "12px 13px", background: surface2Bg }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "9px" }}>
-                  <div>
-                    <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{ap.item}</p>
-                    <span style={{ display: "inline-block", marginTop: "4px", padding: "1px 7px", borderRadius: "4px", background: ap.type === "outbound_cancel" ? T.amberDim : T.purpleDim, color: ap.type === "outbound_cancel" ? T.amber : T.purple, fontSize: "9px", fontWeight: "700" }}>
-                      {ap.type === "outbound_cancel" ? "Outbound Cancel" : "New Item"}
-                    </span>
+            )) : recentOrders.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "32px 0" }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>🛒</div>
+                <p style={{ fontSize: 13, color: T.textSec, margin: 0 }}>No orders yet</p>
+              </div>
+            ) : recentOrders.slice(0, 6).map((o, idx) => {
+              const sc = STATUS_COLORS(o.status, T);
+              return (
+                <div key={o._id || idx} className="ordr" onClick={() => navigate("/Sales/Salesorders")}
+                  style={{ border: `1px solid ${bdr}`, borderRadius: 12, padding: "11px 14px", background: surf2 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
+                    <div>
+                      <p className="sora" style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0 }}>{o.salesOrderNumber ?? `#${idx+1}`}</p>
+                      <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>{o.customerName ?? "—"}</p>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <p className="sora" style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0 }}>AED {Number(o.total ?? o.totalAmount ?? 0).toLocaleString("en-AE")}</p>
+                      <p style={{ fontSize: 10, color: T.textSec, margin: "2px 0 0" }}>{fmtDate(o.createdAt)}</p>
+                    </div>
                   </div>
-                  <span style={{ fontSize: "10px", color: T.textSec, display: "flex", alignItems: "center", gap: "3px" }}>
-                    <FaClock size={8} /> {ap.ago}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: sc.bg, color: sc.c, border: `1px solid ${sc.dot}44` }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: sc.dot }} />{o.status || "open"}
                   </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "11px", color: T.textSec }}>By <strong style={{ color: T.textPri, fontWeight: "600" }}>{ap.by}</strong></span>
-                  <div style={{ display: "flex", gap: "6px" }}>
-                    <button className="gbtn" onClick={() => setPendingApprovals(p => p.filter(x => x.id !== ap.id))}
-                      style={{ display: "flex", alignItems: "center", gap: "4px", background: isDark ? "rgba(16,185,129,.12)" : "#dcfce7", color: T.green, border: `1px solid ${isDark ? "rgba(16,185,129,.24)" : "#86efac"}`, borderRadius: "8px", padding: "5px 10px", fontSize: "11px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                      <FaCheckCircle size={9} /> Approve
-                    </button>
-                    <button className="rbtn" onClick={() => setPendingApprovals(p => p.filter(x => x.id !== ap.id))}
-                      style={{ display: "flex", alignItems: "center", gap: "4px", background: isDark ? "rgba(239,68,68,.1)" : "#fee2e2", color: T.red, border: `1px solid ${isDark ? "rgba(239,68,68,.22)" : "#fca5a5"}`, borderRadius: "8px", padding: "5px 10px", fontSize: "11px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                      <FaTimesCircle size={9} /> Reject
-                    </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ══ RECENT BILLS + RECENT POs ══════════════════════════════ */}
+      <div className="s6" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+
+        {/* Recent Bills */}
+        <div style={card({ padding: 0, overflow: "hidden" })}>
+          <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${bdr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Recent Bills</p>
+            <button className="lnk" onClick={() => navigate("/Purchase/Bills")}
+              style={{ fontSize: 11, color: T.textSec, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+              View all <FaArrowRight size={8} />
+            </button>
+          </div>
+          <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+            {loading ? [1,2,3].map(i => (
+              <div key={i} style={{ border: `1px solid ${bdr}`, borderRadius: 12, padding: "12px 14px", background: surf2 }}>
+                <Sk w="60%" h={13} /><div style={{ marginTop: 6 }}><Sk w="40%" h={10} /></div>
+              </div>
+            )) : recentBills.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "28px 0" }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>📄</div>
+                <p style={{ fontSize: 13, color: T.textSec, margin: 0 }}>No bills yet</p>
+              </div>
+            ) : recentBills.slice(0, 5).map((b, i) => {
+              const sc  = STATUS_COLORS(b.status, T);
+              const bal = Math.max(0, (b.totals?.grandTotal ?? 0) - (b.amountPaid ?? 0));
+              const pct = b.totals?.grandTotal > 0 ? Math.min(100, ((b.amountPaid ?? 0) / b.totals.grandTotal) * 100) : 0;
+              return (
+                <div key={b._id || i} className="ordr" onClick={() => navigate("/Purchase/Bills")}
+                  style={{ border: `1px solid ${bdr}`, borderRadius: 12, padding: "11px 14px", background: surf2 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <div>
+                      <p className="sora" style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0 }}>{b.billNumber}</p>
+                      <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>{b.vendorName || "—"}</p>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: T.red, margin: 0, fontFamily: "'DM Mono', monospace" }}>AED {bal.toFixed(2)} due</p>
+                      <p style={{ fontSize: 10, color: T.textSec, margin: "2px 0 0" }}>{fmtDate(b.createdAt)}</p>
+                    </div>
+                  </div>
+                  <div style={{ height: 3, background: bdr, borderRadius: 2, overflow: "hidden", marginBottom: 5 }}>
+                    <div style={{ height: "100%", width: `${pct}%`, background: T.green, borderRadius: 2, transition: "width .3s" }} />
+                  </div>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: sc.bg, color: sc.c, border: `1px solid ${sc.dot}44` }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: sc.dot }} />{b.status || "open"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Recent Purchase Orders */}
+        <div style={card({ padding: 0, overflow: "hidden" })}>
+          <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${bdr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Recent Purchase Orders</p>
+            <button className="lnk" onClick={() => navigate("/Purchase/Purchaseorders")}
+              style={{ fontSize: 11, color: T.textSec, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+              View all <FaArrowRight size={8} />
+            </button>
+          </div>
+          <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+            {loading ? [1,2,3].map(i => (
+              <div key={i} style={{ border: `1px solid ${bdr}`, borderRadius: 12, padding: "12px 14px", background: surf2 }}>
+                <Sk w="60%" h={13} /><div style={{ marginTop: 6 }}><Sk w="40%" h={10} /></div>
+              </div>
+            )) : recentPOs.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "28px 0" }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
+                <p style={{ fontSize: 13, color: T.textSec, margin: 0 }}>No purchase orders yet</p>
+              </div>
+            ) : recentPOs.slice(0, 5).map((p, i) => {
+              const sc = STATUS_COLORS(p.status, T);
+              return (
+                <div key={p._id || i} className="ordr" onClick={() => navigate("/Purchase/Purchaseorders")}
+                  style={{ border: `1px solid ${bdr}`, borderRadius: 12, padding: "11px 14px", background: surf2 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
+                    <div>
+                      <p className="sora" style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0 }}>{p.orderNumber}</p>
+                      <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>{p.vendorName || "—"}</p>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <p className="sora" style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0 }}>AED {Number(p.total ?? 0).toLocaleString("en-AE")}</p>
+                      <p style={{ fontSize: 10, color: T.textSec, margin: "2px 0 0" }}>{fmtDate(p.orderDate ?? p.createdAt)}</p>
+                    </div>
+                  </div>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: sc.bg, color: sc.c, border: `1px solid ${sc.dot}44` }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: sc.dot }} />{p.status || "pending"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ══ LOW STOCK + WEEKLY CHART + TODAY'S METRICS ══════════════ */}
+      <div className="s7" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+
+        {/* Low Stock */}
+        <div style={card({ padding: 0, overflow: "hidden" })}>
+          <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${bdr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Low Stock</p>
+              {lowStockCount > 0 && (
+                <span style={{ padding: "2px 8px", borderRadius: 999, background: isDark ? "rgba(239,68,68,.1)" : "#fee2e2", color: T.red, fontSize: 9, fontWeight: 700, border: `1px solid ${isDark ? "rgba(239,68,68,.2)" : "#fca5a5"}` }}>
+                  {lowStockItems.filter(x => x.s === "critical").length} critical
+                </span>
+              )}
+            </div>
+            <button className="lnk" onClick={() => navigate("/Items/Items")}
+              style={{ fontSize: 11, color: T.textSec, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+              View all <FaArrowRight size={8} />
+            </button>
+          </div>
+          <div style={{ padding: "6px 12px", maxHeight: 280, overflowY: "auto" }}>
+            {loading ? [1,2,3].map(i => (
+              <div key={i} style={{ display: "flex", gap: 12, padding: "11px 10px" }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: isDark ? "rgba(255,255,255,.06)" : "#e2e8f0", animation: "pulse 1.2s ease infinite", flexShrink: 0 }} />
+                <div style={{ flex: 1 }}><Sk w="70%" h={12} /><div style={{ marginTop: 6 }}><Sk w="100%" h={4} /></div></div>
+              </div>
+            )) : lowStockItems.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "32px 0" }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>
+                <p style={{ fontSize: 13, color: T.textSec, margin: 0 }}>All stock levels OK</p>
+              </div>
+            ) : lowStockItems.slice(0, 6).map(item => {
+              const crit = item.s === "critical";
+              const pct  = Math.min(Math.round((item.cur / item.min) * 100), 100);
+              const ic   = crit ? T.red : T.amber;
+              return (
+                <div key={item.id} className="stk" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 10px" }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: crit ? T.redDim : T.amberDim, color: ic, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}><FaBox /></div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "65%" }}>{item.name}</p>
+                      <span className="sora" style={{ fontSize: 12, fontWeight: 700, color: ic }}>{item.cur}<span style={{ fontSize: 10, color: T.textSec, fontWeight: 400 }}>/{item.min}</span></span>
+                    </div>
+                    <div style={{ height: 4, background: track, borderRadius: 999, overflow: "hidden" }}>
+                      <div className="prog" style={{ height: "100%", width: `${pct}%`, background: ic, borderRadius: 999 }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}>
+                      <span style={{ fontSize: 10, color: T.textSec, fontFamily: "'DM Mono', monospace" }}>{item.code}</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: ic, textTransform: "uppercase" }}>{crit ? "Critical" : "Warning"}</span>
+                    </div>
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Weekly Orders Bar Chart */}
+        <div style={card({ padding: "20px 22px" })}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+            <div>
+              <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Weekly Orders</p>
+              <p style={{ fontSize: 11, color: T.textSec, margin: "3px 0 0" }}>Last 7 days</p>
+            </div>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 999, background: T.blueDim, color: T.blueLight, fontSize: 11, fontWeight: 700, border: `1px solid ${isDark ? "rgba(59,130,246,.22)" : "#93c5fd"}` }}>
+              {weeklyOrders.reduce((s, v) => s + v, 0)} total
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 7, height: 70, marginBottom: 10 }}>
+            {weeklyOrders.map((v, i) => {
+              const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+              const maxV = Math.max(...weeklyOrders, 1);
+              const last = i === weeklyOrders.length - 1;
+              return (
+                <div key={i} className="bar" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 5, height: "100%" }}>
+                  <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end" }}>
+                    <div style={{ width: "100%", height: `${Math.max((v / maxV) * 100, 5)}%`, borderRadius: "4px 4px 0 0", background: last ? T.blue : (isDark ? "rgba(59,130,246,.22)" : "#bfdbfe"), position: "relative" }}>
+                      {v > 0 && <div style={{ position: "absolute", top: -16, left: "50%", transform: "translateX(-50%)", fontSize: 9, fontWeight: 700, color: last ? T.blue : T.textSec, whiteSpace: "nowrap" }}>{v}</div>}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 8, color: last ? T.blue : T.textSec, fontWeight: last ? 700 : 400 }}>{days[i]}</span>
+                </div>
+              );
+            })}
+          </div>
+          <Spark data={weeklyOrders.length > 1 ? weeklyOrders : [0, 1]} color={T.blue} h={30} />
+
+          <div className="div-sep" />
+          {/* Payment comparison */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {[
+              { label: "Received This Month", value: fmtAED(thisMonthRevenue, true), color: T.green, icon: <FaArrowUp size={9} /> },
+              { label: "Paid This Month",      value: fmtAED(thisMonthPaid, true),    color: T.red,   icon: <FaArrowRight size={9} style={{ transform: "rotate(90deg)" }} /> },
+            ].map(m => (
+              <div key={m.label} style={{ background: surf2, borderRadius: 10, padding: "10px 12px", border: `1px solid ${bdr}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+                  <span style={{ color: m.color }}>{m.icon}</span>
+                  <span style={{ fontSize: 9, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>{m.label}</span>
+                </div>
+                <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: m.color, margin: 0 }}>{m.value}</p>
               </div>
             ))}
           </div>
         </div>
-      </div>
-
-      {/* ══ LOW STOCK + ORDERS ══════════════════════════════════════ */}
-      <div className="s5" style={{ display: "grid", gridTemplateColumns: "1fr 1.1fr", gap: "14px", marginBottom: "14px" }}>
-
-        {/* Low Stock */}
-        <div style={card({ padding: 0, overflow: "hidden" })}>
-          <div style={{ padding: "17px 20px 13px", borderBottom: `1px solid ${borderColor}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
-              <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>Low Stock</p>
-              <span style={{ padding: "2px 8px", borderRadius: "999px", background: isDark ? "rgba(239,68,68,.1)" : "#fee2e2", color: T.red, fontSize: "9px", fontWeight: "700", border: `1px solid ${isDark ? "rgba(239,68,68,.2)" : "#fca5a5"}` }}>
-                {lowStockCount > 0 ? lowStock.filter(x => x.s === "critical").length : "—"} critical
-              </span>
-            </div>
-            <button className="lnk" onClick={() => navigate("/Items/Items")}
-              style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              View all <FaArrowRight size={8} />
-            </button>
-          </div>
-          <div style={{ padding: "6px 12px" }}>
-            {lowStock.map(item => {
-              const crit = item.s === "critical";
-              const pct  = Math.round((item.cur / item.min) * 100);
-              const ic   = crit ? T.red : T.amber;
-              const idim = crit ? T.redDim : T.amberDim;
-              return (
-                <div key={item.id} className="stk" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "11px 10px" }}>
-                  <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: idim, color: ic, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", flexShrink: 0 }}>
-                    <FaBox />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{item.name}</p>
-                      <span className="sora" style={{ fontSize: "12px", fontWeight: "700", color: ic }}>
-                        {item.cur}<span style={{ fontSize: "10px", color: T.textSec, fontWeight: "400" }}> / {item.min}</span>
-                      </span>
-                    </div>
-                    <div style={{ height: "4px", background: trackBg, borderRadius: "999px", overflow: "hidden" }}>
-                      <div className="prog" style={{ height: "100%", width: `${pct}%`, background: ic, borderRadius: "999px" }} />
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px" }}>
-                      <span style={{ fontSize: "10px", color: T.textSec, fontFamily: "monospace" }}>{item.code}</span>
-                      <span style={{ fontSize: "9px", fontWeight: "700", color: ic, textTransform: "uppercase", letterSpacing: "0.05em" }}>{crit ? "Critical" : "Warning"}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Recent Orders */}
-        <div style={card({ padding: 0, overflow: "hidden" })}>
-          <div style={{ padding: "17px 20px 13px", borderBottom: `1px solid ${borderColor}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>Recent Orders</p>
-            <button className="lnk" onClick={() => navigate("/Sales/Salesorders")}
-              style={{ fontSize: "11px", color: T.textSec, fontWeight: "600", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              View all <FaArrowRight size={8} />
-            </button>
-          </div>
-          <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: "8px" }}>
-            {orders.map(o => {
-              const open = o.st === "open";
-              return (
-                <div key={o.id} className="ordr" onClick={() => navigate("/Sales/Salesorders")}
-                  style={{ border: `1px solid ${borderColor}`, borderRadius: "12px", padding: "12px 14px", background: surface2Bg }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "9px" }}>
-                    <div>
-                      <p className="sora" style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, margin: 0 }}>{o.id}</p>
-                      <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0" }}>{o.cust}</p>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>AED {o.amt}</p>
-                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{o.date}</p>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "10px", fontWeight: "700", padding: "3px 9px", borderRadius: "999px", background: open ? T.blueDim : T.greenDim, color: open ? T.blueLight : T.green, border: `1px solid ${open ? (isDark ? "rgba(59,130,246,.22)" : "#93c5fd") : (isDark ? "rgba(16,185,129,.22)" : "#86efac")}` }}>
-                      <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: open ? T.blue : T.green }} />
-                      {open ? "Open" : "Completed"}
-                    </span>
-                    {open && (
-                      <button onClick={e => { e.stopPropagation(); navigate("/Sales/Outbound"); }}
-                        style={{ fontSize: "11px", fontWeight: "600", color: T.green, background: isDark ? "rgba(16,185,129,.08)" : "#f0fdf4", border: `1px solid ${isDark ? "rgba(16,185,129,.2)" : "#86efac"}`, borderRadius: "7px", padding: "3px 10px", cursor: "pointer", fontFamily: "inherit" }}>
-                        → Outbound
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* ══ BOTTOM ROW: bar chart + invoices + metrics ══════════════ */}
-      <div className="s6" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: "14px" }}>
-
-        {/* Weekly orders bar chart */}
-        <div style={card({ padding: "20px 22px" })}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "18px" }}>
-            <div>
-              <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0 }}>Weekly Orders</p>
-              <p style={{ fontSize: "11px", color: T.textSec, margin: "3px 0 0" }}>Last 7 days</p>
-            </div>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "3px 9px", borderRadius: "999px", background: T.blueDim, color: T.blueLight, fontSize: "11px", fontWeight: "700", border: `1px solid ${isDark ? "rgba(59,130,246,.22)" : "#93c5fd"}` }}>
-              <FaArrowUp size={8} /> 22 today
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: "7px", height: "64px", marginBottom: "10px" }}>
-            {spkWeek.map((v, i) => {
-              const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-              const maxV = Math.max(...spkWeek);
-              const last = i === spkWeek.length - 1;
-              return (
-                <div key={i} className="bar" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", height: "100%" }}>
-                  <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end" }}>
-                    <div style={{ width: "100%", height: `${(v / maxV) * 100}%`, minHeight: "5px", borderRadius: "4px 4px 0 0", background: last ? T.blue : (isDark ? "rgba(59,130,246,.22)" : "#bfdbfe"), position: "relative" }}>
-                      {last && (
-                        <div style={{ position: "absolute", top: "-18px", left: "50%", transform: "translateX(-50%)", fontSize: "9px", fontWeight: "700", color: T.blue, whiteSpace: "nowrap" }}>{v}</div>
-                      )}
-                    </div>
-                  </div>
-                  <span style={{ fontSize: "8px", color: last ? T.blue : T.textSec, fontWeight: last ? "700" : "400" }}>{days[i]}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Pending Invoices */}
-        <div style={{ ...card({ padding: "20px 22px", position: "relative", overflow: "hidden" }), display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: `linear-gradient(90deg,transparent,${T.amber},transparent)`, opacity: isDark ? .45 : .65 }} />
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
-              <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Pending Invoices</p>
-              <div style={{ width: "32px", height: "32px", borderRadius: "9px", background: T.amberDim, color: T.amber, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
-                <FaFileInvoice />
-              </div>
-            </div>
-            <p className="sora" style={{ fontSize: "34px", fontWeight: "800", color: T.textPri, margin: "0 0 4px", letterSpacing: "-0.04em", lineHeight: 1 }}>7</p>
-            <p style={{ fontSize: "11px", color: T.textSec, margin: 0 }}>Awaiting payment · AED 128,400</p>
-          </div>
-          <button className="qa" onClick={() => navigate("/Sales/Invoices")}
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "9px", marginTop: "18px", background: T.amberDim, color: T.amber, border: `1px solid ${isDark ? "rgba(245,158,11,.22)" : "#fcd34d"}`, borderRadius: "9px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-            View Invoices <FaArrowRight size={9} />
-          </button>
-        </div>
 
         {/* Today's Metrics */}
         <div style={card({ padding: "20px 22px" })}>
-          <p className="sora" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: "0 0 18px" }}>Today's Metrics</p>
+          <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: "0 0 16px" }}>Today's Metrics</p>
           {[
-            { label: "New Orders",      value: statsLoading ? "…" : String(stats.todayNewOrders),                                              color: T.blue,   pct: stats.todayOrdersPct    },
-            { label: "New Customers",   value: statsLoading ? "…" : String(todayNewCustomers),                                                         color: T.purple, pct: Math.min(Math.round((todayNewCustomers / 10) * 100), 100) },
-            { label: "Revenue Today",   value: statsLoading ? "…" : `AED ${Number(stats.todayRevenue).toLocaleString("en-AE")}`,                        color: T.green,  pct: stats.revenuePct        },
-            { label: "Pending Actions", value: statsLoading ? "…" : String(pendingOrders + pendingCustomers),                                          color: T.amber,  pct: stats.pendingActionsPct  },
+            { label: "New Sales Orders",    value: loading ? "…" : String(todayNewOrders),                           color: T.blue,   pct: todayOrdersPct },
+            { label: "New Customers",       value: loading ? "…" : String(todayNewCustomers),                         color: T.purple, pct: Math.min(Math.round((todayNewCustomers / 10) * 100), 100) },
+            { label: "Revenue Today",       value: loading ? "…" : fmtAED(todayRevenue, true),                        color: T.green,  pct: revenuePct },
+            { label: "Pending Actions",     value: loading ? "…" : String(pendingOrders + pendingInvoicesCount),      color: T.amber,  pct: pendingActionsPct },
+            { label: "Bills Outstanding",   value: loading ? "…" : String(openBillsCount + partialBillsCount + overdueBillsCount), color: T.red, pct: Math.min((openBillsCount + partialBillsCount + overdueBillsCount) * 8, 100) },
+            { label: "Low Stock Items",     value: loading ? "…" : String(lowStockCount),                             color: T.red,    pct: Math.min(lowStockCount * 10, 100) },
           ].map(m => (
-            <div key={m.label} style={{ marginBottom: "13px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                <span style={{ fontSize: "11px", color: T.textSec }}>{m.label}</span>
-                <span className="sora" style={{ fontSize: "12px", fontWeight: "700", color: T.textPri }}>{m.value}</span>
+            <div key={m.label} style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <span style={{ fontSize: 11, color: T.textSec }}>{m.label}</span>
+                <span className="sora" style={{ fontSize: 12, fontWeight: 700, color: T.textPri }}>{m.value}</span>
               </div>
-              <div style={{ height: "4px", background: trackBg, borderRadius: "999px", overflow: "hidden" }}>
-                <div className="prog" style={{ height: "100%", width: `${m.pct}%`, background: m.color, borderRadius: "999px" }} />
+              <div style={{ height: 4, background: track, borderRadius: 999, overflow: "hidden" }}>
+                <div className="prog" style={{ height: "100%", width: `${m.pct}%`, background: m.color, borderRadius: 999 }} />
               </div>
             </div>
           ))}
+
+          <div className="div-sep" />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontSize: 9, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".07em", margin: "0 0 3px" }}>Total PO Value</p>
+              <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.blue, margin: 0 }}>{fmtAED(totalPOValue, true)}</p>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontSize: 9, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".07em", margin: "0 0 3px" }}>Vendors</p>
+              <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.cyan, margin: 0 }}>{totalVendors}</p>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontSize: 9, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".07em", margin: "0 0 3px" }}>POs Received</p>
+              <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.green, margin: 0 }}>{receivedPOs}</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

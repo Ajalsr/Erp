@@ -118,7 +118,10 @@ type SalesOrder struct {
 	CustomerNotes        string             `json:"customerNotes,omitempty" bson:"customerNotes,omitempty"`
 	TermsAndConditions   string             `json:"termsAndConditions,omitempty" bson:"termsAndConditions,omitempty"`
 	Status               string             `json:"status" bson:"status"`
+	CancelReason         string             `json:"cancelReason,omitempty" bson:"cancelReason,omitempty"`
+	CancelRequestedBy    string             `json:"cancelRequestedBy,omitempty" bson:"cancelRequestedBy,omitempty"`
 	Attachments          []Attachment       `json:"attachments,omitempty" bson:"attachments,omitempty"`
+	OrgID                string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt            time.Time          `json:"createdAt" bson:"createdAt"`
 	UpdatedAt            time.Time          `json:"updatedAt" bson:"updatedAt"`
 	CreatedBy            string             `json:"createdBy,omitempty" bson:"createdBy,omitempty"`
@@ -214,6 +217,8 @@ type SalesOrderResponse struct {
 	CustomerNotes        string           `json:"customerNotes,omitempty"`
 	TermsAndConditions   string           `json:"termsAndConditions,omitempty"`
 	Status               string           `json:"status"`
+	CancelReason         string           `json:"cancelReason,omitempty"`
+	CancelRequestedBy    string           `json:"cancelRequestedBy,omitempty"`
 	CreatedAt            time.Time        `json:"createdAt"`
 	UpdatedAt            time.Time        `json:"updatedAt"`
 }
@@ -235,6 +240,7 @@ type SalesOrderStats struct {
 	CompletedOrders int64         `json:"completedOrders"`
 	CancelledOrders int64         `json:"cancelledOrders"`
 	TodayOrders     int64         `json:"todayOrders"`
+	TodayRevenue    float64       `json:"todayRevenue"`
 	ThisWeekOrders  int64         `json:"thisWeekOrders"`
 	ThisMonthOrders int64         `json:"thisMonthOrders"`
 	TopCustomers    []TopCustomer `json:"topCustomers"`

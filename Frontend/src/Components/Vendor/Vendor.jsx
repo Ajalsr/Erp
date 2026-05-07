@@ -4,15 +4,14 @@ import {
   FaPlus, FaTimes, FaSearch, FaBuilding, FaEnvelope,
   FaPhone, FaDownload, FaUpload, FaStore, FaCheckCircle,
   FaClock, FaFileInvoiceDollar, FaChevronLeft, FaChevronRight,
-  FaBoxOpen, FaEdit, FaSortAmountDown, FaSortAmountUp,
+  FaEdit, FaSortAmountDown, FaSortAmountUp,
   FaTruck, FaTag, FaGlobe, FaIdCard
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import debounce from "lodash/debounce";
+import axiosInstance from "../../helper/axiosInstance";
 
-// ── NOTE: Replace this stub with your actual useGetVendors hook ──
-// import useGetVendors from "../../helper/useGetVendors";
 const useGetVendors = () => {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(false);
@@ -20,9 +19,8 @@ const useGetVendors = () => {
   const handleGetVendors = useCallback(async () => {
     setLoading(true);
     try {
-      // Replace with: const res = await axiosInstance.get("/vendors");
-      // setData(res.data.vendors || res.data);
-      setData([]); // placeholder
+      const res = await axiosInstance.get("/api/vendors/?limit=200");
+      setData(res.data?.data?.vendors || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -94,7 +92,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
       position: "absolute", top: dropPos.top, left: dropPos.left, width: dropPos.width,
       zIndex: 99999, background: bg, border: `1.5px solid ${border}`, borderRadius: "11px",
       boxShadow: isDarkNow ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 32px rgba(0,0,0,0.12)",
-      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif",
       visibility: ready ? "visible" : "hidden", opacity: ready ? 1 : 0, transition: "opacity 0.12s ease",
     }}>
       <div style={{ padding: "5px" }}>
@@ -126,7 +124,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
       boxShadow: open ? `0 0 0 3px ${isDarkNow ? "rgba(59,130,246,0.15)" : "rgba(147,197,253,0.25)"}` : "none",
       transition: "border-color 0.15s, box-shadow 0.15s", gap: "8px",
     }}>
-      <span style={{ fontSize: "12px", fontWeight: "500", color: selected ? textPri : textSec, fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: "12px", fontWeight: "500", color: selected ? textPri : textSec, fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
         {selected ? selected.label : placeholder}
       </span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? activeC : textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
@@ -168,6 +166,8 @@ const Vendors = () => {
   const [drawerOpen,        setDrawerOpen]        = useState(false);
   const [selectedItem,      setSelectedItem]      = useState(null);
   const [activeTab,         setActiveTab]         = useState("overview");
+  const [txData,            setTxData]            = useState({ bills: [], payments: [], purchaseOrders: [], grns: [] });
+  const [txLoading,         setTxLoading]         = useState(false);
   const [searchTerm,        setSearchTerm]        = useState("");
   const [isSearchFocused,   setIsSearchFocused]   = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -182,7 +182,7 @@ const Vendors = () => {
   // ── Helpers ────────────────────────────────────────────────────
   const getCode = (v) => {
     if (v.vendorCode) return v.vendorCode;
-    const initials = (v.vendorDisplayName || v.companyName || "V")
+    const initials = (v.displayName || v.companyName || "V")
       .split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 3);
     return `${initials}${(v._id || "0000").slice(-4).toUpperCase()}`;
   };
@@ -196,7 +196,7 @@ const Vendors = () => {
       total:    data.length,
       active:   data.filter(v => (v.status || "active") === "active").length,
       pending:  data.filter(v => (v.status || "active") === "pending").length,
-      payables: data.reduce((s, v) => s + (parseFloat(v.payables || v.outstanding || 0) || 0), 0),
+      payables: data.reduce((s, v) => s + (parseFloat(v.outstandingPayable || 0) || 0), 0),
     };
   };
   const stats = getStats();
@@ -216,10 +216,10 @@ const Vendors = () => {
     if (searchTerm.trim())
       list = list.filter(v => {
         const q = searchTerm.toLowerCase();
-        return (v.vendorDisplayName || "").toLowerCase().includes(q) ||
+        return (v.displayName || "").toLowerCase().includes(q) ||
           (v.companyName || "").toLowerCase().includes(q) ||
-          (v.vendorEmail || "").toLowerCase().includes(q) ||
-          (v.vendorPhone || "").toLowerCase().includes(q) ||
+          (v.email || "").toLowerCase().includes(q) ||
+          (v.phone || "").toLowerCase().includes(q) ||
           (getCode(v) || "").toLowerCase().includes(q);
       });
     list.sort((a, b) => {
@@ -282,12 +282,21 @@ const Vendors = () => {
 
   // ── Drawer ────────────────────────────────────────────────────
   const openDrawer  = (v) => { setSelectedItem(v); setDrawerOpen(true); setActiveTab("overview"); };
-  const closeDrawer = ()  => { setDrawerOpen(false); setSelectedItem(null); };
+  const closeDrawer = ()  => { setDrawerOpen(false); setSelectedItem(null); setTxData({ bills: [], payments: [], purchaseOrders: [], grns: [] }); };
+
+  useEffect(() => {
+    if (!selectedItem?._id) return;
+    setTxLoading(true);
+    axiosInstance.get(`/api/vendors/${selectedItem._id}/transactions`)
+      .then(res => setTxData(res.data?.data || { bills: [], payments: [], purchaseOrders: [], grns: [] }))
+      .catch(() => setTxData({ bills: [], payments: [], purchaseOrders: [], grns: [] }))
+      .finally(() => setTxLoading(false));
+  }, [selectedItem?._id]);
 
   // ── Export ────────────────────────────────────────────────────
   const handleExport = () => {
     if (!data?.length) { alert("No vendors to export"); return; }
-    const rows = data.map(v => ({ Code: getCode(v), Name: v.vendorDisplayName || "", Company: v.companyName || "", Email: v.vendorEmail || "", Phone: v.vendorPhone || "", Status: v.status || "active" }));
+    const rows = data.map(v => ({ Code: getCode(v), Name: v.displayName || "", Company: v.companyName || "", Email: v.email || "", Phone: v.phone || "", Status: v.status || "active" }));
     const csv  = Object.keys(rows[0]).join(",") + "\n" + rows.map(r => Object.values(r).join(",")).join("\n");
     const a    = document.createElement("a");
     a.href     = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -299,10 +308,10 @@ const Vendors = () => {
 
   // ── Dynamic CSS ───────────────────────────────────────────────
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
     .vnd-root * { box-sizing: border-box; }
-    .vnd-root { font-family: 'Inter', sans-serif; transition: background 0.25s ease, color 0.25s ease; }
-    .vnd-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .vnd-root { font-family: 'DM Sans', sans-serif; transition: background 0.25s ease, color 0.25s ease; }
+    .vnd-jakarta { font-family: 'Sora', sans-serif; }
 
     .vnd-stat { transition: transform 0.18s ease, box-shadow 0.18s ease; }
     .vnd-stat:hover { transform: translateY(-2px); box-shadow: ${isDark ? "0 8px 32px rgba(0,0,0,0.4)" : "0 8px 24px rgba(0,0,0,0.1)"} !important; }
@@ -358,13 +367,13 @@ const Vendors = () => {
       <style>{css}</style>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
         <div className="vnd-spin" style={{ width: "36px", height: "36px", border: `3px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%" }} />
-        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "Inter, sans-serif" }}>Loading vendors…</span>
+        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "DM Sans, sans-serif" }}>Loading vendors…</span>
       </div>
     </div>
   );
 
   if (error) return (
-    <div style={{ padding: "20px", color: "#ef4444", background: "rgba(239,68,68,0.08)", borderRadius: "12px", margin: "24px", border: "1px solid rgba(239,68,68,0.2)", fontFamily: "Inter, sans-serif" }}>
+    <div style={{ padding: "20px", color: "#ef4444", background: "rgba(239,68,68,0.08)", borderRadius: "12px", margin: "24px", border: "1px solid rgba(239,68,68,0.2)", fontFamily: "DM Sans, sans-serif" }}>
       Error: {error}
     </div>
   );
@@ -464,18 +473,18 @@ const Vendors = () => {
                 <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: "12px", boxShadow: isDark ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, overflow: "hidden" }}>
                   <div style={{ padding: "8px 14px 6px", fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.08em" }}>{searchSuggestions.length} results</div>
                   {searchSuggestions.map((v, idx) => {
-                    const [bg, fg] = getAvatar(v.vendorDisplayName || v.companyName);
+                    const [bg, fg] = getAvatar(v.displayName || v.companyName);
                     return (
                       <div key={v._id || idx} className="vnd-suggestion" onClick={() => handleSuggestionClick(v)}
                         style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", borderTop: `1px solid ${T.border}` }}>
                         <div style={{ width: "30px", height: "30px", borderRadius: "8px", background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: "700", flexShrink: 0 }}>
-                          {(v.vendorDisplayName || v.companyName || "V").charAt(0).toUpperCase()}
+                          {(v.displayName || v.companyName || "V").charAt(0).toUpperCase()}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.vendorDisplayName || v.companyName || "Unnamed"}</p>
-                          <p style={{ fontSize: "11px", color: T.textSec, margin: 0 }}>{v.vendorEmail || v.companyName || ""}</p>
+                          <p style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.displayName || v.companyName || "Unnamed"}</p>
+                          <p style={{ fontSize: "11px", color: T.textSec, margin: 0 }}>{v.email || v.companyName || ""}</p>
                         </div>
-                        <span style={{ fontSize: "10px", fontWeight: "600", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
+                        <span style={{ fontSize: "10px", fontWeight: "600", fontFamily: "'DM Mono', monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
                           {getCode(v)}
                         </span>
                       </div>
@@ -537,7 +546,7 @@ const Vendors = () => {
             </thead>
             <tbody>
               {currentItems.length > 0 ? currentItems.map((v, idx) => {
-                const [avBg, avFg] = getAvatar(v.vendorDisplayName || v.companyName);
+                const [avBg, avFg] = getAvatar(v.displayName || v.companyName);
                 const sc = statusCfg[v.status] || statusCfg.active;
                 return (
                   <tr key={v._id || idx} className="vnd-row" style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -547,15 +556,15 @@ const Vendors = () => {
                     <td style={{ padding: "13px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "11px" }}>
                         <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: avBg, color: avFg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "700", flexShrink: 0 }}>
-                          {(v.vendorDisplayName || v.companyName || "V").charAt(0).toUpperCase()}
+                          {(v.displayName || v.companyName || "V").charAt(0).toUpperCase()}
                         </div>
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                             <span className="vnd-name" onClick={() => openDrawer(v)}
                               style={{ fontWeight: "600", color: T.textPri, cursor: "pointer", transition: "color 0.15s", fontSize: "13px" }}>
-                              {v.vendorDisplayName || v.companyName || "Unnamed"}
+                              {v.displayName || v.companyName || "Unnamed"}
                             </span>
-                            <span style={{ fontSize: "10px", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 7px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
+                            <span style={{ fontSize: "10px", fontFamily: "'DM Mono', monospace", background: T.blueDim, color: T.blueLight, padding: "2px 7px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
                               {getCode(v)}
                             </span>
                             {v.status && (
@@ -580,19 +589,19 @@ const Vendors = () => {
                     {/* Contact */}
                     <td style={{ padding: "13px 16px" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                        {v.vendorEmail && (
+                        {v.email && (
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <FaEnvelope size={10} style={{ color: T.textSec, flexShrink: 0 }} />
-                            <span style={{ fontSize: "12px", color: T.textSec }}>{v.vendorEmail}</span>
+                            <span style={{ fontSize: "12px", color: T.textSec }}>{v.email}</span>
                           </div>
                         )}
-                        {v.vendorPhone && (
+                        {v.phone && (
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <FaPhone size={10} style={{ color: T.textSec, flexShrink: 0 }} />
-                            <span style={{ fontSize: "12px", color: T.textSec }}>{v.vendorPhone}</span>
+                            <span style={{ fontSize: "12px", color: T.textSec }}>{v.phone}</span>
                           </div>
                         )}
-                        {!v.vendorEmail && !v.vendorPhone && <span style={{ color: T.textMuted, fontSize: "12px" }}>—</span>}
+                        {!v.email && !v.phone && <span style={{ color: T.textMuted, fontSize: "12px" }}>—</span>}
                       </div>
                     </td>
 
@@ -608,7 +617,7 @@ const Vendors = () => {
                     {/* Payables */}
                     <td style={{ padding: "13px 16px", textAlign: "right" }}>
                       <span className="vnd-jakarta" style={{ fontWeight: "700", fontSize: "13px", color: parseFloat(v.payables || 0) > 0 ? "#ef4444" : T.textPri }}>
-                        AED {parseFloat(v.payables || v.outstanding || 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })}
+                        AED {parseFloat(v.outstandingPayable || 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })}
                       </span>
                     </td>
 
@@ -689,7 +698,7 @@ const Vendors = () => {
       {drawerOpen && selectedItem && (() => {
         const v  = selectedItem;
         const sc = statusCfg[v.status] || statusCfg.active;
-        const [avBg, avFg] = getAvatar(v.vendorDisplayName || v.companyName);
+        const [avBg, avFg] = getAvatar(v.displayName || v.companyName);
         return (
           <>
             <div className="vnd-overlay" onClick={closeDrawer}
@@ -703,19 +712,19 @@ const Vendors = () => {
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: 0 }}>
                     <div style={{ width: "42px", height: "42px", borderRadius: "12px", background: avBg, color: avFg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "800", flexShrink: 0 }}>
-                      {(v.vendorDisplayName || v.companyName || "V").charAt(0).toUpperCase()}
+                      {(v.displayName || v.companyName || "V").charAt(0).toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "3px" }}>
                         <h3 className="vnd-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.textPri, margin: 0 }}>
-                          {v.vendorDisplayName || v.companyName || "Unnamed"}
+                          {v.displayName || v.companyName || "Unnamed"}
                         </h3>
                         <span style={{ fontSize: "10px", fontWeight: "700", padding: "2px 9px", borderRadius: "999px", background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, display: "inline-flex", alignItems: "center", gap: "4px" }}>
                           <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />
                           {v.status || "active"}
                         </span>
                       </div>
-                      <span style={{ fontSize: "10px", fontFamily: "monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
+                      <span style={{ fontSize: "10px", fontFamily: "'DM Mono', monospace", background: T.blueDim, color: T.blueLight, padding: "2px 8px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
                         {getCode(v)}
                       </span>
                     </div>
@@ -747,8 +756,8 @@ const Vendors = () => {
                     {/* Contact info rows */}
                     {[
                       { icon: <FaBuilding />, label: "Company",      value: v.companyName          },
-                      { icon: <FaEnvelope />, label: "Email",        value: v.vendorEmail           },
-                      { icon: <FaPhone />,    label: "Phone",        value: v.vendorPhone           },
+                      { icon: <FaEnvelope />, label: "Email",        value: v.email           },
+                      { icon: <FaPhone />,    label: "Phone",        value: v.phone           },
                       { icon: <FaGlobe />,    label: "Website",      value: v.website               },
                       { icon: <FaTag />,      label: "Category",     value: v.category              },
                       { icon: <FaIdCard />,   label: "TRN / Tax ID", value: v.taxNumber || v.trn    },
@@ -778,7 +787,7 @@ const Vendors = () => {
                         <p className="vnd-jakarta" style={{ fontSize: "11px", fontWeight: "700", color: T.textPri, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Financials</p>
                       </div>
                       {[
-                        { label: "Outstanding Payables", value: `AED ${parseFloat(v.payables || v.outstanding || 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })}`, red: parseFloat(v.payables || 0) > 0 },
+                        { label: "Outstanding Payables", value: `AED ${parseFloat(v.outstandingPayable || 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })}`, red: parseFloat(v.payables || 0) > 0 },
                         { label: "Credit Limit",         value: v.creditLimit ? `AED ${parseFloat(v.creditLimit).toLocaleString("en-AE", { minimumFractionDigits: 2 })}` : "—" },
                         { label: "Payment Terms",        value: v.paymentTerms || "—" },
                         { label: "Currency",             value: v.currency || "AED" },
@@ -793,26 +802,191 @@ const Vendors = () => {
                 )}
 
                 {/* ── Purchases tab ── */}
-                {activeTab === "purchases" && (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "12px" }}>
-                    <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textSec }}>
-                      <FaBoxOpen />
+                {activeTab === "purchases" && (() => {
+                  const payables = parseFloat(v.outstandingPayable || 0);
+                  const fmt = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+
+                  const statusColor = {
+                    draft:     { bg: T.surface2,                              fg: T.textSec  },
+                    confirmed: { bg: isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4",   fg: "#10b981" },
+                    received:  { bg: isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4",   fg: "#10b981" },
+                    approved:  { bg: isDark ? "rgba(59,130,246,0.1)" : "#eff6ff",   fg: T.blue    },
+                    paid:      { bg: isDark ? "rgba(59,130,246,0.1)" : "#eff6ff",   fg: T.blue    },
+                    unpaid:    { bg: isDark ? "rgba(239,68,68,0.1)"  : "#fef2f2",   fg: "#ef4444" },
+                    partial:   { bg: isDark ? "rgba(245,158,11,0.1)" : "#fffbeb",   fg: "#f59e0b" },
+                    sent:      { bg: isDark ? "rgba(245,158,11,0.1)" : "#fffbeb",   fg: "#f59e0b" },
+                  };
+                  const pill = (s) => {
+                    const c = statusColor[s?.toLowerCase()] || statusColor.draft;
+                    return <span style={{ fontSize: "10px", fontWeight: "600", padding: "2px 8px", borderRadius: "99px", background: c.bg, color: c.fg }}>{s || "—"}</span>;
+                  };
+
+                  const SectionHeader = ({ title, count }) => (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px" }}>
+                      <p style={{ fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>{title}</p>
+                      <span style={{ fontSize: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, padding: "1px 7px", borderRadius: "99px" }}>{count}</span>
                     </div>
-                    <p className="vnd-jakarta" style={{ fontWeight: "700", color: T.textPri, fontSize: "14px", margin: 0 }}>No purchase orders</p>
-                    <p style={{ color: T.textSec, fontSize: "12px", margin: 0, textAlign: "center" }}>Purchase orders linked to this vendor will appear here.</p>
-                  </div>
-                )}
+                  );
+
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+
+                      {/* Outstanding payables summary */}
+                      <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "12px", padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>Outstanding Payables</span>
+                        <span className="vnd-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: payables > 0 ? "#ef4444" : T.textPri }}>{fmt(payables)}</span>
+                      </div>
+
+                      {txLoading ? (
+                        <div style={{ display: "flex", justifyContent: "center", padding: "32px 0" }}>
+                          <div className="vnd-spin" style={{ width: "24px", height: "24px", border: `2px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%" }} />
+                        </div>
+                      ) : (
+                        <>
+                          {/* Purchase Orders */}
+                          <SectionHeader title="Purchase Orders" count={txData.purchaseOrders?.length || 0} />
+                          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                            {txData.purchaseOrders?.length > 0 ? (
+                              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                                {txData.purchaseOrders.map((po, i, arr) => (
+                                  <div key={po._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                    <div>
+                                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{po.orderNumber || po.poNumber || "PO"}</p>
+                                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(po.createdAt)}</p>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      {pill(po.status)}
+                                      <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(po.total)}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No purchase orders yet.</p>
+                            )}
+                          </div>
+
+                          {/* GRNs */}
+                          <SectionHeader title="Goods Receipts (GRN)" count={txData.grns?.length || 0} />
+                          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                            {txData.grns?.length > 0 ? (
+                              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                                {txData.grns.map((grn, i, arr) => (
+                                  <div key={grn._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                    <div>
+                                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{grn.grnNumber || "GRN"}</p>
+                                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(grn.receiptDate || grn.createdAt)}</p>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      {pill(grn.status)}
+                                      <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(grn.total)}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No goods receipts yet.</p>
+                            )}
+                          </div>
+
+                          {/* Bills */}
+                          <SectionHeader title="Bills" count={txData.bills?.length || 0} />
+                          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                            {txData.bills?.length > 0 ? (
+                              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                                {txData.bills.map((bill, i, arr) => (
+                                  <div key={bill._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                    <div>
+                                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{bill.billNumber || "Bill"}</p>
+                                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>Due: {fmtDate(bill.dueDate)}</p>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      {pill(bill.status)}
+                                      <span style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(bill.totals?.grandTotal || bill.total)}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No bills yet.</p>
+                            )}
+                          </div>
+
+                          {/* Payments */}
+                          <SectionHeader title="Payments Made" count={txData.payments?.length || 0} />
+                          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", overflow: "hidden" }}>
+                            {txData.payments?.length > 0 ? (
+                              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                                {txData.payments.map((pay, i, arr) => (
+                                  <div key={pay._id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                    <div>
+                                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>{pay.paymentNumber || pay.referenceNumber || "Payment"}</p>
+                                      <p style={{ fontSize: "10px", color: T.textSec, margin: "2px 0 0" }}>{fmtDate(pay.paymentDate || pay.createdAt)}</p>
+                                    </div>
+                                    <span style={{ fontSize: "12px", fontWeight: "700", color: "#10b981", fontFamily: "'DM Mono', monospace" }}>{fmt(pay.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p style={{ fontSize: "12px", color: T.textSec, padding: "12px", margin: 0 }}>No payments yet.</p>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* ── History tab ── */}
-                {activeTab === "history" && (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "12px" }}>
-                    <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textSec }}>
-                      <FaClock />
+                {activeTab === "history" && (() => {
+                  const history = [...(v.history || [])].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                  const actionLabel = {
+                    po_created:     { label: "PO Created",      color: T.blue,    dim: T.blueDim    },
+                    grn_received:   { label: "GRN Received",    color: "#10b981", dim: isDark ? "rgba(16,185,129,0.12)" : "#f0fdf4" },
+                    bill_created:   { label: "Bill Created",    color: "#f59e0b", dim: isDark ? "rgba(245,158,11,0.12)" : "#fffbeb" },
+                    payment_made:   { label: "Payment Made",    color: "#10b981", dim: isDark ? "rgba(16,185,129,0.12)" : "#f0fdf4" },
+                    credit_applied: { label: "Credit Applied",  color: T.blue,    dim: T.blueDim    },
+                  };
+                  if (history.length === 0) return (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "12px" }}>
+                      <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textSec }}>
+                        <FaClock />
+                      </div>
+                      <p className="vnd-jakarta" style={{ fontWeight: "700", color: T.textPri, fontSize: "14px", margin: 0 }}>No history yet</p>
+                      <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>Activity will appear here once recorded.</p>
                     </div>
-                    <p className="vnd-jakarta" style={{ fontWeight: "700", color: T.textPri, fontSize: "14px", margin: 0 }}>No history yet</p>
-                    <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>Activity will appear here once recorded.</p>
-                  </div>
-                )}
+                  );
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+                      {history.map((entry, i) => {
+                        const cfg = actionLabel[entry.action] || { label: entry.action, color: T.textSec, dim: T.surface2 };
+                        const ts  = entry.timestamp ? new Date(entry.timestamp) : null;
+                        return (
+                          <div key={i} style={{ display: "flex", gap: "12px", paddingBottom: "16px", position: "relative" }}>
+                            {/* Timeline line */}
+                            {i < history.length - 1 && (
+                              <div style={{ position: "absolute", left: "14px", top: "28px", bottom: 0, width: "1px", background: T.border }} />
+                            )}
+                            {/* Dot */}
+                            <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: cfg.dim, border: `2px solid ${cfg.color}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: cfg.color }} />
+                            </div>
+                            {/* Content */}
+                            <div style={{ flex: 1, minWidth: 0, paddingTop: "4px" }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "2px" }}>
+                                <span style={{ fontSize: "11px", fontWeight: "700", padding: "2px 8px", borderRadius: "99px", background: cfg.dim, color: cfg.color }}>{cfg.label}</span>
+                                {ts && <span style={{ fontSize: "10px", color: T.textSec, flexShrink: 0 }}>{ts.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" })}</span>}
+                              </div>
+                              <p style={{ fontSize: "12px", color: T.textSec, margin: 0, lineHeight: "1.5" }}>{entry.details}</p>
+                              {entry.user && <p style={{ fontSize: "10px", color: T.textMuted, margin: "2px 0 0" }}>by {entry.user}</p>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Drawer footer */}

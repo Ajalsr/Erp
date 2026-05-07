@@ -1,18 +1,24 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import axios from 'axios'
 import useSignup from '../../helper/useSignup'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
+import useAuthStore from '../../store/useAuthStore'
+
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
 const Signup = () => {
   const { handleSignup } = useSignup()
   const navigate = useNavigate()
-  const [inputs, setInputs] = useState({ companyName: '', userId: '', password: '' })
+  const [searchParams] = useSearchParams()
+  const setAuth = useAuthStore((s) => s.setAuth)
+  const [inputs, setInputs] = useState({ userId: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = async () => {
-    if (!inputs.companyName || !inputs.userId || !inputs.password) {
+    if (!inputs.userId || !inputs.password) {
       toast.error('Please fill in all fields')
       return
     }
@@ -22,12 +28,24 @@ const Signup = () => {
     }
     setLoading(true)
     try {
-      await handleSignup(inputs)
-      setInputs({ companyName: '', userId: '', password: '' })
-      toast.success('Account created! Redirecting...')
-      setTimeout(() => navigate('/'), 1500)
+      // 1. Create the user account
+      await handleSignup({ userId: inputs.userId, password: inputs.password })
+
+      // 2. Auto sign-in to get token
+      const signinRes = await axios.post(`${BASE_URL}/api/auth/signin`, {
+        userId: inputs.userId,
+        password: inputs.password,
+      })
+      const { data: userData, token } = signinRes.data
+      setAuth(token, userData)
+
+      setInputs({ userId: '', password: '' })
+      toast.success('Account created! Welcome to Nexus ERP.')
+      const redirectTo = searchParams.get('redirect')
+      setTimeout(() => navigate(redirectTo ? decodeURIComponent(redirectTo) : '/Home'), 800)
     } catch (error) {
-      toast.error(error?.error || 'Signup failed')
+      const msg = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Signup failed'
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -41,9 +59,9 @@ const Signup = () => {
     <>
       <ToastContainer position="top-right" autoClose={4000} theme="dark" />
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
         .signup-root { font-family: 'DM Sans', sans-serif; }
-        .signup-heading { font-family: 'Syne', sans-serif; }
+        .signup-heading { font-family: 'Sora', sans-serif; }
         .signup-bg {
           background: #0a0f1e;
           background-image:
@@ -106,40 +124,11 @@ const Signup = () => {
 
           <div className="su-fade su-1 mb-8">
             <h1 className="signup-heading text-white text-2xl font-bold">Create your account</h1>
-            <p className="text-slate-400 text-sm mt-1">Set up your organization on Nexus ERP</p>
-          </div>
-
-          {/* Progress indicator */}
-          <div className="su-fade su-2 flex items-center gap-2 mb-8">
-            {['Organization', 'Credentials', 'Done'].map((step, i) => (
-              <div key={step} className="flex items-center gap-2 flex-1">
-                <div className={`step-dot w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                  i < 2 ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-500'
-                }`}>
-                  {i < 2 ? (i === 0 && inputs.companyName ? '✓' : i + 1) : i + 1}
-                </div>
-                <span className="text-xs text-slate-500 hidden sm:block">{step}</span>
-                {i < 2 && <div className="flex-1 h-px bg-slate-700" />}
-              </div>
-            ))}
+            <p className="text-slate-400 text-sm mt-1">Join Nexus ERP — your organization will be set up after signup</p>
           </div>
 
           <div className="space-y-5">
             <div className="su-fade su-2">
-              <label className="block text-slate-400 text-xs font-medium uppercase tracking-widest mb-2">
-                Organization / Company Name
-              </label>
-              <input
-                type="text"
-                className="su-input w-full px-4 py-3 rounded-xl text-sm"
-                placeholder="e.g. Acme Trading LLC"
-                value={inputs.companyName}
-                onChange={(e) => setInputs({ ...inputs, companyName: e.target.value })}
-                onKeyDown={handleKeyDown}
-              />
-            </div>
-
-            <div className="su-fade su-3">
               <label className="block text-slate-400 text-xs font-medium uppercase tracking-widest mb-2">
                 User ID
               </label>

@@ -4,11 +4,13 @@ import (
 	"encoding/csv"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/ws"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -20,15 +22,23 @@ import (
 
 var customersCollection *mongo.Collection = config.GetCollection(config.DB, "customers")
 
-// ─── GET ALL ──────────────────────────────────────────────────────────────────
 func GetAllCustomers() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		var customers []models.Customer
 		defer cancel()
 
+		orgID, _ := c.Get("orgId")
 		collection := config.GetCollection(config.DB, "customers")
-		results, err := collection.Find(ctx, bson.M{})
+
+		findOpts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if lim, err := strconv.ParseInt(limitStr, 10, 64); err == nil && lim > 0 {
+				findOpts.SetLimit(lim)
+			}
+		}
+
+		results, err := collection.Find(ctx, bson.M{"orgId": orgID}, findOpts)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -52,7 +62,6 @@ func GetAllCustomers() gin.HandlerFunc {
 	}
 }
 
-// ─── ADD CUSTOMER ─────────────────────────────────────────────────────────────
 func AddCustomers() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -60,7 +69,6 @@ func AddCustomers() gin.HandlerFunc {
 
 		var item models.Customer
 
-		// ShouldBindJSON returns a proper 400 without aborting the handler
 		if err := c.ShouldBindJSON(&item); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
@@ -70,7 +78,6 @@ func AddCustomers() gin.HandlerFunc {
 			return
 		}
 
-		// ── Validate required field ───────────────────────────────────────
 		if item.CustomerDisplayName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
@@ -80,7 +87,8 @@ func AddCustomers() gin.HandlerFunc {
 		}
 
 		// ── Auto-generate customer code ───────────────────────────────────
-		customerCode, err := generateCustomerCodeContinuous(ctx)
+		orgIDVal, _ := c.Get("orgId")
+		customerCode, err := generateCustomerCodeContinuous(ctx, fmt.Sprintf("%v", orgIDVal))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -113,6 +121,9 @@ func AddCustomers() gin.HandlerFunc {
 		if userID, exists := c.Get("userId"); exists {
 			item.CreatedBy = fmt.Sprintf("%v", userID)
 		}
+		if orgID, exists := c.Get("orgId"); exists {
+			item.OrgID = fmt.Sprintf("%v", orgID)
+		}
 
 		// ── Assign real ObjectIDs to every ContactPerson ──────────────────
 		// The frontend sends contacts without _id (useAddCustomer already
@@ -133,7 +144,6 @@ func AddCustomers() gin.HandlerFunc {
 			}
 		}
 
-		// ── Insert ────────────────────────────────────────────────────────
 		_, err = customersCollection.InsertOne(ctx, item)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -144,7 +154,8 @@ func AddCustomers() gin.HandlerFunc {
 			return
 		}
 
-		// Return the complete saved document so the frontend can use it immediately
+		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "create", ID: item.ID.Hex()})
+
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Customer Added Successfully",
@@ -153,20 +164,15 @@ func AddCustomers() gin.HandlerFunc {
 	}
 }
 
-// ─── CUSTOMER CODE GENERATOR ──────────────────────────────────────────────────
-func generateCustomerCodeContinuous(ctx context.Context) (string, error) {
+func generateCustomerCodeContinuous(ctx context.Context, orgID string) (string, error) {
 	now := time.Now()
 	currentMonth := int(now.Month())
 	currentYear := now.Year() % 100
-	monthYearPrefix := fmt.Sprintf("%02d%02d", currentMonth, currentYear)
 
-	filter := bson.M{
-		"customerCode": bson.M{"$regex": "^" + monthYearPrefix},
-	}
+	// Find the last customer code used by this org, sorted descending
 	opts := options.FindOne().SetSort(bson.D{{Key: "customerCode", Value: -1}})
-
 	var lastCustomer bson.M
-	err := customersCollection.FindOne(ctx, filter, opts).Decode(&lastCustomer)
+	err := customersCollection.FindOne(ctx, bson.M{"orgId": orgID}, opts).Decode(&lastCustomer)
 
 	nextSequence := 1
 	if err == nil {
@@ -185,7 +191,6 @@ func generateCustomerCodeContinuous(ctx context.Context) (string, error) {
 	return fmt.Sprintf("%02d%02d%02d", currentMonth, currentYear, nextSequence), nil
 }
 
-// ─── GET SUGGESTIONS ─────────────────────────────────────────────────────────
 func GetCustomerSuggestions() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -203,13 +208,16 @@ func GetCustomerSuggestions() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+		safeQ := regexp.QuoteMeta(query)
 		filter := bson.M{
+			"orgId": orgID,
 			"$or": []bson.M{
-				{"customerDisplayName": bson.M{"$regex": query, "$options": "i"}},
-				{"companyName": bson.M{"$regex": query, "$options": "i"}},
-				{"customerEmail": bson.M{"$regex": query, "$options": "i"}},
-				{"customerPhone": bson.M{"$regex": query, "$options": "i"}},
-				{"customerCode": bson.M{"$regex": query, "$options": "i"}},
+				{"customerDisplayName": bson.M{"$regex": safeQ, "$options": "i"}},
+				{"companyName": bson.M{"$regex": safeQ, "$options": "i"}},
+				{"customerEmail": bson.M{"$regex": safeQ, "$options": "i"}},
+				{"customerPhone": bson.M{"$regex": safeQ, "$options": "i"}},
+				{"customerCode": bson.M{"$regex": safeQ, "$options": "i"}},
 			},
 			"status": bson.M{"$ne": "deleted"},
 		}
@@ -263,17 +271,19 @@ func SearchCustomers() gin.HandlerFunc {
 		country := c.Query("country")
 		company := c.Query("company")
 
-		filter := bson.M{}
+		orgID, _ := c.Get("orgId")
+		filter := bson.M{"orgId": orgID}
 
 		if query != "" {
+			safe := regexp.QuoteMeta(query)
 			filter["$or"] = []bson.M{
-				{"customerDisplayName": bson.M{"$regex": query, "$options": "i"}},
-				{"companyName": bson.M{"$regex": query, "$options": "i"}},
-				{"customerEmail": bson.M{"$regex": query, "$options": "i"}},
-				{"customerPhone": bson.M{"$regex": query, "$options": "i"}},
-				{"customerCode": bson.M{"$regex": query, "$options": "i"}},
-				{"firstName": bson.M{"$regex": query, "$options": "i"}},
-				{"lastName": bson.M{"$regex": query, "$options": "i"}},
+				{"customerDisplayName": bson.M{"$regex": safe, "$options": "i"}},
+				{"companyName": bson.M{"$regex": safe, "$options": "i"}},
+				{"customerEmail": bson.M{"$regex": safe, "$options": "i"}},
+				{"customerPhone": bson.M{"$regex": safe, "$options": "i"}},
+				{"customerCode": bson.M{"$regex": safe, "$options": "i"}},
+				{"firstName": bson.M{"$regex": safe, "$options": "i"}},
+				{"lastName": bson.M{"$regex": safe, "$options": "i"}},
 			}
 		}
 		if customerType != "" {
@@ -285,13 +295,13 @@ func SearchCustomers() gin.HandlerFunc {
 			filter["status"] = bson.M{"$ne": "deleted"}
 		}
 		if city != "" {
-			filter["city"] = bson.M{"$regex": city, "$options": "i"}
+			filter["city"] = bson.M{"$regex": regexp.QuoteMeta(city), "$options": "i"}
 		}
 		if country != "" {
-			filter["country"] = bson.M{"$regex": country, "$options": "i"}
+			filter["country"] = bson.M{"$regex": regexp.QuoteMeta(country), "$options": "i"}
 		}
 		if company != "" {
-			filter["companyName"] = bson.M{"$regex": company, "$options": "i"}
+			filter["companyName"] = bson.M{"$regex": regexp.QuoteMeta(company), "$options": "i"}
 		}
 
 		var customers []models.Customer
@@ -364,8 +374,10 @@ func UpdateCustomer() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var existingCustomer models.Customer
-		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingCustomer)
+		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingCustomer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
@@ -459,14 +471,16 @@ func UpdateCustomer() gin.HandlerFunc {
 			update["contactPersons"] = updateData.ContactPersons
 		}
 
-		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": update})
+		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": update})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update customer", "error": err.Error()})
 			return
 		}
 
 		var updatedCustomer models.Customer
-		_ = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedCustomer)
+		_ = customersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&updatedCustomer)
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "update", ID: id})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
@@ -514,6 +528,8 @@ func DeleteCustomer() gin.HandlerFunc {
 			return
 		}
 
+		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "delete", ID: id})
+
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "Customer deleted successfully",
@@ -540,8 +556,9 @@ func GetCustomersByStatus() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
 		var customers []models.Customer
-		cursor, err := customersCollection.Find(ctx, bson.M{"status": status})
+		cursor, err := customersCollection.Find(ctx, bson.M{"orgId": orgID, "status": status})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customers by status", "error": err.Error()})
 			return
@@ -571,14 +588,15 @@ func GetCustomerStats() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		activeCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "active"})
-		pendingCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "pending"})
-		inactiveCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "inactive"})
-		totalCount, _ := customersCollection.CountDocuments(ctx, bson.M{"status": bson.M{"$ne": "deleted"}})
-		individualCount, _ := customersCollection.CountDocuments(ctx, bson.M{"customerType": "individual", "status": bson.M{"$ne": "deleted"}})
-		businessCount, _ := customersCollection.CountDocuments(ctx, bson.M{"customerType": "business", "status": bson.M{"$ne": "deleted"}})
+		orgID, _ := c.Get("orgId")
+		activeCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "active"})
+		pendingCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "pending"})
+		inactiveCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "inactive"})
+		totalCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": bson.M{"$ne": "deleted"}})
+		individualCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "customerType": "individual", "status": bson.M{"$ne": "deleted"}})
+		businessCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "customerType": "business", "status": bson.M{"$ne": "deleted"}})
 		weekAgo := time.Now().AddDate(0, 0, -7)
-		recentCount, _ := customersCollection.CountDocuments(ctx, bson.M{"created_at": bson.M{"$gte": weekAgo}, "status": bson.M{"$ne": "deleted"}})
+		recentCount, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "created_at": bson.M{"$gte": weekAgo}, "status": bson.M{"$ne": "deleted"}})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
@@ -604,7 +622,8 @@ func ExportCustomersCSV() gin.HandlerFunc {
 		status := c.Query("status")
 		format := c.DefaultQuery("format", "csv")
 
-		filter := bson.M{"status": bson.M{"$ne": "deleted"}}
+		orgID, _ := c.Get("orgId")
+		filter := bson.M{"orgId": orgID, "status": bson.M{"$ne": "deleted"}}
 		if status != "" && status != "all" {
 			filter["status"] = status
 		}
@@ -741,9 +760,21 @@ func GetCustomerHistory() gin.HandlerFunc {
 			return
 		}
 
-		history := []gin.H{
-			{"action": "Customer Created", "timestamp": customer.CreatedAt.Format("2006-01-02 15:04:05"), "user": customer.CreatedBy, "details": "Customer record was created in the system"},
-			{"action": "Customer Updated", "timestamp": customer.UpdatedAt.Format("2006-01-02 15:04:05"), "user": customer.UpdatedBy, "details": "Customer information was updated"},
+		// Build history from stored entries + system events
+		history := []gin.H{}
+		history = append(history, gin.H{
+			"action":    "Customer Created",
+			"timestamp": customer.CreatedAt,
+			"user":      customer.CreatedBy,
+			"details":   "Customer record was created in the system",
+		})
+		for _, h := range customer.History {
+			history = append(history, gin.H{
+				"action":    h.Action,
+				"timestamp": h.Timestamp,
+				"user":      h.User,
+				"details":   h.Details,
+			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -764,19 +795,22 @@ func GetDashboardStats(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	totalCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"status": bson.M{"$ne": "deleted"}})
-	activeCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "active"})
-	pendingCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"status": "pending"})
+	orgID, _ := c.Get("orgId")
+	totalCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": bson.M{"$ne": "deleted"}})
+	activeCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "active"})
+	pendingCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "pending"})
 
 	today := time.Now().Truncate(24 * time.Hour)
 	tomorrow := today.Add(24 * time.Hour)
 	todayNewCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{
+		"orgId":      orgID,
 		"created_at": bson.M{"$gte": today, "$lt": tomorrow},
 		"status":     bson.M{"$ne": "deleted"},
 	})
 
 	startOfMonth := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Now().Location())
 	thisMonthNewCustomers, _ := customersCollection.CountDocuments(ctx, bson.M{
+		"orgId":      orgID,
 		"created_at": bson.M{"$gte": startOfMonth},
 		"status":     bson.M{"$ne": "deleted"},
 	})
@@ -799,4 +833,113 @@ func GetDashboardStats(c *gin.Context) {
 			"updatedAt":             time.Now().Format("2006-01-02 15:04:05"),
 		},
 	})
+}
+
+// ─── ADD CUSTOMER HISTORY ─────────────────────────────────────────────────────
+func AddCustomerHistory() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid customer ID format", "error": err.Error()})
+			return
+		}
+
+		orgID, _ := c.Get("orgId")
+
+		var entry models.HistoryEntry
+		if err := c.ShouldBindJSON(&entry); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+		if entry.Timestamp.IsZero() {
+			entry.Timestamp = time.Now()
+		}
+
+		update := bson.M{"$push": bson.M{"history": entry}}
+		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to add history entry", "error": err.Error()})
+			return
+		}
+		if result.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
+			return
+		}
+
+		c.JSON(http.StatusCreated, gin.H{"status": http.StatusCreated, "message": "History entry added successfully"})
+	}
+}
+
+// ─── MIGRATE: stamp orgId + reassign sequential customer codes ────────────────
+// Call once per org after upgrading. Safe to call multiple times (idempotent).
+func MigrateCustomerOrgAndCodes() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		// Step 1: stamp orgId on every customer that is missing it, using createdBy
+		// membership — we treat all un-scoped customers as belonging to this org
+		// (safe for single-org setups or first migration).
+		stampResult, err := customersCollection.UpdateMany(ctx,
+			bson.M{"$or": []bson.M{{"orgId": ""}, {"orgId": bson.M{"$exists": false}}}},
+			bson.M{"$set": bson.M{"orgId": orgIDStr}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to stamp orgId", "error": err.Error()})
+			return
+		}
+
+		// Step 2: reassign sequential codes to all customers in this org, ordered by createdAt
+		cursor, err := customersCollection.Find(ctx,
+			bson.M{"orgId": orgIDStr},
+			options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}),
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to fetch customers", "error": err.Error()})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var customers []models.Customer
+		if err := cursor.All(ctx, &customers); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to decode customers", "error": err.Error()})
+			return
+		}
+
+		updated := 0
+		for i, cust := range customers {
+			now := cust.CreatedAt
+			if now.IsZero() {
+				now = time.Now()
+			}
+			month := int(now.Month())
+			year := now.Year() % 100
+			newCode := fmt.Sprintf("%02d%02d%02d", month, year, i+1)
+
+			_, err := customersCollection.UpdateOne(ctx,
+				bson.M{"_id": cust.ID},
+				bson.M{"$set": bson.M{"customerCode": newCode}},
+			)
+			if err == nil {
+				updated++
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Migration complete",
+			"data": gin.H{
+				"orgIdStamped": stampResult.ModifiedCount,
+				"codesFixed":   updated,
+				"total":        len(customers),
+			},
+		})
+	}
 }

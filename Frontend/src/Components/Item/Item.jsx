@@ -7,27 +7,21 @@ import {
 import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import axiosInstance from "../../helper/axiosInstance";
 
 /* ─── Utility ───────────────────────────────────────────────────────── */
 const fmt = (v) =>
   v ? `AED ${parseFloat(v).toLocaleString("en-AE", { minimumFractionDigits: 2 })}` : "—";
 
 const stockStatus = (qty, reorder = 0) => {
-  if (qty <= 0) return { label: "Out of Stock", key: "out" };
-  if (reorder > 0 && qty <= reorder / 2) return { label: "Critical", key: "critical" };
-  if (reorder > 0 && qty <= reorder) return { label: "Low", key: "low" };
+  qty    = parseFloat(qty)    || 0;
+  reorder = parseFloat(reorder) || 0;
+  if (qty <= 0)                              return { label: "Out of Stock", key: "out"      };
+  if (reorder > 0 && qty <= reorder / 2)    return { label: "Critical",     key: "critical" };
+  if (reorder > 0 && qty <= reorder)        return { label: "Low",          key: "low"      };
   return { label: "In Stock", key: "ok" };
 };
 
-/* ─── Local seed data ────────────────────────────────────────────────── */
-const SEED = [
-  { id: 1, name: "Storage Cabinet",  item_code: "ITM001", sku: "SKU-037", type: "Product", unit: "Piece", description: "Versatile storage cabinet with adjustable shelves.", selling_price: "4610.00", quantity: 50,  reorder_point: 10, brand: "FurnitureCo", image: null },
-  { id: 2, name: "Area Rug",         item_code: "ITM002", sku: "SKU-038", type: "Product", unit: "Piece", description: "Soft, high-quality area rug to add warmth to any room.", selling_price: "2990.00", quantity: 3,   reorder_point: 10, brand: "HomeDecor",  image: null },
-  { id: 3, name: "Office Chair",     item_code: "ITM003", sku: "SKU-039", type: "Product", unit: "Piece", description: "Ergonomic office chair with lumbar support.", selling_price: "1890.00", quantity: 8,   reorder_point: 15, brand: "OfficePro",  image: null },
-  { id: 4, name: "LED Bulb 15W",     item_code: "ITM004", sku: "SKU-040", type: "Product", unit: "Box",   description: "Energy-efficient LED bulb 15W warm white.", selling_price: "45.00",   quantity: 200, reorder_point: 20, brand: "LightTech",  image: null },
-  { id: 5, name: "Ergonomic Desk",   item_code: "ITM005", sku: "SKU-041", type: "Product", unit: "Piece", description: "Height-adjustable standing desk with cable management.", selling_price: "6200.00", quantity: 12,  reorder_point: 5,  brand: "FurnitureCo", image: null },
-  { id: 6, name: "Monitor Stand",    item_code: "ITM006", sku: "SKU-042", type: "Product", unit: "Piece", description: "Dual-arm monitor stand with full motion adjustment.", selling_price: "890.00",  quantity: 0,   reorder_point: 8,  brand: "OfficePro",  image: null },
-];
 
 /* ─── Status color helper (theme-aware) ─────────────────────────────── */
 const statusColors = (key, T, isDark) => ({
@@ -70,19 +64,79 @@ export default function Item() {
   const [isDrawerOpen,  setIsDrawerOpen]  = useState(false);
   const [activeTab,     setActiveTab]     = useState("overview");
   const [searchTerm,    setSearchTerm]    = useState("");
-  const [showDropdown,  setShowDropdown]  = useState(false);
+  const [, setShowDropdown]  = useState(false);
   const [filterStatus,  setFilterStatus]  = useState("all");   // all | ok | low | critical | out
   const [selectedRows,  setSelectedRows]  = useState(new Set());
   const [cmdOpen,       setCmdOpen]       = useState(false);
   const [mounted,       setMounted]       = useState(false);
+  const [itemOrders,    setItemOrders]    = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [adjustItem,    setAdjustItem]    = useState(null);
+  const [adjustQty,     setAdjustQty]     = useState('');
+  const [adjustLoading, setAdjustLoading] = useState(false);
   const searchRef = useRef(null);
   const cmdRef    = useRef(null);
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { handleGetItem(); }, [handleGetItem]);
 
+  useEffect(() => {
+    if (!selectedItem?._id || (activeTab !== "transactions" && activeTab !== "history")) return;
+    setOrdersLoading(true);
+    Promise.allSettled([
+      axiosInstance.get("/api/sales-orders/getsaleorder?limit=500"),
+      axiosInstance.get("/api/purchase-orders/getorders?limit=500"),
+    ]).then(([soResult, poResult]) => {
+      const salesOrders = soResult.status === "fulfilled"
+        ? (soResult.value.data?.data?.salesOrders || [])
+        : [];
+      const purchaseOrders = poResult.status === "fulfilled"
+        ? (poResult.value.data?.data?.purchaseOrders || [])
+        : [];
+
+      const saleEntries = salesOrders
+        .filter(so => (so.items || []).some(i => i.itemId === selectedItem._id))
+        .map(so => {
+          const line = so.items.find(i => i.itemId === selectedItem._id);
+          return {
+            type:        "sale",
+            id:          so.id || so._id,
+            orderNumber: so.orderNumber,
+            partyName:   so.customerName || "—",
+            date:        so.orderDate,
+            qty:         line?.quantity ?? 0,
+            price:       line?.rate ?? 0,
+            total:       (line?.quantity ?? 0) * (line?.rate ?? 0),
+            status:      so.status,
+          };
+        });
+
+      const purchaseEntries = purchaseOrders
+        .filter(po => (po.items || []).some(i => i.itemId === selectedItem._id))
+        .map(po => {
+          const line = po.items.find(i => i.itemId === selectedItem._id);
+          return {
+            type:        "purchase",
+            id:          po.id || po._id,
+            orderNumber: po.orderNumber,
+            partyName:   po.vendorName || "—",
+            date:        po.orderDate,
+            qty:         line?.quantity ?? 0,
+            price:       line?.rate ?? 0,
+            total:       (line?.quantity ?? 0) * (line?.rate ?? 0),
+            status:      po.status,
+          };
+        });
+
+      const merged = [...saleEntries, ...purchaseEntries].sort(
+        (a, b) => new Date(a.date) - new Date(b.date)
+      );
+      setItemOrders(merged);
+    }).finally(() => setOrdersLoading(false));
+  }, [activeTab, selectedItem]);
+
   /* ── Data ── */
-  const allItems = Array.isArray(data) && data.length > 0 ? data : SEED;
+  const allItems = Array.isArray(data) ? data : [];
 
   const filteredItems = allItems.filter((item) => {
     const q = searchTerm.toLowerCase();
@@ -119,7 +173,7 @@ export default function Item() {
     setActiveTab("overview");
   }, []);
 
-  const closeDrawer = () => { setIsDrawerOpen(false); setSelectedItem(null); };
+  const closeDrawer = useCallback(() => { setIsDrawerOpen(false); setSelectedItem(null); handleGetItem(); }, [handleGetItem]);
 
   const toggleRow = (id) => setSelectedRows(prev => {
     const n = new Set(prev);
@@ -132,6 +186,30 @@ export default function Item() {
     else setSelectedRows(new Set(filteredItems.map(i => i._id || i.id)));
   };
 
+  const handleAdjustStock = async () => {
+    const newQty = parseFloat(adjustQty);
+    if (isNaN(newQty) || newQty < 0) return;
+    const itemId = adjustItem._id || adjustItem.id;
+    const currentQty = parseFloat(adjustItem.quantity || 0);
+    const diff = newQty - currentQty;
+    if (diff === 0) { setAdjustItem(null); return; }
+    setAdjustLoading(true);
+    try {
+      if (diff > 0) {
+        await axiosInstance.patch(`/api/stocks/${itemId}/increase`, { increaseBy: diff });
+      } else {
+        await axiosInstance.patch(`/api/stocks/${itemId}/reduce`, { reduceBy: Math.abs(diff) });
+      }
+      setAdjustItem(null);
+      setAdjustQty('');
+      handleGetItem();
+    } catch (err) {
+      alert(err?.response?.data?.message || 'Failed to adjust stock');
+    } finally {
+      setAdjustLoading(false);
+    }
+  };
+
   /* ── Keyboard: Cmd+K ── */
   useEffect(() => {
     const handler = (e) => {
@@ -140,7 +218,7 @@ export default function Item() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [closeDrawer]);
 
   /* ── Click outside ── */
   useEffect(() => {
@@ -493,6 +571,13 @@ export default function Item() {
                       }}>
                         {st.label}
                       </span>
+                      {/* <button
+                        title="Adjust stock"
+                        onClick={e => { e.stopPropagation(); setAdjustItem(item); setAdjustQty(String(item.quantity ?? 0)); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: "2px 4px", display: "flex", alignItems: "center", opacity: 0.6, fontSize: 10 }}
+                      >
+                        <FaEdit size={10} />
+                      </button> */}
                     </div>
                   </td>
 
@@ -709,40 +794,213 @@ export default function Item() {
             {/* Drawer body */}
             <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
               {activeTab === "overview" && <DrawerOverview item={selectedItem} T={T} isDark={isDark} surface2={surface2} border={border} />}
-              {activeTab === "transactions" && <DrawerEmpty T={T} icon={<FaTag size={24} />} title="No Transactions" sub="No transactions recorded for this item yet." />}
-              {activeTab === "history"      && <DrawerEmpty T={T} icon={<FaBarcode size={24} />} title="No History" sub="Activity history will appear here." />}
+
+              {activeTab === "transactions" && (() => {
+                const fmtA = (n) => `AED ${Number(n||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+                const fmtD = (d) => d ? new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+                const SC = {
+                  open:      { text: T.blue,   bg: T.blueDim  },
+                  invoiced:  { text: T.green,  bg: T.greenDim },
+                  completed: { text: T.green,  bg: T.greenDim },
+                  received:  { text: T.green,  bg: T.greenDim },
+                  cancelled: { text: T.red,    bg: T.redDim   },
+                  draft:     { text: T.textSec,bg: isDark?"rgba(255,255,255,.06)":"#f1f5f9" },
+                  pending:   { text: T.amber,  bg: T.amberDim },
+                };
+                const sc = (s) => SC[s] || SC.draft;
+                const sales     = itemOrders.filter(o => o.type === "sale");
+                const purchases = itemOrders.filter(o => o.type === "purchase");
+                return ordersLoading ? (
+                  <div style={{textAlign:"center",padding:"48px 0",color:T.textSec,fontSize:13}}>Loading…</div>
+                ) : itemOrders.length === 0 ? (
+                  <DrawerEmpty T={T} icon={<FaBox size={22}/>} title="No Transactions" sub="Sales and purchase orders containing this item will appear here." />
+                ) : (
+                  <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                    {/* Purchase receipts section */}
+                    {purchases.length > 0 && (
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                          <span style={{width:8,height:8,borderRadius:"50%",background:T.green,flexShrink:0}}/>
+                          <span style={{fontSize:10,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:".08em"}}>Inbound — Purchase Orders</span>
+                        </div>
+                        <div style={{border:`1px solid ${border}`,borderRadius:10,overflow:"hidden"}}>
+                          <div style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"8px 12px",background:isDark?"rgba(16,185,129,.05)":"#f0fdf4",borderBottom:`1px solid ${border}`}}>
+                            {["Date","PO #","Vendor","Qty","Total","Status"].map(h=>(
+                              <span key={h} style={{fontSize:10,fontWeight:700,color:T.textSec,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
+                            ))}
+                          </div>
+                          <div style={{maxHeight:220,overflowY:"auto"}}>
+                          {purchases.map((o,i)=>{
+                            const s = sc(o.status);
+                            return (
+                              <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"10px 12px",borderBottom:i<purchases.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
+                                <span style={{fontSize:11,color:T.textSec}}>{fmtD(o.date)}</span>
+                                <span style={{fontSize:11,color:T.green,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
+                                <span style={{fontSize:11,color:T.textPri,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.partyName}</span>
+                                <span style={{fontSize:12,fontWeight:700,color:T.green,fontFamily:"'Sora',sans-serif"}}>+{o.qty}</span>
+                                <span style={{fontSize:11,color:T.textPri,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
+                                <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600,background:s.bg,color:s.text,textTransform:"capitalize",width:"fit-content"}}>
+                                  <span style={{width:5,height:5,borderRadius:"50%",background:s.text,flexShrink:0}}/>
+                                  {o.status||"—"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:isDark?"rgba(16,185,129,.04)":"#f0fdf4",borderTop:`1px solid ${border}`}}>
+                            <span style={{fontSize:12,color:T.textSec}}>{purchases.length} order{purchases.length!==1?"s":""} · +{purchases.reduce((s,o)=>s+o.qty,0)} units received</span>
+                            <span style={{fontSize:13,fontWeight:700,color:T.green,fontFamily:"monospace"}}>{fmtA(purchases.reduce((s,o)=>s+o.total,0))}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sales orders section */}
+                    {sales.length > 0 && (
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                          <span style={{width:8,height:8,borderRadius:"50%",background:T.blue,flexShrink:0}}/>
+                          <span style={{fontSize:10,fontWeight:700,color:T.blue,textTransform:"uppercase",letterSpacing:".08em"}}>Outbound — Sales Orders</span>
+                        </div>
+                        <div style={{border:`1px solid ${border}`,borderRadius:10,overflow:"hidden"}}>
+                          <div style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"8px 12px",background:isDark?"rgba(59,130,246,.05)":"#eff6ff",borderBottom:`1px solid ${border}`}}>
+                            {["Date","Order #","Customer","Qty","Total","Status"].map(h=>(
+                              <span key={h} style={{fontSize:10,fontWeight:700,color:T.textSec,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
+                            ))}
+                          </div>
+                          <div style={{maxHeight:220,overflowY:"auto"}}>
+                          {sales.map((o,i)=>{
+                            const s = sc(o.status);
+                            return (
+                              <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.2fr 1.1fr 1fr .8fr .9fr 80px",gap:0,padding:"10px 12px",borderBottom:i<sales.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
+                                <span style={{fontSize:11,color:T.textSec}}>{fmtD(o.date)}</span>
+                                <span style={{fontSize:11,color:T.blue,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
+                                <span style={{fontSize:11,color:T.textPri,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.partyName}</span>
+                                <span style={{fontSize:12,fontWeight:700,color:T.red,fontFamily:"'Sora',sans-serif"}}>−{o.qty}</span>
+                                <span style={{fontSize:11,color:T.textPri,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
+                                <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600,background:s.bg,color:s.text,textTransform:"capitalize",width:"fit-content"}}>
+                                  <span style={{width:5,height:5,borderRadius:"50%",background:s.text,flexShrink:0}}/>
+                                  {o.status||"—"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:isDark?"rgba(59,130,246,.04)":"#eff6ff",borderTop:`1px solid ${border}`}}>
+                            <span style={{fontSize:12,color:T.textSec}}>{sales.length} order{sales.length!==1?"s":""} · −{sales.reduce((s,o)=>s+o.qty,0)} units sold</span>
+                            <span style={{fontSize:13,fontWeight:700,color:T.textPri,fontFamily:"monospace"}}>{fmtA(sales.reduce((s,o)=>s+o.total,0))}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {activeTab === "history" && (() => {
+                const fmtD = (d) => d ? new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+                const timeline = [...itemOrders].sort((a,b) => new Date(a.date) - new Date(b.date));
+                return ordersLoading ? (
+                  <div style={{textAlign:"center",padding:"48px 0",color:T.textSec,fontSize:13}}>Loading…</div>
+                ) : itemOrders.length === 0 ? (
+                  <DrawerEmpty T={T} icon={<FaBarcode size={22}/>} title="No History" sub="Stock movements will appear here once orders are placed." />
+                ) : (
+                  <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                    {/* Opening stock entry */}
+                    <div style={{display:"flex",gap:14,paddingBottom:18,position:"relative"}}>
+                      <div style={{position:"absolute",left:7,top:18,bottom:0,width:1,background:border}}/>
+                      <div style={{width:15,height:15,borderRadius:"50%",background:T.green,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:T.textPri}}>Opening Stock</div>
+                        <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{selectedItem.opening_stock||0} units · Initial inventory</div>
+                      </div>
+                    </div>
+
+                    {timeline.map((o, i) => {
+                      const isPurchase  = o.type === "purchase";
+                      const isReturned  = o.type === "sale" && o.status === "cancelled";
+                      const dotColor    = isPurchase ? T.green : isReturned ? T.blue : T.amber;
+                      const qtyColor    = isPurchase ? T.green : isReturned ? T.green : T.red;
+                      const qtySign     = isPurchase || isReturned ? "+" : "−";
+                      const label       = isPurchase
+                        ? "Stock Received"
+                        : isReturned
+                          ? "Stock Returned"
+                          : "Stock Reduced";
+                      const isLast = i === timeline.length - 1;
+                      return (
+                        <div key={o.id||i} style={{display:"flex",gap:14,paddingBottom:18,position:"relative"}}>
+                          {!isLast && <div style={{position:"absolute",left:7,top:18,bottom:0,width:1,background:border}}/>}
+                          <div style={{width:15,height:15,borderRadius:"50%",background:dotColor,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:600,color:T.textPri}}>
+                              {label} — <span style={{fontFamily:"monospace",color:qtyColor}}>{qtySign}{o.qty} units</span>
+                            </div>
+                            <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
+                              {fmtD(o.date)} · {o.orderNumber} · {o.partyName}
+                              {isPurchase && <span style={{marginLeft:6,padding:"1px 6px",borderRadius:8,fontSize:10,fontWeight:600,background:T.greenDim,color:T.green}}>Purchase</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Current stock */}
+                    <div style={{display:"flex",gap:14}}>
+                      <div style={{width:15,height:15,borderRadius:"50%",background:T.blue,flexShrink:0,marginTop:3,border:`2px solid ${surface2}`,position:"relative",zIndex:1}}/>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:T.textPri}}>Current Stock</div>
+                        <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{selectedItem.quantity||0} units remaining</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
-            {/* Drawer footer */}
-            <div style={{ padding: "14px 20px", borderTop: `1px solid ${border}`, flexShrink: 0, display: "flex", gap: 8 }}>
-              <button
-                className="itm-btn"
-                onClick={() => navigate(`/Items/Items/Edit/${selectedItem._id || selectedItem.id}`)}
-                style={{
-                  flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-                  padding: "10px", background: T.blue, border: "none", borderRadius: 10,
-                  color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  fontFamily: "'DM Sans',sans-serif",
-                  boxShadow: `0 3px 12px ${isDark ? "rgba(59,130,246,.3)" : "rgba(37,99,235,.22)"}`,
-                }}
-              >
-                <FaEdit size={11} /> Edit Item
-              </button>
-              <button
-                className="itm-btn"
-                onClick={closeDrawer}
-                style={{
-                  flex: 1, padding: "10px", background: surface2, border: `1px solid ${border}`,
-                  borderRadius: 10, color: T.textSec, fontSize: 13, fontWeight: 600,
-                  cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-                }}
-              >
-                Close
-              </button>
-            </div>
+            
           </>
         )}
       </div>
+
+      {/* ══ STOCK ADJUST MODAL ══════════════════════════════════════════ */}
+      {adjustItem && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setAdjustItem(null)}>
+          <div style={{ background: isDark ? "#0f172a" : "#fff", border: `1px solid ${border}`, borderRadius: 16, padding: "24px 28px", width: 340, boxShadow: "0 32px 80px rgba(0,0,0,.45)" }}
+            onClick={e => e.stopPropagation()}>
+            <p className="sora" style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: "0 0 4px" }}>Adjust Stock</p>
+            <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 20px" }}>{adjustItem.name} · Current: <strong style={{ color: T.textPri }}>{adjustItem.quantity ?? 0}</strong></p>
+            <label style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>New Quantity</label>
+            <input
+              autoFocus
+              type="number"
+              min="0"
+              value={adjustQty}
+              onChange={e => setAdjustQty(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleAdjustStock()}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: `1.5px solid ${border}`, background: T.surface2, color: T.textPri, fontSize: 15, fontWeight: 700, fontFamily: "'DM Mono',monospace", outline: "none", boxSizing: "border-box" }}
+            />
+            {adjustQty !== '' && parseFloat(adjustQty) !== parseFloat(adjustItem.quantity ?? 0) && (
+              <p style={{ fontSize: 11, color: parseFloat(adjustQty) > parseFloat(adjustItem.quantity ?? 0) ? "#10b981" : "#f59e0b", margin: "6px 0 0" }}>
+                {parseFloat(adjustQty) > parseFloat(adjustItem.quantity ?? 0)
+                  ? `+${parseFloat(adjustQty) - parseFloat(adjustItem.quantity ?? 0)} units will be added`
+                  : `${parseFloat(adjustItem.quantity ?? 0) - parseFloat(adjustQty)} units will be removed`}
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <button onClick={handleAdjustStock} disabled={adjustLoading || adjustQty === '' || parseFloat(adjustQty) < 0}
+                style={{ flex: 1, padding: "10px", background: "linear-gradient(135deg,#3b82f6,#2563eb)", color: "#fff", border: "none", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: adjustLoading ? 0.7 : 1 }}>
+                {adjustLoading ? "Saving…" : "Save"}
+              </button>
+              <button onClick={() => setAdjustItem(null)}
+                style={{ flex: 1, padding: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${border}`, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

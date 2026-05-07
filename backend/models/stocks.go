@@ -10,7 +10,7 @@ type Stock struct {
 	ID               primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	Name             string             `json:"name" bson:"name"`
 	ItemCode         string             `json:"item_code" bson:"item_code"`
-	Unit             string             `json:"Unit" bson:"unit"`
+	Unit             string             `json:"unit" bson:"unit"`
 	Length           string             `json:"length" bson:"length"`
 	Width            string             `json:"width" bson:"width"`
 	Height           string             `json:"height" bson:"height"`
@@ -34,6 +34,7 @@ type Stock struct {
 	OpeningStockRate string             `json:"opening_stock_rate" bson:"opening_stock_rate"`
 	ReorderPoint     string             `json:"reorder_point" bson:"reorder_point"`
 	Quantity         string             `json:"quantity" bson:"quantity"`
+	OrgID            string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt        time.Time          `json:"created_at" bson:"created_at"`
 	UpdatedAt        time.Time          `json:"updated_at" bson:"updated_at"`
 	CreatedBy        string             `json:"created_by" bson:"created_by"`
