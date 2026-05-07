@@ -23,9 +23,10 @@ func GetAllStocks() gin.HandlerFunc {
 		var stocks []models.Stock
 		defer cancel()
 
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 		collection := config.GetCollection(config.DB, "stocks")
-		fmt.Println(collection, "this is the collection")
-		results, err := collection.Find(ctx, bson.M{})
+		results, err := collection.Find(ctx, bson.M{"orgId": orgIDStr})
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -75,7 +76,9 @@ func AddItem() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
 		item.ID = primitive.NewObjectID()
+		item.OrgID = fmt.Sprintf("%v", orgID)
 		item.CreatedAt = time.Now()
 		item.UpdatedAt = time.Now()
 
@@ -102,5 +105,109 @@ func AddItem() gin.HandlerFunc {
 			"data":    responseItem,
 		})
 
+	}
+}
+
+// ─── REDUCE STOCK ─────────────────────────────────────────────────────────────
+func ReduceStock() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid item ID format", "error": err.Error()})
+			return
+		}
+
+		var body struct {
+			ReduceBy float64 `json:"reduceBy"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || body.ReduceBy <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "reduceBy must be a positive number"})
+			return
+		}
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		var stock models.Stock
+		err = stockCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}).Decode(&stock)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Stock item not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve stock item", "error": err.Error()})
+			}
+			return
+		}
+
+		currentQty := 0.0
+		fmt.Sscanf(stock.Quantity, "%f", &currentQty)
+		if body.ReduceBy > currentQty {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Insufficient stock", "data": gin.H{"available": currentQty, "requested": body.ReduceBy}})
+			return
+		}
+		newQty := currentQty - body.ReduceBy
+
+		update := bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}}
+		_, err = stockCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}, update)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update stock quantity", "error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Stock reduced successfully", "data": gin.H{"previousQty": currentQty, "reducedBy": body.ReduceBy, "newQty": newQty}})
+	}
+}
+
+// ─── INCREASE STOCK ───────────────────────────────────────────────────────────
+func IncreaseStock() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid item ID format", "error": err.Error()})
+			return
+		}
+
+		var body struct {
+			IncreaseBy float64 `json:"increaseBy"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || body.IncreaseBy <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "increaseBy must be a positive number"})
+			return
+		}
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		var stock models.Stock
+		err = stockCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}).Decode(&stock)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Stock item not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve stock item", "error": err.Error()})
+			}
+			return
+		}
+
+		currentQty := 0.0
+		fmt.Sscanf(stock.Quantity, "%f", &currentQty)
+		newQty := currentQty + body.IncreaseBy
+
+		update := bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}}
+		_, err = stockCollection.UpdateOne(ctx, bson.M{"_id": stock.ID, "orgId": orgIDStr}, update)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update stock quantity", "error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Stock increased successfully", "data": gin.H{"previousQty": currentQty, "increasedBy": body.IncreaseBy, "newQty": newQty}})
 	}
 }

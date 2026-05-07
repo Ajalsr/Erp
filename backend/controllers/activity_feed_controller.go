@@ -53,6 +53,7 @@ func GetActivityFeed() gin.HandlerFunc {
 			limit = 20
 		}
 
+		orgID, _ := c.Get("orgId")
 		now := time.Now()
 		var events []ActivityEvent
 
@@ -71,7 +72,7 @@ func GetActivityFeed() gin.HandlerFunc {
 				"total":        1,
 			})
 
-		soCursor, err := soCol.Find(ctx, bson.M{}, soOpts)
+		soCursor, err := soCol.Find(ctx, bson.M{"orgId": orgID}, soOpts)
 		if err == nil {
 			defer soCursor.Close(ctx)
 			var soResults []bson.M
@@ -140,7 +141,7 @@ func GetActivityFeed() gin.HandlerFunc {
 				"customerCode":        1,
 			})
 
-		custCursor, err := custCol.Find(ctx, bson.M{"status": bson.M{"$ne": "deleted"}}, custOpts)
+		custCursor, err := custCol.Find(ctx, bson.M{"orgId": orgID, "status": bson.M{"$ne": "deleted"}}, custOpts)
 		if err == nil {
 			defer custCursor.Close(ctx)
 			var custResults []bson.M
@@ -192,7 +193,7 @@ func GetActivityFeed() gin.HandlerFunc {
 				"category":      1,
 			})
 
-		stockCursor, err := stockCol.Find(ctx, bson.M{}, stockOpts)
+		stockCursor, err := stockCol.Find(ctx, bson.M{"orgId": orgID}, stockOpts)
 		if err == nil {
 			defer stockCursor.Close(ctx)
 			var stockResults []bson.M

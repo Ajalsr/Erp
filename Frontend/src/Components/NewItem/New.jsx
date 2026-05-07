@@ -1,9 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { IoMdClose } from "react-icons/io";
 import { useNavigate } from 'react-router-dom';
 import useAdditem from '../../helper/useAddItem';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import axiosInstance from '../../helper/axiosInstance';
 
 /* ─── Colour palette derived from item name ─────────────────────────── */
 const PALETTE = [
@@ -80,38 +82,144 @@ function Input({ prefix, suffix, mono, T, error, ...props }) {
   );
 }
 
-/* ─── Select ─────────────────────────────────────────────────────────── */
-function Sel({ T, error, children, ...props }) {
-  const [focused, setFocused] = useState(false);
-  const borderClr = error ? '#ef4444' : focused ? '#3b82f6' : T.border;
-  const shadowClr = error ? 'rgba(239,68,68,.15)' : 'rgba(59,130,246,.12)';
+
+/* ─── PortalSelect — modern themed dropdown ─────────────────────────── */
+function PortalSelect({ T, isDark, name, value, onChange, options = [], placeholder = 'Select…', error }) {
+  const [open,    setOpen]    = useState(false);
+  const [ready,   setReady]   = useState(false);
+  const [query,   setQuery]   = useState('');
+  const [pos,     setPos]     = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const searchRef  = useRef(null);
+  const rafRef     = useRef(null);
+
+  const searchable = options.length > 8;
+  const filtered   = searchable && query
+    ? options.filter(o => (o.label ?? o).toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  const selected = options.find(o => (o.value ?? o) === value);
+  const display  = selected ? (selected.label ?? selected) : null;
+
+  const measure = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r   = triggerRef.current.getBoundingClientRect();
+    const dropH = Math.min(filtered.length * 42 + (searchable ? 52 : 10), 280);
+    const below = window.innerHeight - r.bottom;
+    const top   = below > dropH ? r.bottom + 4 : r.top - dropH - 4;
+    setPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width });
+    setReady(true);
+  }, [filtered.length, searchable]);
+
+  const handleOpen = () => {
+    if (open) { setOpen(false); setReady(false); setQuery(''); return; }
+    setReady(false); setOpen(true);
+    rafRef.current = requestAnimationFrame(() =>
+      rafRef.current = requestAnimationFrame(() => {
+        measure();
+        setTimeout(() => searchRef.current?.focus(), 40);
+      })
+    );
+  };
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+  useEffect(() => {
+    if (!open) return;
+    const h = () => measure();
+    window.addEventListener('scroll', h, true);
+    window.addEventListener('resize', h);
+    return () => { window.removeEventListener('scroll', h, true); window.removeEventListener('resize', h); };
+  }, [open, measure]);
+  useEffect(() => {
+    const h = e => {
+      if (!triggerRef.current?.contains(e.target) && !dropRef.current?.contains(e.target))
+        { setOpen(false); setReady(false); setQuery(''); }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const select = opt => {
+    onChange({ target: { name, value: opt.value ?? opt } });
+    setOpen(false); setReady(false); setQuery('');
+  };
+
+  const bg       = isDark ? T.surface  : '#fff';
+  const borderC  = error ? '#ef4444' : open ? '#3b82f6' : T.border;
+  const shadow   = error ? 'rgba(239,68,68,.15)' : 'rgba(59,130,246,.12)';
+  const activeC  = isDark ? '#60a5fa' : '#1d4ed8';
+  const activeBg = isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff';
+  const hoverBg  = isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc';
+
   return (
     <div>
-      <div style={{ position: 'relative' }}>
-        <select {...props}
-          onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-          style={{
-            width: '100%', padding: '10px 36px 10px 13px',
-            border: `1.5px solid ${borderClr}`,
-            borderRadius: 10, fontSize: 13, color: props.value ? T.textPri : T.textSec,
-            background: T.surface, outline: 'none', cursor: 'pointer',
-            fontFamily: "'DM Sans', sans-serif", appearance: 'none',
-            boxShadow: (focused || error) ? `0 0 0 3px ${shadowClr}` : 'none',
-            transition: 'border-color .15s, box-shadow .15s',
-          }}
-        >{children}</select>
-        <svg style={{ position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',pointerEvents:'none', color: error ? '#ef4444' : T.textSec }}
+      <div ref={triggerRef} onClick={handleOpen} style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        height: 42, padding: '0 13px', borderRadius: 10, cursor: 'pointer',
+        border: `1.5px solid ${borderC}`, background: bg, userSelect: 'none',
+        boxShadow: (open || error) ? `0 0 0 3px ${shadow}` : 'none',
+        transition: 'border-color .15s, box-shadow .15s',
+      }}>
+        <span style={{ fontSize: 13, color: display ? T.textPri : T.textSec, fontFamily: "'DM Sans', sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {display ?? placeholder}
+        </span>
+        <svg style={{ flexShrink: 0, transition: 'transform .2s', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', color: open ? '#3b82f6' : T.textSec }}
           width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6 9l6 6 6-6"/>
+          <path d="M6 9l6 6 6-6" />
         </svg>
       </div>
+
       {error && (
-        <p style={{ margin: '4px 0 0', fontSize: 11, color: '#ef4444', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
-          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-            <circle cx={12} cy={12} r={10}/><line x1={12} y1={8} x2={12} y2={12}/><line x1={12} y1={16} x2="12.01" y2={16}/>
-          </svg>
-          {error}
-        </p>
+        <p style={{ margin: '4px 0 0', fontSize: 11, color: '#ef4444', fontWeight: 500 }}>{error}</p>
+      )}
+
+      {open && createPortal(
+        <div ref={dropRef} style={{
+          position: 'absolute', top: pos.top, left: pos.left, width: pos.width,
+          zIndex: 99999, background: bg, border: `1.5px solid ${T.border}`, borderRadius: 12,
+          boxShadow: isDark ? '0 16px 48px rgba(0,0,0,0.5)' : '0 16px 48px rgba(0,0,0,0.12)',
+          overflow: 'hidden', fontFamily: "'DM Sans', sans-serif",
+          visibility: ready ? 'visible' : 'hidden', opacity: ready ? 1 : 0, transition: 'opacity .12s',
+        }}>
+          {searchable && (
+            <div style={{ padding: '8px 8px 4px', borderBottom: `1px solid ${T.border}` }}>
+              <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                placeholder="Search…"
+                style={{ width: '100%', height: 32, padding: '0 10px', border: `1.5px solid ${T.border}`, borderRadius: 8,
+                  fontSize: 12, background: T.surface2, color: T.textPri, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            </div>
+          )}
+          <div style={{ maxHeight: 240, overflowY: 'auto', padding: '5px' }}>
+            {filtered.length === 0
+              ? <div style={{ padding: '14px', textAlign: 'center', fontSize: 12, color: T.textMuted }}>No results</div>
+              : filtered.map((opt, i) => {
+                  const val   = opt.value ?? opt;
+                  const lbl   = opt.label ?? opt;
+                  const isAct = val === value;
+                  return (
+                    <div key={i} onClick={() => select(opt)} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '9px 11px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                      fontWeight: isAct ? 600 : 400,
+                      color: isAct ? activeC : T.textPri,
+                      background: isAct ? activeBg : 'transparent', transition: 'background .1s',
+                    }}
+                      onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+                      onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = 'transparent'; }}>
+                      {lbl}
+                      {isAct && (
+                        <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={activeC} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </div>
+                  );
+                })}
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -260,6 +368,9 @@ const New = () => {
   const [salesEnabled, setSalesEnabled] = useState(false);
   const [purchaseEnabled, setPurchaseEnabled] = useState(false);
   const [trackInventory, setTrackInventory] = useState(false);
+  const [vendorOptions, setVendorOptions]   = useState([]);
+  const [allAccounts, setAllAccounts]       = useState([]);
+  const [groupOptions, setGroupOptions]     = useState([]);
 
   const showInventorySection = salesEnabled && purchaseEnabled;
 
@@ -278,6 +389,33 @@ const New = () => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     setErrors(prev => { const n = { ...prev }; delete n[name]; return n; });
+  }, []);
+
+  /* ── Vendor + Account lists ── */
+  useEffect(() => {
+    axiosInstance.get('/api/vendors/?limit=500')
+      .then(res => {
+        const list = res.data?.data?.vendors || res.data?.vendors || [];
+        setVendorOptions(list.map(v => ({
+          label: v.displayName || v.name || v.companyName || 'Unknown',
+          value: v._id,
+        })));
+      })
+      .catch(() => {});
+
+    axiosInstance.get('/api/accounts/?limit=500&status=active')
+      .then(res => {
+        const list = res.data?.data?.accounts || [];
+        setAllAccounts(list.map(a => ({ label: `[${a.accountCode}] ${a.accountName}`, value: a._id })));
+      })
+      .catch(() => {});
+
+    axiosInstance.get('/api/item-groups/?status=active')
+      .then(res => {
+        const list = res.data?.data?.groups || [];
+        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
+      })
+      .catch(() => {});
   }, []);
 
   /* ── Scroll spy ── */
@@ -506,29 +644,39 @@ const New = () => {
                 <F label="Item Name" req T={T}><Input name="name" value={formData.name} onChange={handleChange} placeholder="e.g. Ergonomic Office Chair" autoFocus T={T} error={errors.name} /></F>
                 <F label="Item Code" req T={T}><Input name="item_code" value={formData.item_code} onChange={handleChange} placeholder="ITM-001" mono T={T} error={errors.item_code} /></F>
                 <F label="SKU" T={T}><Input name="sku" value={formData.sku} onChange={handleChange} placeholder="Stock keeping unit" mono T={T} /></F>
-                <F label="Category" T={T}>
-                  <Sel name="category" value={formData.category} onChange={handleChange} T={T}>
-                    <option value="">Select category…</option>
-                    {['Furniture','Electronics','Office Supplies','Lighting','Tools','Other'].map(c => (
-                      <option key={c} value={c.toLowerCase()}>{c}</option>
-                    ))}
-                  </Sel>
+                <F label="Category / Group" T={T}>
+                  <PortalSelect T={T} isDark={isDark} name="category" value={formData.category} onChange={handleChange}
+                    placeholder={groupOptions.length ? 'Select group…' : 'No groups yet — add in Item Groups'}
+                    options={groupOptions} />
                 </F>
                 <F label="Unit of Measure" req T={T}>
-                  <Sel name="unit" value={formData.unit} onChange={handleChange} T={T} error={errors.unit}>
-                    <option value="" disabled>Select unit…</option>
-                    {['Piece','Box','Kilogram (kg)','Liter','Meter','Set','Dozen'].map(u => (
-                      <option key={u} value={u.toLowerCase()}>{u}</option>
-                    ))}
-                  </Sel>
+                  <PortalSelect T={T} isDark={isDark} name="unit" value={formData.unit} onChange={handleChange} placeholder="Select unit…" error={errors.unit}
+                    options={[
+                      { label: 'Piece (pcs)',        value: 'piece'   },
+                      { label: 'Box',                value: 'box'     },
+                      { label: 'Carton (ctn)',       value: 'carton'  },
+                      { label: 'Pallet',             value: 'pallet'  },
+                      { label: 'Set',                value: 'set'     },
+                      { label: 'Pair',               value: 'pair'    },
+                      { label: 'Dozen (dz)',         value: 'dozen'   },
+                      { label: 'Kilogram (kg)',      value: 'kg'      },
+                      { label: 'Gram (g)',           value: 'g'       },
+                      { label: 'Ton (t)',            value: 'ton'     },
+                      { label: 'Liter (L)',          value: 'liter'   },
+                      { label: 'Milliliter (mL)',    value: 'ml'      },
+                      { label: 'Meter (m)',          value: 'meter'   },
+                      { label: 'Centimeter (cm)',    value: 'cm'      },
+                      { label: 'Square Meter (m²)',  value: 'sqm'     },
+                      { label: 'Cubic Meter (m³)',   value: 'cbm'     },
+                      { label: 'Roll',               value: 'roll'    },
+                      { label: 'Sheet',              value: 'sheet'   },
+                      { label: 'Bundle',             value: 'bundle'  },
+                      { label: 'Unit',               value: 'unit'    },
+                    ]} />
                 </F>
                 <F label="Brand" T={T}>
-                  <Sel name="brand" value={formData.brand} onChange={handleChange} T={T}>
-                    <option value="">Select brand…</option>
-                    {['FurnitureCo','OfficePro','LightTech','HomeDecor'].map(b => (
-                      <option key={b} value={b.toLowerCase()}>{b}</option>
-                    ))}
-                  </Sel>
+                  <input className="nw2-inp" name="brand" value={formData.brand} onChange={handleChange} placeholder="e.g. Samsung, Bosch…"
+                    style={{ width: '100%', height: 42, padding: '0 13px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: "'DM Sans',sans-serif", transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box' }} />
                 </F>
               </div>
             </Section>
@@ -538,29 +686,28 @@ const New = () => {
           <div className="nw2-sec" style={{ animationDelay: '.06s' }}>
             <Section id="sec-physical" title="Physical Attributes" icon="📐" accent="#8b5cf6" T={T}>
               <F label="Dimensions" hint="L × W × H" T={T}>
-                <div style={{ display: 'flex', borderRadius: 10, overflow: 'hidden', border: `1.5px solid ${T.border}`, background: T.surface }}>
-                  {['length','width','height'].map((dim, i) => (
-                    <React.Fragment key={dim}>
-                      {i > 0 && <span style={{ display:'flex',alignItems:'center',color:T.textSec,fontSize:15,padding:'0 4px',background:T.surface,flexShrink:0,userSelect:'none' }}>×</span>}
-                      <input name={dim} value={formData[dim]} onChange={handleChange} placeholder="0"
-                        style={{ flex:1,padding:'10px 8px',textAlign:'center',background:'transparent',border:'none',outline:'none',fontSize:13,color:T.textPri,fontFamily:"'DM Mono',monospace",minWidth:0 }} />
-                    </React.Fragment>
-                  ))}
-                  <select name="dimension_unit" value={formData.dimension_unit} onChange={handleChange}
-                    style={{ padding:'10px 12px',background:T.surface2,border:'none',borderLeft:`1.5px solid ${T.border}`,outline:'none',fontSize:12,color:T.textSec,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",flexShrink:0 }}>
-                    {['cm','in','mm','m'].map(u => <option key={u}>{u}</option>)}
-                  </select>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ flex: 1, display: 'flex', borderRadius: 10, overflow: 'hidden', border: `1.5px solid ${T.border}`, background: T.surface }}>
+                    {['length','width','height'].map((dim, i) => (
+                      <React.Fragment key={dim}>
+                        {i > 0 && <span style={{ display:'flex',alignItems:'center',color:T.textSec,fontSize:15,padding:'0 4px',background:T.surface,flexShrink:0,userSelect:'none' }}>×</span>}
+                        <input name={dim} value={formData[dim]} onChange={handleChange} placeholder="0"
+                          style={{ flex:1,padding:'10px 8px',textAlign:'center',background:'transparent',border:'none',outline:'none',fontSize:13,color:T.textPri,fontFamily:"'DM Mono',monospace",minWidth:0 }} />
+                      </React.Fragment>
+                    ))}
+                  </div>
+                  <div style={{ width: 84, flexShrink: 0 }}>
+                    <PortalSelect T={T} isDark={isDark} name="dimension_unit" value={formData.dimension_unit} onChange={handleChange}
+                      options={[{label:'cm',value:'cm'},{label:'in',value:'in'},{label:'mm',value:'mm'},{label:'m',value:'m'}]} />
+                  </div>
                 </div>
               </F>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16, marginBottom: 16 }}>
                 <F label="Weight" T={T}><Input name="weight" value={formData.weight} onChange={handleChange} placeholder="0.00" suffix="kg" mono T={T} /></F>
                 <F label="Manufacturer" T={T}>
-                  <Sel name="manufacturer" value={formData.manufacturer} onChange={handleChange} T={T}>
-                    <option value="">Select manufacturer…</option>
-                    <option value="manufacturer1">Manufacturer 1</option>
-                    <option value="manufacturer2">Manufacturer 2</option>
-                  </Sel>
+                  <input className="nw2-inp" name="manufacturer" value={formData.manufacturer} onChange={handleChange} placeholder="e.g. Sony, 3M, Honeywell…"
+                    style={{ width: '100%', height: 42, padding: '0 13px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: "'DM Sans',sans-serif", transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box' }} />
                 </F>
               </div>
 
@@ -593,9 +740,9 @@ const New = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12, opacity: salesEnabled ? 1 : .4, pointerEvents: salesEnabled ? 'auto' : 'none', transition: 'opacity .2s' }}>
                     <F label="Selling Price" T={T}><Input prefix="AED" type="number" name="selling_price" value={formData.selling_price} onChange={handleChange} placeholder="0.00" disabled={!salesEnabled} T={T} /></F>
                     <F label="Account" T={T}>
-                      <Sel name="sales_account" value={formData.sales_account} onChange={handleChange} disabled={!salesEnabled} T={T}>
-                        <option value="">[89707] Sales</option>
-                      </Sel>
+                      <PortalSelect T={T} isDark={isDark} name="sales_account" value={formData.sales_account} onChange={handleChange}
+                        placeholder={allAccounts.length ? 'Select account…' : 'No accounts yet — add in Finance'}
+                        options={allAccounts} />
                     </F>
                     <F label="Description" T={T}><Textarea name="sales_description" value={formData.sales_description} onChange={handleChange} disabled={!salesEnabled} placeholder="Sales description…" T={T} /></F>
                   </div>
@@ -615,15 +762,15 @@ const New = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12, opacity: purchaseEnabled ? 1 : .4, pointerEvents: purchaseEnabled ? 'auto' : 'none', transition: 'opacity .2s' }}>
                     <F label="Cost Price" T={T}><Input prefix="AED" type="number" name="cost_price" value={formData.cost_price} onChange={handleChange} placeholder="0.00" disabled={!purchaseEnabled} T={T} /></F>
                     <F label="Account" T={T}>
-                      <Sel name="cost_account" value={formData.cost_account} onChange={handleChange} disabled={!purchaseEnabled} T={T}>
-                        <option value="">[6683] Cost of Goods Sold</option>
-                      </Sel>
+                      <PortalSelect T={T} isDark={isDark} name="cost_account" value={formData.cost_account} onChange={handleChange}
+                        placeholder={allAccounts.length ? 'Select account…' : 'No accounts yet — add in Finance'}
+                        options={allAccounts} />
                     </F>
                     <F label="Description" T={T}><Textarea name="cost_description" value={formData.cost_description} onChange={handleChange} disabled={!purchaseEnabled} placeholder="Purchase description…" T={T} /></F>
                     <F label="Preferred Vendor" T={T}>
-                      <Sel name="preferred_vendor" value={formData.preferred_vendor} onChange={handleChange} disabled={!purchaseEnabled} T={T}>
-                        <option value="">Select vendor…</option>
-                      </Sel>
+                      <PortalSelect T={T} isDark={isDark} name="preferred_vendor" value={formData.preferred_vendor} onChange={handleChange}
+                        placeholder="Select vendor…"
+                        options={vendorOptions} />
                     </F>
                   </div>
                 </div>
@@ -698,9 +845,9 @@ const New = () => {
                   {trackInventory && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, animation: 'nwUp .2s ease both' }}>
                       <F label="Inventory Account" req T={T}>
-                        <Sel name="inventory_account" value={formData.inventory_account} onChange={handleChange} T={T}>
-                          <option value="">[36945] Inventory Asset</option>
-                        </Sel>
+                        <PortalSelect T={T} isDark={isDark} name="inventory_account" value={formData.inventory_account} onChange={handleChange}
+                          placeholder={allAccounts.length ? 'Select account…' : 'No accounts yet — add in Finance'}
+                          options={allAccounts} />
                       </F>
                       <F label="Opening Stock" T={T}><Input type="number" name="opening_stock" value={formData.opening_stock} onChange={handleChange} placeholder="0" T={T} /></F>
                       <F label="Rate per Unit" T={T}><Input prefix="AED" type="number" name="opening_stock_rate" value={formData.opening_stock_rate} onChange={handleChange} placeholder="0.00" T={T} /></F>

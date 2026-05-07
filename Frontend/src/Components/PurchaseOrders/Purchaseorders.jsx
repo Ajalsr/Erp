@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FaPlus, FaTimes, FaSearch, FaBoxOpen,
   FaChevronLeft, FaChevronRight,
-  FaFileInvoiceDollar, FaEdit, FaBan,
+  FaFileInvoiceDollar, FaBan,
   FaCheckCircle, FaClock, FaTimesCircle, FaSpinner,
   FaTruck, FaDownload, FaFilter, FaEllipsisV,
 } from 'react-icons/fa';
@@ -73,9 +73,10 @@ export default function Purchaseorders() {
   const [page,        setPage]        = useState(1);
   const [totalPages,  setTotalPages]  = useState(1);
   const [totalCount,  setTotalCount]  = useState(0);
-  const [drawer,      setDrawer]      = useState(false);
-  const [selected,    setSelected]    = useState(null);
-  const [activeTab,   setActiveTab]   = useState('overview');
+  const [drawer,         setDrawer]         = useState(false);
+  const [selected,       setSelected]       = useState(null);
+  const [activeTab,      setActiveTab]      = useState('overview');
+  const [markingReceived,setMarkingReceived]= useState(false);
   const PER_PAGE = 15;
 
   const fetchOrders = useCallback(async () => {
@@ -246,8 +247,7 @@ export default function Purchaseorders() {
                       <td style={{ ...tdS, textAlign:'right', fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:700 }}>{fmtAmt(o.total)}</td>
                       <td style={{ ...tdS, textAlign:'center' }}>
                         <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
-                          <button className="po-icon-btn" title="View"   onClick={()=>openDrawer(o)}><FaFileInvoiceDollar size={12}/></button>
-                          <button className="po-icon-btn" title="Edit"   onClick={()=>navigate(`/Purchase/Purchaseorders/${o._id}/edit`)}><FaEdit size={12}/></button>
+                          <button className="po-icon-btn" title="View" onClick={()=>openDrawer(o)}><FaFileInvoiceDollar size={12}/></button>
                         </div>
                       </td>
                     </tr>
@@ -335,7 +335,7 @@ export default function Purchaseorders() {
                   <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>
                   <DRow label="Shipping"      value={fmtAmt(selected.shippingCharges)} T={T}/>
                   <DRow label="Adjustment"    value={fmtAmt(selected.adjustment)} T={T}/>
-                  <DRow label="VAT (5%)"      value={fmtAmt(selected.vat)} T={T}/>
+                  <DRow label="VAT (5%)"      value={fmtAmt(selected.totalTax ?? selected.vat)} T={T}/>
                   {selected.notes && (
                     <div style={{ marginTop:14, padding:12, background:T.surface2, border:`1px solid ${border}`, borderRadius:10 }}>
                       <p style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:T.textSec, margin:'0 0 6px' }}>Notes</p>
@@ -361,7 +361,7 @@ export default function Purchaseorders() {
                           <div style={{ display:'flex', gap:16 }}>
                             <span style={{ fontSize:11, color:T.textSec }}>Qty: <strong style={{ color:T.textPri }}>{item.quantity}</strong></span>
                             <span style={{ fontSize:11, color:T.textSec }}>Rate: <strong style={{ color:T.textPri, fontFamily:"'DM Mono',monospace" }}>AED {item.rate}</strong></span>
-                            {item.discount>0 && <span style={{ fontSize:11, color:T.amber }}>Disc: {item.discount}%</span>}
+                            {item.discount>0 && <span style={{ fontSize:11, color:T.amber }}>Disc: {item.discountType==='fixed' ? `AED ${item.discount}` : `${item.discount}%`}</span>}
                           </div>
                         </div>
                       ))}
@@ -381,23 +381,138 @@ export default function Purchaseorders() {
                 </div>
               )}
 
-              {activeTab==='history' && (
-                <div style={{ textAlign:'center', padding:'48px 0' }}>
-                  <FaClock size={32} style={{ color:T.textSec, opacity:0.4, marginBottom:10 }}/>
-                  <p style={{ fontSize:14, fontWeight:600, color:T.textPri, margin:'0 0 4px' }}>No History Yet</p>
-                  <p style={{ fontSize:12, color:T.textSec, margin:0 }}>Status changes will appear here</p>
-                </div>
-              )}
+              {activeTab==='history' && (() => {
+                const fmtTs = (d) => {
+                  if (!d) return '—';
+                  const dt = new Date(d);
+                  return dt.toLocaleDateString('en-AE', { day:'2-digit', month:'short', year:'numeric' }) + ' · ' +
+                         dt.toLocaleTimeString('en-AE', { hour:'2-digit', minute:'2-digit', hour12:true });
+                };
+                const fmtAgo = (d) => {
+                  if (!d) return '';
+                  const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+                  if (s < 60)   return `${s}s ago`;
+                  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+                  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+                  return `${Math.floor(s/86400)}d ago`;
+                };
+
+                // Build timeline events from available PO data
+                const events = [];
+                if (selected.createdAt) {
+                  events.push({ type:'created', label:'Purchase Order Created', sub:`Order ${selected.orderNumber} raised for ${selected.vendorName||'vendor'}`, ts:selected.createdAt, by:selected.createdBy, color:'#3b82f6', dot:'#3b82f6', bg:T.blueDim });
+                }
+                const statusHistory = [
+                  { key:'draft',     label:'Marked as Draft',     color:'#64748b' },
+                  { key:'pending',   label:'Submitted for Approval', color:'#f59e0b' },
+                  { key:'approved',  label:'Order Approved',       color:'#3b82f6' },
+                  { key:'ordered',   label:'Order Placed with Vendor', color:'#8b5cf6' },
+                  { key:'partial',   label:'Partial Receipt Recorded', color:'#06b6d4' },
+                  { key:'received',  label:'Goods Fully Received',  color:'#10b981' },
+                  { key:'cancelled', label:'Order Cancelled',       color:'#ef4444' },
+                ];
+                const curSt = (selected.status||'draft').toLowerCase();
+                const stCfg = statusHistory.find(s => s.key === curSt);
+                if (stCfg && selected.updatedAt && selected.updatedAt !== selected.createdAt) {
+                  events.push({ type:'status', label:stCfg.label, sub:`Status changed to "${stCfg.key}"`, ts:selected.updatedAt, by:selected.createdBy, color:stCfg.color, dot:stCfg.color, bg:`${stCfg.color}18` });
+                }
+                if (selected.expectedDeliveryDate) {
+                  const isPast = new Date(selected.expectedDeliveryDate) < new Date();
+                  events.push({ type:'delivery', label: isPast ? 'Expected Delivery (Overdue)' : 'Expected Delivery', sub:fmtDate(selected.expectedDeliveryDate), ts:selected.expectedDeliveryDate, color: isPast ? '#ef4444' : '#10b981', dot: isPast ? '#ef4444' : '#10b981', bg: isPast ? 'rgba(239,68,68,0.1)' : T.greenDim, future:!isPast });
+                }
+                events.sort((a,b) => new Date(a.ts) - new Date(b.ts));
+
+                return (
+                  <div>
+                    {/* Header */}
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
+                      <div>
+                        <p style={{ fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, color:T.textPri, margin:0 }}>Activity Timeline</p>
+                        <p style={{ fontSize:11, color:T.textSec, margin:'2px 0 0' }}>{events.length} event{events.length!==1?'s':''}</p>
+                      </div>
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:999, fontSize:10, fontWeight:700, background:T.surface2, color:T.textSec, border:`1px solid ${T.border}` }}>
+                        <FaClock size={8}/> Most recent last
+                      </span>
+                    </div>
+
+                    {events.length === 0 ? (
+                      <div style={{ textAlign:'center', padding:'48px 0' }}>
+                        <div style={{ width:52, height:52, borderRadius:16, background:T.surface2, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 14px', fontSize:22, color:T.textSec }}>
+                          <FaClock />
+                        </div>
+                        <p style={{ fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700, color:T.textPri, margin:'0 0 5px' }}>No History Yet</p>
+                        <p style={{ fontSize:12, color:T.textSec, margin:0 }}>Status changes will appear here</p>
+                      </div>
+                    ) : (
+                      <div style={{ position:'relative' }}>
+                        {/* Vertical line */}
+                        <div style={{ position:'absolute', left:19, top:20, bottom:20, width:2, background:`linear-gradient(to bottom, ${isDark?'rgba(255,255,255,0.06)':'#e2e8f0'}, ${isDark?'rgba(255,255,255,0.02)':'#f1f5f9'})`, borderRadius:2 }} />
+
+                        <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+                          {events.map((ev, i) => (
+                            <div key={i} style={{ display:'flex', gap:14, alignItems:'flex-start', paddingBottom: i < events.length-1 ? 20 : 0, position:'relative' }}>
+                              {/* Dot */}
+                              <div style={{ width:40, height:40, borderRadius:12, background:ev.bg, border:`2px solid ${ev.dot}33`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, zIndex:1, boxShadow:`0 0 0 4px ${isDark?T.surface:T.bg}` }}>
+                                {ev.type==='created'  && <FaFileInvoiceDollar size={14} style={{ color:ev.dot }}/>}
+                                {ev.type==='status'   && <FaCheckCircle size={14} style={{ color:ev.dot }}/>}
+                                {ev.type==='delivery' && <FaTruck size={14} style={{ color:ev.dot }}/>}
+                              </div>
+
+                              {/* Card */}
+                              <div style={{ flex:1, background:T.surface2, border:`1.5px solid ${ev.future ? `${ev.dot}33` : T.border}`, borderRadius:12, padding:'12px 14px', borderLeft:`3px solid ${ev.dot}` }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                                  <div style={{ flex:1, minWidth:0 }}>
+                                    <p style={{ fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700, color:T.textPri, margin:'0 0 3px' }}>{ev.label}</p>
+                                    {ev.sub && <p style={{ fontSize:11, color:T.textSec, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.sub}</p>}
+                                  </div>
+                                  {ev.future && (
+                                    <span style={{ fontSize:9, fontWeight:700, padding:'2px 7px', borderRadius:999, background:`${ev.dot}18`, color:ev.dot, border:`1px solid ${ev.dot}30`, whiteSpace:'nowrap', flexShrink:0 }}>UPCOMING</span>
+                                  )}
+                                </div>
+                                <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:8, paddingTop:8, borderTop:`1px solid ${T.border}` }}>
+                                  <FaClock size={9} style={{ color:T.textMuted, flexShrink:0 }}/>
+                                  <span style={{ fontSize:10, color:T.textSec, fontFamily:"'DM Mono',monospace" }}>{fmtTs(ev.ts)}</span>
+                                  {!ev.future && <span style={{ fontSize:10, color:T.textMuted }}>· {fmtAgo(ev.ts)}</span>}
+                                  {ev.by && <span style={{ fontSize:10, color:T.textMuted, marginLeft:'auto', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:100 }}>by {ev.by}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Current status footer */}
+                        <div style={{ marginTop:20, padding:'12px 14px', borderRadius:12, background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:`1px dashed ${T.border}` }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            <div style={{ width:8, height:8, borderRadius:'50%', background:(STATUS_CFG[curSt]||STATUS_CFG.draft).color, flexShrink:0 }}/>
+                            <span style={{ fontSize:11, color:T.textSec }}>Current status: </span>
+                            <span style={{ fontSize:11, fontWeight:700, color:(STATUS_CFG[curSt]||STATUS_CFG.draft).color, textTransform:'capitalize' }}>{curSt}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Footer */}
             <div style={{ padding:'14px 20px', borderTop:`1px solid ${border}`, flexShrink:0, display:'flex', gap:8 }}>
-              <button onClick={()=>navigate(`/Purchase/Purchaseorders/${selected._id}/edit`)} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-                <FaEdit size={11}/> Edit Order
-              </button>
               {selected.status!=='received' && selected.status!=='cancelled' && (
-                <button style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:T.surface2, color:T.green, border:`1.5px solid ${T.greenDim}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-                  <FaCheckCircle size={11}/> Mark Received
+                <button
+                  disabled={markingReceived}
+                  onClick={async () => {
+                    setMarkingReceived(true);
+                    try {
+                      await axiosInstance.patch(`/api/purchase-orders/${selected._id}/status`, { status: 'received' });
+                      closeDrawer();
+                      fetchOrders();
+                      fetchStats();
+                    } catch (e) {
+                      console.error('Mark received failed', e);
+                    } finally { setMarkingReceived(false); }
+                  }}
+                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:T.surface2, color:T.green, border:`1.5px solid ${T.greenDim}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:markingReceived?'not-allowed':'pointer', opacity:markingReceived?0.6:1, fontFamily:'inherit' }}>
+                  <FaCheckCircle size={11}/> {markingReceived ? 'Updating…' : 'Mark Received'}
                 </button>
               )}
               <button onClick={closeDrawer} style={{ padding:'10px 16px', background:T.surface2, color:T.textSec, border:`1.5px solid ${border}`, borderRadius:11, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Close</button>

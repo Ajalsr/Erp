@@ -6,6 +6,7 @@
   "author": "ERP",
   "type": "commonjs",
   "scripts": {
+    "predev": "kill-port 8080 || true",
     "dev": "npm run build:backend && tauri dev",
     "build": "npm run build:backend && tauri build",
     "build:backend": "node scripts/build-backend.js",
@@ -14,7 +15,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "concurrently": "^9.2.0",
+    "kill-port": "^2.0.1",
     "wait-on": "^8.0.3"
-  },
-  "dependencies": {}
+  }
 }

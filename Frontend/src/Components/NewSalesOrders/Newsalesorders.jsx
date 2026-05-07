@@ -4,6 +4,7 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useGetItem from '../../helper/useGetItem';
 import useGetCustomers from '../../helper/useGetCustomers';
 import useAddSalesOrder from '../../helper/useAddSalesOrder';
+import axiosInstance from '../../helper/axiosInstance';
 import { debounce } from 'lodash';
 import DatePicker from 'react-datepicker';
 import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
@@ -31,7 +32,7 @@ const buildCSS = (isDark) => {
   const inpBdr    = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
   const tblHead   = isDark ? '#0a1220' : '#f8fafc';
   const sticky    = isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)';
-  const sbar      = isDark ? 'rgba(255,255,255,0.04)' : '#ffffff';
+  const _sbar     = isDark ? 'rgba(255,255,255,0.04)' : '#ffffff';
   const scrollThumb = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
 
   return `
@@ -125,7 +126,7 @@ const Field = ({ label, req, children, hint }) => {
 };
 
 /* ── PortalSelect — matches customer dropdown style ── */
-const Sel = ({ value, onChange, required, options=[], placeholder='Select…', icon=null }) => {
+const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null }) => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const [open,setOpen]=useState(false);
@@ -500,8 +501,24 @@ const Newsalesorders = () => {
   const navigate=useNavigate();
 
   const salesTypeOptions=[{value:'SO',label:'SO — Standard Sale Order'},{value:'MOA',label:'MOA — Material on Approval'},{value:'MOA_COLLECT',label:'MOA Collect — Material on Approval Collect'},{value:'FREE_DELIVERY',label:'Free Delivery'}];
-  const paymentTermsOptions=[{value:'due_on_receipt',label:'Due on Receipt'},{value:'net_15',label:'Net 15'},{value:'net_30',label:'Net 30'},{value:'net_60',label:'Net 60'}];
-  const salespersonOptions=[{value:'john_doe',label:'John Doe'},{value:'jane_smith',label:'Jane Smith'},{value:'mike_johnson',label:'Mike Johnson'}];
+  const paymentTermsOptions=[
+    {value:'due_on_receipt',   label:'Due on Receipt'},
+    {value:'prepaid',          label:'Prepaid / Advance'},
+    {value:'cod',              label:'Cash on Delivery (COD)'},
+    {value:'net_7',            label:'Net 7'},
+    {value:'net_10',           label:'Net 10'},
+    {value:'net_15',           label:'Net 15'},
+    {value:'net_30',           label:'Net 30'},
+    {value:'net_45',           label:'Net 45'},
+    {value:'net_60',           label:'Net 60'},
+    {value:'net_90',           label:'Net 90'},
+    {value:'2_10_net_30',      label:'2/10 Net 30'},
+    {value:'eom',              label:'End of Month (EOM)'},
+    {value:'15_eom',           label:'15 Days after End of Month'},
+    {value:'30_eom',           label:'30 Days after End of Month'},
+    {value:'letter_of_credit', label:'Letter of Credit (LC)'},
+    {value:'bank_transfer',    label:'Bank Transfer on Delivery'},
+  ];
 
   // Calculate final line amount after discount
   const calcAmt=(q,r,d=0,dt='percentage')=>{
@@ -552,12 +569,22 @@ const Newsalesorders = () => {
     document.addEventListener('mousedown',h);return()=>document.removeEventListener('mousedown',h);
   },[showItemDropdown,showCustomerDropdown]);
 
+  // Close item dropdown on scroll (portal stays fixed, doesn't follow scroll)
+  useEffect(()=>{
+    if(showItemDropdown===null)return;
+    const close=(e)=>{
+      if(document.querySelector('.item-dropdown-container')?.contains(e.target))return;
+      setShowItemDropdown(null);
+    };
+    window.addEventListener('scroll',close,true);
+    return()=>window.removeEventListener('scroll',close,true);
+  },[showItemDropdown]);
+
   // Close customer dropdown on page scroll, but ignore scrolls inside the dropdown itself
   const custPortalRef = useRef(null);
   useEffect(()=>{
     if(!showCustomerDropdown)return;
     const close=(e)=>{
-      // If scroll happened inside the dropdown portal, don't close
       if(custPortalRef.current?.contains(e.target))return;
       setShowCustomerDropdown(false);
     };
@@ -613,7 +640,7 @@ const Newsalesorders = () => {
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate(`/sales/salesorders/${r.data.id}`),1500);}}catch(e){setSuccessMessage(e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Sales order created!');setShowSuccessToaster(true);setTimeout(()=>navigate('/sales/salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){await Promise.all(d.items.map(item=>item.itemId?axiosInstance.patch(`/api/stocks/${item.itemId}/reduce`,{reduceBy:item.quantity}):Promise.resolve()));handleGetItem();setSuccessMessage('Sales order created!');setShowSuccessToaster(true);setTimeout(()=>navigate('/sales/salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
@@ -691,7 +718,7 @@ const Newsalesorders = () => {
                           position:'fixed',zIndex:9997,
                           top:custDropPos.top,left:custDropPos.left,width:custDropPos.width,
                           background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,
-                          boxShadow:'0 24px 64px rgba(0,0,0,.14)',maxHeight:360,display:'flex',flexDirection:'column',overflow:'hidden',borderRadius:16,
+                          boxShadow:'0 24px 64px rgba(0,0,0,.14)',maxHeight:360,display:'flex',flexDirection:'column',overflow:'hidden'
                         }}>
                           {/* Search input inside dropdown */}
                           <div style={{padding:'10px 12px',borderBottom:`1.5px solid ${T.border}`,background:T.surface2,flexShrink:0}}>
@@ -800,7 +827,7 @@ const Newsalesorders = () => {
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>
             <Field label="Payment Terms" req><Sel value={paymentTerms} onChange={e=>setPaymentTerms(e.target.value)} required options={paymentTermsOptions} placeholder="Select payment terms…" icon="💳"/></Field>
-            <Field label="Salesperson" req><Sel value={salesperson} onChange={e=>setSalesperson(e.target.value)} required options={salespersonOptions} placeholder="Select salesperson…" icon="👤"/></Field>
+            <Field label="Salesperson" req><input className="nso-inp" value={salesperson} onChange={e=>setSalesperson(e.target.value)} placeholder="e.g. Jane Smith"/></Field>
           </div>
         </Section>
 
@@ -850,7 +877,7 @@ const Newsalesorders = () => {
                         <div style={{position:'relative'}} ref={el=>itemInputRefs.current[index]=el}>
                           <input className="nso-tinp" placeholder="Search or type item name…" value={item.details}
                             onChange={e=>{const u=[...items];u[index].details=e.target.value;setItems(u);debouncedSearch(e.target.value);setShowItemDropdown(index);}}
-                            onFocus={()=>{setShowItemDropdown(index);if(!item.details)setSearchTerm('');}}
+                            onFocus={()=>{setShowItemDropdown(index);if(!item.details)setSearchTerm('');handleGetItem();}}
                           />
                           {item.sku&&<div style={{marginTop:5,display:'flex',alignItems:'center',gap:6,fontSize:10,color:T.textSec}}><FaBarcode style={{fontSize:9}}/><span style={{fontFamily:"'DM Mono',monospace"}}>{item.sku}</span>{item.unit&&<span>· {item.unit}</span>}</div>}
                         </div>
@@ -920,7 +947,7 @@ const Newsalesorders = () => {
                   <>
                     <div style={{padding:'8px 14px',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',color:T.textSec,borderBottom:'1.5px solid #f1f5f9',display:'flex',justifyContent:'space-between'}}><span>{filteredItems.length} item{filteredItems.length!==1?'s':''}</span><span>Click to select</span></div>
                     {filteredItems.map(inv=>(
-                      <div key={inv._id||inv.itemId} className="nso-irow" onClick={()=>handleItemSelect(showItemDropdown,inv)}>
+                      <div key={inv._id||inv.itemId} className="nso-irow" onMouseDown={e=>{e.preventDefault();e.nativeEvent?.stopImmediatePropagation();handleItemSelect(showItemDropdown,inv)}}>
                         <div style={{width:38,height:38,borderRadius:10,background:isDark?'rgba(59,130,246,0.15)':'linear-gradient(135deg,#eff6ff,#dbeafe)',color:T.blue,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:16}}><FaBox/></div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:8}}>

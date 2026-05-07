@@ -10,6 +10,7 @@ import (
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/ws"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -178,8 +179,10 @@ func CreateSalesOrder() gin.HandlerFunc {
 			req.OrderNumber = generateOrderNumber(ctx)
 		}
 
+		orgID, _ := c.Get("orgId")
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
+			OrgID:                fmt.Sprintf("%v", orgID),
 			OrderNumber:          req.OrderNumber,
 			CustomerID:           req.CustomerID,
 			CustomerName:         customer.CustomerDisplayName,
@@ -214,6 +217,8 @@ func CreateSalesOrder() gin.HandlerFunc {
 			})
 			return
 		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "create", ID: salesOrder.ID.Hex()})
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
@@ -281,7 +286,8 @@ func GetAllSalesOrders() gin.HandlerFunc {
 		endDate := c.Query("endDate")
 		search := c.Query("search")
 
-		filter := bson.M{}
+		orgID, _ := c.Get("orgId")
+		filter := bson.M{"orgId": orgID}
 
 		if status != "" {
 			filter["status"] = status
@@ -378,6 +384,8 @@ func GetAllSalesOrders() gin.HandlerFunc {
 				CustomerNotes:        order.CustomerNotes,
 				TermsAndConditions:   order.TermsAndConditions,
 				Status:               order.Status,
+				CancelReason:         order.CancelReason,
+				CancelRequestedBy:    order.CancelRequestedBy,
 				CreatedAt:            order.CreatedAt,
 				UpdatedAt:            order.UpdatedAt,
 			})
@@ -494,27 +502,45 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var req struct {
-			Status string `json:"status" binding:"required,oneof=draft pending approved shipped completed cancelled open"`
+			Status            string `json:"status"`
+			CancelReason      string `json:"cancelReason"`
+			CancelRequestedBy string `json:"cancelRequestedBy"`
 		}
 
-		if err := c.BindJSON(&req); err != nil {
+		if err := c.ShouldBindJSON(&req); err != nil || req.Status == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
-				"message": "Invalid request body",
-				"error":   err.Error(),
+				"message": "Invalid request body — status is required",
 			})
 			return
 		}
 
-		update := bson.M{
-			"$set": bson.M{
-				"status":    req.Status,
-				"updatedAt": time.Now(),
-			},
+		validStatuses := map[string]bool{
+			"draft": true, "pending": true, "approved": true, "shipped": true,
+			"completed": true, "cancelled": true, "open": true, "invoiced": true,
+			"cancel_requested": true,
+		}
+		if !validStatuses[req.Status] {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid status value"})
+			return
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+		setFields := bson.M{"status": req.Status, "updatedAt": time.Now()}
+		updateDoc := bson.M{"$set": setFields}
+
+		if req.Status == "cancel_requested" {
+			setFields["cancelReason"] = req.CancelReason
+			setFields["cancelRequestedBy"] = req.CancelRequestedBy
+		} else {
+			updateDoc["$unset"] = bson.M{"cancelReason": "", "cancelRequestedBy": ""}
+		}
+
+		update := updateDoc
+
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -531,6 +557,8 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			})
 			return
 		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "update", ID: id})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
@@ -561,6 +589,8 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var req models.UpdateSalesOrderRequest
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -572,7 +602,7 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		}
 
 		var existingOrder models.SalesOrder
-		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingOrder)
+		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingOrder)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{
@@ -621,7 +651,7 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			setFields["total"] = newTotal
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": setFields})
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": setFields})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -641,6 +671,8 @@ func UpdateSalesOrder() gin.HandlerFunc {
 
 		var updatedOrder models.SalesOrder
 		salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedOrder)
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "update", ID: id})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
@@ -681,8 +713,10 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
+
 		var existingOrder models.SalesOrder
-		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&existingOrder)
+		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingOrder)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{
@@ -706,7 +740,7 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			},
 		}
 
-		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -715,6 +749,8 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			})
 			return
 		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "delete", ID: id})
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
@@ -731,6 +767,61 @@ func DeleteSalesOrder() gin.HandlerFunc {
 	}
 }
 
+// POST /api/sales-orders/:id/revert
+// Called by an admin to approve a member's cancellation request.
+// Sets the sales order status to "cancelled" and broadcasts a real-time update.
+func RevertSalesOrder() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		id := c.Param("id")
+
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid sales order ID"})
+			return
+		}
+
+		var existingOrder models.SalesOrder
+		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingOrder)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Sales order not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve sales order", "error": err.Error()})
+			}
+			return
+		}
+
+		_, err = salesOrdersCollection.UpdateOne(
+			ctx,
+			bson.M{"_id": objectID, "orgId": orgID},
+			bson.M{
+				"$set":   bson.M{"status": "cancelled", "updatedAt": time.Now()},
+				"$unset": bson.M{"cancelReason": "", "cancelRequestedBy": ""},
+			},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to revert sales order", "error": err.Error()})
+			return
+		}
+
+		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "delete", ID: id})
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Sales order cancelled successfully",
+			"data": gin.H{
+				"id":          id,
+				"orderNumber": existingOrder.OrderNumber,
+				"status":      "cancelled",
+			},
+		})
+	}
+}
+
 func GetSalesOrderStats() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -741,9 +832,11 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		weekStart := todayStart.AddDate(0, 0, -int(now.Weekday())+1)
 		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 
-		totalOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{})
+		orgID, _ := c.Get("orgId")
+		totalOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
 
 		pipeline := []bson.M{
+			{"$match": bson.M{"orgId": orgID}},
 			{
 				"$group": bson.M{
 					"_id":         "$status",
@@ -781,16 +874,33 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		}
 
 		todayOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"createdAt": bson.M{"$gte": todayStart},
+			"orgId": orgID, "createdAt": bson.M{"$gte": todayStart},
 		})
+
+		todayRevenue := 0.0
+		todayRevPipeline := []bson.M{
+			{"$match": bson.M{"orgId": orgID, "createdAt": bson.M{"$gte": todayStart}}},
+			{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$total"}}},
+		}
+		if trCursor, err := salesOrdersCollection.Aggregate(ctx, todayRevPipeline); err == nil {
+			defer trCursor.Close(ctx)
+			var trResult []bson.M
+			if trCursor.All(ctx, &trResult) == nil && len(trResult) > 0 {
+				if v, ok := trResult[0]["total"].(float64); ok {
+					todayRevenue = v
+				}
+			}
+		}
+
 		thisWeekOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"createdAt": bson.M{"$gte": weekStart},
+			"orgId": orgID, "createdAt": bson.M{"$gte": weekStart},
 		})
 		thisMonthOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"createdAt": bson.M{"$gte": monthStart},
+			"orgId": orgID, "createdAt": bson.M{"$gte": monthStart},
 		})
 
 		topCustomersPipeline := []bson.M{
+			{"$match": bson.M{"orgId": orgID}},
 			{
 				"$group": bson.M{
 					"_id":          "$customerId",
@@ -833,12 +943,13 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		stats := models.SalesOrderStats{
 			TotalOrders:     totalOrders,
 			TotalAmount:     totalAmount,
-			PendingOrders:   statusStats["pending"],
+			PendingOrders:   statusStats["pending"] + statusStats["open"] + statusStats["draft"],
 			ApprovedOrders:  statusStats["approved"],
 			ShippedOrders:   statusStats["shipped"],
 			CompletedOrders: statusStats["completed"],
 			CancelledOrders: statusStats["cancelled"],
 			TodayOrders:     todayOrders,
+			TodayRevenue:    todayRevenue,
 			ThisWeekOrders:  thisWeekOrders,
 			ThisMonthOrders: thisMonthOrders,
 			TopCustomers:    topCustomers,
@@ -869,7 +980,9 @@ func SearchSalesOrders() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _ := c.Get("orgId")
 		filter := bson.M{
+			"orgId": orgID,
 			"$or": []bson.M{
 				{"orderNumber": bson.M{"$regex": query, "$options": "i"}},
 				{"customerName": bson.M{"$regex": query, "$options": "i"}},

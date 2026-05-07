@@ -9,6 +9,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import useGetAllSalesOrder from "../../helper/useGetAllSalesOrder";
+import useWebSocket from "../../helper/useWebSocket";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 
 
@@ -78,7 +79,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
       position: "absolute", top: dropPos.top, left: dropPos.left, width: dropPos.width,
       zIndex: 99999, background: bg, border: `1.5px solid ${border}`, borderRadius: "11px",
       boxShadow: isDarkNow ? "0 16px 48px rgba(0,0,0,0.5)" : "0 8px 32px rgba(0,0,0,0.12)",
-      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+      overflow: "hidden", fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif",
       boxSizing: "border-box", visibility: ready ? "visible" : "hidden",
       opacity: ready ? 1 : 0, transition: "opacity 0.12s ease",
     }}>
@@ -118,7 +119,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
       transition: "border-color 0.15s, box-shadow 0.15s", boxSizing: "border-box", gap: "8px",
     }}>
       <span style={{ fontSize: "12px", fontWeight: "500", color: selected ? textPri : textSec,
-        fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif", whiteSpace: "nowrap" }}>
+        fontFamily: "'Plus Jakarta Sans', 'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
         {selected ? selected.label : placeholder}
       </span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? activeC : textSec}
@@ -198,6 +199,10 @@ const Salesorders = () => {
 
   useEffect(() => { handleGetSalesorder(); }, [handleGetSalesorder]);
 
+  useWebSocket((event) => {
+    if (event.type === "sales_orders_updated") handleGetSalesorder();
+  });
+
   const allOrders = data ? transformOrders(data) : [];
 
   // filter + sort
@@ -231,10 +236,10 @@ const Salesorders = () => {
 
   // ── Dynamic CSS ───────────────────────────────────────────────
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
     .so-root * { box-sizing: border-box; }
-    .so-root { font-family: 'Inter', sans-serif; }
-    .so-jakarta { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .so-root { font-family: 'DM Sans', sans-serif; }
+    .so-jakarta { font-family: 'Sora', sans-serif; }
 
     html, body, * { scrollbar-width: thin; scrollbar-color: ${isDark ? "rgba(255,255,255,0.12) transparent" : "rgba(0,0,0,0.14) transparent"}; }
     html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -296,13 +301,13 @@ const Salesorders = () => {
       <style>{css}</style>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px" }}>
         <div className="so-spin" style={{ width: "36px", height: "36px", border: `3px solid ${T.border}`, borderTopColor: T.blue, borderRadius: "50%" }} />
-        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "Inter, sans-serif" }}>Loading sales orders…</span>
+        <span style={{ color: T.textSec, fontSize: "13px", fontFamily: "DM Sans, sans-serif" }}>Loading sales orders…</span>
       </div>
     </div>
   );
 
   if (error) return (
-    <div style={{ padding: "20px", color: T.red, background: T.redDim, borderRadius: "12px", margin: "24px", border: `1px solid rgba(239,68,68,0.2)`, fontFamily: "Inter, sans-serif" }}>
+    <div style={{ padding: "20px", color: T.red, background: T.redDim, borderRadius: "12px", margin: "24px", border: `1px solid rgba(239,68,68,0.2)`, fontFamily: "DM Sans, sans-serif" }}>
       Error: {error}
     </div>
   );
@@ -380,7 +385,7 @@ const Salesorders = () => {
             <div style={{ display: "flex", gap: "6px", marginLeft: "auto" }}>
               <CustomSelect
                 value={sortBy}
-                onChange={v => { setSortBy(v); setCurrentPage(1); }}
+                onChange={v => { setSortBy(v); setPage(1); }}
                 options={[
                   { label: "Date",        value: "date"        },
                   { label: "Value",     value: "total"     },
@@ -444,7 +449,7 @@ const Salesorders = () => {
                     {/* Customer */}
                     <td style={{ padding: "13px 16px" }}>
                       <p style={{ fontWeight: "600", color: T.textPri, margin: 0, fontSize: "13px" }}>{item.customer}</p>
-                      {item.customerCode && <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0", fontFamily: "monospace" }}>{item.customerCode}</p>}
+                      {item.customerCode && <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0", fontFamily: "'DM Mono', monospace" }}>{item.customerCode}</p>}
                     </td>
 
                     {/* LPO */}
@@ -530,159 +535,256 @@ const Salesorders = () => {
       </div>
 
       {/* ── DRAWER ──────────────────────────────────────────────── */}
-      {drawer && (
-        <>
-          <div className="so-overlay-anim" onClick={closeDrawer}
-            style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.7)" : "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)", zIndex: 50 }} />
+      {drawer && selected && (() => {
+        const sc    = getStatus(selected.rawStatus);
+        const hue   = sc.color; // use status color as hero theme
+        const fmtM  = (n) => `AED ${parseFloat(n||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+        const itemCount = selected.items?.length || 0;
 
-          <div className="so-drawer-anim"
-            style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: "440px", maxWidth: "100vw", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
+        return (
+          <>
+            <div className="so-overlay-anim" onClick={closeDrawer}
+              style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.72)" : "rgba(15,23,42,0.45)", backdropFilter: "blur(8px)", zIndex: 50 }} />
 
-            {/* Drawer Header */}
-            {selected && (() => {
-              const sc = getStatus(selected.rawStatus);
-              return (
-                <div style={{ padding: "20px 20px 0", borderBottom: `1px solid ${T.border}` }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "16px" }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-                        <h3 className="so-jakarta" style={{ fontSize: "16px", fontWeight: "700", color: T.textPri, margin: 0 }}>
-                          {selected.saleOrderNumber}
-                        </h3>
-                        <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 10px", borderRadius: "999px", background: sc.dim, color: sc.color, border: `1px solid ${sc.border}`, display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
-                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />
+            <div className="so-drawer-anim" style={{
+              position: "fixed", right: 0, top: 0, bottom: 0, width: "500px", maxWidth: "100vw",
+              background: isDark ? "#0b1120" : "#f8fafc",
+              border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51,
+              display: "flex", flexDirection: "column",
+              boxShadow: isDark ? "-24px 0 80px rgba(0,0,0,0.7)" : "-8px 0 48px rgba(0,0,0,0.13)",
+            }}>
+
+              {/* ── HERO ── */}
+              <div style={{ position: "relative", flexShrink: 0, overflow: "hidden" }}>
+                {/* Gradient backdrop using status color */}
+                <div style={{
+                  position: "absolute", inset: 0,
+                  background: isDark
+                    ? `radial-gradient(ellipse 120% 100% at 10% 0%, ${hue}28 0%, transparent 65%), radial-gradient(ellipse 80% 120% at 90% 100%, ${hue}12 0%, transparent 60%), ${T.surface}`
+                    : `radial-gradient(ellipse 120% 100% at 10% 0%, ${hue}18 0%, transparent 65%), radial-gradient(ellipse 80% 120% at 90% 100%, ${hue}08 0%, transparent 60%), #fff`,
+                }} />
+                <div style={{ position: "absolute", inset: 0, opacity: 0.025, backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }} />
+
+                {/* Close btn */}
+                <button onClick={closeDrawer} style={{
+                  position: "absolute", top: 14, right: 14, zIndex: 2,
+                  width: 30, height: 30, borderRadius: "50%",
+                  background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer", color: T.textSec, transition: "all 0.15s",
+                }} onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.1)"}
+                   onMouseLeave={e => e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)"}>
+                  <FaTimes size={11} />
+                </button>
+
+                <div style={{ position: "relative", zIndex: 1, padding: "28px 24px 20px" }}>
+                  {/* Icon + identity */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 18 }}>
+                    {/* Order icon with glow */}
+                    <div style={{ position: "relative", flexShrink: 0 }}>
+                      <div style={{
+                        position: "absolute", inset: -3, borderRadius: "20px",
+                        background: `linear-gradient(135deg, ${hue}60, ${hue}20)`,
+                        filter: "blur(6px)",
+                      }} />
+                      <div style={{
+                        position: "relative", width: 60, height: 60, borderRadius: "17px",
+                        background: isDark ? `${hue}18` : `${hue}15`,
+                        color: hue,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 22,
+                        border: `2px solid ${hue}40`,
+                        boxShadow: `0 0 0 1px ${isDark ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.8)"}`,
+                      }}>
+                        <FaShoppingCart />
+                      </div>
+                    </div>
+
+                    {/* Title block */}
+                    <div style={{ flex: 1, minWidth: 0, paddingRight: 36 }}>
+                      <h3 className="so-jakarta" style={{ fontSize: 20, fontWeight: 800, color: T.textPri, margin: "0 0 5px", lineHeight: 1.2, letterSpacing: "-0.02em" }}>
+                        {selected.saleOrderNumber}
+                      </h3>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, color: T.textSec }}>{selected.customer}</span>
+                        {selected.customerCode && (
+                          <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 600, background: isDark ? "rgba(59,130,246,0.12)" : "#eff6ff", color: T.blueLight, padding: "2px 8px", borderRadius: 6, border: "1px solid rgba(59,130,246,0.2)" }}>
+                            {selected.customerCode}
+                          </span>
+                        )}
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: "2px 9px", borderRadius: 999,
+                          background: sc.dim, color: sc.color, border: `1px solid ${sc.border}`,
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                        }}>
+                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: sc.color }} />
                           {selected.status}
                         </span>
                       </div>
-                      <p style={{ fontSize: "13px", color: T.textSec, margin: 0 }}>{selected.customer}
-                        {selected.customerCode && <span style={{ fontFamily: "monospace", fontSize: "11px", color: T.textMuted, marginLeft: "6px" }}>({selected.customerCode})</span>}
-                      </p>
                     </div>
-                    <button onClick={closeDrawer}
-                      style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "8px", padding: "6px", cursor: "pointer", color: T.textSec, display: "flex", flexShrink: 0, marginLeft: "12px" }}>
-                      <FaTimes size={12} />
-                    </button>
                   </div>
 
-                  {/* Tabs */}
-                  <div style={{ display: "flex" }}>
-                    {["overview", "items", "history"].map(tab => (
-                      <button key={tab} onClick={() => setActiveTab(tab)}
-                        className={`drawer-tab${activeTab === tab ? " drawer-tab-active" : ""}`}
-                        style={{ padding: "9px 16px", background: "none", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: "500", fontFamily: "inherit", color: T.textSec, textTransform: "capitalize" }}>
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Drawer Body */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
-              {selected && activeTab === "overview" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {/* Key info rows */}
-                  {[
-                    { label: "LPO Number",    value: selected.lpoNumber,          color: T.blue   },
-                    { label: "Order Date",     value: formatDate(selected.orderDate), color: T.purple },
-                    { label: "LPO Date",       value: formatDate(selected.lpoDate),  color: T.cyan   },
-                    { label: "Expected Ship",  value: formatDate(selected.expectedShipmentDate), color: T.green },
-                    { label: "Payment Terms",  value: selected.paymentTerms || "—", color: T.amber  },
-                    { label: "Salesperson",    value: selected.salesperson || "—",  color: T.purple },
-                  ].map(({ label, value, color }) => (
-                    <div key={label} className="detail-row"
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", background: T.surface2, borderRadius: "10px", border: `1px solid ${T.border2}` }}>
-                      <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>{label}</span>
-                      <span style={{ fontSize: "13px", fontWeight: "600", color: T.textPri }}>{value}</span>
-                    </div>
-                  ))}
-
-                  {/* Financial summary */}
-                  <div style={{ background: T.surface2, borderRadius: "12px", border: `1px solid ${T.border2}`, overflow: "hidden", marginTop: "4px" }}>
-                    <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border2}` }}>
-                      <p className="so-jakarta" style={{ fontSize: "12px", fontWeight: "700", color: T.textPri, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Financial Summary</p>
-                    </div>
+                  {/* 4 stat chips */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
                     {[
-                      { label: "LPO Value",        value: formatCurrency(selected.lpoValue)         },
-                      { label: "Subtotal",          value: formatCurrency(selected.subTotal)         },
-                      { label: "Shipping",          value: formatCurrency(selected.shippingCharges)  },
-                      { label: "Adjustment",        value: formatCurrency(selected.adjustment)       },
-                      { label: "VAT (5%)",          value: formatCurrency(selected.vat)              },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="fin-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.border2}` }}>
-                        <span style={{ fontSize: "12px", color: T.textSec }}>{label}</span>
-                        <span style={{ fontSize: "13px", fontWeight: "500", color: T.textPri }}>{value}</span>
+                      { label: "LPO Value",  value: selected.lpoValue ? `AED ${Number(selected.lpoValue).toLocaleString("en-AE",{minimumFractionDigits:0})}` : "—", color: T.blueLight, bg: T.blueDim, border: "rgba(59,130,246,0.2)" },
+                      { label: "Total",      value: selected.total ? `AED ${Number(selected.total).toLocaleString("en-AE",{minimumFractionDigits:0})}` : "—",    color: hue,        bg: `${hue}15`,   border: `${hue}30`               },
+                      { label: "Items",      value: String(itemCount),                          color: T.purple,   bg: T.purpleDim,   border: "rgba(139,92,246,0.2)" },
+                      { label: "Order Date", value: formatDate(selected.orderDate),             color: T.amber,    bg: T.amberDim,    border: "rgba(245,158,11,0.2)"  },
+                    ].map((chip, i) => (
+                      <div key={i} style={{ background: chip.bg, border: `1px solid ${chip.border}`, borderRadius: 10, padding: "9px 10px" }}>
+                        <p style={{ fontSize: 9, fontWeight: 700, color: chip.color, opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{chip.label}</p>
+                        <p style={{ fontSize: 12, fontWeight: 800, color: chip.color, margin: 0, fontFamily: "'DM Mono', monospace", lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chip.value}</p>
                       </div>
                     ))}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: isDark ? "rgba(59,130,246,0.06)" : "#eff6ff" }}>
-                      <span className="so-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri }}>Total</span>
-                      <span className="so-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.blue }}>{formatCurrency(selected.total)}</span>
-                    </div>
                   </div>
-                </div>
-              )}
 
-              {selected && activeTab === "items" && (
-                <div>
-                  {selected.items?.length > 0 ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      {selected.items.map((item, i) => (
-                        <div key={i} style={{ background: T.surface2, borderRadius: "11px", border: `1px solid ${T.border2}`, padding: "13px 14px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <p style={{ fontSize: "13px", fontWeight: "600", color: T.textPri, margin: 0 }}>{item.details || `Item ${i + 1}`}</p>
-                              <p style={{ fontSize: "12px", color: T.textSec, margin: "4px 0 0" }}>
-                                Qty {item.quantity} × {formatCurrency(item.rate)}
-                                {item.discount && <span style={{ marginLeft: "8px", color: T.amber }}> -{item.discount}</span>}
-                              </p>
-                            </div>
-                            <span className="so-jakarta" style={{ fontSize: "14px", fontWeight: "700", color: T.textPri, marginLeft: "12px", flexShrink: 0 }}>{formatCurrency(item.amount)}</span>
-                          </div>
+                  
+                </div>
+
+                {/* Pill tab bar */}
+                <div style={{ display: "flex", gap: 4, padding: "0 20px 14px", position: "relative", zIndex: 1 }}>
+                  {[
+                    { id: "overview", label: "Overview" },
+                    { id: "items",    label: `Items${itemCount > 0 ? ` (${itemCount})` : ""}` },
+                    { id: "history",  label: "History"  },
+                  ].map(tab => (
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                      padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      border: activeTab === tab.id ? `1px solid ${isDark ? "rgba(59,130,246,0.35)" : "#bfdbfe"}` : "1px solid transparent",
+                      background: activeTab === tab.id ? (isDark ? "rgba(59,130,246,0.15)" : "#eff6ff") : (isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"),
+                      color: activeTab === tab.id ? T.blueLight : T.textSec,
+                      cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s",
+                    }}>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ height: 1, background: `linear-gradient(90deg, ${hue}30, ${T.border}, transparent)` }} />
+              </div>
+
+              {/* ── BODY ── */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px 32px", display: "flex", flexDirection: "column", gap: 12 }}>
+
+                {/* OVERVIEW TAB */}
+                {activeTab === "overview" && (
+                  <>
+                    {/* Financial summary card — first so Total is always reachable */}
+                    <div style={{
+                      background: isDark ? T.surface : "#fff",
+                      border: `1px solid ${hue}35`,
+                      borderRadius: 14, overflow: "hidden",
+                      boxShadow: isDark ? "none" : "0 1px 6px rgba(0,0,0,0.05)",
+                    }}>
+                      <div style={{ height: 2, background: `linear-gradient(90deg, ${hue}, ${hue}80, transparent)` }} />
+                      <div style={{ padding: "13px 16px 4px" }}>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Financial Summary</p>
+                      </div>
+                      {[
+                        { label: "LPO Value",  value: fmtM(selected.lpoValue)        },
+                        { label: "Subtotal",   value: fmtM(selected.subTotal)         },
+                        { label: "Shipping",   value: fmtM(selected.shippingCharges)  },
+                        { label: "Adjustment", value: fmtM(selected.adjustment)       },
+                        { label: "VAT (5%)",   value: fmtM(selected.vat)              },
+                      ].map(({ label, value }, i) => (
+                        <div key={i} className="fin-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${T.border}` }}>
+                          <span style={{ fontSize: 12, color: T.textSec }}>{label}</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{value}</span>
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 16px", background: isDark ? `${hue}10` : `${hue}08` }}>
+                        <span className="so-jakarta" style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>Total</span>
+                        <span className="so-jakarta" style={{ fontSize: 18, fontWeight: 800, color: hue, fontFamily: "'DM Mono', monospace" }}>{fmtM(selected.total)}</span>
+                      </div>
+                    </div>
+
+                    {/* Info cards grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {[
+                        { emoji: "🔖", label: "LPO Number",    value: selected.lpoNumber || "—"                    },
+                        { emoji: "📅", label: "Order Date",    value: formatDate(selected.orderDate)               },
+                        { emoji: "📋", label: "LPO Date",      value: formatDate(selected.lpoDate)                  },
+                        { emoji: "🚢", label: "Expected Ship",  value: formatDate(selected.expectedShipmentDate)    },
+                        { emoji: "💳", label: "Payment Terms",  value: selected.paymentTerms || "—"                 },
+                        { emoji: "👤", label: "Salesperson",   value: selected.salesperson || "—"                   },
+                      ].map(({ emoji, label, value }) => (
+                        <div key={label} style={{
+                          background: isDark ? T.surface : "#fff",
+                          border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 14px",
+                          boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.04)",
+                          transition: "all 0.15s",
+                        }} className="detail-row">
+                          <p style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px", display: "flex", alignItems: "center", gap: 5 }}>
+                            <span>{emoji}</span> {label}
+                          </p>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0, fontFamily: label === "LPO Number" ? "'DM Mono', monospace" : "inherit" }}>{value}</p>
                         </div>
                       ))}
                     </div>
+                  </>
+                )}
+
+                {/* ITEMS TAB */}
+                {activeTab === "items" && (
+                  selected.items?.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {selected.items.map((item, i) => (
+                        <div key={i} style={{
+                          background: isDark ? T.surface : "#fff",
+                          border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 14px",
+                          boxShadow: isDark ? "none" : "0 1px 3px rgba(0,0,0,0.04)",
+                          display: "flex", gap: 12, alignItems: "center",
+                        }}>
+                          <div style={{ width: 34, height: 34, borderRadius: 9, background: T.blueDim, color: T.blueLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0, fontFamily: "'DM Mono', monospace" }}>
+                            {i + 1}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: "0 0 3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.details || `Item ${i + 1}`}</p>
+                            <p style={{ fontSize: 11, color: T.textSec, margin: 0, display: "flex", gap: 8, alignItems: "center" }}>
+                              <span>Qty <span style={{ fontFamily: "'DM Mono', monospace", fontWeight: 600, color: T.textPri }}>{item.quantity}</span></span>
+                              <span style={{ color: T.border }}>·</span>
+                              <span>Rate <span style={{ fontFamily: "'DM Mono', monospace", fontWeight: 600, color: T.textPri }}>{fmtM(item.rate)}</span></span>
+                              {item.discount && <span style={{ color: T.amber, fontWeight: 600 }}>−{item.discount}</span>}
+                            </p>
+                          </div>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: hue, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>{fmtM(item.amount)}</span>
+                        </div>
+                      ))}
+
+                      {/* Items total */}
+                      <div style={{ background: isDark ? `${hue}10` : `${hue}08`, border: `1px solid ${hue}30`, borderRadius: 12, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: T.textSec }}>{itemCount} item{itemCount !== 1 ? "s" : ""} · Subtotal</span>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: hue, fontFamily: "'DM Mono', monospace" }}>{fmtM(selected.subTotal)}</span>
+                      </div>
+                    </div>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", gap: "12px" }}>
-                      <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 220, gap: 12 }}>
+                      <div style={{ width: 52, height: 52, borderRadius: 14, background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: T.textMuted }}>
                         <FaBoxOpen />
                       </div>
-                      <p className="so-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No items</p>
-                      <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>No line items found for this order.</p>
+                      <p className="so-jakarta" style={{ fontWeight: 700, color: T.textPri, fontSize: 14, margin: 0 }}>No line items</p>
+                      <p style={{ color: T.textSec, fontSize: 12, margin: 0 }}>No items found for this order.</p>
                     </div>
-                  )}
-                </div>
-              )}
+                  )
+                )}
 
-              {selected && activeTab === "history" && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", gap: "12px" }}>
-                  <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
-                    <FaClock />
+                {/* HISTORY TAB */}
+                {activeTab === "history" && (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 220, gap: 12 }}>
+                    <div style={{ width: 52, height: 52, borderRadius: 14, background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: T.textMuted }}>
+                      <FaClock />
+                    </div>
+                    <p className="so-jakarta" style={{ fontWeight: 700, color: T.textPri, fontSize: 14, margin: 0 }}>No history yet</p>
+                    <p style={{ color: T.textSec, fontSize: 12, margin: 0 }}>Activity will appear here once recorded.</p>
                   </div>
-                  <p className="so-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No history yet</p>
-                  <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>Activity will appear here once recorded.</p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-
-            {/* Drawer Footer */}
-            <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "8px" }}>
-              <button className="so-action-btn"
-                style={{ flex: 1, padding: "10px", background: T.blue, color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
-                <FaFileInvoiceDollar size={12} /> Generate Invoice
-              </button>
-              <button className="so-action-btn"
-                style={{ flex: 1, padding: "10px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
-                <FaEdit size={12} /> Edit
-              </button>
-              <button className="so-action-btn"
-                style={{ padding: "10px 14px", background: T.redDim, color: T.red, border: `1px solid ${isDark ? "rgba(239,68,68,0.2)" : "#fca5a5"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <FaBan size={12} />
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
     </>
   );
 };

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import useLogin from '../../helper/useLogin'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
@@ -7,6 +7,7 @@ import 'react-toastify/dist/ReactToastify.css'
 const Login = () => {
   const { handleSignin } = useLogin()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [inputs, setInputs] = useState({ userId: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -20,7 +21,9 @@ const Login = () => {
     try {
       await handleSignin(inputs)
       setInputs({ userId: '', password: '' })
-      setTimeout(() => navigate('/Home'), 1200)
+      // If an invite (or any page) redirected here, go back there after login
+      const redirectTo = searchParams.get('redirect')
+      setTimeout(() => navigate(redirectTo ? decodeURIComponent(redirectTo) : '/Home'), 1200)
     } catch (error) {
       toast.error(error?.error || 'Sign in failed')
     } finally {
@@ -36,9 +39,9 @@ const Login = () => {
     <>
       <ToastContainer position="top-right" autoClose={4000} theme="dark" />
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
         .login-root { font-family: 'DM Sans', sans-serif; }
-        .login-heading { font-family: 'Syne', sans-serif; }
+        .login-heading { font-family: 'Sora', sans-serif; }
         .login-bg {
           background: #0a0f1e;
           background-image:

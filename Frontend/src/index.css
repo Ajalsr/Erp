@@ -1,5 +1,19 @@
 @import "tailwindcss" ;
 
+*, *::before, *::after { box-sizing: border-box; }
+
+body, input, select, textarea, button {
+  font-family: 'DM Sans', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Sora', sans-serif;
+}
+
+code, pre, .mono {
+  font-family: 'DM Mono', monospace;
+}
+
 .hide-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome, Safari, Edge */
 }

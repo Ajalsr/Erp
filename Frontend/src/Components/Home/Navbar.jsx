@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { IoNotificationsOutline, IoChevronDown } from 'react-icons/io5'
 import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
+import useOrganization from '../../helper/useOrganization'
+import useNotifications from '../../helper/useNotifications'
 
 const PAGE_TITLES = {
   '/Home': 'Dashboard',
@@ -20,6 +22,9 @@ const PAGE_TITLES = {
   '/Sales/CreditNotes': 'Credit Notes',
   '/Purchase/Vendors': 'Vendors',
   '/Purchase/Purchaseorders': 'Purchase Orders',
+  '/Purchase/GRN': 'GRN',
+  '/Purchase/Inbound': 'Inbound',
+  '/Purchase/Stock': 'Stock',
   '/Purchase/Bills': 'Bills',
   '/Purchase/PaymentsMade': 'Payments Made',
   '/Purchase/VendorCredits': 'Vendor Credits',
@@ -110,6 +115,115 @@ const ThemeToggle = ({ isDark, onToggle }) => {
   )
 }
 
+// ── Org Switcher ──────────────────────────────────────────────────
+const OrgSwitcher = ({ isDark, D }) => {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const navigate = useNavigate()
+
+  const activeOrg     = useAuthStore((s) => s.activeOrg)
+  const organizations = useAuthStore((s) => s.organizations)
+  const { getMyOrganizations, switchOrganization } = useOrganization()
+
+  useEffect(() => {
+    if (organizations.length === 0) getMyOrganizations().catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const handleSwitch = (org) => { switchOrganization(org); setOpen(false) }
+
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '6px',
+          padding: '5px 10px', borderRadius: '8px', cursor: 'pointer',
+          background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc',
+          border: `1px solid ${D.border}`,
+          transition: 'all 0.15s',
+          fontFamily: 'inherit',
+        }}
+      >
+        <div style={{
+          width: '18px', height: '18px', borderRadius: '5px',
+          background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.3)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>
+          <span style={{ color: '#60a5fa', fontSize: '9px', fontWeight: '800', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            {(activeOrg?.name || 'O').charAt(0).toUpperCase()}
+          </span>
+        </div>
+        <span style={{ color: D.textPri, fontSize: '12px', fontWeight: '500', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {activeOrg?.name || 'No org'}
+        </span>
+        <IoChevronDown size={10} style={{ color: D.textSec, flexShrink: 0 }} />
+      </button>
+
+      {open && (
+        <div className="nx-dropdown" style={{ width: '230px' }}>
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${D.border}` }}>
+            <span style={{ color: D.textSec, fontSize: '10px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Organizations
+            </span>
+          </div>
+          <div style={{ padding: '4px 0', maxHeight: '220px', overflowY: 'auto' }}>
+            {organizations.map((org) => (
+              <button
+                key={org._id}
+                className="nx-dropdown-item"
+                onClick={() => handleSwitch(org)}
+                style={{ justifyContent: 'space-between' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  <div style={{
+                    width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0,
+                    background: activeOrg?._id === org._id ? 'rgba(59,130,246,0.2)' : (isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9'),
+                    border: `1px solid ${activeOrg?._id === org._id ? 'rgba(59,130,246,0.3)' : D.border}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <span style={{ fontSize: '10px', fontWeight: '700', color: activeOrg?._id === org._id ? '#60a5fa' : D.textSec, fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+                      {org.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{org.name}</span>
+                </div>
+                {activeOrg?._id === org._id && (
+                  <svg width="12" height="12" fill="none" stroke="#60a5fa" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            ))}
+            {organizations.length === 0 && (
+              <p style={{ color: D.textSec, fontSize: '12px', padding: '10px 14px', margin: 0 }}>No organizations</p>
+            )}
+          </div>
+          <div style={{ borderTop: `1px solid ${D.border}`, padding: '4px 0' }}>
+            {activeOrg && (
+              <button
+                className="nx-dropdown-item"
+                onClick={() => { setOpen(false); navigate(`/organizations/${activeOrg._id}/settings`) }}
+              >
+                <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Org Settings & Members
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────
 const Navbar = ({ onToggleSidebar }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -119,10 +233,15 @@ const Navbar = ({ onToggleSidebar }) => {
   const navigate    = useNavigate()
   const location    = useLocation()
 
-  const user        = useAuthStore((s) => s.user)
-  const clearAuth   = useAuthStore((s) => s.clearAuth)
-  const isDark      = useThemeStore((s) => s.isDark)
-  const toggleTheme = useThemeStore((s) => s.toggleTheme)
+  const user              = useAuthStore((s) => s.user)
+  const activeOrg         = useAuthStore((s) => s.activeOrg)
+  const clearAuth         = useAuthStore((s) => s.clearAuth)
+  const notifications     = useAuthStore((s) => s.notifications)
+  const unreadCount       = useAuthStore((s) => s.unreadCount)
+  const isDark            = useThemeStore((s) => s.isDark)
+  const toggleTheme       = useThemeStore((s) => s.toggleTheme)
+  const { markAllRead, deleteNotification } = useNotifications()
+  const isAdmin           = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase())
 
   const { title, parent } = getPageInfo(location.pathname)
   const initials = (user?.userId || 'U').charAt(0).toUpperCase()
@@ -163,9 +282,9 @@ const Navbar = ({ onToggleSidebar }) => {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700&family=Inter:wght@400;500&display=swap');
-        .nx-navbar  { font-family: 'Inter', sans-serif; transition: background 0.25s ease, border-color 0.25s ease; }
-        .nx-navbar-title { font-family: 'Plus Jakarta Sans', sans-serif; }
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
+        .nx-navbar  { font-family: 'DM Sans', sans-serif; transition: background 0.25s ease, border-color 0.25s ease; }
+        .nx-navbar-title { font-family: 'Sora', sans-serif; }
         .nx-icon-btn {
           display: flex; align-items: center; justify-content: center;
           border-radius: 8px; background: transparent; cursor: pointer;
@@ -246,38 +365,109 @@ const Navbar = ({ onToggleSidebar }) => {
 
           <div style={{ width: '1px', height: '20px', background: D.divider, margin: '0 2px' }} />
 
+          {/* Org switcher */}
+          <OrgSwitcher isDark={isDark} D={D} />
+
+          <div style={{ width: '1px', height: '20px', background: D.divider, margin: '0 2px' }} />
+
           {/* Notifications */}
           <div style={{ position: 'relative' }} ref={notifRef}>
-            <button onClick={() => setNotifOpen(!notifOpen)} className="nx-icon-btn"
-              style={{ width: '32px', height: '32px', position: 'relative' }}>
+            <button
+              onClick={() => setNotifOpen(!notifOpen)}
+              className="nx-icon-btn"
+              style={{ width: '32px', height: '32px', position: 'relative' }}
+            >
               <IoNotificationsOutline size={17} />
-              <span className="nx-notif-dot" />
+              {unreadCount > 0 && (
+                <span style={{
+                  position: 'absolute', top: '5px', right: '5px',
+                  minWidth: '14px', height: '14px', borderRadius: '999px',
+                  background: '#ef4444', border: `1.5px solid ${D.notifDotBorder}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '8px', fontWeight: '700', color: '#fff', lineHeight: 1,
+                  padding: '0 2px',
+                }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
 
             {notifOpen && (
-              <div className="nx-dropdown" style={{ width: '280px' }}>
+              <div className="nx-dropdown" style={{ width: '300px' }}>
+
+                {/* Header */}
                 <div style={{ padding: '12px 16px', borderBottom: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ color: D.textPri, fontSize: '13px', fontWeight: '600', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Notifications</span>
-                  <span style={{ fontSize: '10px', color: '#60a5fa', background: 'rgba(59,130,246,0.12)', padding: '2px 8px', borderRadius: '999px', border: '1px solid rgba(59,130,246,0.2)' }}>3 new</span>
-                </div>
-                {[
-                  { text: 'New sales order received',  time: '2m ago',  dot: '#3b82f6' },
-                  { text: 'Stock level low: Item A',   time: '1h ago',  dot: '#f59e0b' },
-                  { text: 'Invoice #1042 overdue',     time: '3h ago',  dot: '#ef4444' },
-                ].map((n, i) => (
-                  <div key={i} className="nx-dropdown-item nx-sep" style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '11px 16px' }}>
-                    <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: n.dot, marginTop: '5px', flexShrink: 0 }} />
-                    <div>
-                      <p style={{ color: isDark ? '#cbd5e1' : '#374151', fontSize: '12px', margin: 0 }}>{n.text}</p>
-                      <p style={{ color: D.subText, fontSize: '11px', margin: '3px 0 0' }}>{n.time}</p>
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: D.textPri, fontSize: '13px', fontWeight: '600', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Notifications</span>
+                    {unreadCount > 0 && (
+                      <span style={{ fontSize: '10px', color: '#60a5fa', background: 'rgba(59,130,246,0.12)', padding: '2px 8px', borderRadius: '999px', border: '1px solid rgba(59,130,246,0.2)' }}>
+                        {unreadCount} new
+                      </span>
+                    )}
                   </div>
-                ))}
-                <div style={{ padding: '10px 16px', borderTop: `1px solid ${D.border}` }}>
-                  <button style={{ color: '#60a5fa', fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
-                    View all notifications →
-                  </button>
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={markAllRead}
+                      style={{ color: '#60a5fa', fontSize: '11px', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}
+                    >
+                      Mark all read
+                    </button>
+                  )}
                 </div>
+
+                {/* List */}
+                <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: '28px 16px', textAlign: 'center', color: D.textSec, fontSize: '12px' }}>
+                      No notifications yet
+                    </div>
+                  ) : notifications.map((n) => {
+                    const dotColor = { invite: '#60a5fa', accepted: '#4ade80', role_changed: '#fbbf24', removed: '#f87171', cancel_request: '#ef4444' }[n.type] || '#94a3b8'
+                    const ago = (() => {
+                      const s = Math.floor((Date.now() - new Date(n.createdAt)) / 1000)
+                      if (s < 60) return `${s}s ago`
+                      if (s < 3600) return `${Math.floor(s / 60)}m ago`
+                      if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+                      return `${Math.floor(s / 86400)}d ago`
+                    })()
+                    const isCancelReq = n.type === 'cancel_request' && isAdmin
+                    return (
+                      <div
+                        key={n._id}
+                        className="nx-sep"
+                        onClick={isCancelReq ? () => { setNotifOpen(false); navigate('/Sales/Outbound'); } : undefined}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: '10px',
+                          padding: '11px 14px',
+                          background: isCancelReq
+                            ? (isDark ? 'rgba(239,68,68,0.06)' : 'rgba(239,68,68,0.04)')
+                            : n.read ? 'transparent' : (isDark ? 'rgba(59,130,246,0.04)' : 'rgba(59,130,246,0.03)'),
+                          cursor: isCancelReq ? 'pointer' : 'default',
+                        }}
+                      >
+                        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotColor, marginTop: '5px', flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ color: n.read ? D.textSec : (isDark ? '#cbd5e1' : '#374151'), fontSize: '12px', margin: 0, fontWeight: n.read ? 400 : 500 }}>{n.title}</p>
+                          <p style={{ color: D.subText, fontSize: '11px', margin: '2px 0 0', lineHeight: 1.4 }}>{n.message}</p>
+                          <p style={{ color: D.subText, fontSize: '10px', margin: '3px 0 0', opacity: 0.7 }}>{ago}</p>
+                          {isCancelReq && (
+                            <p style={{ color: '#ef4444', fontSize: '10px', margin: '4px 0 0', fontWeight: '600' }}>
+                              Click to review in Outbound →
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => deleteNotification(n._id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: D.textSec, padding: '2px', flexShrink: 0, opacity: 0.5, lineHeight: 1 }}
+                          title="Dismiss"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+
               </div>
             )}
           </div>

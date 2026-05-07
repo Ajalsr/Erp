@@ -5,6 +5,7 @@ import { FaBoxOpen, FaCartArrowDown } from 'react-icons/fa'
 import { MdInventory2 } from 'react-icons/md'
 import { HiShoppingCart } from 'react-icons/hi'
 import { TbReportAnalytics } from 'react-icons/tb'
+import { MdAccountBalance } from 'react-icons/md'
 import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
 
@@ -32,6 +33,9 @@ const MENU = [
   { icon: FaCartArrowDown,   label: 'Purchases',  subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors' },
     { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders' },
+    { name: 'GRN',              route: '/Purchase/GRN' },
+    { name: 'Inbound',          route: '/Purchase/Inbound' },
+    { name: 'Stock',            route: '/Purchase/Stock' },
     { name: 'Bills',            route: '/Purchase/Bills' },
     { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
@@ -40,6 +44,9 @@ const MENU = [
     { name: 'Sales Report',     route: '/Reports/sales' },
     { name: 'Purchase Report',  route: '/Reports/purchases' },
     { name: 'Inventory Report', route: '/Reports/inventory' },
+  ]},
+  { icon: MdAccountBalance,   label: 'Finance',    subItems: [
+    { name: 'Chart of Accounts', route: '/Finance/Accounts' },
   ]},
 ]
 
@@ -98,9 +105,9 @@ const Sidebar = ({ isCollapsed }) => {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&family=Inter:wght@400;500&display=swap');
-        .nx-sb            { font-family: 'Inter', sans-serif; transition: background 0.25s ease, border-color 0.25s ease; }
-        .nx-sb-logo       { font-family: 'Plus Jakarta Sans', sans-serif; }
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
+        .nx-sb            { font-family: 'DM Sans', sans-serif; transition: background 0.25s ease, border-color 0.25s ease; }
+        .nx-sb-logo       { font-family: 'Sora', sans-serif; }
         .nx-nav-item      { color: ${D.navItemColor}; transition: all 0.15s; }
         .nx-nav-item:hover { background: ${D.navItemHoverBg} !important; color: ${D.navItemHoverColor} !important; }
         .nx-nav-item.active { background: ${D.navItemActiveBg} !important; color: ${D.navItemActiveColor} !important; }

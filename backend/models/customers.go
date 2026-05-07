@@ -60,12 +60,25 @@ type Customer struct {
 	Notes         string                 `json:"notes,omitempty"          bson:"notes,omitempty"`
 	Rating        int                    `json:"rating,omitempty"         bson:"rating,omitempty"`
 
+	// ── Org ──────────────────────────────────────────────────────────────
+	OrgID string `json:"orgId,omitempty" bson:"orgId,omitempty"`
+
 	// ── Status / Audit ───────────────────────────────────────────────────
 	Status    string    `json:"status,omitempty"     bson:"status,omitempty"`
 	CreatedAt time.Time `json:"created_at,omitempty" bson:"created_at,omitempty"`
 	UpdatedAt time.Time `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
 	CreatedBy string    `json:"created_by,omitempty" bson:"created_by,omitempty"`
 	UpdatedBy string    `json:"updated_by,omitempty" bson:"updated_by,omitempty"`
+
+	// ── History ──────────────────────────────────────────────────────────
+	History []HistoryEntry `json:"history,omitempty" bson:"history,omitempty"`
+}
+
+type HistoryEntry struct {
+	Action    string      `json:"action"    bson:"action"`
+	Timestamp time.Time   `json:"timestamp" bson:"timestamp"`
+	User      string      `json:"user,omitempty" bson:"user,omitempty"`
+	Details   interface{} `json:"details,omitempty" bson:"details,omitempty"`
 }
 
 type ContactPerson struct {
