@@ -1,15 +1,18 @@
 package main
 
 import (
-	// "context"
-
+	"context"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 
-	// "github.com/backend/config"
+	_ "github.com/backend/loader"
+	"github.com/backend/config"
 	"github.com/backend/routes"
 	"github.com/backend/ws"
 )
@@ -25,20 +28,26 @@ var allowedOrigins = map[string]bool{
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
+
 		if allowedOrigins[origin] {
+			// Known allowed origin — reflect it back
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 		} else if origin == "" {
 			// Same-origin / non-browser request (sidecar, curl, etc.) — allow
 			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		} else {
-			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			// Unknown origin — REJECT. Do NOT echo it back.
+			// Previously this branch echoed origin, making the allowlist useless.
+			c.AbortWithStatus(http.StatusForbidden)
+			return
 		}
+
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Org-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(200)
+			c.AbortWithStatus(http.StatusOK)
 			return
 		}
 
@@ -47,52 +56,78 @@ func CORSMiddleware() gin.HandlerFunc {
 }
 
 func main() {
-	// Load .env file if present
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
-	}
-
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080" // must match VITE_API_URL in the frontend
+		port = "8080"
 	}
 
 	// Start the WebSocket hub
 	go ws.GlobalHub.Run()
 
-	server := gin.Default()
-	server.RedirectTrailingSlash = false
+	// Create MongoDB indexes on startup (idempotent — safe to run every restart)
+	config.EnsureIndexes(config.DB)
 
-	server.Use(CORSMiddleware())
-	routes.StockRoutes(server)
-	routes.AuthRoutes(server)
-	routes.CustomerRoutes(server)
-	routes.SaleOrderRoutes(server)
-	routes.OrgRoutes(server)
-	routes.NotificationRoutes(server)
-	routes.DashboardRoutes(server)
-	routes.PurchaseOrderRoutes(server)
-	routes.InvoiceRoutes(server)
-	routes.PaymentRoutes(server)
-	routes.VendorRoutes(server)
-	routes.BillRoutes(server)
-	routes.VendorPaymentRoutes(server)
-	routes.VendorCreditRoutes(server)
-	routes.GRNRoutes(server)
-	routes.AccountRoutes(server)
-	routes.WarehouseRoutes(server)
-	routes.AdjustmentRoutes(server)
-	routes.ItemGroupRoutes(server)
-	routes.PriceListRoutes(server)
+	router := gin.Default()
+	router.RedirectTrailingSlash = false
+	router.Use(CORSMiddleware())
+
+	routes.StockRoutes(router)
+	routes.AuthRoutes(router)
+	routes.CustomerRoutes(router)
+	routes.SaleOrderRoutes(router)
+	routes.OrgRoutes(router)
+	routes.NotificationRoutes(router)
+	routes.DashboardRoutes(router)
+	routes.PurchaseOrderRoutes(router)
+	routes.InvoiceRoutes(router)
+	routes.PaymentRoutes(router)
+	routes.VendorRoutes(router)
+	routes.BillRoutes(router)
+	routes.VendorPaymentRoutes(router)
+	routes.VendorCreditRoutes(router)
+	routes.GRNRoutes(router)
+	routes.AccountRoutes(router)
+	routes.WarehouseRoutes(router)
+	routes.AdjustmentRoutes(router)
+	routes.ItemGroupRoutes(router)
+	routes.PriceListRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
-	server.GET("/ws", ws.ServeWs(ws.GlobalHub))
+	router.GET("/ws", ws.ServeWs(ws.GlobalHub))
 
-	server.Run(":" + port)
+	// ── Graceful shutdown ──────────────────────────────────────────────────
+	// Previously server.Run() was used, which drops all in-flight requests on SIGTERM.
+	// Now we listen for OS signals and give active requests 10s to finish.
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: router,
+	}
 
-	// defer func() {
-	// 	if err := config.DB.Disconnect(context.Background()); err != nil {
-	// 		panic(err)
-	// 	}
-	// }()
+	// Start server in a goroutine so it doesn't block the signal listener
+	go func() {
+		log.Printf("Server starting on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal (Ctrl+C or SIGTERM from systemd/Docker)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutdown signal received — draining active requests...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	// Disconnect from MongoDB cleanly
+	if err := config.DB.Disconnect(ctx); err != nil {
+		log.Printf("MongoDB disconnect error: %v", err)
+	}
+
+	log.Println("Server exited cleanly")
 }

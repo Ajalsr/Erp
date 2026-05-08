@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -18,18 +17,15 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var salesOrdersCollection *mongo.Collection = config.GetCollection(config.DB, "sales_orders")
-var itemsCollection *mongo.Collection = config.GetCollection(config.DB, "stocks")
+var salesOrdersCollection = config.GetCollection(config.DB, "sales_orders")
+var itemsCollection = config.GetCollection(config.DB, "stocks")
 
 // calculateItemAmount computes the final line amount using structured discount fields.
-// discountType: "percentage" → discount is a percent (e.g. 15 means 15%)
-// discountType: "fixed"      → discount is a fixed AED value
 func calculateItemAmount(quantity, rate, discount float64, discountType string) float64 {
 	base := quantity * rate
 	if base <= 0 {
 		return 0
 	}
-
 	var discountAED float64
 	switch discountType {
 	case "percentage":
@@ -39,7 +35,6 @@ func calculateItemAmount(quantity, rate, discount float64, discountType string) 
 	default:
 		discountAED = 0
 	}
-
 	result := base - discountAED
 	if result < 0 {
 		result = 0
@@ -62,7 +57,6 @@ func CreateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Convert customer ID
 		customerObjectID, err := primitive.ObjectIDFromHex(req.CustomerID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -73,62 +67,44 @@ func CreateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Get customer details
 		var customer models.Customer
 		err = customersCollection.FindOne(ctx, bson.M{"_id": customerObjectID}).Decode(&customer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Customer not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve customer",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customer", "error": err.Error()})
 			}
 			return
 		}
 
-		// Process items — recalculate amount server-side for integrity
 		var orderItems []models.SalesOrderItem
 		var subTotal float64
 
 		for _, itemReq := range req.Items {
-			fmt.Printf("Processing item: %+v\n", itemReq)
+			// Removed debug fmt.Printf — do not log order payloads in production
 
 			itemObjectID, err := primitive.ObjectIDFromHex(itemReq.ItemID)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"status":  http.StatusBadRequest,
-					"message": fmt.Sprintf("Invalid item ID format: %s", itemReq.ItemID),
+					"message": "Invalid item ID format: " + itemReq.ItemID,
 					"error":   err.Error(),
 				})
 				return
 			}
 
-			// Get item from inventory
 			var inventoryItem models.Stock
 			err = itemsCollection.FindOne(ctx, bson.M{"_id": itemObjectID}).Decode(&inventoryItem)
 			if err != nil {
 				if err == mongo.ErrNoDocuments {
-					c.JSON(http.StatusNotFound, gin.H{
-						"status":  http.StatusNotFound,
-						"message": fmt.Sprintf("Item not found: %s", itemReq.ItemID),
-					})
+					c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Item not found: " + itemReq.ItemID})
 				} else {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"status":  http.StatusInternalServerError,
-						"message": "Failed to retrieve item",
-						"error":   err.Error(),
-					})
+					c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve item", "error": err.Error()})
 				}
 				return
 			}
 
-			// Use rate from request (user may have overridden); fall back to inventory price
 			rate := itemReq.Rate
 			if rate <= 0 {
 				if inventoryRate, err := strconv.ParseFloat(inventoryItem.SellingPrice, 64); err == nil {
@@ -136,11 +112,8 @@ func CreateSalesOrder() gin.HandlerFunc {
 				}
 			}
 
-			// Recalculate amount server-side using structured discount fields
-			// discountType: "percentage" or "fixed"
 			amount := calculateItemAmount(itemReq.Quantity, rate, itemReq.Discount.Float64(), itemReq.DiscountType)
 
-			// Compute DiscountAED for storage
 			base := itemReq.Quantity * rate
 			var discountAED float64
 			switch itemReq.DiscountType {
@@ -174,7 +147,6 @@ func CreateSalesOrder() gin.HandlerFunc {
 		adjustment := math.Round(req.Adjustment*100) / 100
 		total := math.Round((subTotal+vat+shipping+adjustment)*100) / 100
 
-		// Generate order number if not provided
 		if req.OrderNumber == "" {
 			req.OrderNumber = generateOrderNumber(ctx)
 		}
@@ -182,7 +154,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 		orgID, _ := c.Get("orgId")
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
-			OrgID:                fmt.Sprintf("%v", orgID),
+			OrgID:                orgID.(string),
 			OrderNumber:          req.OrderNumber,
 			CustomerID:           req.CustomerID,
 			CustomerName:         customer.CustomerDisplayName,
@@ -242,14 +214,9 @@ func generateOrderNumber(ctx context.Context) string {
 	now := time.Now()
 	year := now.Year() % 100
 	month := int(now.Month())
+	prefix := "SO" + strconv.Itoa(month/10) + strconv.Itoa(month%10) + strconv.Itoa(year/10) + strconv.Itoa(year%10)
 
-	prefix := fmt.Sprintf("SO%02d%02d", month, year)
-	filter := bson.M{
-		"orderNumber": bson.M{
-			"$regex": "^" + prefix,
-		},
-	}
-
+	filter := bson.M{"orderNumber": bson.M{"$regex": "^" + prefix}}
 	opts := options.FindOne().SetSort(bson.D{{Key: "orderNumber", Value: -1}})
 
 	var lastOrder bson.M
@@ -268,7 +235,11 @@ func generateOrderNumber(ctx context.Context) string {
 		}
 	}
 
-	return fmt.Sprintf("%s%04d", prefix, nextSequence)
+	seq := strconv.Itoa(nextSequence)
+	for len(seq) < 4 {
+		seq = "0" + seq
+	}
+	return prefix + seq
 }
 
 func GetAllSalesOrders() gin.HandlerFunc {
@@ -309,8 +280,9 @@ func GetAllSalesOrders() gin.HandlerFunc {
 		}
 
 		if startDate != "" && endDate != "" {
-			start, err1 := time.Parse("2006-01-02", startDate)
-			end, err2 := time.Parse("2006-01-02", endDate)
+			// Parse in UTC to avoid timezone boundary issues
+			start, err1 := time.ParseInLocation("2006-01-02", startDate, time.UTC)
+			end, err2 := time.ParseInLocation("2006-01-02", endDate, time.UTC)
 			if err1 == nil && err2 == nil {
 				filter["orderDate"] = bson.M{
 					"$gte": start,
@@ -321,11 +293,7 @@ func GetAllSalesOrders() gin.HandlerFunc {
 
 		total, err := salesOrdersCollection.CountDocuments(ctx, filter)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to count sales orders",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to count sales orders", "error": err.Error()})
 			return
 		}
 
@@ -336,22 +304,14 @@ func GetAllSalesOrders() gin.HandlerFunc {
 
 		cursor, err := salesOrdersCollection.Find(ctx, filter, findOptions)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to fetch sales orders",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to fetch sales orders", "error": err.Error()})
 			return
 		}
 		defer cursor.Close(ctx)
 
 		var salesOrders []models.SalesOrder
 		if err := cursor.All(ctx, &salesOrders); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to decode sales orders",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to decode sales orders", "error": err.Error()})
 			return
 		}
 
@@ -415,28 +375,22 @@ func GetSalesOrderByID() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid sales order ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid sales order ID format", "error": err.Error()})
 			return
 		}
 
+		// FIXED: Was missing orgId check — any authenticated user from any org
+		// could read another org's orders by guessing an ObjectID.
+		orgID, _ := c.Get("orgId")
+		orgIDStr := orgID.(string)
+
 		var salesOrder models.SalesOrder
-		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&salesOrder)
+		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}).Decode(&salesOrder)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Sales order not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Sales order not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve sales order",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve sales order", "error": err.Error()})
 			}
 			return
 		}
@@ -494,11 +448,7 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid sales order ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid sales order ID format", "error": err.Error()})
 			return
 		}
 
@@ -511,10 +461,7 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil || req.Status == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid request body — status is required",
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body — status is required"})
 			return
 		}
 
@@ -538,23 +485,14 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			updateDoc["$unset"] = bson.M{"cancelReason": "", "cancelRequestedBy": ""}
 		}
 
-		update := updateDoc
-
-		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
+		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, updateDoc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to update sales order status",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update sales order status", "error": err.Error()})
 			return
 		}
 
 		if result.MatchedCount == 0 {
-			c.JSON(http.StatusNotFound, gin.H{
-				"status":  http.StatusNotFound,
-				"message": "Sales order not found",
-			})
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Sales order not found"})
 			return
 		}
 
@@ -581,11 +519,7 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid sales order ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid sales order ID format", "error": err.Error()})
 			return
 		}
 
@@ -593,11 +527,7 @@ func UpdateSalesOrder() gin.HandlerFunc {
 
 		var req models.UpdateSalesOrderRequest
 		if err := c.BindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid request body",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
 			return
 		}
 
@@ -605,16 +535,9 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingOrder)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Sales order not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Sales order not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve sales order",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve sales order", "error": err.Error()})
 			}
 			return
 		}
@@ -637,7 +560,6 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			setFields["termsAndConditions"] = *req.TermsAndConditions
 		}
 
-		// Recalculate total if shipping or adjustment changed
 		if req.ShippingCharges != nil || req.Adjustment != nil {
 			newShipping := existingOrder.ShippingCharges
 			newAdjustment := existingOrder.Adjustment
@@ -653,19 +575,12 @@ func UpdateSalesOrder() gin.HandlerFunc {
 
 		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": setFields})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to update sales order",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update sales order", "error": err.Error()})
 			return
 		}
 
 		if result.MatchedCount == 0 {
-			c.JSON(http.StatusNotFound, gin.H{
-				"status":  http.StatusNotFound,
-				"message": "Sales order not found",
-			})
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Sales order not found"})
 			return
 		}
 
@@ -705,11 +620,7 @@ func DeleteSalesOrder() gin.HandlerFunc {
 		id := c.Param("id")
 		objectID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  http.StatusBadRequest,
-				"message": "Invalid sales order ID format",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid sales order ID format", "error": err.Error()})
 			return
 		}
 
@@ -719,34 +630,17 @@ func DeleteSalesOrder() gin.HandlerFunc {
 		err = salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingOrder)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				c.JSON(http.StatusNotFound, gin.H{
-					"status":  http.StatusNotFound,
-					"message": "Sales order not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Sales order not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  http.StatusInternalServerError,
-					"message": "Failed to retrieve sales order",
-					"error":   err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve sales order", "error": err.Error()})
 			}
 			return
 		}
 
-		update := bson.M{
-			"$set": bson.M{
-				"status":    "cancelled",
-				"updatedAt": time.Now(),
-			},
-		}
-
+		update := bson.M{"$set": bson.M{"status": "cancelled", "updatedAt": time.Now()}}
 		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to cancel sales order",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to cancel sales order", "error": err.Error()})
 			return
 		}
 
@@ -767,9 +661,6 @@ func DeleteSalesOrder() gin.HandlerFunc {
 	}
 }
 
-// POST /api/sales-orders/:id/revert
-// Called by an admin to approve a member's cancellation request.
-// Sets the sales order status to "cancelled" and broadcasts a real-time update.
 func RevertSalesOrder() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -828,31 +719,21 @@ func GetSalesOrderStats() gin.HandlerFunc {
 		defer cancel()
 
 		now := time.Now()
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 		weekStart := todayStart.AddDate(0, 0, -int(now.Weekday())+1)
-		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 
 		orgID, _ := c.Get("orgId")
 		totalOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
 
 		pipeline := []bson.M{
 			{"$match": bson.M{"orgId": orgID}},
-			{
-				"$group": bson.M{
-					"_id":         "$status",
-					"count":       bson.M{"$sum": 1},
-					"totalAmount": bson.M{"$sum": "$total"},
-				},
-			},
+			{"$group": bson.M{"_id": "$status", "count": bson.M{"$sum": 1}, "totalAmount": bson.M{"$sum": "$total"}}},
 		}
 
 		cursor, err := salesOrdersCollection.Aggregate(ctx, pipeline)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to get sales order statistics",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to get sales order statistics", "error": err.Error()})
 			return
 		}
 		defer cursor.Close(ctx)
@@ -873,9 +754,7 @@ func GetSalesOrderStats() gin.HandlerFunc {
 			}
 		}
 
-		todayOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"orgId": orgID, "createdAt": bson.M{"$gte": todayStart},
-		})
+		todayOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "createdAt": bson.M{"$gte": todayStart}})
 
 		todayRevenue := 0.0
 		todayRevPipeline := []bson.M{
@@ -892,23 +771,12 @@ func GetSalesOrderStats() gin.HandlerFunc {
 			}
 		}
 
-		thisWeekOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"orgId": orgID, "createdAt": bson.M{"$gte": weekStart},
-		})
-		thisMonthOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
-			"orgId": orgID, "createdAt": bson.M{"$gte": monthStart},
-		})
+		thisWeekOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "createdAt": bson.M{"$gte": weekStart}})
+		thisMonthOrders, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "createdAt": bson.M{"$gte": monthStart}})
 
 		topCustomersPipeline := []bson.M{
 			{"$match": bson.M{"orgId": orgID}},
-			{
-				"$group": bson.M{
-					"_id":          "$customerId",
-					"customerName": bson.M{"$first": "$customerName"},
-					"orderCount":   bson.M{"$sum": 1},
-					"totalAmount":  bson.M{"$sum": "$total"},
-				},
-			},
+			{"$group": bson.M{"_id": "$customerId", "customerName": bson.M{"$first": "$customerName"}, "orderCount": bson.M{"$sum": 1}, "totalAmount": bson.M{"$sum": "$total"}}},
 			{"$sort": bson.M{"totalAmount": -1}},
 			{"$limit": 5},
 		}
@@ -929,13 +797,7 @@ func GetSalesOrderStats() gin.HandlerFunc {
 					customerName, _ := result["customerName"].(string)
 					orderCount, _ := result["orderCount"].(int64)
 					amount, _ := result["totalAmount"].(float64)
-
-					topCustomers = append(topCustomers, models.TopCustomer{
-						CustomerID:   customerID,
-						CustomerName: customerName,
-						OrderCount:   orderCount,
-						TotalAmount:  amount,
-					})
+					topCustomers = append(topCustomers, models.TopCustomer{CustomerID: customerID, CustomerName: customerName, OrderCount: orderCount, TotalAmount: amount})
 				}
 			}
 		}
@@ -955,11 +817,7 @@ func GetSalesOrderStats() gin.HandlerFunc {
 			TopCustomers:    topCustomers,
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"status":  http.StatusOK,
-			"message": "Sales order statistics retrieved successfully",
-			"data":    stats,
-		})
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Sales order statistics retrieved successfully", "data": stats})
 	}
 }
 
@@ -972,11 +830,7 @@ func SearchSalesOrders() gin.HandlerFunc {
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 
 		if query == "" {
-			c.JSON(http.StatusOK, gin.H{
-				"status":  http.StatusOK,
-				"message": "No search query provided",
-				"data":    []interface{}{},
-			})
+			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "No search query provided", "data": []interface{}{}})
 			return
 		}
 
@@ -991,28 +845,18 @@ func SearchSalesOrders() gin.HandlerFunc {
 			},
 		}
 
-		findOptions := options.Find().
-			SetLimit(int64(limit)).
-			SetSort(bson.D{{Key: "createdAt", Value: -1}})
+		findOptions := options.Find().SetLimit(int64(limit)).SetSort(bson.D{{Key: "createdAt", Value: -1}})
 
 		var orders []models.SalesOrder
 		cursor, err := salesOrdersCollection.Find(ctx, filter, findOptions)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to search sales orders",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to search sales orders", "error": err.Error()})
 			return
 		}
 		defer cursor.Close(ctx)
 
 		if err := cursor.All(ctx, &orders); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to decode search results",
-				"error":   err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to decode search results", "error": err.Error()})
 			return
 		}
 
@@ -1036,11 +880,6 @@ func SearchSalesOrders() gin.HandlerFunc {
 			})
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"status":  http.StatusOK,
-			"message": "Sales orders search completed successfully",
-			"data":    response,
-			"count":   len(response),
-		})
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Sales orders search completed successfully", "data": response, "count": len(response)})
 	}
 }

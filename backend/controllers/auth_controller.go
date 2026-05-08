@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -17,13 +16,15 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var userCollection *mongo.Collection = config.GetCollection(config.DB, "users")
+var userCollection = config.GetCollection(config.DB, "users")
 var validate = Validations.GetValidator()
 
+// signinLimiter: max 10 attempts per IP per minute on the signin endpoint.
+// The RateLimiter implementation already exists in utils/hash.go — wire it here.
+var signinLimiter = utils.NewRateLimiter(10, time.Minute)
+
 func SignUp() gin.HandlerFunc {
-
 	return func(c *gin.Context) {
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -60,8 +61,8 @@ func SignUp() gin.HandlerFunc {
 		if count > 0 {
 			c.JSON(http.StatusConflict, gin.H{
 				"status":  http.StatusConflict,
-				"message": "Id Already Exists!...",
-				"error":   "Id Already Exists!...",
+				"message": "User ID already exists",
+				"error":   "User ID already exists",
 			})
 			return
 		}
@@ -91,7 +92,7 @@ func SignUp() gin.HandlerFunc {
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
-			"message": "User Created Successfully...",
+			"message": "User Created Successfully",
 			"data": gin.H{
 				"_id":    user.ID,
 				"userId": user.UserID,
@@ -101,11 +102,19 @@ func SignUp() gin.HandlerFunc {
 }
 
 func SignIn() gin.HandlerFunc {
-
 	return func(c *gin.Context) {
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+
+		// ── Rate limiting: max 10 signin attempts per IP per minute ──────────
+		ip := c.ClientIP()
+		if !signinLimiter.Allow(ip) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"status":  http.StatusTooManyRequests,
+				"message": "Too many login attempts. Please wait a minute and try again.",
+			})
+			return
+		}
 
 		var user models.Users
 
@@ -132,8 +141,6 @@ func SignIn() gin.HandlerFunc {
 
 		err := userCollection.FindOne(ctx, filter).Decode(&fullUser)
 		if err != nil {
-			// ✅ FIX 2: Was missing return after non-ErrNoDocuments error
-			// Both cases (not found AND db error) should return unauthorized
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"status":  http.StatusUnauthorized,
@@ -147,10 +154,9 @@ func SignIn() gin.HandlerFunc {
 					"error":   "Database error",
 				})
 			}
-			return // ✅ was missing — execution continued even on DB error
+			return
 		}
 
-		// ✅ FIX 3: Safe type assertion — old code would panic if "password" field missing
 		storedPassword, ok := fullUser["password"].(string)
 		if !ok || storedPassword == "" {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -177,7 +183,6 @@ func SignIn() gin.HandlerFunc {
 			"orgId":       1,
 		}
 		var result bson.M
-		// ✅ FIX 4: Was ignoring error from this FindOne — if it fails, token still returned
 		if err = userCollection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -197,12 +202,10 @@ func SignIn() gin.HandlerFunc {
 			return
 		}
 
-		// Remove debug fmt.Println statements — not safe in production
-		fmt.Println("User signed in:", user.UserID) // remove this line in production
-
-		c.JSON(http.StatusOK, gin.H{ // ✅ Changed from 201 Created to 200 OK for login
+		// Removed debug fmt.Println — do not log user IDs in production
+		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
-			"message": "Login successful...",
+			"message": "Login successful",
 			"data":    result,
 			"token":   token,
 		})

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import axiosInstance from './axiosInstance/';
+import axiosInstance from './axiosInstance';
 
 const safe = (n) => (typeof n === 'number' && !isNaN(n) ? n : 0);
 

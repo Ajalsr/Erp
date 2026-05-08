@@ -15,11 +15,8 @@ import (
 )
 
 func GetAllStocks() gin.HandlerFunc {
-
 	return func(c *gin.Context) {
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
 		var stocks []models.Stock
 		defer cancel()
 
@@ -32,7 +29,6 @@ func GetAllStocks() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
 		defer results.Close(ctx)
 
 		if err := results.All(ctx, &stocks); err != nil {
@@ -49,30 +45,23 @@ func GetAllStocks() gin.HandlerFunc {
 			"message": "success",
 			"data":    stocks,
 		})
-
 	}
-
 }
 
-var stockCollection *mongo.Collection = config.GetCollection(config.DB, "stocks")
+var stockCollection = config.GetCollection(config.DB, "stocks")
 
 func AddItem() gin.HandlerFunc {
-
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
 		var item models.Stock
-
 		defer cancel()
 
 		if err := c.BindJSON(&item); err != nil {
-
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
 				"message": "error",
 				"error":   err.Error(),
 			})
-
 			return
 		}
 
@@ -84,7 +73,7 @@ func AddItem() gin.HandlerFunc {
 
 		result, err := stockCollection.InsertOne(ctx, item)
 
-		fmt.Println(result)
+		// Removed debug fmt.Println(result) — do not log insert results in production
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -95,20 +84,19 @@ func AddItem() gin.HandlerFunc {
 			return
 		}
 
-		responseItem := gin.H{
-			"_id": item.ID,
-		}
-
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
-			"message": "Item Added Successfully...",
-			"data":    responseItem,
+			"message": "Item Added Successfully",
+			"data": gin.H{
+				"_id":        item.ID,
+				"insertedId": result.InsertedID,
+			},
 		})
-
 	}
 }
 
 // ─── REDUCE STOCK ─────────────────────────────────────────────────────────────
+// Guards against reducing below zero — returns 422 Unprocessable if stock is insufficient.
 func ReduceStock() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -143,14 +131,24 @@ func ReduceStock() gin.HandlerFunc {
 			return
 		}
 
+		// Parse current quantity from string field
 		currentQty := 0.0
 		fmt.Sscanf(stock.Quantity, "%f", &currentQty)
+
+		// Guard: never allow stock to go negative
 		if body.ReduceBy > currentQty {
-			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Insufficient stock", "data": gin.H{"available": currentQty, "requested": body.ReduceBy}})
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"status":  http.StatusUnprocessableEntity,
+				"message": "Insufficient stock",
+				"data": gin.H{
+					"available": currentQty,
+					"requested": body.ReduceBy,
+				},
+			})
 			return
 		}
-		newQty := currentQty - body.ReduceBy
 
+		newQty := currentQty - body.ReduceBy
 		update := bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}}
 		_, err = stockCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}, update)
 		if err != nil {
@@ -158,7 +156,11 @@ func ReduceStock() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Stock reduced successfully", "data": gin.H{"previousQty": currentQty, "reducedBy": body.ReduceBy, "newQty": newQty}})
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Stock reduced successfully",
+			"data":    gin.H{"previousQty": currentQty, "reducedBy": body.ReduceBy, "newQty": newQty},
+		})
 	}
 }
 
@@ -208,6 +210,10 @@ func IncreaseStock() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Stock increased successfully", "data": gin.H{"previousQty": currentQty, "increasedBy": body.IncreaseBy, "newQty": newQty}})
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Stock increased successfully",
+			"data":    gin.H{"previousQty": currentQty, "increasedBy": body.IncreaseBy, "newQty": newQty},
+		})
 	}
 }
