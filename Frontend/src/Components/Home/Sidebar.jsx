@@ -28,7 +28,7 @@ const MENU = [
     { name: 'Delivery Notes',     route: '/Sales/Deliverynote' },
     { name: 'Outbound',           route: '/Sales/Outbound' },
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
-    { name: 'Credit Notes',       route: '/Sales/CreditNotes' },
+    // NOTE: Credit Notes removed — component not yet built. Add back when ready.
   ]},
   { icon: FaCartArrowDown,   label: 'Purchases',  subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors' },

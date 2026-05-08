@@ -372,7 +372,7 @@ const Salesorders = () => {
 
             {/* Status pills */}
             <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-              {["all", "open", "confirmed", "draft", "in progress", "completed", "cancelled"].map(s => (
+              {["all", "open", "draft", "approved", "shipped", "invoiced", "completed", "cancel_requested", "cancelled"].map(s => (
                 <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
                   className={`so-pill${statusFilter === s ? " so-pill-active" : ""}`}
                   style={{ padding: "5px 11px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", background: "transparent", color: T.textSec, border: `1px solid ${T.border}`, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>

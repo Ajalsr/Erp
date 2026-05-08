@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -735,7 +735,8 @@ export default function Newpurchaseorders() {
   /* ─────────────────────────── RENDER ──────────────────────────── */
   return (
     <div className="npo-root" style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px' }}>
-      <style>{buildCSS(isDark)}</style>
+      {/* useMemo: only re-generate the style block when theme changes, not every keystroke */}
+      <style>{useMemo(() => buildCSS(isDark), [isDark])}</style>
 
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 

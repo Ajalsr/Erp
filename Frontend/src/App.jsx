@@ -12,7 +12,6 @@ import Salesorders from "./Components/SalesOrders/Salesorders"
 import Newsalesorders from "./Components/NewSalesOrders/Newsalesorders"
 import Purchaseorders from "./Components/PurchaseOrders/Purchaseorders"
 import Newpurchaseorders from "./Components/NewPurchaseOrders/Newpurchaseorders"
-//import EditCustomer from "./Components/Customers/EditCustomer"
 import Outbound from "./Components/Outbound/Outbound"
 import DeliveryNote from "./Components/DeliveryNote/Deliverynote"
 import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute"
@@ -42,6 +41,7 @@ import NewPriceList from "./Components/NewPriceList/NewPriceList"
 import StockSummary from "./Components/Inventory/StockSummary"
 import Warehouses from "./Components/Inventory/Warehouses"
 import Adjustments from "./Components/Inventory/Adjustments"
+import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
 
 function App() {
   return (
@@ -65,60 +65,63 @@ function App() {
           },
         }}
       />
-      <Routes>
-        <Route path="/" element={<Login />} />
-        <Route path="/Signup" element={<Signup />} />
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<Login />} />
+          <Route path="/Signup" element={<Signup />} />
 
-        {/* Invitation accept — accessible when logged in, before org is set */}
-        <Route path="/invitations/accept" element={<AcceptInvitation />} />
+          {/* Invitation accept — accessible when logged in, before org is set */}
+          <Route path="/invitations/accept" element={<AcceptInvitation />} />
 
-        {/* Create first org after signup (protected, but outside main layout) */}
-        <Route
-          path="/organizations/create"
-          element={<ProtectedRoute><CreateOrganization /></ProtectedRoute>}
-        />
+          {/* Create first org after signup (protected, but outside main layout) */}
+          <Route
+            path="/organizations/create"
+            element={<ProtectedRoute><CreateOrganization /></ProtectedRoute>}
+          />
 
-        {/* All protected routes inside main layout */}
-        <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-          <Route path="/Home" element={<Home />} />
-          <Route path="/Items/Items" element={<Item />} />
-          <Route path="/Items/Items/New" element={<New />} />
-          <Route path="/Sales/Customers" element={<Customers />} />
-          <Route path="/Sales/Customers/Newcustomers" element={<Newcustomers />} />
-          {/* <Route path="/sales/customers/edit/:id" element={<EditCustomer />} /> */}
-          <Route path="/Sales/Salesorders" element={<Salesorders />} />
-          <Route path="/Sales/Outbound" element={<Outbound />} />
-          <Route path="/Sales/Deliverynote" element={<DeliveryNote />} />
-          <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders />} />
-          <Route path="/Purchase/Purchaseorders" element={<Purchaseorders />} />
-          <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
-          <Route path="Purchase/Vendors" element={<Vendors />} />
-          <Route path="Purchase/Vendors/NewVendor" element={<NewVendor />} />
-          <Route path="/Purchase/GRN" element={<GRN />} />
-          <Route path="/Purchase/Inbound" element={<Inbound />} />
-          <Route path="/Purchase/Stock" element={<PurchaseStock />} />
-          {/* Organization settings & members */}
-          <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
-          <Route path="/Sales/Invoices" element={<Invoices />} />
-          <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
-          <Route path="/Sales/PaymentsReceived" element={<PaymentsReceived />} />
-          <Route path="/Purchase/Bills" element={<Bills />} />
-          <Route path="/Purchase/Bills/New" element={<NewBill />} />
-          <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
-          <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
-          <Route path="/Reports/sales"     element={<SalesReport />} />
-          <Route path="/Reports/purchases" element={<PurchaseReport />} />
-          <Route path="/Reports/inventory" element={<InventoryReport />} />
-          <Route path="/Finance/Accounts"        element={<Accounts />} />
-          <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
-          <Route path="/Items/item-groups"        element={<ItemGroups />} />
-          <Route path="/Items/price-lists"        element={<PriceLists />} />
-          <Route path="/Items/price-lists/new"    element={<NewPriceList />} />
-          <Route path="/Inventory/stock-summary"  element={<StockSummary />} />
-          <Route path="/Inventory/warehouses"     element={<Warehouses />} />
-          <Route path="/Inventory/adjustments"    element={<Adjustments />} />
-        </Route>
-      </Routes>
+          {/* All protected routes inside main layout */}
+          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route path="/Home" element={<Home />} />
+            <Route path="/Items/Items" element={<Item />} />
+            <Route path="/Items/Items/New" element={<New />} />
+            <Route path="/Sales/Customers" element={<Customers />} />
+            <Route path="/Sales/Customers/Newcustomers" element={<Newcustomers />} />
+            <Route path="/Sales/Salesorders" element={<Salesorders />} />
+            <Route path="/Sales/Outbound" element={<Outbound />} />
+            <Route path="/Sales/Deliverynote" element={<DeliveryNote />} />
+            <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders />} />
+            <Route path="/Purchase/Purchaseorders" element={<Purchaseorders />} />
+            <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
+            {/* FIXED: Was missing leading "/" — navigation silently 404'd */}
+            <Route path="/Purchase/Vendors" element={<Vendors />} />
+            <Route path="/Purchase/Vendors/NewVendor" element={<NewVendor />} />
+            <Route path="/Purchase/GRN" element={<GRN />} />
+            <Route path="/Purchase/Inbound" element={<Inbound />} />
+            <Route path="/Purchase/Stock" element={<PurchaseStock />} />
+            {/* Organization settings & members */}
+            <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
+            <Route path="/Sales/Invoices" element={<Invoices />} />
+            <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
+            <Route path="/Sales/PaymentsReceived" element={<PaymentsReceived />} />
+            <Route path="/Purchase/Bills" element={<Bills />} />
+            <Route path="/Purchase/Bills/New" element={<NewBill />} />
+            <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
+            <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
+            <Route path="/Reports/sales"     element={<SalesReport />} />
+            <Route path="/Reports/purchases" element={<PurchaseReport />} />
+            <Route path="/Reports/inventory" element={<InventoryReport />} />
+            <Route path="/Finance/Accounts"        element={<Accounts />} />
+            <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
+            <Route path="/Items/item-groups"        element={<ItemGroups />} />
+            <Route path="/Items/price-lists"        element={<PriceLists />} />
+            <Route path="/Items/price-lists/new"    element={<NewPriceList />} />
+            <Route path="/Inventory/stock-summary"  element={<StockSummary />} />
+            <Route path="/Inventory/warehouses"     element={<Warehouses />} />
+            <Route path="/Inventory/adjustments"    element={<Adjustments />} />
+            {/* NOTE: /Sales/CreditNotes removed from sidebar until component is built */}
+          </Route>
+        </Routes>
+      </ErrorBoundary>
     </>
   )
 }

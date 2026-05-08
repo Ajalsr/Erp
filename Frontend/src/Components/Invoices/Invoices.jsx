@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore from "../../store/useThemeStore";
+import nexusToast from "../../helper/nexusToast";
 
 /* ─── Theme builder ──────────────────────────────────────────────────────── */
 const buildTheme = (isDark) => ({
@@ -522,8 +523,9 @@ const Invoices = () => {
                                 await axiosInstance.patch(`/api/invoices/${selected._id}/status`, { status: "void" });
                                 setSelected(null);
                                 loadInvoices();
-                              } catch { /* ignore */ }
-                              finally { setVoidLoading(false); }
+                              } catch (e) {
+                                nexusToast.error(e.response?.data?.message || "Failed to void invoice");
+                              } finally { setVoidLoading(false); }
                             }}
                             style={{ padding: "8px 0", borderRadius: 7, fontSize: 12, cursor: voidLoading ? "not-allowed" : "pointer", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif", transition: ".15s", opacity: voidLoading ? 0.6 : 1 }}>
                             {voidLoading ? "Voiding…" : "Void Invoice"}
