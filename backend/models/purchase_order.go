@@ -53,8 +53,15 @@ type PurchaseOrder struct {
 
 	CustomerNotes      string `json:"customerNotes"      bson:"customerNotes"`
 	TermsAndConditions string `json:"termsAndConditions" bson:"termsAndConditions"`
-	Status             string `json:"status"             bson:"status"`
-	OrgID              string `json:"orgId,omitempty"    bson:"orgId,omitempty"`
+	Status             string `json:"status"             bson:"status"` // draft | pending_approval | approved | issued | received | cancelled
+
+	// ── LPO / Approval ────────────────────────────────────────────────────
+	LPONumber      string     `json:"lpoNumber,omitempty"      bson:"lpoNumber,omitempty"`      // issued only after approval
+	ApprovalStatus string     `json:"approvalStatus,omitempty" bson:"approvalStatus,omitempty"` // pending | approved | rejected
+	ApprovedBy     string     `json:"approvedBy,omitempty"     bson:"approvedBy,omitempty"`
+	ApprovedAt     *time.Time `json:"approvedAt,omitempty"     bson:"approvedAt,omitempty"`
+
+	OrgID string `json:"orgId,omitempty" bson:"orgId,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt" bson:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt" bson:"updatedAt"`

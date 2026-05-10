@@ -37,6 +37,7 @@ import PurchaseReport from "./Components/Reports/PurchaseReport"
 import InventoryReport from "./Components/Reports/InventoryReport"
 import AgingReport from "./Components/Reports/AgingReport"
 import CustomerStatement from "./Components/Reports/CustomerStatement"
+import StatementOfAccount from "./Components/Reports/StatementOfAccount"
 import Accounts from "./Components/Accounts/Accounts"
 import NewAccount from "./Components/NewAccount/NewAccount"
 import ItemGroups from "./Components/ItemGroups/ItemGroups"
@@ -107,7 +108,6 @@ function App() {
             <Route path="/Sales/Salesorders/Newsalesorders/:id" element={<Newsalesorders />} />
             <Route path="/Purchase/Purchaseorders" element={<Purchaseorders />} />
             <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
-            {/* FIXED: Was missing leading "/" — navigation silently 404'd */}
             <Route path="/Purchase/Vendors" element={<Vendors />} />
             <Route path="/Purchase/Vendors/NewVendor" element={<NewVendor />} />
             <Route path="/Purchase/GRN" element={<GRNList />} />
@@ -115,7 +115,6 @@ function App() {
             <Route path="/Purchase/GRN/:id" element={<GRN />} />
             <Route path="/Purchase/Inbound" element={<Inbound />} />
             <Route path="/Purchase/Stock" element={<PurchaseStock />} />
-            {/* Organization settings & members */}
             <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
             <Route path="/Sales/Invoices" element={<Invoices />} />
             <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
@@ -124,11 +123,12 @@ function App() {
             <Route path="/Purchase/Bills/New" element={<NewBill />} />
             <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
             <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
-            <Route path="/Reports/sales"              element={<SalesReport />} />
-            <Route path="/Reports/purchases"           element={<PurchaseReport />} />
-            <Route path="/Reports/inventory"           element={<InventoryReport />} />
-            <Route path="/Reports/aging"               element={<AgingReport />} />
-            <Route path="/Reports/customer-statement"  element={<CustomerStatement />} />
+            <Route path="/Reports/sales"                element={<SalesReport />} />
+            <Route path="/Reports/purchases"            element={<PurchaseReport />} />
+            <Route path="/Reports/inventory"            element={<InventoryReport />} />
+            <Route path="/Reports/aging"                element={<AgingReport />} />
+            <Route path="/Reports/customer-statement"   element={<CustomerStatement />} />
+            <Route path="/Reports/statement-of-account" element={<StatementOfAccount />} />
             <Route path="/Finance/Accounts"        element={<Accounts />} />
             <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
             <Route path="/Items/item-groups"        element={<ItemGroups />} />
@@ -137,10 +137,7 @@ function App() {
             <Route path="/Inventory/stock-summary"  element={<StockSummary />} />
             <Route path="/Inventory/warehouses"     element={<Warehouses />} />
             <Route path="/Inventory/adjustments"    element={<Adjustments />} />
-            <Route path="/Sales/CreditNotes"           element={<CreditNotes />} />
-            <Route path="/Purchase/DebitNotes"         element={<DebitNotes />} />
-            <Route path="/Sales/Quotes"                element={<Quotes />} />
-            <Route path="/Sales/Quotes/Create"         element={<CreateQuote />} />
+            <Route path="/Sales/CreditNotes"        element={<CreditNotes />} />
           </Route>
 
           {/* Public invoice — no layout, no auth */}
@@ -149,6 +146,7 @@ function App() {
       </ErrorBoundary>
     </>
   )
+  
 }
 
 export default App

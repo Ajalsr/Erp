@@ -501,8 +501,9 @@ export default function NewVendor() {
 
   const [form, setForm] = useState({
     // Identity
-    vendorType: '', displayName: '', companyName: '', vendorCode: '',
-    trnNumber: '', tradeLicenseNo: '', website: '',
+    vendorType: '', origin: '', tradeLicenseNumber: '',
+    displayName: '', companyName: '', vendorCode: '',
+    website: '',
     // Contact
     email: '', phone: '', workPhone: '', mobile: '',
     // Address — Billing
@@ -566,13 +567,13 @@ export default function NewVendor() {
     setSaving(true);
 
     const payload = {
-      vendorType:     form.vendorType,
-      displayName:    form.displayName,
-      companyName:    form.companyName,
-      vendorCode:     form.vendorCode,
-      trnNumber:      form.trnNumber,
-      tradeLicenseNo: form.tradeLicenseNo,
-      website:        form.website,
+      vendorType:          form.vendorType,
+      origin:              form.origin,
+      tradeLicenseNumber:  form.tradeLicenseNumber,
+      displayName:         form.displayName,
+      companyName:         form.companyName,
+      vendorCode:          form.vendorCode,
+      website:             form.website,
       email:         form.email,
       phone:         form.phone,
       workPhone:     form.workPhone,
@@ -815,6 +816,14 @@ export default function NewVendor() {
                     options={VENDOR_TYPES} placeholder="Select type"
                     T={T} isDark={isDark} error={errors.vendorType} />
                 </F>
+                <F label="Origin" T={T}>
+                  <CustomSelect name="origin" value={form.origin} onChange={handleChange}
+                    options={['Free Zone', 'Mainland', 'Overseas']} placeholder="Select origin"
+                    T={T} isDark={isDark} />
+                </F>
+              </div>
+
+              <div style={{ ...grid2, marginBottom: 16 }}>
                 <F label="Display Name" req T={T}>
                   <Input name="displayName" value={form.displayName} onChange={handleChange} placeholder="Name shown on documents" T={T} error={errors.displayName} autoFocus />
                 </F>
@@ -834,7 +843,7 @@ export default function NewVendor() {
                   <Input name="trnNumber" value={form.trnNumber} onChange={handleChange} placeholder="Tax Registration No." mono T={T} error={errors.trnNumber} />
                 </F>
                 <F label="Trade License No." T={T}>
-                  <Input name="tradeLicenseNo" value={form.tradeLicenseNo} onChange={handleChange} placeholder="TL-XXXXXXXX" mono T={T} />
+                  <Input name="tradeLicenseNumber" value={form.tradeLicenseNumber} onChange={handleChange} placeholder="TL-XXXXXXXX" mono T={T} />
                 </F>
                 <F label="Website" T={T}>
                   <Input name="website" value={form.website} onChange={handleChange} placeholder="https://example.com" T={T} />
@@ -973,6 +982,12 @@ export default function NewVendor() {
               <div style={{ ...grid2 }}>
                 <F label="Credit Limit" T={T}>
                   <Input prefix="AED" type="number" name="creditLimit" value={form.creditLimit} onChange={handleChange} placeholder="0.00" mono T={T} />
+                </F>
+                <F label="Credit Used" T={T}>
+                  <Input prefix="AED" type="number" name="creditUsed" value={form.creditUsed} onChange={handleChange} placeholder="0.00" mono T={T} />
+                </F>
+                <F label="TRN Number" T={T}>
+                  <Input name="trnNumber" value={form.trnNumber} onChange={handleChange} placeholder="VAT Reg No." mono T={T} />
                 </F>
               </div>
             </Section>

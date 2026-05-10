@@ -34,17 +34,17 @@ export const getTheme = (isDark) =>
   isDark
     ? {
         // ── Dark ──────────────────────────────────────────────────
-        bg:        '#080d1a',
-        surface:   '#0d1526',
-        surface2:  '#111d30',
-        navBg:     '#0c1220',
-        sidebarBg: '#080d1a',
-        border:    'rgba(255,255,255,0.07)',
-        border2:   'rgba(255,255,255,0.04)',
+        bg:        '#0f1623',
+        surface:   '#1a2236',
+        surface2:  '#1f2a40',
+        navBg:     '#151e30',
+        sidebarBg: '#0f1623',
+        border:    'rgba(255,255,255,0.10)',
+        border2:   'rgba(255,255,255,0.06)',
         borderFoc: 'rgba(59,130,246,0.5)',
-        textPri:   '#e2e8f0',
-        textSec:   '#64748b',
-        textMuted: '#334155',
+        textPri:   '#e8edf5',
+        textSec:   '#7a8ba8',
+        textMuted: '#4a5568',
         blue:      '#3b82f6',
         blueLight: '#60a5fa',
         blueDim:   'rgba(59,130,246,0.15)',
@@ -58,8 +58,8 @@ export const getTheme = (isDark) =>
         purpleDim: 'rgba(139,92,246,0.12)',
         cyan:      '#06b6d4',
         cyanDim:   'rgba(6,182,212,0.12)',
-        inputBg:   '#111d30',
-        scrollbar: '#1e293b',
+        inputBg:   '#1f2a40',
+        scrollbar: '#2a3a55',
       }
     : {
         // ── Light ─────────────────────────────────────────────────

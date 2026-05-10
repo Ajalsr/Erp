@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var orgCollection *mongo.Collection = config.GetCollection(config.DB, "organizations")
@@ -740,9 +742,9 @@ func UpdateLetterhead() gin.HandlerFunc {
 		}
 
 		var input struct {
-			LetterheadImage     string `json:"letterheadImage"`     // base64 data-URL or "" to clear
-			LetterheadTopPad    int    `json:"letterheadTopPad"`    // px
-			LetterheadBottomPad int    `json:"letterheadBottomPad"` // px
+			LetterheadImage     string `json:"letterheadImage"`
+			LetterheadTopPad    int    `json:"letterheadTopPad"`
+			LetterheadBottomPad int    `json:"letterheadBottomPad"`
 		}
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
@@ -761,5 +763,55 @@ func UpdateLetterhead() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Letterhead updated"})
+	}
+}
+
+// ── Org Settings (salutations and other org-level config) ──────────────────
+
+var orgSettingsCollection *mongo.Collection = config.GetCollection(config.DB, "org_settings")
+
+// GetOrgSettings returns the settings for the current org.
+func GetOrgSettings() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgIDStr, _ := c.Get("orgId")
+		var settings bson.M
+		err := orgSettingsCollection.FindOne(ctx, bson.M{"orgId": fmt.Sprintf("%v", orgIDStr)}).Decode(&settings)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"status": http.StatusOK,
+				"data":   gin.H{"salutations": []string{"Mr.", "Mrs.", "Ms.", "Miss", "Dr."}},
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": settings})
+	}
+}
+
+// UpdateOrgSettings saves org-level configuration (salutations list, etc.).
+func UpdateOrgSettings() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgIDStr := fmt.Sprintf("%v", func() interface{} { v, _ := c.Get("orgId"); return v }())
+
+		var body bson.M
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		body["orgId"] = orgIDStr
+		body["updatedAt"] = time.Now()
+
+		opts := options.Update().SetUpsert(true)
+		orgSettingsCollection.UpdateOne(ctx,
+			bson.M{"orgId": orgIDStr},
+			bson.M{"$set": body},
+			opts,
+		)
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Settings updated"})
 	}
 }
