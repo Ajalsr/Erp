@@ -471,6 +471,7 @@ const Newsalesorders = () => {
   const [filteredItems,setFilteredItems]=useState([]);
   const [customerSearch,setCustomerSearch]=useState('');
   const [selectedCustomer,setSelectedCustomer]=useState(null);
+  const [creditStatus,setCreditStatus]=useState(null);
   const [showCustomerDropdown,setShowCustomerDropdown]=useState(false);
   const [custDropPos,setCustDropPos]=useState({top:0,left:0,width:360});
   const [filteredCustomers,setFilteredCustomers]=useState([]);
@@ -594,6 +595,13 @@ const Newsalesorders = () => {
 
 
   const handleCustomerSelect=c=>{setSelectedCustomer(c);setCustomerSearch(`${c.customerCode} - ${c.customerDisplayName}${c.companyName?` (${c.companyName})`:''}`);setShowCustomerDropdown(false);};
+
+  useEffect(()=>{
+    if(!selectedCustomer?._id){setCreditStatus(null);return;}
+    axiosInstance.get(`/api/customers/${selectedCustomer._id}/credit-status`)
+      .then(r=>setCreditStatus(r.data?.data||null))
+      .catch(()=>setCreditStatus(null));
+  },[selectedCustomer?._id]);
   const addNewRow=()=>{const id=items.length>0?Math.max(...items.map(i=>i.id))+1:1;setItems([...items,{id,itemId:'',details:'',sku:'',quantity:1,rate:'',discount:'',discountType:'percentage',amount:'',unit:''}]);};
   const handleRemoveItem=idx=>{
     if(items.length<=1){const u=[...items];u[idx]={id:u[idx].id,itemId:'',details:'',sku:'',quantity:1,rate:'',discount:'',discountType:'percentage',amount:'',unit:''};setItems(u);return;}
@@ -640,7 +648,7 @@ const Newsalesorders = () => {
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){await Promise.all(d.items.map(item=>item.itemId&&item.itemId.trim()!==''?axiosInstance.patch(`/api/stocks/${item.itemId}/reduce`,{reduceBy:item.quantity}):Promise.resolve()));handleGetItem();setSuccessMessage('Sales order created!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){await Promise.all(d.items.map(item=>item.itemId&&item.itemId.trim()!==''?axiosInstance.patch(`/api/stocks/${item.itemId}/reduce`,{reduceBy:item.quantity}):Promise.resolve()));handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
@@ -811,8 +819,28 @@ const Newsalesorders = () => {
                         <div style={{fontSize:11,color:'#3b82f6',marginTop:2}}>{[selectedCustomer.companyName&&`🏢 ${selectedCustomer.companyName}`,selectedCustomer.customerEmail&&`✉ ${selectedCustomer.customerEmail}`,selectedCustomer.customerPhone&&`📞 ${selectedCustomer.customerPhone}`].filter(Boolean).join('  ·  ')}</div>
                       </div>
                     </div>
-                    <button onClick={()=>{setSelectedCustomer(null);setCustomerSearch('');}} style={{fontSize:11,color:'#ef4444',background:'#fef2f2',border:'1.5px solid #fecaca',borderRadius:7,padding:'4px 10px',cursor:'pointer',fontWeight:700,flexShrink:0}}>Clear</button>
+                    <button onClick={()=>{setSelectedCustomer(null);setCustomerSearch('');setCreditStatus(null);}} style={{fontSize:11,color:'#ef4444',background:'#fef2f2',border:'1.5px solid #fecaca',borderRadius:7,padding:'4px 10px',cursor:'pointer',fontWeight:700,flexShrink:0}}>Clear</button>
                   </div>
+                  {creditStatus&&creditStatus.creditLimit>0&&(()=>{
+                    const pct=Math.min(creditStatus.utilization,100);
+                    const bar=pct>=90?'#ef4444':pct>=70?'#f59e0b':'#10b981';
+                    return(
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+                        {creditStatus.exceeded&&(
+                          <div style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:8,marginBottom:8,fontSize:11,color:'#ef4444',fontWeight:600}}>
+                            ⚠ Credit limit exceeded — order will still be saved, please confirm with finance.
+                          </div>
+                        )}
+                        <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:T.textSec,marginBottom:5}}>
+                          <span>Credit used: <strong style={{fontFamily:"'DM Mono',monospace",color:creditStatus.exceeded?'#ef4444':T.textPri}}>AED {creditStatus.creditUsed?.toLocaleString('en-AE',{minimumFractionDigits:0,maximumFractionDigits:0})}</strong></span>
+                          <span>Limit: <strong style={{fontFamily:"'DM Mono',monospace",color:T.textPri}}>AED {creditStatus.creditLimit?.toLocaleString('en-AE',{minimumFractionDigits:0,maximumFractionDigits:0})}</strong></span>
+                        </div>
+                        <div style={{height:5,background:isDark?'rgba(255,255,255,0.08)':'#e2e8f0',borderRadius:99,overflow:'hidden'}}>
+                          <div style={{height:'100%',width:`${pct}%`,background:bar,borderRadius:99,transition:'width 0.4s ease'}}/>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

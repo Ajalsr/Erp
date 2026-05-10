@@ -216,6 +216,7 @@ const Customers = () => {
   const [custPayments,  setCustPayments]         = useState([]);
   const [txnLoading,    setTxnLoading]           = useState(false);
   const [invoiceMap,   setInvoiceMap]           = useState({});
+  const [creditStatus, setCreditStatus]          = useState(null);
   const [searchTerm, setSearchTerm]           = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -374,6 +375,13 @@ const Customers = () => {
       setCustPayments(pmtRes.status === "fulfilled" ? pmtRes.value.data?.data?.payments || [] : []);
     }).finally(() => setTxnLoading(false));
   }, [activeTab, selectedItem]);
+
+  useEffect(() => {
+    if (!selectedItem?._id) { setCreditStatus(null); return; }
+    axiosInstance.get(`/api/customers/${selectedItem._id}/credit-status`)
+      .then(r => setCreditStatus(r.data?.data || null))
+      .catch(() => setCreditStatus(null));
+  }, [selectedItem?._id]);
 
   useWebSocket((event) => {
     if (event.type === "customers_updated") handleGetCustomers();
@@ -1046,6 +1054,38 @@ const Customers = () => {
                         {outstanding > 0 ? `Across ${invData.total || 0} invoice${invData.total !== 1 ? "s" : ""}` : "All invoices settled"}
                       </p>
                     </div>
+
+                    {/* Credit limit widget */}
+                    {creditStatus && creditStatus.creditLimit > 0 && (() => {
+                      const pct     = Math.min(creditStatus.utilization, 100);
+                      const exceeded = creditStatus.exceeded;
+                      const barColor = pct >= 90 ? "#ef4444" : pct >= 70 ? "#f59e0b" : "#10b981";
+                      return (
+                        <div style={{ background: isDark ? T.surface : "#fff", border: `1px solid ${exceeded ? "rgba(239,68,68,0.3)" : T.border}`, borderRadius: 14, padding: "16px 18px", boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.04)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                            <p style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                              <FaCreditCard size={10} /> Credit Limit
+                            </p>
+                            {exceeded && (
+                              <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 99, padding: "2px 8px" }}>
+                                OVER LIMIT
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                            <span style={{ fontSize: 12, color: T.textSec }}>Used: <strong style={{ color: exceeded ? "#ef4444" : T.textPri, fontFamily: "'DM Mono',monospace" }}>AED {creditStatus.creditUsed?.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</strong></span>
+                            <span style={{ fontSize: 12, color: T.textSec }}>Limit: <strong style={{ color: T.textPri, fontFamily: "'DM Mono',monospace" }}>AED {creditStatus.creditLimit?.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</strong></span>
+                          </div>
+                          <div style={{ height: 6, background: isDark ? "rgba(255,255,255,0.08)" : "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 99, transition: "width 0.4s ease" }} />
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7 }}>
+                            <span style={{ fontSize: 10, color: T.textMuted }}>Invoices: AED {creditStatus.unpaidInvoices?.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} · Orders: AED {creditStatus.openOrders?.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: barColor }}>{pct.toFixed(0)}%</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Details list */}
                     <div style={{ background: isDark ? T.surface : "#fff", border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.04)" }}>

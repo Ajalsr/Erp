@@ -91,6 +91,7 @@ func main() {
 	routes.AdjustmentRoutes(router)
 	routes.ItemGroupRoutes(router)
 	routes.PriceListRoutes(router)
+	routes.EnquiryRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))

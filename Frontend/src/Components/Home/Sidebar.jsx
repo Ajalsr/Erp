@@ -23,6 +23,7 @@ const MENU = [
   ]},
   { icon: HiShoppingCart,    label: 'Sales',      subItems: [
     { name: 'Customers',          route: '/Sales/Customers' },
+    { name: 'Enquiries',          route: '/Sales/Enquiries' },
     { name: 'Sales Orders',       route: '/Sales/Salesorders' },
     { name: 'Invoices',           route: '/Sales/Invoices' },
     { name: 'Delivery Notes',     route: '/Sales/Deliverynote' },
@@ -152,13 +153,19 @@ const Sidebar = ({ isCollapsed }) => {
           borderBottom: `1px solid ${D.border}`,
           flexShrink: 0,
         }}>
-          <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
-              <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
-            </svg>
-          </div>
+          {/* Nexus icon */}
+          <svg width="28" height="28" viewBox="0 0 120 120" style={{ flexShrink: 0 }}>
+            <rect width="120" height="120" rx="24" fill="#1a1a1a"/>
+            <line x1="28" y1="28" x2="92" y2="92" stroke="#f43f5e" strokeWidth="9" strokeLinecap="round"/>
+            <line x1="92" y1="28" x2="28" y2="92" stroke="#3b82f6" strokeWidth="9" strokeLinecap="round"/>
+            <circle cx="28" cy="28" r="9" fill="#f43f5e"/>
+            <circle cx="92" cy="92" r="9" fill="#f43f5e"/>
+            <circle cx="92" cy="28" r="9" fill="#3b82f6"/>
+            <circle cx="28" cy="92" r="9" fill="#3b82f6"/>
+            <circle cx="60" cy="60" r="13" fill="#f59e0b"/>
+          </svg>
           {!isCollapsed && (
-            <span className="nx-sb-logo" style={{ color: D.logoText, fontWeight: '800', fontSize: '15px', letterSpacing: '0.04em' }}>NEXUS</span>
+            <span className="nx-sb-logo" style={{ color: D.logoText, fontWeight: '800', fontSize: '15px', letterSpacing: '0.08em' }}>NEXUS</span>
           )}
         </div>
 

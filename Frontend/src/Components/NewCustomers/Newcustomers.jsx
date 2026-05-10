@@ -144,7 +144,6 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
       {[
         { label: 'Credit Limit',  name: 'credit_limit', placeholder: 'e.g. 50,000' },
         { label: 'Payment Terms', name: 'paymentTerms', placeholder: 'e.g. Net 30'  },
-        { label: 'Credit Used',   name: 'credit_used',  placeholder: 'e.g. 10,000' },
         { label: 'No. of Days',   name: 'no_of_days',   placeholder: 'e.g. 30'      },
       ].map(f => (
         <div key={f.name}>
@@ -939,7 +938,7 @@ const Newcustomers = () => {
     streetAddress: '', city: '', postalCode: '', country: '',
     customFields: {}, reportingTags: [], remarks: '', documents: [],
     currency: 'AED', paymentTerms: 'Due on Receipt',
-    credit_limit: '', credit_used: '', no_of_days: '',
+    credit_limit: '', no_of_days: '',
   });
 
   const handleChange = useCallback((e) => {
@@ -997,7 +996,7 @@ const Newcustomers = () => {
         workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
         customFields: {}, reportingTags: [], remarks: '', documents: [],
         currency: 'AED', paymentTerms: 'Due on Receipt',
-        credit_limit: '', credit_used: '', no_of_days: '',
+        credit_limit: '', no_of_days: '',
       });
       setContactPersons([]);
       toast.success("Customer created successfully!");

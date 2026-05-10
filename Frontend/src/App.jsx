@@ -41,6 +41,7 @@ import NewPriceList from "./Components/NewPriceList/NewPriceList"
 import StockSummary from "./Components/Inventory/StockSummary"
 import Warehouses from "./Components/Inventory/Warehouses"
 import Adjustments from "./Components/Inventory/Adjustments"
+import Enquiries from "./Components/Enquiries/Enquiries"
 import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
 
 function App() {
@@ -86,6 +87,7 @@ function App() {
             <Route path="/Items/Items/New" element={<New />} />
             <Route path="/Sales/Customers" element={<Customers />} />
             <Route path="/Sales/Customers/Newcustomers" element={<Newcustomers />} />
+            <Route path="/Sales/Enquiries" element={<Enquiries />} />
             <Route path="/Sales/Salesorders" element={<Salesorders />} />
             <Route path="/Sales/Outbound" element={<Outbound />} />
             <Route path="/Sales/Deliverynote" element={<DeliveryNote />} />

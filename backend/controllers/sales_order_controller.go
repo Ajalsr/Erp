@@ -147,11 +147,67 @@ func CreateSalesOrder() gin.HandlerFunc {
 		adjustment := math.Round(req.Adjustment*100) / 100
 		total := math.Round((subTotal+vat+shipping+adjustment)*100) / 100
 
+		orgID, _ := c.Get("orgId")
+
+		// ── Credit limit check ────────────────────────────────────────────────
+		// Warn (never hard-block) when the new order would push the customer over
+		// their credit limit. creditWarning is included in the 201 response so the
+		// frontend can surface a banner without preventing the save.
+		var creditWarning gin.H
+		if customer.CreditLimit > 0 {
+			invCol := config.GetCollection(config.DB, "invoices")
+			soCol := config.GetCollection(config.DB, "sales_orders")
+
+			invPipeline := []bson.M{
+				{"$match": bson.M{
+					"orgId":      orgID,
+					"customerId": req.CustomerID,
+					"status":     bson.M{"$in": []string{"unpaid", "partially_paid", "overdue"}},
+				}},
+				{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$balanceDue"}}},
+			}
+			var invRes []struct{ Total float64 `bson:"total"` }
+			if cur, err2 := invCol.Aggregate(ctx, invPipeline); err2 == nil {
+				_ = cur.All(ctx, &invRes)
+			}
+			var unpaidInv float64
+			if len(invRes) > 0 {
+				unpaidInv = invRes[0].Total
+			}
+
+			soPipeline := []bson.M{
+				{"$match": bson.M{
+					"orgId":      orgID,
+					"customerId": req.CustomerID,
+					"status":     bson.M{"$in": []string{"open", "confirmed", "processing"}},
+				}},
+				{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$total"}}},
+			}
+			var soRes []struct{ Total float64 `bson:"total"` }
+			if cur, err2 := soCol.Aggregate(ctx, soPipeline); err2 == nil {
+				_ = cur.All(ctx, &soRes)
+			}
+			var openOrd float64
+			if len(soRes) > 0 {
+				openOrd = soRes[0].Total
+			}
+
+			currentUsed := unpaidInv + openOrd
+			projectedUsed := currentUsed + total
+			if projectedUsed > customer.CreditLimit {
+				creditWarning = gin.H{
+					"creditLimit":   customer.CreditLimit,
+					"currentUsed":   math.Round(currentUsed*100) / 100,
+					"thisOrder":     total,
+					"projectedUsed": math.Round(projectedUsed*100) / 100,
+					"exceeded":      true,
+				}
+			}
+		}
+
 		if req.OrderNumber == "" {
 			req.OrderNumber = generateOrderNumber(ctx)
 		}
-
-		orgID, _ := c.Get("orgId")
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
 			OrgID:                orgID.(string),
@@ -192,7 +248,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "create", ID: salesOrder.ID.Hex()})
 
-		c.JSON(http.StatusCreated, gin.H{
+		resp := gin.H{
 			"status":  http.StatusCreated,
 			"message": "Sales order created successfully",
 			"data": gin.H{
@@ -206,7 +262,11 @@ func CreateSalesOrder() gin.HandlerFunc {
 				"status":       salesOrder.Status,
 				"insertedId":   result.InsertedID,
 			},
-		})
+		}
+		if creditWarning != nil {
+			resp["creditWarning"] = creditWarning
+		}
+		c.JSON(http.StatusCreated, resp)
 	}
 }
 
