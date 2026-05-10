@@ -42,11 +42,12 @@ const MENU = [
     { name: 'Debit Notes',      route: '/Purchase/DebitNotes' },
   ]},
   { icon: TbReportAnalytics, label: 'Reports',    tourKey: 'nav-reports', subItems: [
-    { name: 'Sales Report',        route: '/Reports/sales' },
-    { name: 'Purchase Report',     route: '/Reports/purchases' },
-    { name: 'Inventory Report',    route: '/Reports/inventory' },
-    { name: 'AR Aging',            route: '/Reports/aging' },
-    { name: 'Customer Statement',  route: '/Reports/customer-statement' },
+    { name: 'Sales Report',          route: '/Reports/sales' },
+    { name: 'Purchase Report',       route: '/Reports/purchases' },
+    { name: 'Inventory Report',      route: '/Reports/inventory' },
+    { name: 'AR Aging',              route: '/Reports/aging' },
+    { name: 'Customer Statement',    route: '/Reports/customer-statement' },
+    { name: 'Statement of Account',  route: '/Reports/statement-of-account' },
   ]},
   { icon: MdAccountBalance,   label: 'Finance',   tourKey: 'nav-finance', subItems: [
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },

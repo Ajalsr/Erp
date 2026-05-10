@@ -45,4 +45,12 @@ func OrgRoutes(router *gin.Engine) {
 	{
 		userRoutes.GET("/invitations", controllers.GetUserInvitations())
 	}
+
+	// Org settings (salutations, etc.) — requires org context
+	orgSettingsRoutes := router.Group("/api/org")
+	orgSettingsRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		orgSettingsRoutes.GET("/settings", controllers.GetOrgSettings())
+		orgSettingsRoutes.PUT("/settings", controllers.UpdateOrgSettings())
+	}
 }

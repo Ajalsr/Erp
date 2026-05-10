@@ -62,7 +62,14 @@ export default function ItemGroups() {
           style={{ display: 'flex', alignItems: 'center', gap: 12, padding: `11px 18px 11px ${18 + depth * 24}px`, borderBottom: `1px solid ${T.border}`, cursor: 'pointer', background: T.surface }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: group.color || '#3b82f6', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{group.name}</p>
+            <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>
+              {group.name}
+              {group.prefix && (
+                <span style={{ marginLeft: 8, fontSize: 10, fontFamily: "'DM Mono', monospace", padding: '2px 7px', borderRadius: 5, background: isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff', color: '#3b82f6', fontWeight: 700, letterSpacing: '0.04em' }}>
+                  {group.prefix}-
+                </span>
+              )}
+            </p>
             {group.description && <p style={{ fontSize: 11, color: T.textSec, margin: '2px 0 0' }}>{group.description}</p>}
           </div>
           {kids.length > 0 && (
@@ -209,7 +216,7 @@ export default function ItemGroups() {
 }
 
 function EditGroupDrawer({ group, groups, T, isDark, COLORS, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: group.name, description: group.description || '', parentId: group.parentId || '', color: group.color || '#3b82f6', status: group.status || 'active', codePrefix: group.codePrefix || '' });
+  const [form, setForm] = useState({ name: group.name, description: group.description || '', parentId: group.parentId || '', color: group.color || '#3b82f6', prefix: group.prefix || '', status: group.status || 'active' });
   const [saving, setSaving] = useState(false);
   const [prefixTouched, setPrefixTouched] = useState(!!group.codePrefix);
 
@@ -265,22 +272,14 @@ function EditGroupDrawer({ group, groups, T, isDark, COLORS, onClose, onSaved })
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>
             Item Code Prefix
-            <span style={{ fontSize: 9, fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, color: T.textSec, fontStyle: 'italic' }}>optional — auto-prepended when creating items</span>
+            <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: T.textSec }}>used in item codes for this group</span>
           </label>
-          <input
-            value={form.codePrefix}
-            onChange={e => {
-              const val = e.target.value.toUpperCase();
-              setPrefixTouched(val !== '' && val !== derivePrefix(form.name));
-              setForm(p => ({ ...p, codePrefix: val }));
-            }}
-            placeholder={form.name.trim() ? derivePrefix(form.name) + '-' : 'e.g. ELEC'}
-            maxLength={10}
-            style={{ width: '100%', height: 40, padding: '0 12px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: "'DM Mono', monospace", boxSizing: 'border-box', letterSpacing: '0.05em' }}
-          />
-          {form.codePrefix && (
-            <p style={{ fontSize: 11, color: '#10b981', margin: '5px 0 0', fontFamily: "'DM Mono', monospace" }}>
-              Preview: <strong>{form.codePrefix.replace(/-*$/, '')}</strong>-0001
+          <input name="prefix" value={form.prefix} onChange={e => setForm(p => ({ ...p, prefix: e.target.value.toUpperCase().replace(/\s/g, '') }))}
+            placeholder="e.g. ELEC, FURN, IT"
+            style={{ width: '100%', height: 40, padding: '0 12px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: "'DM Mono', monospace", boxSizing: 'border-box', letterSpacing: '0.05em' }} />
+          {form.prefix && (
+            <p style={{ fontSize: 11, color: '#3b82f6', marginTop: 4 }}>
+              Item codes will start with: <strong>{form.prefix}-</strong>
             </p>
           )}
         </div>

@@ -85,6 +85,37 @@ func CreateGRN() gin.HandlerFunc {
 			}
 		}
 
+		// ── Update stock: increase actual qty, decrease quantity_ordered ──
+		stockCol := config.GetCollection(config.DB, "stocks")
+		for _, item := range g.Items {
+			if item.ItemID == "" {
+				continue
+			}
+			itemObjID, err := primitive.ObjectIDFromHex(item.ItemID)
+			if err != nil {
+				continue
+			}
+			// Fetch current quantity string and convert to float
+			var stockDoc struct {
+				Quantity string `bson:"quantity"`
+			}
+			if fetchErr := stockCol.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgIDStr}).Decode(&stockDoc); fetchErr == nil {
+				currentQty := 0.0
+				fmt.Sscanf(stockDoc.Quantity, "%f", &currentQty)
+				newQty := currentQty + item.ReceivedQty
+				stockCol.UpdateOne(ctx,
+					bson.M{"_id": itemObjID, "orgId": orgIDStr},
+					bson.M{
+						"$set": bson.M{
+							"quantity":   fmt.Sprintf("%g", newQty),
+							"updated_at": time.Now(),
+						},
+						"$inc": bson.M{"quantity_ordered": -item.ReceivedQty},
+					},
+				)
+			}
+		}
+
 		// Push vendor history entry
 		if g.VendorID != "" {
 			histEntry := bson.M{

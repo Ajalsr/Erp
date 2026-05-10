@@ -34,6 +34,8 @@ type Stock struct {
 	OpeningStockRate string             `json:"opening_stock_rate" bson:"opening_stock_rate"`
 	ReorderPoint     string             `json:"reorder_point" bson:"reorder_point"`
 	Quantity         string             `json:"quantity" bson:"quantity"`
+	QuantityOrdered  float64            `json:"quantity_ordered,omitempty" bson:"quantity_ordered,omitempty"` // on open POs
+	QuantitySold     float64            `json:"quantity_sold,omitempty"    bson:"quantity_sold,omitempty"`    // on open SOs
 	OrgID            string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt        time.Time          `json:"created_at" bson:"created_at"`
 	UpdatedAt        time.Time          `json:"updated_at" bson:"updated_at"`

@@ -15,7 +15,9 @@ type Vendor struct {
 	Email       string             `json:"email"              bson:"email"`
 	Phone       string             `json:"phone"              bson:"phone"`
 	Mobile      string             `json:"mobile"             bson:"mobile"`
-	TRN         string             `json:"trn"                bson:"trn"` // Tax Registration Number
+	TRN                string `json:"trn"                bson:"trn"`                // Tax Registration Number (mandatory)
+	Origin             string `json:"origin"             bson:"origin"`             // free_zone | mainland | overseas
+	TradeLicenseNumber string `json:"tradeLicenseNumber" bson:"tradeLicenseNumber"` // Trade license no.
 
 	// Address
 	StreetAddress string `json:"streetAddress" bson:"streetAddress"`

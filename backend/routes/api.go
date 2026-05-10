@@ -46,6 +46,7 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.DELETE("/:id", controllers.DeleteCustomer())
 	custRoutes.GET("/:id/transactions", controllers.GetCustomerTransactions())
 	custRoutes.GET("/:id/history", controllers.GetCustomerHistory())
+	custRoutes.GET("/:id/statement", controllers.GetStatementOfAccount())
 	custRoutes.POST("/:id/history", controllers.AddCustomerHistory())
 	custRoutes.GET("/:id/credit-status", controllers.GetCustomerCreditStatus())
 	custRoutes.GET("/:id/statement", controllers.GetCustomerStatement())
@@ -156,6 +157,7 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 		poRoutes.GET("/stats", controllers.GetPurchaseOrderStats())
 		poRoutes.GET("/:id", controllers.GetPurchaseOrderByID())
 		poRoutes.PATCH("/:id/status", controllers.UpdatePurchaseOrderStatus())
+		poRoutes.PATCH("/:id/approve", controllers.ApprovePurchaseOrder())
 	}
 }
 

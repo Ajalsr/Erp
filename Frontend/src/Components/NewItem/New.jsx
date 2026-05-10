@@ -371,7 +371,7 @@ const New = () => {
   const [vendorOptions, setVendorOptions]   = useState([]);
   const [allAccounts, setAllAccounts]       = useState([]);
   const [groupOptions, setGroupOptions]     = useState([]);
-  const [groupPrefix, setGroupPrefix]       = useState('');
+  const [groupMap, setGroupMap]             = useState({});  // id → { prefix }
 
   const showInventorySection = salesEnabled && purchaseEnabled;
 
@@ -388,18 +388,23 @@ const New = () => {
 
   const handleChange = useCallback((e) => {
     const { name, value } = e.target;
-    if (name === 'category') {
-      const grp = groupOptions.find(g => g.value === value);
-      const pfx = grp?.prefix || '';
-      setGroupPrefix(pfx);
-      // Reset item_code to just the prefix so user fills the suffix
-      setFormData(prev => ({ ...prev, category: value, item_code: pfx }));
-      setErrors(prev => { const n = { ...prev }; delete n.category; delete n.item_code; return n; });
-      return;
-    }
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => {
+      const next = { ...prev, [name]: value };
+      // When group changes, seed item_code with the group prefix if code is empty or still just the old prefix
+      if (name === 'category' && value) {
+        const grp = groupMap[value];
+        if (grp?.prefix) {
+          const prefixStem = grp.prefix + '-';
+          // Only auto-fill if the field is blank or was previously a bare prefix
+          if (!prev.item_code || prev.item_code === prefixStem || /^[A-Z]+-$/.test(prev.item_code)) {
+            next.item_code = prefixStem;
+          }
+        }
+      }
+      return next;
+    });
     setErrors(prev => { const n = { ...prev }; delete n[name]; return n; });
-  }, [groupOptions, setGroupPrefix]);
+  }, [groupMap]);
 
   /* ── Vendor + Account lists ── */
   useEffect(() => {
@@ -423,11 +428,10 @@ const New = () => {
     axiosInstance.get('/api/item-groups/?status=active')
       .then(res => {
         const list = res.data?.data?.groups || [];
-        setGroupOptions(list.map(g => {
-          const autoPrefix = g.name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase() + '-';
-          const savedPrefix = g.codePrefix ? g.codePrefix.replace(/-*$/, '') + '-' : null;
-          return { label: g.name, value: g.name, prefix: savedPrefix || autoPrefix };
-        }));
+        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
+        const map = {};
+        list.forEach(g => { map[g._id] = { prefix: g.prefix || '' }; });
+        setGroupMap(map);
       })
       .catch(() => {});
   }, []);

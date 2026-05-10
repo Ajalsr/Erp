@@ -2,7 +2,6 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
-import useUpdateCustomer from '../../helper/useUpdateCustomer';
 import axiosInstance from '../../helper/axiosInstance';
 import toast from "../../helper/nexusToast";
 import PhoneInput, { getCountryCallingCode } from 'react-phone-number-input';
@@ -885,25 +884,23 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
 const CustomFieldsTab = ({ customFields, setFormData, customerType, T, isDark }) => (
   <div>
     <SectionHeader icon={<FaBuilding />} title="Custom Fields" subtitle="Additional business registration details" T={T} isDark={isDark} />
-    {customerType === 'individual' ? (
-      <div style={{ padding: '32px 0', textAlign: 'center', border: `1.5px dashed ${T.border}`, borderRadius: '12px' }}>
-        <p style={{ fontSize: '13px', color: T.textSec, margin: 0 }}>No additional fields for individual customers.</p>
-      </div>
-    ) : (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-        <div>
-          <Label T={T}>Trade License Number</Label>
-          <input className="nc-input" type="text" value={customFields?.tradeLicenseNumber || ''} placeholder="TL-XXXXXXXX"
-            onChange={e => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, tradeLicenseNumber: e.target.value } }))} />
-        </div>
-        <DatePicker label="Registration Date"
-          value={customFields?.registrationDate || ''}
-          onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, registrationDate: v } }))} />
-        <DatePicker label="License Expiry Date"
-          value={customFields?.licenseExpiryDate || ''}
-          onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, licenseExpiryDate: v } }))} />
-      </div>
-    )}
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      {customerType === 'business' && (
+        <>
+          <div>
+            <Label T={T}>Trade License Number</Label>
+            <input className="nc-input" type="text" value={customFields?.tradeLicenseNumber || ''} placeholder="TL-XXXXXXXX"
+              onChange={e => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, tradeLicenseNumber: e.target.value } }))} />
+          </div>
+          <DatePicker label="Registration Date" T={T} isDark={isDark}
+            value={customFields?.registrationDate || ''}
+            onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, registrationDate: v } }))} />
+          <DatePicker label="License Expiry Date" T={T} isDark={isDark}
+            value={customFields?.licenseExpiryDate || ''}
+            onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, licenseExpiryDate: v } }))} />
+        </>
+      )}
+    </div>
   </div>
 );
 
@@ -1057,6 +1054,16 @@ const Newcustomers = () => {
   const [showDiscard,   setShowDiscard]   = useState(false);
   const [contactPersons,setContactPersons]= useState([]);
 
+  const [salutations, setSalutations] = useState(['Mr.', 'Mrs.', 'Ms.', 'Miss', 'Dr.']);
+
+  // Load org-configured salutations if available
+  useEffect(() => {
+    axiosInstance.get('/api/org/settings').then(res => {
+      const s = res.data?.data?.salutations;
+      if (Array.isArray(s) && s.length > 0) setSalutations(s);
+    }).catch(() => {});
+  }, []);
+
   const [formData, setFormData] = useState({
     customerType: 'business', customerCode: '', salutation: '',
     firstName: '', lastName: '', companyName: '', customerDisplayName: '',
@@ -1153,28 +1160,22 @@ const Newcustomers = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.customerDisplayName.trim()) { toast.error("Customer display name is required"); return; }
-    if (formData.customerType === 'business' && !formData.companyName.trim()) { toast.error("Company name is required for business customers"); return; }
     if (!formData.trnNumber.trim()) { toast.error("TRN Number is required"); return; }
-    toast.dismiss();
     setIsSubmitting(true);
     try {
-      if (isEditMode) {
-        await handleUpdateCustomer(editId, { ...formData, contactPersons });
-        setTimeout(() => navigate("/Sales/Customers"), 1200);
-      } else {
-        await handleAddcustomer({ ...formData, contactPersons });
-        setFormData({
-          customerType: 'business', customerCode: '', salutation: '', firstName: '', lastName: '',
-          companyName: '', customerDisplayName: '', trnNumber: '', legalForm: '',
-          customerEmail: '', customerPhone: '',
-          workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
-          customFields: {}, reportingTags: [], remarks: '', documents: [],
-          currency: 'AED', paymentTerms: 'Due on Receipt',
-          credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
-        });
-        setContactPersons([]);
-        setTimeout(() => navigate("/Sales/Customers"), 1800);
-      }
+      await handleAddcustomer({ ...formData, contactPersons });
+      setFormData({
+        customerType: 'business', customerCode: '', salutation: '', firstName: '', lastName: '',
+        companyName: '', customerDisplayName: '', trnNumber: '', legalForm: '',
+        customerEmail: '', customerPhone: '',
+        workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
+        customFields: {}, reportingTags: [], remarks: '', documents: [],
+        currency: 'AED', paymentTerms: 'Due on Receipt',
+        credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
+      });
+      setContactPersons([]);
+      toast.success("Customer created successfully!");
+      setTimeout(() => navigate("/Sales/Customers"), 1800);
     } catch {
       // toast already shown by helper
     } finally {
@@ -1266,9 +1267,12 @@ const Newcustomers = () => {
             <div style={card}>
               <SectionHeader icon={<FaUser />} title="Primary Contact" subtitle="Basic identification information" T={T} isDark={isDark} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {formData.customerType === 'individual' ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: '14px' }}>
-                    <SalutationInput name="salutation" value={formData.salutation} onChange={handleChange} T={T} isDark={isDark} />
+
+                {/* Individual: salutation + first/last name */}
+                {formData.customerType === 'individual' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: '14px' }}>
+                    <CustomSelect name="salutation" label="Salutation" value={formData.salutation}
+                      onChange={handleChange} options={salutations} placeholder="Select" T={T} isDark={isDark} />
                     <div>
                       <Label T={T}>First Name</Label>
                       <input className="nc-input" name="firstName" value={formData.firstName} onChange={handleChange} placeholder="John" />
@@ -1278,37 +1282,38 @@ const Newcustomers = () => {
                       <input className="nc-input" name="lastName" value={formData.lastName} onChange={handleChange} placeholder="Smith" />
                     </div>
                   </div>
-                ) : (
-                  <div>
-                    <Label required T={T}>Company Name</Label>
-                    <input className="nc-input" name="companyName" value={formData.companyName} onChange={handleChange} placeholder="e.g. ACME Corp" required />
-                  </div>
                 )}
-                <div>
-                  <Label required T={T}>Customer Display Name</Label>
-                  <input className="nc-input" name="customerDisplayName" value={formData.customerDisplayName}
-                    onChange={handleChange} placeholder="Name shown on documents" required />
-                </div>
-              </div>
-            </div>
 
-            {/* Legal & Tax Details */}
-            <div style={card}>
-              <SectionHeader icon={<FaBuilding />}
-                title="Legal & Tax Details"
-                subtitle={formData.customerType === 'business' ? 'Business registration and VAT information' : 'Tax identification number'}
-                T={T} isDark={isDark} />
-              <div style={{ display: 'grid', gridTemplateColumns: formData.customerType === 'business' ? '1fr 1fr' : '1fr', gap: '16px' }}>
-                <div>
-                  <Label required T={T}>TRN Number</Label>
-                  <input className="nc-input" name="trnNumber" value={formData.trnNumber}
-                    onChange={handleChange} placeholder="Tax Registration Number" />
-                </div>
+                {/* Business: company name only */}
                 {formData.customerType === 'business' && (
                   <div>
-                    <Label T={T}>Legal Form</Label>
-                    <input className="nc-input" name="legalForm" value={formData.legalForm}
-                      onChange={handleChange} placeholder="e.g. LLC, FZCO, Sole Proprietorship" />
+                    <Label T={T}>Company Name</Label>
+                    <input className="nc-input" name="companyName" value={formData.companyName} onChange={handleChange} placeholder="ACME Corp" />
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <Label required T={T}>Customer Display Name</Label>
+                    <input className="nc-input" name="customerDisplayName" value={formData.customerDisplayName}
+                      onChange={handleChange} placeholder="Name shown on documents" required />
+                  </div>
+                  {/* TRN — mandatory for all */}
+                  <div>
+                    <Label required T={T}>TRN Number</Label>
+                    <input className="nc-input" name="trnNumber" value={formData.trnNumber}
+                      onChange={handleChange} placeholder="Tax Registration Number" />
+                  </div>
+                </div>
+
+                {/* Legal Form — business only */}
+                {formData.customerType === 'business' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                    <div>
+                      <Label T={T}>Legal Form</Label>
+                      <input className="nc-input" name="legalForm" value={formData.legalForm}
+                        onChange={handleChange} placeholder="e.g. LLC, FZCO, Sole Proprietorship" />
+                    </div>
                   </div>
                 )}
               </div>
@@ -1372,7 +1377,7 @@ const Newcustomers = () => {
                 {activeTab === 'address'         && <AddressTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} />}
                 {activeTab === 'contact-persons' && <ContactPersonsTab contactPersons={contactPersons} setContactPersons={setContactPersons} T={T} isDark={isDark} />}
                 {activeTab === 'documents'       && <DocumentsTab documents={formData.documents} handleFileUpload={handleFileUpload} removeDocument={removeDocument} getFileIcon={getFileIcon} formatFileSize={formatFileSize} T={T} isDark={isDark} />}
-                {activeTab === 'custom-fields'   && <CustomFieldsTab customFields={formData.customFields} setFormData={setFormData} customerType={formData.customerType} T={T} isDark={isDark} />}
+                {activeTab === 'custom-fields'   && <CustomFieldsTab customFields={formData.customFields} customerType={formData.customerType} setFormData={setFormData} T={T} isDark={isDark} />}
                 {activeTab === 'reporting-tags'  && <ReportingTagsTab reportingTags={formData.reportingTags} setFormData={setFormData} T={T} isDark={isDark} />}
                 {activeTab === 'remarks'         && <RemarksTab remarks={formData.remarks} handleChange={handleChange} T={T} isDark={isDark} />}
               </div>

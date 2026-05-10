@@ -73,6 +73,36 @@ const OrganizationSettings = () => {
   // Role change
   const [roleChanging, setRoleChanging] = useState(null)
 
+  // Salutations
+  const [salutations, setSalutations]       = useState(['Mr.', 'Mrs.', 'Ms.', 'Miss', 'Dr.'])
+  const [newSalutation, setNewSalutation]   = useState('')
+  const [savingSalutations, setSavingSalutations] = useState(false)
+
+  useEffect(() => {
+    axiosInstance.get('/api/org/settings')
+      .then(res => { const s = res.data?.data?.salutations; if (Array.isArray(s) && s.length) setSalutations(s); })
+      .catch(() => {})
+  }, [])
+
+  const saveSalutations = async (list) => {
+    setSavingSalutations(true)
+    try {
+      await axiosInstance.put('/api/org/settings', { salutations: list })
+      setSalutations(list)
+      toast.success('Salutations saved')
+    } catch { toast.error('Failed to save salutations') }
+    finally { setSavingSalutations(false) }
+  }
+
+  const addSalutation = () => {
+    const v = newSalutation.trim()
+    if (!v || salutations.includes(v)) return
+    saveSalutations([...salutations, v])
+    setNewSalutation('')
+  }
+
+  const removeSalutation = (s) => saveSalutations(salutations.filter(x => x !== s))
+
   const bgPage = isDark ? '#080d1a' : '#f1f5f9'
   const bgCard = isDark ? '#0c1220' : '#ffffff'
   const border  = isDark ? 'rgba(255,255,255,0.07)' : '#e2e8f0'
@@ -655,6 +685,38 @@ const OrganizationSettings = () => {
                 </div>
               )}
             </div>
+
+            {/* Salutations */}
+            {canManage && (
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
+                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 6px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+                  Salutations
+                </h3>
+                <p style={{ color: textSec, fontSize: '12px', margin: '0 0 14px' }}>
+                  Manage the salutation options available when creating customers.
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
+                  {salutations.map(s => (
+                    <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '999px', background: isDark ? 'rgba(59,130,246,0.12)' : '#eff6ff', border: `1px solid ${isDark ? 'rgba(59,130,246,0.25)' : '#bfdbfe'}`, fontSize: '13px', fontWeight: '600', color: isDark ? '#60a5fa' : '#1d4ed8' }}>
+                      {s}
+                      <button onClick={() => removeSalutation(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 0 0 2px', fontSize: '13px', lineHeight: 1, display: 'flex', alignItems: 'center', opacity: 0.7 }}>×</button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    value={newSalutation}
+                    onChange={e => setNewSalutation(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSalutation(); } }}
+                    placeholder="e.g. Prof., Engr."
+                    style={{ ...inputStyle, flex: 1 }}
+                  />
+                  <button onClick={addSalutation} disabled={savingSalutations || !newSalutation.trim()} style={{ ...btnStyle('primary'), opacity: savingSalutations ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+                    {savingSalutations ? 'Saving…' : '+ Add'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Role reference */}
             <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>

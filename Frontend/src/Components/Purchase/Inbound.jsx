@@ -489,12 +489,12 @@ export default function Inbound() {
                           style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.receiveQty <= item.orderedQty ? T.textMuted : T.textSec, cursor: item.receiveQty <= item.orderedQty ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           −
                         </button>
-                        <input type="number" min={item.orderedQty} value={item.receiveQty}
-                          onChange={e => updateQty(item._id, parseInt(e.target.value) || item.orderedQty)}
+                        <input type="number" min={1} max={item.orderedQty} value={item.receiveQty}
+                          onChange={e => updateQty(item._id, Math.min(parseInt(e.target.value) || 1, item.orderedQty))}
                           className="ob-qty-input"
                           style={{ width: "44px", height: "24px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface2, color: T.textPri, fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.receiveQty || item.orderedQty) + 1)}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec, cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <button className="qty-btn" disabled
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textMuted, cursor: "not-allowed", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: 0.4 }}>
                           +
                         </button>
                       </div>
@@ -798,12 +798,12 @@ export default function Inbound() {
                         <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.receiveQty || selected.orderedQty) - 1)}
                           disabled={selected.receiveQty <= selected.orderedQty}
                           style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: selected.receiveQty <= selected.orderedQty ? T.textMuted : T.textSec, cursor: selected.receiveQty <= selected.orderedQty ? "not-allowed" : "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                        <input type="number" min={selected.orderedQty} value={selected.receiveQty}
-                          onChange={e => updateQty(selected._id, parseInt(e.target.value) || selected.orderedQty)}
+                        <input type="number" min={1} max={selected.orderedQty} value={selected.receiveQty}
+                          onChange={e => updateQty(selected._id, Math.min(parseInt(e.target.value) || 1, selected.orderedQty))}
                           className="ob-qty-input"
                           style={{ flex: 1, height: "32px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "8px", background: T.surface, color: T.textPri, fontSize: "14px", fontWeight: "700", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(selected._id, (selected.receiveQty || selected.orderedQty) + 1)}
-                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                        <button className="qty-btn" disabled
+                          style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${T.border}`, background: T.surface, color: T.textMuted, cursor: "not-allowed", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.4 }}>+</button>
                       </div>
                       <p style={{ fontSize: "11px", color: T.textSec, margin: "7px 0 0" }}>Ordered: <strong>{selected.orderedQty}</strong></p>
                     </div>

@@ -17,6 +17,33 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// getUserRole returns the role of userId within orgIDStr ("owner","admin","member","viewer")
+func getUserRole(ctx context.Context, userID, orgIDStr string) string {
+	orgMemberCol := config.GetCollection(config.DB, "org_members")
+	orgObjID, err := primitive.ObjectIDFromHex(orgIDStr)
+	if err != nil {
+		return "member"
+	}
+	var member struct {
+		Role string `bson:"role"`
+	}
+	err = orgMemberCol.FindOne(ctx, bson.M{
+		"orgId":  orgObjID,
+		"userId": userID,
+		"status": "active",
+	}).Decode(&member)
+	if err != nil {
+		return "member"
+	}
+	return member.Role
+}
+
+// generateLPONumber creates a sequential LPO number
+func generateLPONumber(ctx context.Context) string {
+	count, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"lpoNumber": bson.M{"$exists": true, "$ne": ""}})
+	return fmt.Sprintf("LPO-%04d", count+1)
+}
+
 var purchaseOrderCollection *mongo.Collection = config.GetCollection(config.DB, "purchase_orders")
 
 // round2 rounds to 2 decimal places
@@ -143,6 +170,19 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 		orgID, _ := c.Get("orgId")
 		orgIDStr := fmt.Sprintf("%v", orgID)
 
+		// ── Determine approval status based on user role ──────────────────
+		role := getUserRole(ctx, createdBy, orgIDStr)
+		isAdmin := role == "owner" || role == "admin"
+
+		poStatus := "pending_approval"
+		approvalStatus := "pending"
+		lpoNumber := ""
+		if isAdmin {
+			poStatus = "issued"
+			approvalStatus = "approved"
+			lpoNumber = generateLPONumber(ctx)
+		}
+
 		po := models.PurchaseOrder{
 			ID:                   primitive.NewObjectID(),
 			OrderNumber:          req.OrderNumber,
@@ -163,11 +203,18 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			Total:                total,
 			CustomerNotes:        req.CustomerNotes,
 			TermsAndConditions:   req.TermsAndConditions,
-			Status:               "draft",
+			Status:               poStatus,
+			ApprovalStatus:       approvalStatus,
+			LPONumber:            lpoNumber,
 			OrgID:                orgIDStr,
 			CreatedAt:            time.Now(),
 			UpdatedAt:            time.Now(),
 			CreatedBy:            createdBy,
+		}
+		if isAdmin {
+			now := time.Now()
+			po.ApprovedBy = createdBy
+			po.ApprovedAt = &now
 		}
 
 		_, err := purchaseOrderCollection.InsertOne(ctx, po)
@@ -178,6 +225,19 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 				"error":   err.Error(),
 			})
 			return
+		}
+
+		// ── Increment quantity_ordered in stock for each line item ────────
+		stockCol := config.GetCollection(config.DB, "stocks")
+		for _, item := range processedItems {
+			if item.ItemID != "" {
+				if itemObjID, err := primitive.ObjectIDFromHex(item.ItemID); err == nil {
+					stockCol.UpdateOne(ctx,
+						bson.M{"_id": itemObjID, "orgId": orgIDStr},
+						bson.M{"$inc": bson.M{"quantity_ordered": item.Quantity}},
+					)
+				}
+			}
 		}
 
 		// Push vendor history entry
@@ -203,14 +263,72 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			"status":  http.StatusCreated,
 			"message": "Purchase order created successfully",
 			"data": gin.H{
-				"id":          po.ID.Hex(),
-				"orderNumber": po.OrderNumber,
-				"subTotal":    po.SubTotal,
-				"taxGroups":   po.TaxGroups,
-				"totalTax":    po.TotalTax,
-				"total":       po.Total,
-				"status":      po.Status,
+				"id":             po.ID.Hex(),
+				"orderNumber":    po.OrderNumber,
+				"lpoNumber":      po.LPONumber,
+				"approvalStatus": po.ApprovalStatus,
+				"subTotal":       po.SubTotal,
+				"taxGroups":      po.TaxGroups,
+				"totalTax":       po.TotalTax,
+				"total":          po.Total,
+				"status":         po.Status,
 			},
+		})
+	}
+}
+
+// ApprovePurchaseOrder — admin/owner only. Issues the LPO number and moves status to "issued".
+func ApprovePurchaseOrder() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid purchase order ID"})
+			return
+		}
+
+		createdBy := ""
+		if uid, exists := c.Get("userId"); exists {
+			createdBy = fmt.Sprintf("%v", uid)
+		}
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		role := getUserRole(ctx, createdBy, orgIDStr)
+		if role != "owner" && role != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admins can approve purchase orders"})
+			return
+		}
+
+		lpoNumber := generateLPONumber(ctx)
+		now := time.Now()
+
+		result, err := purchaseOrderCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgIDStr},
+			bson.M{"$set": bson.M{
+				"status":         "issued",
+				"approvalStatus": "approved",
+				"lpoNumber":      lpoNumber,
+				"approvedBy":     createdBy,
+				"approvedAt":     now,
+				"updatedAt":      now,
+			}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to approve purchase order"})
+			return
+		}
+		if result.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Purchase order not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":    http.StatusOK,
+			"message":   "Purchase order approved",
+			"lpoNumber": lpoNumber,
 		})
 	}
 }
