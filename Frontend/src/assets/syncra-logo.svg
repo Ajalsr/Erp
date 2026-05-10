@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c4b5fd"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="120" height="120" rx="26" fill="#14102e"/>
+  <!-- Left ring -->
+  <circle cx="46" cy="60" r="22" fill="none" stroke="url(#ring-grad)" stroke-width="6"/>
+  <!-- Right ring -->
+  <circle cx="74" cy="60" r="22" fill="none" stroke="url(#ring-grad)" stroke-width="6"/>
+</svg>

@@ -114,13 +114,21 @@ const Login = () => {
               style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.2) 0%, transparent 70%)' }} />
 
             <div className="relative z-10">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                    <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
-                  </svg>
+              <div className="flex items-center gap-3 mb-2">
+                <svg width="38" height="38" viewBox="0 0 120 120">
+                  <rect width="120" height="120" rx="24" fill="#1a1a1a"/>
+                  <line x1="28" y1="28" x2="92" y2="92" stroke="#f43f5e" strokeWidth="9" strokeLinecap="round"/>
+                  <line x1="92" y1="28" x2="28" y2="92" stroke="#3b82f6" strokeWidth="9" strokeLinecap="round"/>
+                  <circle cx="28" cy="28" r="9" fill="#f43f5e"/>
+                  <circle cx="92" cy="92" r="9" fill="#f43f5e"/>
+                  <circle cx="92" cy="28" r="9" fill="#3b82f6"/>
+                  <circle cx="28" cy="92" r="9" fill="#3b82f6"/>
+                  <circle cx="60" cy="60" r="13" fill="#f59e0b"/>
+                </svg>
+                <div>
+                  <span className="login-heading text-white font-bold text-xl tracking-widest block">NEXUS</span>
+                  <span style={{ fontSize: '10px', letterSpacing: '0.15em', color: '#94a3b8', fontWeight: 500 }}>ALL-IN-ONE</span>
                 </div>
-                <span className="login-heading text-white font-bold text-lg tracking-wide">NEXUS ERP</span>
               </div>
             </div>
 
@@ -150,7 +158,7 @@ const Login = () => {
             </div>
 
             <div className="relative z-10">
-              <p className="text-slate-600 text-xs">© 2025 Nexus ERP. All rights reserved.</p>
+              <p className="text-slate-600 text-xs">© 2026 Nexus. All rights reserved.</p>
             </div>
           </div>
 
@@ -159,13 +167,18 @@ const Login = () => {
             <div className="max-w-sm w-full mx-auto">
 
               {/* Mobile logo */}
-              <div className="flex items-center gap-2 mb-8 md:hidden">
-                <div className="w-7 h-7 rounded-md bg-blue-500 flex items-center justify-center">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
-                    <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
-                  </svg>
-                </div>
-                <span className="login-heading text-white font-bold">NEXUS ERP</span>
+              <div className="flex items-center gap-3 mb-8 md:hidden">
+                <svg width="30" height="30" viewBox="0 0 120 120">
+                  <rect width="120" height="120" rx="24" fill="#1a1a1a"/>
+                  <line x1="28" y1="28" x2="92" y2="92" stroke="#f43f5e" strokeWidth="9" strokeLinecap="round"/>
+                  <line x1="92" y1="28" x2="28" y2="92" stroke="#3b82f6" strokeWidth="9" strokeLinecap="round"/>
+                  <circle cx="28" cy="28" r="9" fill="#f43f5e"/>
+                  <circle cx="92" cy="92" r="9" fill="#f43f5e"/>
+                  <circle cx="92" cy="28" r="9" fill="#3b82f6"/>
+                  <circle cx="28" cy="92" r="9" fill="#3b82f6"/>
+                  <circle cx="60" cy="60" r="13" fill="#f59e0b"/>
+                </svg>
+                <span className="login-heading text-white font-bold tracking-widest">NEXUS</span>
               </div>
 
               <div className="fade-up fade-up-1">

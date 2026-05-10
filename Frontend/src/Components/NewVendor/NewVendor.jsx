@@ -512,7 +512,7 @@ export default function NewVendor() {
     sameAsBilling: true,
     shipStreet: '', shipCity: '', shipState: '', shipPostal: '', shipCountry: '',
     // Finance
-    currency: 'AED', paymentTerms: '', creditLimit: '', creditUsed: '',
+    currency: 'AED', paymentTerms: '', creditLimit: '',
     noOfDays: '', trnNumber: '',
     // Banking
     bankName: '', bankAccount: '', bankIban: '', bankSwift: '', bankBranch: '',
@@ -989,9 +989,6 @@ export default function NewVendor() {
               <div style={{ ...grid3 }}>
                 <F label="Credit Limit" T={T}>
                   <Input prefix="AED" type="number" name="creditLimit" value={form.creditLimit} onChange={handleChange} placeholder="0.00" mono T={T} />
-                </F>
-                <F label="Credit Used" T={T}>
-                  <Input prefix="AED" type="number" name="creditUsed" value={form.creditUsed} onChange={handleChange} placeholder="0.00" mono T={T} />
                 </F>
                 <F label="TRN Number" T={T}>
                   <Input name="trnNumber" value={form.trnNumber} onChange={handleChange} placeholder="VAT Reg No." mono T={T} />

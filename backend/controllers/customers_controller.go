@@ -3,6 +3,7 @@ package controllers
 import (
 	"encoding/csv"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -939,6 +940,100 @@ func MigrateCustomerOrgAndCodes() gin.HandlerFunc {
 				"orgIdStamped": stampResult.ModifiedCount,
 				"codesFixed":   updated,
 				"total":        len(customers),
+			},
+		})
+	}
+}
+
+// ─── CREDIT STATUS ────────────────────────────────────────────────────────────
+// Returns live credit utilisation: sum of unpaid invoice balances + open sales order totals.
+func GetCustomerCreditStatus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid customer ID"})
+			return
+		}
+
+		orgID, _ := c.Get("orgId")
+
+		var customer models.Customer
+		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&customer)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve customer"})
+			}
+			return
+		}
+
+		invCol := config.GetCollection(config.DB, "invoices")
+		soCol := config.GetCollection(config.DB, "sales_orders")
+
+		// Sum unpaid invoice balance_due for this customer+org
+		invPipeline := []bson.M{
+			{"$match": bson.M{
+				"orgId":      orgID,
+				"customerId": id,
+				"status":     bson.M{"$in": []string{"unpaid", "partially_paid", "overdue"}},
+			}},
+			{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$balanceDue"}}},
+		}
+		var invResult []struct {
+			Total float64 `bson:"total"`
+		}
+		invCursor, _ := invCol.Aggregate(ctx, invPipeline)
+		_ = invCursor.All(ctx, &invResult)
+		var unpaidInvoices float64
+		if len(invResult) > 0 {
+			unpaidInvoices = invResult[0].Total
+		}
+
+		// Sum open sales order totals for this customer+org
+		soPipeline := []bson.M{
+			{"$match": bson.M{
+				"orgId":      orgID,
+				"customerId": id,
+				"status":     bson.M{"$in": []string{"open", "confirmed", "processing"}},
+			}},
+			{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$total"}}},
+		}
+		var soResult []struct {
+			Total float64 `bson:"total"`
+		}
+		soCursor, _ := soCol.Aggregate(ctx, soPipeline)
+		_ = soCursor.All(ctx, &soResult)
+		var openOrders float64
+		if len(soResult) > 0 {
+			openOrders = soResult[0].Total
+		}
+
+		creditUsed := math.Round((unpaidInvoices+openOrders)*100) / 100
+		creditLimit := customer.CreditLimit
+		available := math.Round((creditLimit-creditUsed)*100) / 100
+		var utilPct float64
+		if creditLimit > 0 {
+			utilPct = math.Round((creditUsed/creditLimit)*10000) / 100
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Credit status retrieved",
+			"data": gin.H{
+				"customerId":     id,
+				"customerName":   customer.CustomerDisplayName,
+				"creditLimit":    creditLimit,
+				"creditUsed":     creditUsed,
+				"available":      available,
+				"utilization":    utilPct,
+				"unpaidInvoices": unpaidInvoices,
+				"openOrders":     openOrders,
+				"exceeded":       creditLimit > 0 && creditUsed > creditLimit,
 			},
 		})
 	}

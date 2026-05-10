@@ -46,6 +46,7 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.GET("/:id/transactions", controllers.GetCustomerTransactions())
 	custRoutes.GET("/:id/history", controllers.GetCustomerHistory())
 	custRoutes.POST("/:id/history", controllers.AddCustomerHistory())
+	custRoutes.GET("/:id/credit-status", controllers.GetCustomerCreditStatus())
 	custRoutes.POST("/migrate-codes", controllers.MigrateCustomerOrgAndCodes())
 }
 
@@ -224,5 +225,18 @@ func VendorCreditRoutes(router *gin.Engine) {
 		vcRoutes.GET("/:id", controllers.GetVendorCreditByID())
 		vcRoutes.POST("/:id/apply", controllers.ApplyVendorCredit())
 		vcRoutes.PATCH("/:id/void", controllers.VoidVendorCredit())
+	}
+}
+
+func EnquiryRoutes(router *gin.Engine) {
+	enqRoutes := router.Group("/api/enquiries")
+	enqRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		enqRoutes.POST("/", controllers.CreateEnquiry())
+		enqRoutes.GET("/", controllers.GetAllEnquiries())
+		enqRoutes.GET("/stats", controllers.GetEnquiryStats())
+		enqRoutes.GET("/:id", controllers.GetEnquiryByID())
+		enqRoutes.PATCH("/:id/status", controllers.UpdateEnquiryStatus())
+		enqRoutes.PUT("/:id", controllers.UpdateEnquiry())
 	}
 }

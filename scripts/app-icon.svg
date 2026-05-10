@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="200" fill="#1a1a1a"/>
+
+  <!-- Pink diagonal: top-left → bottom-right -->
+  <line x1="220" y1="220" x2="804" y2="804" stroke="#f43f5e" stroke-width="80" stroke-linecap="round"/>
+  <!-- Blue diagonal: top-right → bottom-left -->
+  <line x1="804" y1="220" x2="220" y2="804" stroke="#3b82f6" stroke-width="80" stroke-linecap="round"/>
+
+  <!-- Endpoint circles -->
+  <circle cx="220" cy="220" r="72" fill="#f43f5e"/>
+  <circle cx="804" cy="804" r="72" fill="#f43f5e"/>
+  <circle cx="804" cy="220" r="72" fill="#3b82f6"/>
+  <circle cx="220" cy="804" r="72" fill="#3b82f6"/>
+
+  <!-- Center orange circle -->
+  <circle cx="512" cy="512" r="108" fill="#f59e0b"/>
+</svg>

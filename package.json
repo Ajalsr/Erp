@@ -1,9 +1,9 @@
 {
-  "name": "erp",
+  "name": "nexus",
   "version": "1.0.0",
-  "description": "",
+  "description": "Nexus All-in-One",
   "license": "ISC",
-  "author": "ERP",
+  "author": "Nexus",
   "type": "commonjs",
   "scripts": {
     "predev": "kill-port 8080 || true",
