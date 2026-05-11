@@ -157,6 +157,21 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
         <CustomSelect name="currency" value={formData.currency} onChange={handleChange}
           options={CURRENCY_OPTIONS} placeholder="Select currency" T={T} isDark={isDark} />
       </div>
+      <div>
+        <Label T={T}>Credit Limit Action</Label>
+        <CustomSelect
+          name="credit_limit_action"
+          value={formData.credit_limit_action || 'warn'}
+          onChange={handleChange}
+          options={[
+            { value: 'warn',  label: 'Warn only — allow order with warning' },
+            { value: 'block', label: 'Block — reject order when limit exceeded' },
+          ]}
+          placeholder="Select action"
+          T={T}
+          isDark={isDark}
+        />
+      </div>
     </div>
   </div>
 );
@@ -938,7 +953,7 @@ const Newcustomers = () => {
     streetAddress: '', city: '', postalCode: '', country: '',
     customFields: {}, reportingTags: [], remarks: '', documents: [],
     currency: 'AED', paymentTerms: 'Due on Receipt',
-    credit_limit: '', no_of_days: '',
+    credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
   });
 
   const handleChange = useCallback((e) => {
@@ -996,7 +1011,7 @@ const Newcustomers = () => {
         workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
         customFields: {}, reportingTags: [], remarks: '', documents: [],
         currency: 'AED', paymentTerms: 'Due on Receipt',
-        credit_limit: '', no_of_days: '',
+        credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
       });
       setContactPersons([]);
       toast.success("Customer created successfully!");

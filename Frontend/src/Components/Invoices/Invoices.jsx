@@ -28,9 +28,11 @@ const buildTheme = (isDark) => ({
 const STATUS = {
   paid:    { label: "Paid",    bg: "rgba(16,185,129,.12)",  border: "rgba(16,185,129,.3)",  text: "#10b981" },
   unpaid:  { label: "Unpaid",  bg: "rgba(245,158,11,.12)",  border: "rgba(245,158,11,.3)",  text: "#f59e0b" },
+  sent:    { label: "Sent",    bg: "rgba(139,92,246,.12)",  border: "rgba(139,92,246,.3)",  text: "#8b5cf6" },
   overdue: { label: "Overdue", bg: "rgba(239,68,68,.12)",   border: "rgba(239,68,68,.3)",   text: "#ef4444" },
   partial: { label: "Partial", bg: "rgba(59,130,246,.12)",  border: "rgba(59,130,246,.3)",  text: "#3b82f6" },
   draft:   { label: "Draft",   bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.3)", text: "#94a3b8" },
+  void:    { label: "Void",    bg: "rgba(30,30,30,.15)",    border: "rgba(100,100,100,.3)", text: "#64748b" },
 };
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
@@ -100,7 +102,7 @@ const DrawerTab = ({ label, active, onClick, T }) => (
 const toRow = (inv) => ({
   id:           inv.invoiceNumber || inv._id,
   _id:          inv._id,
-  customer:     inv.billTo?.name || inv.customerId || "—",
+  customer:     inv.billTo?.name || "—",
   customerId:   inv.customerId || "",
   date:         inv.issueDate || inv.createdAt?.split("T")[0] || "",
   due:          inv.dueDate   || "",
@@ -113,6 +115,8 @@ const toRow = (inv) => ({
   paymentTerms: inv.paymentTerms || "",
   lineItems:    inv.lineItems || [],
   notes:        inv.notes || {},
+  publicToken:  inv.publicToken || "",
+  voidReason:   inv.voidReason || "",
 });
 
 /* ─── Main Component ────────────────────────────────────────────────────── */
@@ -125,6 +129,7 @@ const Invoices = () => {
   const [invoices,     setInvoices]    = useState([]);
   const [loading,      setLoading]     = useState(true);
   const [voidLoading,  setVoidLoading] = useState(false);
+  const [issueLoading, setIssueLoading] = useState(false);
 
   const loadInvoices = useCallback(() => {
     setLoading(true);
@@ -288,7 +293,7 @@ const Invoices = () => {
 
           {/* Status pills */}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {["all", "paid", "unpaid", "overdue", "partial", "draft"].map(s => {
+            {["all", "sent", "paid", "unpaid", "overdue", "partial", "draft", "void"].map(s => {
               const active = statusFilter === s;
               const cfg    = STATUS[s];
               return (
@@ -505,33 +510,100 @@ const Invoices = () => {
 
                     {/* Actions */}
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {selected.status !== "paid" && selected.status !== "void" && (
+
+                      {/* Void banner */}
+                      {selected.status === "void" && (
+                        <div style={{ padding: "10px 14px", borderRadius: 7, background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.25)", fontSize: 12, color: "#94a3b8" }}>
+                          🚫 This invoice has been voided{selected.voidReason ? ` — ${selected.voidReason}` : ""}.
+                        </div>
+                      )}
+
+                      {/* Draft-only actions */}
+                      {selected.status === "draft" && (
+                        <>
+                          <button
+                            disabled={issueLoading}
+                            onClick={async () => {
+                              setIssueLoading(true);
+                              try {
+                                await axiosInstance.patch(`/api/invoices/${selected._id}/status`, { status: "sent" });
+                                setSelected(null); loadInvoices();
+                                nexusToast.success("Invoice issued and marked as Sent");
+                              } catch (e) {
+                                nexusToast.error(e.response?.data?.message || "Failed to issue invoice");
+                              } finally { setIssueLoading(false); }
+                            }}
+                            style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: issueLoading ? "not-allowed" : "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%", opacity: issueLoading ? 0.6 : 1 }}>
+                            {issueLoading ? "Issuing…" : "✓ Issue Invoice"}
+                          </button>
+                          <button
+                            onClick={() => navigate("/Sales/Createinvoices", { state: { editDraft: selected } })}
+                            style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                            ✎ Edit Draft
+                          </button>
+                        </>
+                      )}
+
+                      {/* Record payment — sent/unpaid/overdue/partial */}
+                      {["sent", "unpaid", "overdue", "partial"].includes(selected.status) && (
                         <button
                           onClick={() => navigate("/Sales/PaymentsReceived")}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
-                          Record Payment
+                          💳 Record Payment
                         </button>
                       )}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        {selected.status !== "void" && (
-                          <button
-                            disabled={voidLoading}
-                            onClick={async () => {
-                              if (!window.confirm(`Void invoice ${selected.id}? This cannot be undone.`)) return;
-                              setVoidLoading(true);
-                              try {
-                                await axiosInstance.patch(`/api/invoices/${selected._id}/status`, { status: "void" });
-                                setSelected(null);
-                                loadInvoices();
-                              } catch (e) {
-                                nexusToast.error(e.response?.data?.message || "Failed to void invoice");
-                              } finally { setVoidLoading(false); }
-                            }}
-                            style={{ padding: "8px 0", borderRadius: 7, fontSize: 12, cursor: voidLoading ? "not-allowed" : "pointer", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif", transition: ".15s", opacity: voidLoading ? 0.6 : 1 }}>
-                            {voidLoading ? "Voiding…" : "Void Invoice"}
-                          </button>
-                        )}
-                      </div>
+
+                      {/* Credit note — paid or partial */}
+                      {(selected.status === "paid" || selected.status === "partial") && (
+                        <button
+                          onClick={() => navigate("/Sales/CreditNotes", {
+                            state: {
+                              prefill: {
+                                customerId:    selected.customerId,
+                                customerName:  selected.customer,
+                                invoiceId:     selected._id,
+                                invoiceNumber: selected.id,
+                              }
+                            }
+                          })}
+                          style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue, fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                          📋 Raise Credit Note
+                        </button>
+                      )}
+
+                      {/* Shareable link */}
+                      {selected.publicToken && (
+                        <button
+                          onClick={() => {
+                            const url = `${window.location.origin}/invoice/public/${selected.publicToken}`;
+                            navigator.clipboard.writeText(url);
+                            nexusToast.success("Invoice link copied to clipboard");
+                          }}
+                          style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", color: "#8b5cf6", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                          🔗 Copy Shareable Link
+                        </button>
+                      )}
+
+                      {/* Void */}
+                      {selected.status !== "void" && selected.status !== "paid" && (
+                        <button
+                          disabled={voidLoading}
+                          onClick={async () => {
+                            const reason = window.prompt(`Reason for voiding ${selected.id}? (optional)`);
+                            if (reason === null) return; // cancelled
+                            setVoidLoading(true);
+                            try {
+                              await axiosInstance.patch(`/api/invoices/${selected._id}/void`, { reason });
+                              setSelected(null); loadInvoices();
+                              nexusToast.success("Invoice voided");
+                            } catch (e) {
+                              nexusToast.error(e.response?.data?.message || "Failed to void invoice");
+                            } finally { setVoidLoading(false); }
+                          }}
+                          style={{ padding: "8px 0", borderRadius: 7, fontSize: 12, cursor: voidLoading ? "not-allowed" : "pointer", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif", opacity: voidLoading ? 0.6 : 1 }}>
+                          {voidLoading ? "Voiding…" : "Void Invoice"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

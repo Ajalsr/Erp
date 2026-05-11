@@ -16,6 +16,7 @@ func OrgRoutes(router *gin.Engine) {
 		orgRoutes.GET("/:id", controllers.GetOrganization())
 		orgRoutes.PUT("/:id", controllers.UpdateOrganization())
 		orgRoutes.DELETE("/:id", controllers.DeleteOrganization())
+		orgRoutes.PATCH("/:id/letterhead", controllers.UpdateLetterhead())
 
 		// Members
 		orgRoutes.GET("/:id/members", controllers.GetOrgMembers())

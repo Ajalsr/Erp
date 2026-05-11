@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import useOrganization from '../../helper/useOrganization'
 import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
 import toast from 'react-hot-toast'
+import axiosInstance from '../../helper/axiosInstance'
 
 const ROLES = ['admin', 'member', 'viewer']
 
@@ -56,6 +57,13 @@ const OrganizationSettings = () => {
   const [orgDesc, setOrgDesc] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Letterhead
+  const [letterhead, setLetterhead] = useState('')
+  const [letterheadTopPad, setLetterheadTopPad] = useState(13)
+  const [letterheadBottomPad, setLetterheadBottomPad] = useState(8)
+  const [letterheadSaving, setLetterheadSaving] = useState(false)
+  const letterheadInputRef = useRef(null)
+
   // Invite form
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
@@ -84,6 +92,9 @@ const OrganizationSettings = () => {
       setOrg(orgData)
       setOrgName(orgData?.name || '')
       setOrgDesc(orgData?.description || '')
+      setLetterhead(orgData?.letterheadImage || '')
+      setLetterheadTopPad(orgData?.letterheadTopPad || 13)
+      setLetterheadBottomPad(orgData?.letterheadBottomPad || 8)
       setMembers(membersData)
       setInvitations(invData)
       const me = membersData.find((m) => m.userId === user?.userId)
@@ -111,6 +122,46 @@ const OrganizationSettings = () => {
       toast.error(err?.response?.data?.message || 'Update failed')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleLetterheadFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 3 * 1024 * 1024) { toast.error('Image must be under 3 MB'); return }
+    const reader = new FileReader()
+    reader.onload = (ev) => setLetterhead(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  const handleLetterheadSave = async () => {
+    setLetterheadSaving(true)
+    try {
+      await axiosInstance.patch(`/api/organizations/${id}/letterhead`, {
+        letterheadImage: letterhead,
+        letterheadTopPad,
+        letterheadBottomPad,
+      })
+      toast.success('Letterhead saved — will appear on all delivery notes')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save letterhead')
+    } finally {
+      setLetterheadSaving(false)
+    }
+  }
+
+  const handleLetterheadRemove = async () => {
+    setLetterhead('')
+    setLetterheadSaving(true)
+    try {
+      await axiosInstance.patch(`/api/organizations/${id}/letterhead`, { letterheadImage: '', letterheadTopPad: 13, letterheadBottomPad: 8 })
+      setLetterheadTopPad(13)
+      setLetterheadBottomPad(8)
+      toast.success('Letterhead removed')
+    } catch {
+      toast.error('Failed to remove letterhead')
+    } finally {
+      setLetterheadSaving(false)
     }
   }
 
@@ -533,6 +584,76 @@ const OrganizationSettings = () => {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* ── Letterhead ── */}
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
+              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 4px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+                Document Letterhead
+              </h3>
+              <p style={{ color: textSec, fontSize: '12px', margin: '0 0 18px' }}>
+                Upload your company letterhead image (PNG or JPG, max 3 MB). It will replace the default header on delivery notes and printed documents.
+              </p>
+
+              {/* Preview */}
+              {letterhead ? (
+                <div style={{ marginBottom: 16, borderRadius: 10, overflow: 'hidden', border: `1px solid ${border}` }}>
+                  <img src={letterhead} alt="Letterhead preview" style={{ width: '100%', display: 'block', maxHeight: 160, objectFit: 'contain', background: '#fff' }} />
+                </div>
+              ) : (
+                <div style={{ marginBottom: 16, borderRadius: 10, border: `2px dashed ${border}`, padding: '28px 0', textAlign: 'center', color: textSec, fontSize: 13 }}>
+                  No letterhead uploaded yet
+                </div>
+              )}
+
+              {/* Padding controls — only shown when a letterhead is loaded */}
+              {letterhead && canManage && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                  {[
+                    { label: 'Header height (%)', value: letterheadTopPad, set: setLetterheadTopPad, hint: '% of letterhead taken by the header — increase if content overlaps logo' },
+                    { label: 'Footer height (%)', value: letterheadBottomPad, set: setLetterheadBottomPad, hint: '% of letterhead taken by the footer' },
+                  ].map(({ label, value, set, hint }) => (
+                    <div key={label}>
+                      <label style={{ display: 'block', color: textSec, fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</label>
+                      <input
+                        type="number" min={0} max={50} value={value}
+                        onChange={(e) => set(Number(e.target.value))}
+                        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: `1px solid ${inputBorder}`, background: inputBg, color: textPri, fontSize: 13, boxSizing: 'border-box' }}
+                      />
+                      <p style={{ color: textSec, fontSize: 11, margin: '3px 0 0' }}>{hint}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Hidden file input */}
+              <input ref={letterheadInputRef} type="file" accept="image/png,image/jpeg,image/jpg" style={{ display: 'none' }} onChange={handleLetterheadFile} />
+
+              {canManage && (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => letterheadInputRef.current?.click()}
+                    style={{ ...btnStyle('ghost'), flex: 1 }}>
+                    {letterhead ? '↑ Replace Image' : '↑ Upload Image'}
+                  </button>
+                  {letterhead && (
+                    <button
+                      onClick={handleLetterheadSave}
+                      disabled={letterheadSaving}
+                      style={{ ...btnStyle('primary'), flex: 1, opacity: letterheadSaving ? 0.6 : 1 }}>
+                      {letterheadSaving ? 'Saving…' : 'Save Letterhead'}
+                    </button>
+                  )}
+                  {letterhead && (
+                    <button
+                      onClick={handleLetterheadRemove}
+                      disabled={letterheadSaving}
+                      style={{ padding: '9px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontFamily: 'Plus Jakarta Sans, sans-serif', opacity: letterheadSaving ? 0.6 : 1 }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Role reference */}

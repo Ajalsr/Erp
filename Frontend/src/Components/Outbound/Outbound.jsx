@@ -178,37 +178,86 @@ export default function Outbound() {
     setOutboundItems(p => p.map(i => i._id === id ? { ...i, outboundQuantity: qty } : i));
   };
 
-  const handleSave = () => {
+  const [savingDN, setSavingDN] = useState(false);
+
+  const handleSave = async () => {
     const sel = outboundItems.filter(i => selectedIds.has(i._id)).map(i => ({
       ...i, quantity: i.outboundQuantity,
       status: requiresApproval ? "pending_approval" : "approved",
       sku: i.sku || i.item_code,
     }));
-    const first = sel[0];
-    const so = salesOrdersData?.salesOrders?.find(s => s.id === first?.salesOrderId);
-    const totalQty   = sel.reduce((s, i) => s + i.outboundQuantity, 0);
-    const totalValue = sel.reduce((s, i) => s + i.outboundQuantity * parseFloat(i.selling_price || 0), 0);
+    if (!sel.length) return;
+
+    const first  = sel[0];
+    const so     = salesOrdersData?.salesOrders?.find(s => s.id === first?.salesOrderId);
     const totalDisc  = sel.reduce((s, i) => s + parseFloat(i.discount || 0), 0);
-    const subtotal   = sel.reduce((s, i) => s + i.outboundQuantity * parseFloat(i.rate || 0), 0);
-    const dn = `DN-${Date.now().toString().slice(-6).padStart(6, "0")}`;
-    navigate("/sales/deliverynote", {
-      state: {
-        outboundData: {
-          items: sel,
-          summary: { totalItems: sel.length, totalQuantity: totalQty, totalValue, totalDiscount: totalDisc, subtotal },
-          customerInfo: { name: so?.customerName || "Customer", orderNumber: first?.salesOrderNumber || "N/A", orderId: first?.salesOrderId },
-          note: outboundNote, requiresApproval,
-        },
-        deliveryNote: {
-          number: dn,
-          date: new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }),
-          orderNumber: first?.salesOrderNumber || "N/A",
-          customer: so?.customerName || "Customer",
-          status: "Shipped",
-          note: outboundNote,
-        },
-      },
-    });
+    const subtotal   = sel.reduce((s, i) => s + i.outboundQuantity * parseFloat(i.selling_price || 0), 0);
+    const totalTax   = Math.round(subtotal * 0.05 * 100) / 100;
+    const grandTotal = Math.round((subtotal - totalDisc + totalTax) * 100) / 100;
+    const soIds = [...new Set(sel.map(i => i.salesOrderId).filter(Boolean))];
+
+    // Fetch customer contact details (phone, email, address)
+    let customerPhone = "", customerEmail = "", customerAddress = "", customerCode = "";
+    const customerId = so?.customerId;
+    if (customerId) {
+      try {
+        const custRes = await axiosInstance.get(`/api/customers/${customerId}`);
+        const cust = custRes.data?.data || custRes.data;
+        customerPhone   = cust?.customerPhone || cust?.phone || "";
+        customerEmail   = cust?.customerEmail || cust?.email || "";
+        customerCode    = cust?.customerCode  || "";
+        const parts = [cust?.streetAddress, cust?.city, cust?.country].filter(Boolean);
+        customerAddress = parts.join(", ");
+      } catch { /* non-fatal — fields will be blank */ }
+    }
+
+    // Format lpoDate if present
+    const custPoDate = so?.lpoDate
+      ? new Date(so.lpoDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+      : "";
+
+    const payload = {
+      customerName:     so?.customerName || "Customer",
+      customerId:       customerId || "",
+      customerCode,
+      customerPhone,
+      customerEmail,
+      customerAddress,
+      custPoNo:         so?.lpoNumber    || "",
+      custPoDate,
+      salesperson:      so?.salesperson  || "",
+      orderNumber:      first?.salesOrderNumber || "N/A",
+      salesOrderIds:    soIds,
+      items: sel.map(i => ({
+        itemId:           i.itemId,
+        name:             i.name,
+        itemCode:         i.item_code || i.itemId,
+        unit:             i.unit || "Piece",
+        outboundQuantity: i.outboundQuantity,
+        rate:             parseFloat(i.rate || 0),
+        sellingPrice:     parseFloat(i.selling_price || 0),
+        discount:         parseFloat(i.discount || 0),
+        salesOrderId:     i.salesOrderId,
+        salesOrderNumber: i.salesOrderNumber,
+      })),
+      note:          outboundNote,
+      status:        "draft",
+      subTotal:      subtotal,
+      totalDiscount: totalDisc,
+      totalTax,
+      grandTotal,
+    };
+
+    setSavingDN(true);
+    try {
+      await axiosInstance.post("/api/delivery-notes/", payload);
+      navigate("/Sales/Deliverynote");
+    } catch (err) {
+      console.error("Failed to save delivery note", err);
+      alert("Failed to create delivery note. Please try again.");
+    } finally {
+      setSavingDN(false);
+    }
   };
 
   const handleCancelRequest = (id) => { setItemToCancel(id); setShowCancelModal(true); };
@@ -452,11 +501,11 @@ export default function Outbound() {
             </button>
 
             {/* Save button */}
-            <button className="ob-btn" onClick={handleSave} disabled={selectedIds.size === 0}
+            <button className="ob-btn" onClick={handleSave} disabled={selectedIds.size === 0 || savingDN}
               style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 18px", background: selectedIds.size === 0 ? T.surface2 : T.blue, color: selectedIds.size === 0 ? T.textMuted : "white", border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
               <FaShippingFast size={12} />
-              Create Delivery Note
-              {selectedIds.size > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px" }}>{selectedIds.size}</span>}
+              {savingDN ? "Saving…" : "Create Delivery Note"}
+              {!savingDN && selectedIds.size > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px" }}>{selectedIds.size}</span>}
             </button>
           </div>
         </div>
@@ -834,9 +883,9 @@ export default function Outbound() {
                   <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Grand Total (incl. VAT)</p>
                   <p className="ob-jakarta" style={{ fontSize: "20px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalValue)}</p>
                 </div>
-                <button className="ob-btn" onClick={handleSave}
-                  style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                  <FaShippingFast size={13} /> Create Delivery Note
+                <button className="ob-btn" onClick={handleSave} disabled={savingDN}
+                  style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: savingDN ? "not-allowed" : "pointer", opacity: savingDN ? 0.7 : 1, fontFamily: "inherit" }}>
+                  <FaShippingFast size={13} /> {savingDN ? "Saving…" : "Create Delivery Note"}
                 </button>
               </div>
 

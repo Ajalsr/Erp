@@ -67,6 +67,9 @@ func SaleOrderRoutes(router *gin.Engine) {
 }
 
 func InvoiceRoutes(router *gin.Engine) {
+	// Public — no auth (shareable link for customers)
+	router.GET("/api/invoices/public/:token", controllers.GetPublicInvoice())
+
 	invRoutes := router.Group("/api/invoices")
 	invRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
 	{
@@ -74,7 +77,22 @@ func InvoiceRoutes(router *gin.Engine) {
 		invRoutes.GET("", controllers.GetAllInvoices())
 		invRoutes.GET("/stats", controllers.GetInvoiceStats())
 		invRoutes.GET("/:id", controllers.GetInvoiceByID())
+		invRoutes.PUT("/:id", controllers.UpdateInvoice())
 		invRoutes.PATCH("/:id/status", controllers.UpdateInvoiceStatus())
+		invRoutes.PATCH("/:id/void", controllers.VoidInvoice())
+	}
+}
+
+func CreditNoteRoutes(router *gin.Engine) {
+	cnRoutes := router.Group("/api/credit-notes")
+	cnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		cnRoutes.POST("", controllers.CreateCreditNote())
+		cnRoutes.GET("", controllers.GetAllCreditNotes())
+		cnRoutes.GET("/:id", controllers.GetCreditNoteByID())
+		cnRoutes.PATCH("/:id/issue", controllers.IssueCreditNote())
+		cnRoutes.PATCH("/:id/apply", controllers.ApplyCreditNote())
+		cnRoutes.PATCH("/:id/void", controllers.VoidCreditNote())
 	}
 }
 
@@ -225,6 +243,19 @@ func VendorCreditRoutes(router *gin.Engine) {
 		vcRoutes.GET("/:id", controllers.GetVendorCreditByID())
 		vcRoutes.POST("/:id/apply", controllers.ApplyVendorCredit())
 		vcRoutes.PATCH("/:id/void", controllers.VoidVendorCredit())
+	}
+}
+
+func DeliveryNoteRoutes(router *gin.Engine) {
+	dnRoutes := router.Group("/api/delivery-notes")
+	dnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		dnRoutes.POST("/", controllers.CreateDeliveryNote())
+		dnRoutes.GET("/", controllers.GetAllDeliveryNotes())
+		dnRoutes.GET("/stats", controllers.GetDeliveryNoteStats())
+		dnRoutes.GET("/:id", controllers.GetDeliveryNoteByID())
+		dnRoutes.PATCH("/:id/status", controllers.UpdateDeliveryNoteStatus())
+		dnRoutes.PATCH("/:id/invoice", controllers.MarkDeliveryNoteInvoiced())
 	}
 }
 

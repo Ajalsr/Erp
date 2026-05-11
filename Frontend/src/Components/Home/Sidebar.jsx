@@ -25,20 +25,18 @@ const MENU = [
     { name: 'Customers',          route: '/Sales/Customers' },
     { name: 'Enquiries',          route: '/Sales/Enquiries' },
     { name: 'Sales Orders',       route: '/Sales/Salesorders' },
-    { name: 'Invoices',           route: '/Sales/Invoices' },
-    { name: 'Delivery Notes',     route: '/Sales/Deliverynote' },
     { name: 'Outbound',           route: '/Sales/Outbound' },
-    { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
-    // NOTE: Credit Notes removed — component not yet built. Add back when ready.
+    { name: 'Delivery Notes',     route: '/Sales/Deliverynote' },
+    { name: 'Invoices',           route: '/Sales/Invoices' },
+    { name: 'Credit Notes',       route: '/Sales/CreditNotes' },
   ]},
   { icon: FaCartArrowDown,   label: 'Purchases',  subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors' },
     { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders' },
+     { name: 'Inbound',          route: '/Purchase/Inbound' },
     { name: 'GRN',              route: '/Purchase/GRN' },
-    { name: 'Inbound',          route: '/Purchase/Inbound' },
+     { name: 'Bills',            route: '/Purchase/Bills' },
     { name: 'Stock',            route: '/Purchase/Stock' },
-    { name: 'Bills',            route: '/Purchase/Bills' },
-    { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
   ]},
   { icon: TbReportAnalytics, label: 'Reports',    subItems: [
@@ -47,6 +45,8 @@ const MENU = [
     { name: 'Inventory Report', route: '/Reports/inventory' },
   ]},
   { icon: MdAccountBalance,   label: 'Finance',    subItems: [
+    { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
+     { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
     { name: 'Chart of Accounts', route: '/Finance/Accounts' },
   ]},
 ]

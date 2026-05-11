@@ -50,11 +50,14 @@ type Invoice struct {
 	LineItems     []InvoiceLineItem  `json:"lineItems"        bson:"lineItems"`
 	Totals        InvoiceTotals      `json:"totals"           bson:"totals"`
 	Notes         InvoiceNotes       `json:"notes"            bson:"notes"`
-	Status        string             `json:"status"           bson:"status"`
-	AmountPaid    float64            `json:"amountPaid"       bson:"amountPaid"`
-	BalanceDue    float64            `json:"balanceDue"       bson:"balanceDue"`
-	OrgID         string             `json:"orgId,omitempty"  bson:"orgId,omitempty"`
-	CreatedAt     time.Time          `json:"createdAt"        bson:"createdAt"`
-	UpdatedAt     time.Time          `json:"updatedAt"        bson:"updatedAt"`
-	CreatedBy     string             `json:"createdBy"        bson:"createdBy"`
+	Status        string             `json:"status"                    bson:"status"`
+	AmountPaid    float64            `json:"amountPaid"                bson:"amountPaid"`
+	BalanceDue    float64            `json:"balanceDue"                bson:"balanceDue"`
+	PublicToken   string             `json:"publicToken,omitempty"     bson:"publicToken,omitempty"`
+	VoidReason    string             `json:"voidReason,omitempty"      bson:"voidReason,omitempty"`
+	VoidedAt      time.Time          `json:"voidedAt,omitempty"        bson:"voidedAt,omitempty"`
+	OrgID         string             `json:"orgId,omitempty"           bson:"orgId,omitempty"`
+	CreatedAt     time.Time          `json:"createdAt"                 bson:"createdAt"`
+	UpdatedAt     time.Time          `json:"updatedAt"                 bson:"updatedAt"`
+	CreatedBy     string             `json:"createdBy"                 bson:"createdBy"`
 }

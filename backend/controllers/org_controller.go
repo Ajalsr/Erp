@@ -200,12 +200,15 @@ func GetOrganization() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{
-			"_id":         org.ID,
-			"name":        org.Name,
-			"description": org.Description,
-			"createdBy":   org.CreatedBy,
-			"createdAt":   org.CreatedAt,
-			"role":        role,
+			"_id":                 org.ID,
+			"name":                org.Name,
+			"description":         org.Description,
+			"letterheadImage":     org.LetterheadImage,
+			"letterheadTopPad":    org.LetterheadTopPad,
+			"letterheadBottomPad": org.LetterheadBottomPad,
+			"createdBy":           org.CreatedBy,
+			"createdAt":           org.CreatedAt,
+			"role":                role,
 		}})
 	}
 }
@@ -714,5 +717,49 @@ func CancelInvitation() gin.HandlerFunc {
 
 		invitationCollection.DeleteOne(ctx, bson.M{"_id": invitationID, "orgId": orgID})
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Invitation cancelled"})
+	}
+}
+
+// PATCH /api/organizations/:id/letterhead
+func UpdateLetterhead() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		userID, _ := c.Get("userId")
+		orgID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid org ID"})
+			return
+		}
+
+		role, isMember := getMemberRole(ctx, orgID, userID.(string))
+		if !isMember || !isAdminOrOwner(role) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admins and owners can update the letterhead"})
+			return
+		}
+
+		var input struct {
+			LetterheadImage     string `json:"letterheadImage"`     // base64 data-URL or "" to clear
+			LetterheadTopPad    int    `json:"letterheadTopPad"`    // px
+			LetterheadBottomPad int    `json:"letterheadBottomPad"` // px
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
+			return
+		}
+
+		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
+			"letterheadImage":     input.LetterheadImage,
+			"letterheadTopPad":    input.LetterheadTopPad,
+			"letterheadBottomPad": input.LetterheadBottomPad,
+			"updatedAt":           time.Now(),
+		}})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update letterhead"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Letterhead updated"})
 	}
 }
