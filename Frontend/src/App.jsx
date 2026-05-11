@@ -14,6 +14,7 @@ import Purchaseorders from "./Components/PurchaseOrders/Purchaseorders"
 import Newpurchaseorders from "./Components/NewPurchaseOrders/Newpurchaseorders"
 import Outbound from "./Components/Outbound/Outbound"
 import DeliveryNote from "./Components/DeliveryNote/Deliverynote"
+import DeliveryNoteList from "./Components/DeliveryNote/DeliveryNoteList"
 import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute"
 import Vendors from "./Components/Vendor/Vendor"
 import NewVendor from "./Components/NewVendor/NewVendor"
@@ -42,6 +43,8 @@ import StockSummary from "./Components/Inventory/StockSummary"
 import Warehouses from "./Components/Inventory/Warehouses"
 import Adjustments from "./Components/Inventory/Adjustments"
 import Enquiries from "./Components/Enquiries/Enquiries"
+import CreditNotes from "./Components/CreditNotes/CreditNotes"
+import PublicInvoice from "./Components/Invoices/PublicInvoice"
 import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
 
 function App() {
@@ -90,7 +93,8 @@ function App() {
             <Route path="/Sales/Enquiries" element={<Enquiries />} />
             <Route path="/Sales/Salesorders" element={<Salesorders />} />
             <Route path="/Sales/Outbound" element={<Outbound />} />
-            <Route path="/Sales/Deliverynote" element={<DeliveryNote />} />
+            <Route path="/Sales/Deliverynote" element={<DeliveryNoteList />} />
+            <Route path="/Sales/Deliverynote/:id" element={<DeliveryNote />} />
             <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders />} />
             <Route path="/Purchase/Purchaseorders" element={<Purchaseorders />} />
             <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
@@ -120,8 +124,11 @@ function App() {
             <Route path="/Inventory/stock-summary"  element={<StockSummary />} />
             <Route path="/Inventory/warehouses"     element={<Warehouses />} />
             <Route path="/Inventory/adjustments"    element={<Adjustments />} />
-            {/* NOTE: /Sales/CreditNotes removed from sidebar until component is built */}
+            <Route path="/Sales/CreditNotes"         element={<CreditNotes />} />
           </Route>
+
+          {/* Public invoice — no layout, no auth */}
+          <Route path="/invoice/public/:token" element={<PublicInvoice />} />
         </Routes>
       </ErrorBoundary>
     </>

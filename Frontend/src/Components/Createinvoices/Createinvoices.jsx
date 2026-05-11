@@ -339,40 +339,91 @@ const CreateInvoice = () => {
   const [items,         setItems]         = useState([]);
   const [activeTab,     setActiveTab]     = useState(0);
   const [submitting,    setSubmitting]    = useState(false);
+  const [draftId,       setDraftId]       = useState(null);
+
+  // Pre-fill form when editing an existing draft from the invoice list
+  useEffect(() => {
+    const draft = location.state?.editDraft;
+    if (!draft) return;
+    setDraftId(draft._id);
+    if (draft.issueDate) setIssueDate(draft.issueDate.split("T")[0]);
+    if (draft.dueDate)   setDueDate(draft.dueDate.split("T")[0]);
+    if (draft.currency)  setCurrency(draft.currency);
+    if (draft.customerId)  setCustomerId(draft.customerId);
+    if (draft.customerName) setCustName(draft.customerName);
+    if (draft.lineItems?.length) {
+      setItems(draft.lineItems.map(li => ({
+        id:           uid(),
+        desc:         li.description || li.desc || "",
+        stockId:      li.stockId || "",
+        qty:          p(li.quantity || li.qty || 1),
+        unitPrice:    p(li.unitPrice || li.rate || 0),
+        discount:     p(li.discount || 0),
+        discountType: li.discountType || "fixed",
+        taxRate:      VAT_RATE,
+        _stock:       false,
+      })));
+    }
+  }, [location.state]);
 
   useEffect(() => {
     const state = location.state;
     if (!state?.fromDeliveryNote || !state?.prefill?.items?.length) return;
-    const { prefill, outboundData, deliveryNote: dn } = state;
+    const { prefill } = state;
+
+    // Prefill line items — use sellingPrice (new model field) falling back to rate
     setItems(prefill.items.map(item => ({
       id:           uid(),
       desc:         item.name || item.details || "",
       stockId:      item.itemId || item._id,
       qty:          p(item.outboundQuantity || item.quantity || 1),
-      unitPrice:    p(item.rate || item.selling_price || 0),
+      unitPrice:    p(item.sellingPrice || item.rate || item.selling_price || 0),
       discount:     p(item.discount || 0),
       discountType: "fixed",
       taxRate:      VAT_RATE,
       _stock:       true,
     })));
-    const orderRef = prefill.orderNumber || outboundData?.customerInfo?.orderNumber || "";
-    if (orderRef) setCustNote(`Ref: Sales Order ${orderRef}`);
-    const parts = [];
-    if (prefill.dnNumber) parts.push(`Delivery Note: ${prefill.dnNumber}`);
-    if (outboundData?.note) parts.push(outboundData.note);
-    if (parts.length) setInternalNote(parts.join(" · "));
-    if (dn?.date) { const parsed = new Date(dn.date); if (!isNaN(parsed)) setIssueDate(parsed.toISOString().split("T")[0]); }
+
+    // Customer note: sales order reference
+    if (prefill.orderNumber) setCustNote(`Ref: Sales Order ${prefill.orderNumber}`);
+
+    // Internal note: DN reference
+    if (prefill.dnNumber) setInternalNote(`Delivery Note: ${prefill.dnNumber}`);
+
+    // Issue date: use the delivery note date
+    if (prefill.date) {
+      const parsed = new Date(prefill.date);
+      if (!isNaN(parsed)) setIssueDate(parsed.toISOString().split("T")[0]);
+    }
   }, [location.state]);
 
+  // Customer: look up directly by ID — no fragile name matching
   useEffect(() => {
-    if (!location.state?.fromDeliveryNote || !customersData.length) return;
-    const { prefill, outboundData } = location.state;
-    const targetName = (prefill?.customer || outboundData?.customerInfo?.name || "").toLowerCase();
-    if (!targetName) return;
-    const match = customersData.find(c => (c.customerDisplayName || c.companyName || "").toLowerCase() === targetName);
-    if (match) { setCustomerId(match._id); setCustName(match.customerDisplayName || match.companyName || ""); setCustAddr(fmtCustAddr(match)); setCustTrn(match.custom_fields?.trlNumber || ""); }
-    else { setCustName(prefill?.customer || outboundData?.customerInfo?.name || ""); }
-  }, [customersData, location.state]);
+    const state = location.state;
+    if (!state?.fromDeliveryNote) return;
+    const { prefill } = state;
+    const cid = prefill?.customerId;
+    if (!cid) {
+      // fallback: name match from loaded customers list
+      const targetName = (prefill?.customer || "").toLowerCase();
+      if (!targetName || !customersData.length) return;
+      const match = customersData.find(c => (c.customerDisplayName || c.companyName || "").toLowerCase() === targetName);
+      if (match) { setCustomerId(match._id); setCustName(match.customerDisplayName || match.companyName || ""); setCustAddr(fmtCustAddr(match)); setCustTrn(match.custom_fields?.trlNumber || ""); }
+      else { setCustName(prefill?.customer || ""); }
+      return;
+    }
+    // Fetch customer by ID directly
+    axiosInstance.get(`/api/customers/${cid}`)
+      .then(res => {
+        const c = res.data?.data || res.data;
+        if (!c) return;
+        setCustomerId(c._id);
+        setCustName(c.customerDisplayName || c.companyName || "");
+        setCustAddr(fmtCustAddr(c));
+        setCustTrn(c.custom_fields?.trlNumber || c.customFields?.trlNumber || "");
+      })
+      .catch(() => { setCustName(prefill?.customer || ""); });
+  }, [location.state, customersData]);
 
   const applyCustomer = (c) => {
     if (!c) return;
@@ -427,12 +478,29 @@ const CreateInvoice = () => {
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    const orderId = location.state?.outboundData?.customerInfo?.orderId;
+    const prefill = location.state?.prefill || {};
+    const soIds   = prefill.salesOrderIds || [];
+    const dnId    = prefill.dnId;
     try {
-      await axiosInstance.post("/api/invoices", buildPayload());
-      await Promise.all([
-        customerId && axiosInstance.post(`/api/customers/${customerId}/history`, { action: "Invoice Issued", timestamp: new Date().toISOString(), details: { invoiceNumber, amount: totals.grandTotal, currency, status } }),
-        orderId    && axiosInstance.patch(`/api/sales-orders/${orderId}/status`, { status: "invoiced" }),
+      // If a draft was saved in this session, update it instead of creating a new record
+      const invRes = draftId
+        ? await axiosInstance.put(`/api/invoices/${draftId}`, buildPayload("sent"))
+        : await axiosInstance.post("/api/invoices", buildPayload("sent"));
+      const invData = invRes.data?.data || {};
+      const resolvedId     = invData.id     || draftId || "";
+      const resolvedNumber = invData.invoiceNumber || invoiceNumber;
+
+      await Promise.allSettled([
+        customerId && axiosInstance.post(`/api/customers/${customerId}/history`, {
+          action: "Invoice Issued",
+          timestamp: new Date().toISOString(),
+          details: { invoiceNumber: resolvedNumber, amount: totals.grandTotal, currency, status },
+        }),
+        ...soIds.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, { status: "invoiced" })),
+        dnId && axiosInstance.patch(`/api/delivery-notes/${dnId}/invoice`, {
+          invoiceId:     resolvedId,
+          invoiceNumber: resolvedNumber,
+        }),
       ].filter(Boolean));
       navigate("/Sales/Invoices");
     } catch (err) { console.error(err); } finally { setSubmitting(false); }
@@ -440,7 +508,12 @@ const CreateInvoice = () => {
 
   const handleSaveDraft = async () => {
     setSubmitting(true);
-    try { await axiosInstance.post("/api/invoices", buildPayload("draft")); navigate("/Sales/Invoices"); }
+    try {
+      const res = await axiosInstance.post("/api/invoices", buildPayload("draft"));
+      const id = res.data?.data?.id;
+      if (id) setDraftId(id);  // remember so Issue Invoice updates this draft
+      navigate("/Sales/Invoices");
+    }
     catch (err) { console.error(err); } finally { setSubmitting(false); }
   };
 

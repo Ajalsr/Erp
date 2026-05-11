@@ -27,11 +27,12 @@ type Customer struct {
 
 	// ── Finance ──────────────────────────────────────────────────────────
 	// json tags use snake_case to match what the frontend payload sends.
-	Currency     string  `json:"currency,omitempty"      bson:"currency,omitempty"`
-	PaymentTerms string  `json:"payment_terms,omitempty" bson:"payment_terms,omitempty"` // form sends "payment_terms" (mapped from paymentTerms)
-	CreditLimit  float64 `json:"credit_limit,omitempty"  bson:"credit_limit,omitempty"`
-	CreditUsed   float64 `json:"credit_used,omitempty"   bson:"credit_used,omitempty"` // ← NEW: form field credit_used
-	NoOfDays     float64 `json:"no_of_days,omitempty"    bson:"no_of_days,omitempty"`  // ← NEW: form field no_of_days
+	Currency          string  `json:"currency,omitempty"            bson:"currency,omitempty"`
+	PaymentTerms      string  `json:"payment_terms,omitempty"       bson:"payment_terms,omitempty"` // form sends "payment_terms" (mapped from paymentTerms)
+	CreditLimit       float64 `json:"credit_limit,omitempty"        bson:"credit_limit,omitempty"`
+	CreditLimitAction string  `json:"credit_limit_action,omitempty" bson:"credit_limit_action,omitempty"` // "warn" (default) | "block"
+	CreditUsed        float64 `json:"credit_used,omitempty"         bson:"credit_used,omitempty"`
+	NoOfDays          float64 `json:"no_of_days,omitempty"          bson:"no_of_days,omitempty"`
 
 	// Computed server-side, never sent by the form
 	OutstandingBalance float64 `json:"outstanding_balance,omitempty" bson:"outstanding_balance,omitempty"`

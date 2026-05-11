@@ -1,604 +1,572 @@
-import { useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
-  FaPrint, FaTimes, FaEnvelope, FaFileDownload,
-  FaTruck, FaBoxOpen, FaChevronLeft, FaCheckCircle,
-  FaHashtag, FaUser, FaClipboardCheck, FaFileInvoiceDollar,
-  FaPaperPlane, FaSpinner, FaWarehouse,
+  FaPrint, FaFileDownload, FaTruck, FaBoxOpen,
+  FaChevronLeft, FaCheckCircle, FaFileInvoiceDollar,
+  FaPaperPlane, FaSpinner, FaArrowLeft, FaEraser, FaSave,
 } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useAuthStore from '../../store/useAuthStore';
 import api from '../../helper/axiosInstance';
 
-// ── helpers ───────────────────────────────────────────────────────
-const round2   = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-const TAX_RATE = 0.05;
-const fmtAED   = (n) =>
-  `AED ${parseFloat(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const today = () =>
   new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-// build tax groups from line items
-const buildTaxGroups = (items) => {
-  const order = {}, groups = {};
-  items.forEach((item, idx) => {
-    const price = parseFloat(item.selling_price || item.rate || 0);
-    const qty   = item.outboundQuantity || item.quantity || 0;
-    if (!price || !qty) return;
-    const key = String(price);
-    if (!groups[key]) { groups[key] = { rate: price, base: 0 }; order[key] = idx; }
-    groups[key].base = round2(groups[key].base + qty * price);
-  });
-  return Object.keys(groups).sort((a, b) => order[a] - order[b]).map(key => ({
-    rate:       groups[key].rate,
-    baseAmount: round2(groups[key].base),
-    taxAmount:  round2(groups[key].base * TAX_RATE),
-  }));
-};
-
-// ── CSS ───────────────────────────────────────────────────────────
-const buildCSS = (isDark) => `
-  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
-
-  .dn-root * { box-sizing: border-box; }
-  .dn-root { font-family: 'Sora', sans-serif; }
-
-  @keyframes dnFadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
-  @keyframes dnFade   { from { opacity:0; } to { opacity:1; } }
-  @keyframes spin     { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-  .dn-doc  { animation: dnFadeUp 0.35s cubic-bezier(0.16,1,0.3,1) both; }
-  .dn-bar  { animation: dnFade 0.2s ease both; }
+const docCSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
   .dn-spin { animation: spin 0.8s linear infinite; }
-
-  .dn-action-btn { transition: all 0.15s; }
-  .dn-action-btn:hover:not(:disabled) { filter: brightness(${isDark ? '1.15' : '0.93'}); transform: translateY(-1px); }
-  .dn-action-btn:disabled { opacity: 0.45; cursor: not-allowed !important; }
-
-  .dn-invoice-btn { transition: all 0.18s cubic-bezier(0.16,1,0.3,1); }
-  .dn-invoice-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.35) !important; }
-
-  .dn-dispatch-btn { transition: all 0.18s cubic-bezier(0.16,1,0.3,1); }
-  .dn-dispatch-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.35) !important; }
-  .dn-dispatch-btn:disabled { opacity: 0.45; cursor: not-allowed !important; }
-
-  .dn-row { transition: background 0.1s; }
-  .dn-row:hover { background: ${isDark ? 'rgba(255,255,255,0.025)' : '#f8fafc'} !important; }
-
-  /* Toast */
+  .dn-doc  { animation: fadeUp 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  .dn-btn  { transition: all 0.15s; }
+  .dn-btn:hover:not(:disabled) { filter: brightness(0.9); transform: translateY(-1px); }
+  .dn-btn:disabled { opacity: 0.45; cursor: not-allowed !important; }
   .dn-toast {
-    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
-    background: ${isDark ? '#1e293b' : '#0f172a'}; color: #fff;
-    padding: 10px 20px; border-radius: 12px; font-size: 13px; font-weight: 600;
-    z-index: 9999; white-space: nowrap;
-    animation: dnFadeUp 0.25s cubic-bezier(0.16,1,0.3,1) both;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-    display: flex; align-items: center; gap: 8px;
+    position:fixed; bottom:28px; left:50%; transform:translateX(-50%);
+    background:#0f172a; color:#fff; padding:10px 22px; border-radius:12px;
+    font-size:13px; font-weight:600; z-index:9999; white-space:nowrap;
+    animation:fadeUp 0.25s ease both; box-shadow:0 8px 32px rgba(0,0,0,0.35);
+    display:flex; align-items:center; gap:8px;
   }
-
+  /* Remove browser print headers/footers (URL, date, page number) */
+  @page { margin: 0; }
+  /* Print: show only the document, hide everything else */
   @media print {
+    /* Hide the entire page then reveal just the doc */
+    body * { visibility: hidden !important; }
+    .dn-doc, .dn-doc * { visibility: visible !important; }
+    .dn-doc {
+      position: fixed !important;
+      top: 0 !important; left: 0 !important;
+      width: 100% !important; height: auto !important;
+      margin: 0 !important; padding: 0 !important;
+      border: none !important; border-radius: 0 !important;
+      box-shadow: none !important; animation: none !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
     .dn-no-print { display: none !important; }
-    .dn-root     { background: #fff !important; }
-    .dn-doc      { box-shadow: none !important; border: none !important; }
+    .sig-controls { display: none !important; }
   }
 `;
 
-export default function DeliveryNote() {
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const isDark    = useThemeStore((s) => s.isDark);
-  const T         = getTheme(isDark);
-  const printRef  = useRef(null);
+// ── Signature pad ─────────────────────────────────────────────────
+function SignaturePad({ storageKey }) {
+  const canvasRef  = useRef(null);
+  const drawing    = useRef(false);
+  const [hasSig,   setHasSig]   = useState(false);
+  const [saved,    setSaved]    = useState(false);
 
-  const [sendLoading,    setSendLoading]    = useState(false);
+  // Load saved signature from localStorage on mount
+  useEffect(() => {
+    if (!storageKey) return;
+    const data = localStorage.getItem(storageKey);
+    if (data && canvasRef.current) {
+      const img = new Image();
+      img.onload = () => {
+        canvasRef.current.getContext('2d').drawImage(img, 0, 0);
+        setHasSig(true);
+        setSaved(true);
+      };
+      img.src = data;
+    }
+  }, [storageKey]);
+
+  const getPos = (e) => {
+    const r = canvasRef.current.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - r.left, y: src.clientY - r.top };
+  };
+
+  const start = (e) => {
+    e.preventDefault();
+    const { x, y } = getPos(e);
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.beginPath(); ctx.moveTo(x, y);
+    drawing.current = true;
+    setSaved(false);
+  };
+
+  const move = (e) => {
+    if (!drawing.current) return;
+    e.preventDefault();
+    const { x, y } = getPos(e);
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+    ctx.stroke();
+    setHasSig(true);
+  };
+
+  const stop = () => { drawing.current = false; };
+
+  const clear = () => {
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    setHasSig(false); setSaved(false);
+    if (storageKey) localStorage.removeItem(storageKey);
+  };
+
+  const save = () => {
+    if (!hasSig || !storageKey) return;
+    localStorage.setItem(storageKey, canvasRef.current.toDataURL());
+    setSaved(true);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <canvas
+        ref={canvasRef}
+        width={280} height={80}
+        onMouseDown={start} onMouseMove={move} onMouseUp={stop} onMouseLeave={stop}
+        onTouchStart={start} onTouchMove={move} onTouchEnd={stop}
+        style={{ border: '1px solid #94a3b8', borderRadius: 4, cursor: 'crosshair', background: '#fff', touchAction: 'none', display: 'block' }}
+      />
+      <div className="sig-controls" style={{ display: 'flex', gap: 6 }}>
+        <button onClick={clear} disabled={!hasSig}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px', fontSize: 11, fontWeight: 600, border: '1px solid #e2e8f0', borderRadius: 5, background: '#f8fafc', color: '#64748b', cursor: hasSig ? 'pointer' : 'not-allowed', opacity: hasSig ? 1 : 0.4 }}>
+          <FaEraser size={9} /> Clear
+        </button>
+        <button onClick={save} disabled={!hasSig || saved}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px', fontSize: 11, fontWeight: 600, border: 'none', borderRadius: 5, background: hasSig && !saved ? '#3b82f6' : '#e2e8f0', color: hasSig && !saved ? '#fff' : '#94a3b8', cursor: hasSig && !saved ? 'pointer' : 'not-allowed' }}>
+          <FaSave size={9} /> {saved ? 'Saved' : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────
+export default function DeliveryNote() {
+  const { id }   = useParams();
+  const navigate = useNavigate();
+  const isDark   = useThemeStore((s) => s.isDark);
+  const T        = getTheme(isDark);
+  const activeOrg = useAuthStore((s) => s.activeOrg);
+
+  const cardRef = useRef(null);
+
+  const [note,           setNote]           = useState(null);
+  const [loading,        setLoading]        = useState(true);
+  const [notFound,       setNotFound]       = useState(false);
+  const [letterhead,       setLetterhead]       = useState('');
+  const [letterheadTopPct, setLetterheadTopPct] = useState(13); // % of letterhead height
+  const [letterheadBotPct, setLetterheadBotPct] = useState(8);
+  const [topPadPx,         setTopPadPx]         = useState(0);  // computed from image
+  const [botPadPx,         setBotPadPx]         = useState(0);
+  const [sendLoading,      setSendLoading]      = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
-  const [confirmed,      setConfirmed]      = useState(false);
   const [toast,          setToast]          = useState(null);
 
-  const { outboundData, deliveryNote: dn } = location.state || {};
+  useEffect(() => {
+    if (!id) { setNotFound(true); setLoading(false); return; }
+    api.get(`/api/delivery-notes/${id}`)
+      .then((r) => setNote(r.data?.data || null))
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false));
+  }, [id]);
 
-  // ── Redirect if no data ──
-  if (!outboundData || !dn) {
-    return (
-      <div style={{ minHeight: '100vh', background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
-        <div style={{ textAlign: 'center', color: T.textSec }}>
-          <FaBoxOpen size={40} style={{ marginBottom: 12, opacity: 0.4 }} />
-          <p style={{ fontSize: 14 }}>No delivery note data found.</p>
-          <button
-            onClick={() => navigate('/Sales/Outbound')}
-            style={{ marginTop: 12, padding: '8px 18px', background: T.blue, color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            Go to Outbound
-          </button>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    const orgId = activeOrg?._id;
+    if (!orgId) return;
+    api.get(`/api/organizations/${orgId}`)
+      .then((r) => {
+        const d = r.data?.data || {};
+        setLetterhead(d.letterheadImage || '');
+        setLetterheadTopPct(d.letterheadTopPad || 13);
+        setLetterheadBotPct(d.letterheadBottomPad || 8);
+      })
+      .catch(() => {});
+  }, [activeOrg]);
 
-  const items    = outboundData.items || [];
-  const custInfo = outboundData.customerInfo || {};
-  const dnNote   = outboundData.note || '';
+  // Compute pixel padding from % of letterhead's rendered height
+  useEffect(() => {
+    if (!letterhead) { setTopPadPx(0); setBotPadPx(0); return; }
+    const img = new Image();
+    img.onload = () => {
+      const cardWidth = cardRef.current?.offsetWidth || 820;
+      const renderedH = cardWidth * (img.naturalHeight / img.naturalWidth);
+      setTopPadPx(Math.round(renderedH * letterheadTopPct / 100));
+      setBotPadPx(Math.round(renderedH * letterheadBotPct / 100));
+    };
+    img.src = letterhead;
+  }, [letterhead, letterheadTopPct, letterheadBotPct]);
 
-  // ── Calculations ─────────────────────────────────────────────────
-  const subTotal   = round2(items.reduce((s, i) => s + (i.outboundQuantity || i.quantity || 0) * parseFloat(i.selling_price || i.rate || 0), 0));
-  const totalDisc  = round2(items.reduce((s, i) => s + parseFloat(i.discount || 0), 0));
-  const taxGroups  = buildTaxGroups(items);
-  const totalTax   = round2(taxGroups.reduce((s, g) => s + g.taxAmount, 0));
-  const grandTotal = round2(subTotal - totalDisc + totalTax);
-
-  // ── Show toast ───────────────────────────────────────────────────
-  const showToast = (msg, icon = '✅') => {
+  const showToast = useCallback((msg, icon = '✅') => {
     setToast({ msg, icon });
     setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
 
-  // ── Print / PDF download ─────────────────────────────────────────
-  const handlePrint = () => window.print();
+  if (loading) return (
+    <div style={{ minHeight: '100vh', background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <FaSpinner size={22} style={{ color: T.blue, animation: 'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
-  // Download as PDF via print dialog
-  const handleDownload = () => {
-    showToast('Opening print dialog — choose "Save as PDF"', '📄');
-    setTimeout(() => window.print(), 400);
-  };
+  if (notFound || !note) return (
+    <div style={{ minHeight: '100vh', background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ textAlign: 'center', color: T.textSec }}>
+        <FaBoxOpen size={40} style={{ marginBottom: 12, opacity: 0.4 }} />
+        <p style={{ fontSize: 14 }}>Delivery note not found.</p>
+        <button onClick={() => navigate('/Sales/Deliverynote')}
+          style={{ marginTop: 12, padding: '8px 18px', background: T.blue, color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          Back to List
+        </button>
+      </div>
+    </div>
+  );
 
-  // ── Send email (with loading state) ─────────────────────────────
+  const items = note.items || [];
+  const isDispatched = note.status === 'dispatched';
+  const isDelivered  = note.status === 'delivered';
+
   const handleSend = async () => {
     setSendLoading(true);
     try {
-      // TODO: replace with your actual API call
-      // await api.post('/delivery-notes/send', { dnNumber: dn.number, customerId: custInfo.id });
-      await new Promise((r) => setTimeout(r, 1500)); // simulate
-      showToast(`Delivery note sent to ${dn.customer || custInfo.name || 'customer'}`, '📧');
-    } catch {
-      showToast('Failed to send. Please try again.', '❌');
-    } finally {
-      setSendLoading(false);
-    }
+      await new Promise((r) => setTimeout(r, 1200));
+      showToast(`Sent to ${note.customerName || 'customer'}`, '📧');
+    } catch { showToast('Failed to send.', '❌'); }
+    finally { setSendLoading(false); }
   };
 
-  // ── Confirm Dispatch ─────────────────────────────────────────────
   const handleConfirmDispatch = async () => {
     setConfirmLoading(true);
     try {
-      // Mark all related sales orders as completed
-      const soIds = [...new Set(items.map((i) => i.salesOrderId).filter(Boolean))];
       await Promise.allSettled(
-        soIds.map((id) => api.patch(`/api/sales-orders/${id}/status`, { status: 'completed' }))
+        items.filter((i) => i.itemId && i.outboundQuantity > 0)
+          .map((i) => api.patch(`/api/stocks/${i.itemId}/reduce`, { reduceBy: i.outboundQuantity }))
       );
-
-      setConfirmed(true);
-      showToast('Dispatch confirmed!', '✅');
-    } catch (err) {
-      console.error('Dispatch confirm error:', err);
-      showToast('Failed to confirm dispatch. Please try again.', '❌');
-    } finally {
-      setConfirmLoading(false);
-    }
+      const soIds = [...new Set(items.map((i) => i.salesOrderId).filter(Boolean))];
+      await Promise.allSettled(soIds.map((sid) => api.patch(`/api/sales-orders/${sid}/status`, { status: 'completed' })));
+      await api.patch(`/api/delivery-notes/${note._id}/status`, { status: 'dispatched' });
+      setNote((p) => ({ ...p, status: 'dispatched' }));
+      showToast('Dispatch confirmed — stock updated!', '✅');
+    } catch { showToast('Failed to confirm dispatch.', '❌'); }
+    finally { setConfirmLoading(false); }
   };
 
-  // ── Navigate to Create Invoice ────────────────────────────────────
+  const handleMarkDelivered = async () => {
+    try {
+      await api.patch(`/api/delivery-notes/${note._id}/status`, { status: 'delivered' });
+      setNote((p) => ({ ...p, status: 'delivered' }));
+      showToast('Marked as delivered!', '✅');
+    } catch { showToast('Failed to update status.', '❌'); }
+  };
+
   const handleCreateInvoice = () => {
     navigate('/Sales/Createinvoices', {
       state: {
         fromDeliveryNote: true,
-        outboundData,
-        deliveryNote: dn,
-        // Pre-fill invoice with calculated totals
         prefill: {
-          customer:    dn.customer || custInfo.name,
-          orderNumber: dn.orderNumber || custInfo.orderNumber,
-          dnNumber:    dn.number,
+          dnId:         note._id,
+          customer:     note.customerName,
+          customerId:   note.customerId,
+          orderNumber:  note.orderNumber,
+          dnNumber:     note.dnNumber,
+          date:         note.date,
+          salesOrderIds: note.salesOrderIds || [],
           items,
-          subTotal,
-          totalDisc,
-          totalTax,
-          grandTotal,
-          taxGroups,
         },
       },
     });
   };
 
-  // ── Shared card style ────────────────────────────────────────────
-  const card = {
-    background: T.surface, border: `1px solid ${T.border}`, borderRadius: '14px',
-    boxShadow: isDark ? '0 2px 16px rgba(0,0,0,0.35)' : '0 2px 12px rgba(0,0,0,0.06)',
-  };
+  const statusColor = {
+    draft:      '#f59e0b',
+    confirmed:  '#3b82f6',
+    dispatched: '#8b5cf6',
+    delivered:  '#10b981',
+  }[note.status] || '#64748b';
 
-  // ── Status steps ─────────────────────────────────────────────────
-  const steps = [
-    { label: 'Prepared',   done: true  },
-    { label: 'Dispatched', done: dn.status === 'Shipped' || dn.status === 'Delivered' },
-    { label: 'Delivered',  done: dn.status === 'Delivered' },
-    { label: 'Invoiced',   done: false }, // will be true after invoice is created
+  // ── Document field rows ───────────────────────────────────────────
+  const addrParts = [note.customerAddress].filter(Boolean);
+  const leftFields = [
+    { label: 'To',            value: note.customerName  || '—' },
+    { label: 'Customer Code', value: note.customerCode  || '—' },
+    ...(addrParts.length ? [{ label: 'Address', value: addrParts.join(', ') }] : []),
+    { label: 'Tel',           value: note.customerPhone || '—' },
+    { label: 'Email',         value: note.customerEmail || '—' },
+  ];
+  const rightFields = [
+    { label: 'Delivery Note No',  value: note.dnNumber,                mono: true  },
+    { label: 'Delivery Dt',       value: note.date || today(),         mono: false },
+    { label: 'Cust PO No',        value: note.custPoNo        || '—',  mono: true  },
+    { label: 'Cust PO Dt',        value: note.custPoDate      || '—',  mono: false },
+    { label: 'Sales Emp',         value: note.salesperson     || '—',  mono: false },
+    { label: 'Sale Order Ref.',   value: note.orderNumber     || '—',  mono: true  },
+    { label: 'Delivery Location', value: note.deliveryLocation || '—', mono: false },
   ];
 
   return (
     <>
-      <style>{buildCSS(isDark)}</style>
+      <style>{docCSS}</style>
+      {toast && <div className="dn-toast"><span>{toast.icon}</span><span>{toast.msg}</span></div>}
 
-      {/* Toast */}
-      {toast && (
-        <div className="dn-toast">
-          <span>{toast.icon}</span>
-          <span>{toast.msg}</span>
-        </div>
-      )}
-
-      <div className="dn-root" style={{ minHeight: '100vh', background: T.bg, color: T.textPri }}>
+      <div className="dn-page" style={{ minHeight: '100vh', background: T.bg, color: T.textPri, fontFamily: 'Inter, sans-serif' }}>
 
         {/* ── STICKY ACTION BAR ─────────────────────────────── */}
-        <div className="dn-bar dn-no-print" style={{
+        <div className="dn-no-print" style={{
           position: 'sticky', top: 0, zIndex: 40,
-          background: isDark ? 'rgba(8,13,26,0.92)' : 'rgba(255,255,255,0.92)',
+          background: isDark ? 'rgba(8,13,26,0.94)' : 'rgba(255,255,255,0.94)',
           backdropFilter: 'blur(14px)',
           borderBottom: `1px solid ${T.border}`,
-          padding: '12px 28px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          padding: '10px 24px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <button className="dn-action-btn" onClick={() => navigate('/Sales/Outbound')}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 14px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, color: T.textSec, cursor: 'pointer' }}>
-              <FaChevronLeft size={11} /> Back
+          {/* Left */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button className="dn-btn" onClick={() => navigate('/Sales/Deliverynote')}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec, cursor: 'pointer' }}>
+              <FaChevronLeft size={10} /> Back
             </button>
-            <div style={{ width: 1, height: 22, background: T.border }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>Delivery Note</span>
-              <span style={{ fontSize: 12, fontFamily: 'DM Mono, monospace', color: T.blueLight, background: T.blueDim, padding: '2px 9px', borderRadius: 6, border: `1px solid rgba(59,130,246,0.2)` }}>{dn.number}</span>
-            </div>
+            <div style={{ width: 1, height: 20, background: T.border }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>Delivery Note</span>
+            <span style={{ fontSize: 12, fontFamily: 'monospace', color: T.blueLight, background: T.blueDim, padding: '2px 8px', borderRadius: 5 }}>{note.dnNumber}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 10, background: `${statusColor}18`, color: statusColor, textTransform: 'capitalize', border: `1px solid ${statusColor}33` }}>
+              {note.status}
+            </span>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {/* Send — with loading state */}
-            <button
-              className="dn-action-btn"
-              onClick={handleSend}
-              disabled={sendLoading}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, color: T.textSec, cursor: sendLoading ? 'not-allowed' : 'pointer' }}>
-              {sendLoading
-                ? <><FaSpinner size={12} className="dn-spin" /> Sending…</>
-                : <><FaPaperPlane size={12} /> Send</>}
+          {/* Right */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="dn-btn" onClick={handleSend} disabled={sendLoading}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec, cursor: 'pointer' }}>
+              {sendLoading ? <><FaSpinner size={11} className="dn-spin" /> Sending…</> : <><FaPaperPlane size={11} /> Send</>}
+            </button>
+            <button className="dn-btn" onClick={() => { showToast('Opening print dialog — choose "Save as PDF"', '📄'); setTimeout(() => window.print(), 400); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec, cursor: 'pointer' }}>
+              <FaFileDownload size={11} /> PDF
+            </button>
+            <button className="dn-btn" onClick={() => window.print()}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: T.blue, border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+              <FaPrint size={11} /> Print
             </button>
 
-            {/* Download as PDF */}
-            <button className="dn-action-btn" onClick={handleDownload}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, color: T.textSec, cursor: 'pointer' }}>
-              <FaFileDownload size={12} /> Download PDF
-            </button>
+            <div style={{ width: 1, height: 20, background: T.border }} />
 
-            {/* Print */}
-            <button className="dn-action-btn" onClick={handlePrint}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px', background: T.blue, border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
-              <FaPrint size={12} /> Print
-            </button>
-
-            {/* Divider */}
-            <div style={{ width: 1, height: 22, background: T.border }} />
-
-            {/* Confirm Dispatch — reduce stock + complete SO */}
-            {/* <button
-              className="dn-dispatch-btn dn-action-btn"
-              onClick={handleConfirmDispatch}
-              disabled={confirmLoading || confirmed}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 18px',
-                background: confirmed ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg, #10b981, #059669)',
-                border: confirmed ? '1px solid rgba(16,185,129,0.3)' : 'none',
-                borderRadius: 9, fontSize: 13, fontWeight: 700,
-                color: confirmed ? '#10b981' : '#fff',
-                cursor: (confirmLoading || confirmed) ? 'not-allowed' : 'pointer',
-                boxShadow: confirmed ? 'none' : '0 4px 14px rgba(16,185,129,0.3)',
-              }}>
-              {/* {confirmLoading
-                ? <><FaSpinner size={13} className="dn-spin" /> Confirming…</>
-                : confirmed
-                  ? <><FaCheckCircle size={13} /> Dispatched</>
-                  : <><FaWarehouse size={13} /> Confirm Dispatch & Reduce Stock</>} */}
-            
-
-            <div style={{ width: 1, height: 22, background: T.border }} />
-
-            {/* Create Invoice — primary CTA */}
-            <button
-              className="dn-invoice-btn dn-action-btn"
-              onClick={handleCreateInvoice}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 18px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,0.3)' }}>
-              <FaFileInvoiceDollar size={13} /> Create Invoice
-            </button>
+            {!isDispatched && !isDelivered && (
+              <button className="dn-btn" onClick={handleConfirmDispatch} disabled={confirmLoading}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#8b5cf6,#7c3aed)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', cursor: confirmLoading ? 'not-allowed' : 'pointer' }}>
+                {confirmLoading ? <><FaSpinner size={11} className="dn-spin" /> Confirming…</> : <><FaTruck size={11} /> Confirm Dispatch</>}
+              </button>
+            )}
+            {isDispatched && !isDelivered && (
+              <button className="dn-btn" onClick={handleMarkDelivered}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>
+                <FaCheckCircle size={11} /> Mark Delivered
+              </button>
+            )}
+            {note.invoiceId ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#10b981' }}>
+                <FaCheckCircle size={11} /> Invoiced: {note.invoiceNumber}
+              </div>
+            ) : (
+              <button className="dn-btn" onClick={handleCreateInvoice}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>
+                <FaFileInvoiceDollar size={11} /> Create Invoice
+              </button>
+            )}
           </div>
         </div>
 
         {/* ── DOCUMENT ──────────────────────────────────────── */}
-        <div ref={printRef} style={{ maxWidth: 920, margin: '0 auto', padding: '28px 20px 48px' }}>
+        <div style={{ maxWidth: 860, margin: '0 auto', padding: '32px 20px 56px' }}>
+          <div ref={cardRef} className="dn-doc" style={{
+            background: '#fff', color: '#0f172a',
+            border: '1px solid #e2e8f0',
+            borderRadius: 4,
+            boxShadow: isDark ? '0 4px 32px rgba(0,0,0,0.5)' : '0 2px 20px rgba(0,0,0,0.1)',
+            fontFamily: 'Inter, sans-serif',
+            overflow: 'hidden',
+            position: 'relative',
+          }}>
 
-          {/* Success banner */}
-          <div className="dn-no-print" style={{ ...card, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderLeft: '4px solid #10b981' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(16,185,129,0.12)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
-                <FaCheckCircle />
-              </div>
-              <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: 0 }}>Delivery Note Created Successfully</p>
-                <p style={{ fontSize: 12, color: T.textSec, margin: '2px 0 0' }}>Items have been dispatched. Next step: create an invoice for this delivery.</p>
-              </div>
-            </div>
-            {/* Inline next-step nudge */}
-            <button
-              className="dn-invoice-btn"
-              onClick={handleCreateInvoice}
-              style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 9, fontSize: 12, fontWeight: 700, color: '#10b981', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              <FaFileInvoiceDollar size={12} /> Create Invoice →
-            </button>
-          </div>
+            {/* ── All content above the letterhead ── */}
+            <div style={{
+              position: 'relative', zIndex: 1,
+              ...(letterhead ? {
+                backgroundImage: `url(${letterhead})`,
+                backgroundSize: '100% auto',
+                backgroundPosition: 'top center',
+                backgroundRepeat: 'no-repeat',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+                paddingTop: topPadPx,
+                paddingBottom: botPadPx,
+              } : {}),
+            }}>
 
-          {/* ── THE DOCUMENT CARD ── */}
-          <div className="dn-doc" style={{ ...card, overflow: 'hidden' }}>
-
-            {/* Document accent bar */}
-            <div style={{ height: 4, background: `linear-gradient(90deg, ${T.blue}, #8b5cf6 50%, #10b981)` }} />
-
-            {/* ── Document Header ── */}
-            <div style={{ padding: '28px 32px 24px', borderBottom: `1px solid ${T.border}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
-
-                {/* Company branding */}
+            {/* ── Company Header (only when no letterhead) ── */}
+            {!letterhead && (
+              <div style={{ background: '#1e3a5f', padding: '18px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{ width: 52, height: 52, borderRadius: 14, background: T.blue, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#fff', fontWeight: 900, flexShrink: 0 }}>
-                    N
-                  </div>
+                  <div style={{ width: 48, height: 48, borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#fff', fontWeight: 900 }}>N</div>
                   <div>
-                    <p style={{ fontSize: 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.02em' }}>Nexus ERP</p>
-                    <p style={{ fontSize: 12, color: T.textSec, margin: '2px 0 0' }}>Dubai, United Arab Emirates</p>
+                    <p style={{ fontSize: 17, fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.01em' }}>Nexus ERP</p>
+                    <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', margin: '2px 0 0' }}>Dubai, United Arab Emirates · P.O.Box: 00000</p>
                   </div>
                 </div>
-
-                {/* Document title */}
                 <div style={{ textAlign: 'right' }}>
-                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', color: T.textSec, margin: '0 0 4px' }}>Document</p>
-                  <p style={{ fontSize: 26, fontWeight: 900, color: T.textPri, margin: '0 0 6px', letterSpacing: '-0.02em' }}>DELIVERY NOTE</p>
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, fontFamily: 'DM Mono, monospace', fontWeight: 600, background: T.blueDim, color: T.blueLight, padding: '4px 12px', borderRadius: 8, border: `1px solid rgba(59,130,246,0.25)` }}>
-                      {dn.number}
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '4px 12px', borderRadius: 8, border: '1px solid rgba(16,185,129,0.25)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <FaTruck size={10} /> {dn.status || 'Shipped'}
-                    </span>
-                  </div>
+                  <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', margin: '0 0 2px' }}>Tel: 04-0000000</p>
+                  <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', margin: 0 }}>info@nexuserp.com</p>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* ── Status Timeline — now includes Invoiced step ── */}
-            <div style={{ padding: '16px 32px', background: isDark ? 'rgba(255,255,255,0.02)' : '#fafbfc', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 0 }}>
-              {steps.map((step, i) => (
-                <div key={step.label} style={{ display: 'flex', alignItems: 'center', flex: i < steps.length - 1 ? 1 : 'none' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: step.done ? '#10b981' : T.surface2, border: `2px solid ${step.done ? '#10b981' : T.border}`, transition: 'all 0.3s', flexShrink: 0 }}>
-                      {step.done ? <FaCheckCircle size={13} color="#fff" /> : <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.border }} />}
-                    </div>
-                    <span style={{ fontSize: 12, fontWeight: step.done ? 700 : 500, color: step.done ? '#10b981' : T.textSec, whiteSpace: 'nowrap' }}>{step.label}</span>
-                  </div>
-                  {i < steps.length - 1 && (
-                    <div style={{ flex: 1, height: 2, background: steps[i + 1].done ? '#10b981' : T.border, margin: '0 12px', transition: 'background 0.3s' }} />
-                  )}
-                </div>
-              ))}
+            {/* ── Document Title ── */}
+            <div style={{ textAlign: 'center', padding: '16px 0 10px', borderBottom: '2px solid #1e3a5f' }}>
+              <p style={{ fontSize: 17, fontWeight: 800, color: '#1e3a5f', margin: 0, letterSpacing: '0.12em', textDecoration: 'underline', textUnderlineOffset: 4 }}>DELIVERY NOTE</p>
             </div>
 
             {/* ── Info Grid ── */}
-            <div style={{ padding: '24px 32px', borderBottom: `1px solid ${T.border}`, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-
-              {/* Bill To */}
-              <div>
-                <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: T.textSec, margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <FaUser size={9} /> Bill To
-                </p>
-                <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: '14px 16px' }}>
-                  <p style={{ fontSize: 15, fontWeight: 800, color: T.textPri, margin: '0 0 4px' }}>{dn.customer || custInfo.name || 'Customer'}</p>
-                  <p style={{ fontSize: 12, color: T.textSec, margin: '0 0 6px' }}>Dubai, United Arab Emirates</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <FaHashtag size={10} style={{ color: T.textMuted }} />
-                    <span style={{ fontSize: 12, fontFamily: 'DM Mono, monospace', color: T.textSec }}>
-                      Order: {dn.orderNumber || custInfo.orderNumber || '—'}
-                    </span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #e2e8f0' }}>
+              {/* Left — Customer */}
+              <div style={{ padding: '14px 20px', borderRight: '1px solid #e2e8f0' }}>
+                {leftFields.map(({ label, value }) => (
+                  <div key={label} style={{ display: 'flex', gap: 8, marginBottom: 5 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', minWidth: 96, flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 11, color: '#0f172a' }}>: {value}</span>
                   </div>
-                </div>
+                ))}
               </div>
-
-              {/* Delivery Details */}
-              <div>
-                <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: T.textSec, margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <FaClipboardCheck size={9} /> Delivery Details
-                </p>
-                <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, overflow: 'hidden' }}>
-                  {[
-                    { label: 'DN Number',         value: dn.number,                                mono: true  },
-                    { label: 'Issue Date',         value: dn.date || today(),                      mono: false },
-                    { label: 'Sales Order',        value: dn.orderNumber || '—',                   mono: true  },
-                    { label: 'Requires Approval',  value: outboundData.requiresApproval ? 'Yes' : 'No', mono: false },
-                  ].map(({ label, value, mono }, i, arr) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : 'none' }}>
-                      <span style={{ fontSize: 11, color: T.textSec, fontWeight: 500 }}>{label}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: T.textPri, fontFamily: mono ? 'DM Mono, monospace' : 'inherit' }}>{value}</span>
-                    </div>
-                  ))}
-                </div>
+              {/* Right — DN details */}
+              <div style={{ padding: '14px 20px' }}>
+                {rightFields.map(({ label, value, mono, cap }) => (
+                  <div key={label} style={{ display: 'flex', gap: 8, marginBottom: 5 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', minWidth: 112, flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 11, color: '#0f172a', fontFamily: mono ? 'monospace' : 'inherit', textTransform: cap ? 'capitalize' : 'none' }}>: {value}</span>
+                  </div>
+                ))}
               </div>
             </div>
 
             {/* ── Items Table ── */}
-            <div style={{ padding: '24px 32px', borderBottom: `1px solid ${T.border}` }}>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: T.textSec, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <FaBoxOpen size={10} /> Items Dispatched ({items.length})
-              </p>
-
-              <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc', borderBottom: `1px solid ${T.border}` }}>
-                      {['#', 'Item', 'SKU', 'Qty', 'Unit Price (excl.)', 'VAT 5%', 'Line Total'].map((h, i) => (
-                        <th key={i} style={{ padding: '10px 14px', textAlign: i >= 3 ? 'right' : 'left', fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: 'uppercase', letterSpacing: '0.07em', whiteSpace: 'nowrap' }}>{h}</th>
+            <div style={{ padding: '0' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', borderBottom: '1.5px solid #1e3a5f' }}>
+                    {[
+                      { label: 'Sl.No',       w: '6%',  align: 'center' },
+                      { label: 'Part Number', w: '18%', align: 'left'   },
+                      { label: 'Description', w: '56%', align: 'left'   },
+                      { label: 'Qty',         w: '10%', align: 'center' },
+                      { label: 'Unit',        w: '10%', align: 'center' },
+                    ].map(({ label, w, align }) => (
+                      <th key={label} style={{ padding: '9px 12px', textAlign: align, fontSize: 11, fontWeight: 700, color: '#1e3a5f', letterSpacing: '0.04em', width: w }}>
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, idx) => (
+                    <tr key={item.itemId || idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'center', color: '#64748b', fontSize: 11 }}>{idx + 1}</td>
+                      <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 11, color: '#334155', fontWeight: 600 }}>
+                        {item.itemCode || '—'}
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#0f172a', lineHeight: 1.5 }}>
+                        {item.name}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
+                        {item.outboundQuantity}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center', color: '#64748b' }}>
+                        {item.unit || 'Nos'}
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Empty rows to pad to at least 5 rows for print aesthetics */}
+                  {Array.from({ length: Math.max(0, 4 - items.length) }).map((_, i) => (
+                    <tr key={`empty-${i}`} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      {[...Array(5)].map((__, j) => (
+                        <td key={j} style={{ padding: '10px 12px', fontSize: 11 }}>&nbsp;</td>
                       ))}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item, idx) => {
-                      const unitPrice = parseFloat(item.selling_price || item.rate || 0);
-                      const origRate  = parseFloat(item.rate || 0);
-                      const qty       = item.outboundQuantity || item.quantity || 0;
-                      const lineBase  = round2(unitPrice * qty);
-                      const lineVat   = round2(lineBase * TAX_RATE);
-                      const lineTotal = round2(lineBase + lineVat);
-                      const hasDisc   = item.discount > 0;
-                      return (
-                        <tr key={item._id || idx} className="dn-row" style={{ borderBottom: `1px solid ${T.border}` }}>
-                          <td style={{ padding: '12px 14px', color: T.textMuted, fontSize: 12, fontFamily: 'DM Mono, monospace' }}>{String(idx + 1).padStart(2, '0')}</td>
-                          <td style={{ padding: '12px 14px', maxWidth: 200 }}>
-                            <p style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>{item.name}</p>
-                            {hasDisc && <p style={{ fontSize: 10, color: '#f59e0b', margin: '2px 0 0', fontWeight: 600 }}>Disc: {fmtAED(item.discount)}</p>}
-                            {item.unit && <p style={{ fontSize: 10, color: T.textMuted, margin: '1px 0 0' }}>per {item.unit}</p>}
-                          </td>
-                          <td style={{ padding: '12px 14px' }}>
-                            <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: T.textSec, background: T.surface2, padding: '2px 8px', borderRadius: 5, border: `1px solid ${T.border}` }}>
-                              {item.sku || item.item_code || '—'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: T.textPri, fontFamily: 'DM Mono, monospace' }}>{qty}</span>
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                            {origRate > unitPrice && (
-                              <p style={{ fontSize: 10, color: T.textMuted, textDecoration: 'line-through', margin: '0 0 1px', fontFamily: 'DM Mono, monospace' }}>{fmtAED(origRate)}</p>
-                            )}
-                            <p style={{ fontSize: 13, fontWeight: 700, color: origRate > unitPrice ? '#10b981' : T.textPri, margin: 0, fontFamily: 'DM Mono, monospace' }}>{fmtAED(unitPrice)}</p>
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                            <p style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', margin: 0, fontFamily: 'DM Mono, monospace' }}>{fmtAED(lineVat)}</p>
-                            <p style={{ fontSize: 10, color: T.textMuted, margin: '1px 0 0', fontFamily: 'DM Mono, monospace' }}>{fmtAED(lineBase)} ×5%</p>
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                            <p style={{ fontSize: 13, fontWeight: 800, color: T.blue, margin: 0, fontFamily: 'DM Mono, monospace' }}>{fmtAED(lineTotal)}</p>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
-            {/* ── Summary ── */}
-            <div style={{ padding: '24px 32px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'flex-end' }}>
-              <div style={{ width: '100%', maxWidth: 420 }}>
+            {/* ── Acknowledgment ── */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+              <p style={{ fontSize: 10, fontStyle: 'italic', color: '#475569', margin: 0, lineHeight: 1.6, textAlign: 'justify' }}>
+                I, the undersigned hereby acknowledge that I have received and inspected the goods as described in this delivery note. I hereby confirm to have received the quantity as mentioned in this delivery note.
+              </p>
+            </div>
 
-                {/* Sub rows */}
-                {[
-                  { label: 'Subtotal (excl. VAT)', value: fmtAED(subTotal), color: T.textPri },
-                  ...(totalDisc > 0 ? [{ label: 'Total Discount', value: `- ${fmtAED(totalDisc)}`, color: '#ef4444' }] : []),
-                ].map(({ label, value, color }) => (
-                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
-                    <span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>{label}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color, fontFamily: 'DM Mono, monospace' }}>{value}</span>
-                  </div>
-                ))}
+            {/* ── Signature Section ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #e2e8f0' }}>
+              {/* Receiver */}
+              <div style={{ padding: '16px 20px', borderRight: '1px solid #e2e8f0' }}>
+                <p style={{ fontSize: 10, fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>Receivers Sign &amp; Stamp</p>
+                <SignaturePad storageKey={`dn_sig_receiver_${note._id}`} />
+                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {['Receivers Name', 'Designation', 'Date', 'Phone Number'].map((label) => (
+                    <div key={label} style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                      <span style={{ fontSize: 10, color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap', minWidth: 90 }}>{label}:</span>
+                      <div style={{ flex: 1, borderBottom: '1px solid #94a3b8' }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-                {/* Grouped VAT box */}
-                <div style={{ margin: '12px 0', padding: '12px 14px', background: isDark ? 'rgba(245,158,11,0.06)' : '#fffbeb', border: `1.5px solid ${isDark ? 'rgba(245,158,11,0.2)' : '#fde68a'}`, borderRadius: 10 }}>
-                  <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#f59e0b', margin: '0 0 8px' }}>VAT 5% — Grouped by Rate</p>
-                  {taxGroups.length === 0 && <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>—</p>}
-                  {taxGroups.map((g, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: i < taxGroups.length - 1 ? `1px solid ${isDark ? 'rgba(245,158,11,0.12)' : '#fef3c7'}` : 'none' }}>
-                      <div>
-                        <p style={{ fontSize: 12, fontWeight: 600, color: T.textPri, margin: 0 }}>Rate {fmtAED(g.rate)}</p>
-                        <p style={{ fontSize: 10, color: T.textSec, margin: '1px 0 0', fontFamily: 'DM Mono, monospace' }}>{fmtAED(g.baseAmount)} × 5%</p>
+              {/* DO Prepared By */}
+              <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+                <div>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>DO Prepared By</p>
+                  <SignaturePad storageKey={`dn_sig_prepared_${note._id}`} />
+                </div>
+                <div>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>Delivered By &amp; Date</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {['Name', 'Date'].map((label) => (
+                      <div key={label} style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                        <span style={{ fontSize: 10, color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap', minWidth: 36 }}>{label}:</span>
+                        <div style={{ flex: 1, borderBottom: '1px solid #94a3b8' }} />
                       </div>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f59e0b', fontFamily: 'DM Mono, monospace' }}>{fmtAED(g.taxAmount)}</span>
-                    </div>
-                  ))}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: `1.5px solid ${isDark ? 'rgba(245,158,11,0.25)' : '#fcd34d'}`, marginTop: 8, paddingTop: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>Total VAT (5%)</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: '#f59e0b', fontFamily: 'DM Mono, monospace' }}>{fmtAED(totalTax)}</span>
+                    ))}
                   </div>
-                </div>
-
-                {/* Grand total */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: isDark ? 'rgba(59,130,246,0.08)' : '#eff6ff', borderRadius: 10, border: `1.5px solid ${isDark ? 'rgba(59,130,246,0.2)' : '#bfdbfe'}` }}>
-                  <span style={{ fontSize: 15, fontWeight: 800, color: T.textPri }}>Grand Total (incl. VAT)</span>
-                  <span style={{ fontSize: 20, fontWeight: 900, color: T.blue, fontFamily: 'DM Mono, monospace' }}>{fmtAED(grandTotal)}</span>
-                </div>
-
-                {/* Quick stats strip */}
-                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  {[
-                    { label: 'Items',     value: items.length,                                    color: T.blue,    bg: T.blueDim  },
-                    { label: 'Total Qty', value: items.reduce((s, i) => s + (i.outboundQuantity || i.quantity || 0), 0), color: T.green,   bg: T.greenDim },
-                    { label: 'Discount',  value: fmtAED(totalDisc),                               color: '#ef4444', bg: isDark ? 'rgba(239,68,68,0.1)' : '#fef2f2' },
-                  ].map((s) => (
-                    <div key={s.label} style={{ flex: 1, background: s.bg, borderRadius: 9, padding: '10px 12px', textAlign: 'center' }}>
-                      <p style={{ fontSize: 14, fontWeight: 800, color: s.color, margin: 0, fontFamily: 'DM Mono, monospace' }}>{s.value}</p>
-                      <p style={{ fontSize: 9, fontWeight: 700, color: s.color, margin: '2px 0 0', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{s.label}</p>
-                    </div>
-                  ))}
                 </div>
               </div>
             </div>
 
             {/* ── Notes ── */}
-            {(dnNote || outboundData.requiresApproval) && (
-              <div style={{ padding: '20px 32px', borderBottom: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {dnNote && (
-                  <div style={{ background: isDark ? 'rgba(59,130,246,0.06)' : '#f0f7ff', border: `1px solid ${isDark ? 'rgba(59,130,246,0.15)' : '#bfdbfe'}`, borderRadius: 10, padding: '12px 16px' }}>
-                    <p style={{ fontSize: 10, fontWeight: 700, color: T.blue, textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 5px' }}>Dispatch Notes</p>
-                    <p style={{ fontSize: 13, color: T.textSec, margin: 0, lineHeight: 1.65 }}>{dnNote}</p>
-                  </div>
-                )}
-                {outboundData.requiresApproval && (
-                  <div style={{ background: isDark ? 'rgba(245,158,11,0.06)' : '#fffbeb', border: `1px solid ${isDark ? 'rgba(245,158,11,0.2)' : '#fde68a'}`, borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 13 }}>⚠️</span>
-                    <p style={{ fontSize: 13, color: '#92400e', margin: 0, fontWeight: 500 }}>This delivery note requires manager approval before dispatch.</p>
-                  </div>
-                )}
+            <div style={{ padding: '12px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap', paddingTop: 1 }}>Notes:</span>
+                <p style={{ fontSize: 11, color: '#334155', margin: 0, lineHeight: 1.6, flex: 1, minHeight: 32 }}>{note.note || ''}</p>
+              </div>
+            </div>
+
+            {/* ── Document Footer (only without letterhead — letterhead has its own footer) ── */}
+            {!letterhead && (
+              <div style={{ padding: '8px 20px', background: '#1e3a5f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>Generated: {today()} · Nexus ERP</span>
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'rgba(255,255,255,0.6)' }}>{note.dnNumber}</span>
               </div>
             )}
 
-            {/* ── Signature Footer ── */}
-            <div style={{ padding: '28px 32px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24 }}>
-              {['Prepared By', 'Authorized By', 'Received By'].map((label) => (
-                <div key={label} style={{ textAlign: 'center' }}>
-                  <div style={{ height: 1, background: T.border, marginBottom: 10 }} />
-                  <p style={{ fontSize: 11, color: T.textSec, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', margin: 0 }}>{label}</p>
-                  <p style={{ fontSize: 10, color: T.textMuted, margin: '3px 0 0' }}>Signature & Date</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Document footer */}
-            <div style={{ padding: '14px 32px', background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc', borderTop: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: T.textMuted }}>Generated: {today()} · Nexus ERP System</span>
-              <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: T.textMuted }}>{dn.number}</span>
-            </div>
-
+            </div>{/* end content wrapper */}
           </div>{/* end document card */}
 
-          {/* ── Bottom action bar — repurposed ── */}
-          <div className="dn-no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 20 }}>
-            {/* Left: close */}
-            <button className="dn-action-btn" onClick={() => navigate('/Sales/Outbound')}
-              style={{ padding: '9px 20px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, fontSize: 13, fontWeight: 600, color: T.textSec, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}>
-              <FaTimes size={11} /> Close
+          {/* Bottom nav */}
+          <div className="dn-no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+            <button className="dn-btn" onClick={() => navigate('/Sales/Deliverynote')}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, color: T.textSec, cursor: 'pointer' }}>
+              <FaArrowLeft size={11} /> All Delivery Notes
             </button>
-
-            {/* Right: print + create invoice */}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button className="dn-action-btn" onClick={handlePrint}
-                style={{ padding: '9px 20px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, fontSize: 13, fontWeight: 600, color: T.textSec, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}>
-                <FaPrint size={11} /> Print
-              </button>
-              <button
-                className="dn-invoice-btn"
-                onClick={handleCreateInvoice}
-                style={{ padding: '9px 24px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 14px rgba(16,185,129,0.35)' }}>
+            {note.invoiceId ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#10b981' }}>
+                <FaCheckCircle size={13} /> Invoice {note.invoiceNumber}
+              </div>
+            ) : (
+              <button className="dn-btn" onClick={handleCreateInvoice}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
                 <FaFileInvoiceDollar size={13} /> Create Invoice →
               </button>
-            </div>
+            )}
           </div>
 
         </div>

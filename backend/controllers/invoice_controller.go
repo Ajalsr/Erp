@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,6 +16,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+func generatePublicToken() string {
+	b := make([]byte, 18)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 var invoiceCollection *mongo.Collection = config.GetCollection(config.DB, "invoices")
 
@@ -43,7 +51,10 @@ func CreateInvoice() gin.HandlerFunc {
 		inv.UpdatedAt = time.Now()
 
 		if inv.Status == "" {
-			inv.Status = "unpaid"
+			inv.Status = "sent"
+		}
+		if inv.Status != "draft" && inv.PublicToken == "" {
+			inv.PublicToken = generatePublicToken()
 		}
 
 		// Assign IDs to line items
@@ -82,6 +93,14 @@ func GetAllInvoices() gin.HandlerFunc {
 		}
 		skip := (page - 1) * limit
 
+		// Auto-mark overdue: any sent/unpaid invoice past its due date
+		today := time.Now().Format("2006-01-02")
+		invoiceCollection.UpdateMany(ctx, bson.M{
+			"orgId":   orgID,
+			"status":  bson.M{"$in": []string{"unpaid", "sent"}},
+			"dueDate": bson.M{"$lt": today, "$ne": ""},
+		}, bson.M{"$set": bson.M{"status": "overdue", "updatedAt": time.Now()}})
+
 		filter := bson.M{"orgId": orgID}
 		if status := c.Query("status"); status != "" && status != "all" {
 			filter["status"] = status
@@ -111,6 +130,46 @@ func GetAllInvoices() gin.HandlerFunc {
 		}
 		if invoices == nil {
 			invoices = []models.Invoice{}
+		}
+
+		// Fill in billTo.name for invoices where it was not stored
+		var missingIDs []primitive.ObjectID
+		for _, inv := range invoices {
+			if inv.BillTo.Name == "" && inv.CustomerID != "" {
+				if oid, err2 := primitive.ObjectIDFromHex(inv.CustomerID); err2 == nil {
+					missingIDs = append(missingIDs, oid)
+				}
+			}
+		}
+		if len(missingIDs) > 0 {
+			cCursor, err2 := customersCollection.Find(ctx,
+				bson.M{"_id": bson.M{"$in": missingIDs}},
+				options.Find().SetProjection(bson.M{"customerDisplayName": 1, "companyName": 1}),
+			)
+			if err2 == nil {
+				defer cCursor.Close(ctx)
+				var custDocs []struct {
+					ID                  primitive.ObjectID `bson:"_id"`
+					CustomerDisplayName string             `bson:"customerDisplayName"`
+					CompanyName         string             `bson:"companyName"`
+				}
+				cCursor.All(ctx, &custDocs)
+				nameMap := map[string]string{}
+				for _, cd := range custDocs {
+					name := cd.CustomerDisplayName
+					if name == "" {
+						name = cd.CompanyName
+					}
+					nameMap[cd.ID.Hex()] = name
+				}
+				for i, inv := range invoices {
+					if inv.BillTo.Name == "" && inv.CustomerID != "" {
+						if name, ok := nameMap[inv.CustomerID]; ok && name != "" {
+							invoices[i].BillTo.Name = name
+						}
+					}
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -216,6 +275,79 @@ func GetInvoiceStats() gin.HandlerFunc {
 	}
 }
 
+// UpdateInvoice replaces all editable fields on a draft invoice (used when
+// the user saves as draft then later clicks "Issue Invoice").
+func UpdateInvoice() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid invoice ID"})
+			return
+		}
+
+		orgID, _ := c.Get("orgId")
+
+		// Only allow editing drafts — once issued an invoice is immutable here
+		var existing models.Invoice
+		err = invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Invoice not found"})
+			return
+		}
+		if existing.Status != "draft" {
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "Only draft invoices can be updated"})
+			return
+		}
+
+		var payload models.Invoice
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+
+		for i := range payload.LineItems {
+			if payload.LineItems[i].ID.IsZero() {
+				payload.LineItems[i].ID = primitive.NewObjectID()
+			}
+		}
+
+		fields := bson.M{
+			"status":        payload.Status,
+			"invoiceNumber": payload.InvoiceNumber,
+			"issueDate":     payload.IssueDate,
+			"dueDate":       payload.DueDate,
+			"currency":      payload.Currency,
+			"paymentTerms":  payload.PaymentTerms,
+			"lineItems":     payload.LineItems,
+			"totals":        payload.Totals,
+			"notes":         payload.Notes,
+			"billTo":        payload.BillTo,
+			"customerId":    payload.CustomerID,
+			"updatedAt":     time.Now(),
+		}
+		if payload.Status != "draft" && existing.PublicToken == "" {
+			fields["publicToken"] = generatePublicToken()
+		}
+		update := bson.M{"$set": fields}
+
+		result, err := invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
+		if err != nil || result.MatchedCount == 0 {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update invoice"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Invoice updated successfully",
+			"data":    gin.H{"id": existing.ID.Hex(), "invoiceNumber": payload.InvoiceNumber},
+		})
+	}
+}
+
 func UpdateInvoiceStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -229,7 +361,7 @@ func UpdateInvoiceStatus() gin.HandlerFunc {
 		}
 
 		var req struct {
-			Status string `json:"status" binding:"required,oneof=draft unpaid paid partial overdue void"`
+			Status string `json:"status" binding:"required,oneof=draft unpaid sent paid partial overdue void"`
 		}
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid status", "error": err.Error()})
@@ -245,5 +377,77 @@ func UpdateInvoiceStatus() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Invoice status updated"})
+	}
+}
+
+// PATCH /api/invoices/:id/void
+func VoidInvoice() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid invoice ID"})
+			return
+		}
+
+		orgID, _ := c.Get("orgId")
+
+		var existing models.Invoice
+		if err = invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Invoice not found"})
+			return
+		}
+		if existing.Status == "void" {
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "Invoice is already void"})
+			return
+		}
+		if existing.Status == "paid" {
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "Paid invoices cannot be voided. Raise a credit note instead."})
+			return
+		}
+
+		var req struct {
+			Reason string `json:"reason"`
+		}
+		c.ShouldBindJSON(&req)
+
+		_, err = invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": bson.M{
+			"status":     "void",
+			"voidReason": req.Reason,
+			"voidedAt":   time.Now(),
+			"updatedAt":  time.Now(),
+		}})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to void invoice"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Invoice voided"})
+	}
+}
+
+// GET /api/invoices/public/:token  — no auth required
+func GetPublicInvoice() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid token"})
+			return
+		}
+
+		var inv models.Invoice
+		err := invoiceCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&inv)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Invoice not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": inv})
 	}
 }

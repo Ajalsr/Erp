@@ -8,12 +8,15 @@ import (
 
 // Organization represents a workspace/team that users belong to
 type Organization struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
-	Name        string             `bson:"name" json:"name" binding:"required"`
-	Description string             `bson:"description,omitempty" json:"description,omitempty"`
-	CreatedBy   string             `bson:"createdBy" json:"createdBy"`
-	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
-	UpdatedAt   time.Time          `bson:"updatedAt" json:"updatedAt"`
+	ID               primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	Name             string             `bson:"name" json:"name" binding:"required"`
+	Description      string             `bson:"description,omitempty" json:"description,omitempty"`
+	LetterheadImage     string             `bson:"letterheadImage,omitempty" json:"letterheadImage,omitempty"`       // base64 data-URL
+	LetterheadTopPad    int                `bson:"letterheadTopPad,omitempty" json:"letterheadTopPad,omitempty"`     // px to skip letterhead header
+	LetterheadBottomPad int                `bson:"letterheadBottomPad,omitempty" json:"letterheadBottomPad,omitempty"` // px to skip letterhead footer
+	CreatedBy        string             `bson:"createdBy" json:"createdBy"`
+	CreatedAt        time.Time          `bson:"createdAt" json:"createdAt"`
+	UpdatedAt        time.Time          `bson:"updatedAt" json:"updatedAt"`
 }
 
 // OrgMember links a user to an organization with a role

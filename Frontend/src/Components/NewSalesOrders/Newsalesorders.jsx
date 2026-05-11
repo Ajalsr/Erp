@@ -492,6 +492,8 @@ const Newsalesorders = () => {
   const [showCancelToaster,setShowCancelToaster]=useState(false);
   const [showSuccessToaster,setShowSuccessToaster]=useState(false);
   const [successMessage,setSuccessMessage]=useState('');
+  const [creditBlockError,setCreditBlockError]=useState(null);
+  const [lpoError,setLpoError]=useState('');
 
   const {handleGetItem,data:inventoryData,loading:inventoryLoading}=useGetItem();
   const {handleGetCustomers,data:customersData,loading:customersLoading}=useGetCustomers();
@@ -648,7 +650,7 @@ const Newsalesorders = () => {
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){await Promise.all(d.items.map(item=>item.itemId&&item.itemId.trim()!==''?axiosInstance.patch(`/api/stocks/${item.itemId}/reduce`,{reduceBy:item.quantity}):Promise.resolve()));handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){setLpoError(e.response.data?.message||'LPO number already exists');return;}setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
@@ -661,6 +663,30 @@ const Newsalesorders = () => {
       <style>{useMemo(()=>buildCSS(isDark),[isDark])}</style>
       <Toaster message="Are you sure you want to cancel? All unsaved changes will be lost." type="warning" isVisible={showCancelToaster} onConfirm={confirmCancel} onCancel={cancelCancel}/>
       <SuccessToaster message={successMessage} isVisible={showSuccessToaster} onClose={()=>setShowSuccessToaster(false)}/>
+
+      {creditBlockError && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{background:T.card,borderRadius:12,padding:'28px 32px',maxWidth:440,width:'90%',boxShadow:'0 8px 32px rgba(0,0,0,0.25)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+              <span style={{fontSize:22}}>🚫</span>
+              <span style={{fontWeight:700,fontSize:16,color:'#dc2626'}}>Order Blocked — Credit Limit Exceeded</span>
+            </div>
+            <p style={{color:T.text,fontSize:13,marginBottom:16,lineHeight:1.6}}>
+              This order cannot be saved because it would exceed the customer's credit limit.
+            </p>
+            <div style={{background:isDark?'#1e1e1e':'#fef2f2',borderRadius:8,padding:'12px 16px',marginBottom:20,fontSize:13,color:T.text,display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+              <span style={{color:T.subText}}>Credit Limit</span><span style={{fontWeight:600}}>AED {creditBlockError.creditLimit?.toLocaleString()}</span>
+              <span style={{color:T.subText}}>Currently Used</span><span style={{fontWeight:600}}>AED {creditBlockError.currentUsed?.toLocaleString()}</span>
+              <span style={{color:T.subText}}>This Order</span><span style={{fontWeight:600}}>AED {creditBlockError.thisOrder?.toLocaleString()}</span>
+              <span style={{color:'#dc2626',fontWeight:600}}>Projected Total</span><span style={{fontWeight:700,color:'#dc2626'}}>AED {creditBlockError.projectedUsed?.toLocaleString()}</span>
+            </div>
+            <p style={{color:T.subText,fontSize:12,marginBottom:20}}>To proceed, reduce the order value or ask a manager to raise the customer's credit limit.</p>
+            <button onClick={()=>setCreditBlockError(null)} style={{width:'100%',padding:'10px',background:'#dc2626',color:'#fff',border:'none',borderRadius:8,fontWeight:600,cursor:'pointer',fontSize:14}}>
+              OK, go back to order
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{maxWidth:1100,margin:'0 auto'}}>
 
@@ -863,7 +889,10 @@ const Newsalesorders = () => {
         {/* Section 2 — LPO */}
         <Section title="LPO Details" icon="📄" accent="#8b5cf6">
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginBottom:18}}>
-            <Field label="LPO Number" req><input type="text" value={lpoNumber} onChange={e=>setLpoNumber(e.target.value)} className="nso-inp" placeholder="LPO-2024-001" style={{fontFamily:"'DM Mono',monospace"}}/></Field>
+            <Field label="LPO Number" req>
+              <input type="text" value={lpoNumber} onChange={e=>{setLpoNumber(e.target.value);setLpoError('');}} className="nso-inp" placeholder="LPO-2024-001" style={{fontFamily:"'DM Mono',monospace",borderColor:lpoError?'#ef4444':undefined}}/>
+              {lpoError&&<div style={{color:'#ef4444',fontSize:12,marginTop:5,display:'flex',alignItems:'center',gap:5}}><span>⚠</span>{lpoError}</div>}
+            </Field>
             <ModernDatePicker value={lpoDate} onChange={setLpoDate} label="LPO Date" placeholder="Select LPO date"/>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>

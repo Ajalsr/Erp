@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -78,6 +79,22 @@ func CreateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
+		// ── Duplicate LPO check ───────────────────────────────────────────────
+		if req.LpoNumber != "" {
+			orgID, _ := c.Get("orgId")
+			count, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
+				"orgId":     fmt.Sprintf("%v", orgID),
+				"lpoNumber": req.LpoNumber,
+			})
+			if count > 0 {
+				c.JSON(http.StatusConflict, gin.H{
+					"status":  http.StatusConflict,
+					"message": fmt.Sprintf("LPO number '%s' already exists. Each LPO number must be unique.", req.LpoNumber),
+				})
+				return
+			}
+		}
+
 		var orderItems []models.SalesOrderItem
 		var subTotal float64
 
@@ -150,9 +167,9 @@ func CreateSalesOrder() gin.HandlerFunc {
 		orgID, _ := c.Get("orgId")
 
 		// ── Credit limit check ────────────────────────────────────────────────
-		// Warn (never hard-block) when the new order would push the customer over
-		// their credit limit. creditWarning is included in the 201 response so the
-		// frontend can surface a banner without preventing the save.
+		// When CreditLimitAction == "block" (or "block" is the org default) and the
+		// new order would push the customer over their credit limit, return 422 and
+		// refuse to save. Otherwise include a creditWarning in the 201 response.
 		var creditWarning gin.H
 		if customer.CreditLimit > 0 {
 			invCol := config.GetCollection(config.DB, "invoices")
@@ -195,13 +212,22 @@ func CreateSalesOrder() gin.HandlerFunc {
 			currentUsed := unpaidInv + openOrd
 			projectedUsed := currentUsed + total
 			if projectedUsed > customer.CreditLimit {
-				creditWarning = gin.H{
+				info := gin.H{
 					"creditLimit":   customer.CreditLimit,
 					"currentUsed":   math.Round(currentUsed*100) / 100,
 					"thisOrder":     total,
 					"projectedUsed": math.Round(projectedUsed*100) / 100,
 					"exceeded":      true,
 				}
+				if customer.CreditLimitAction == "block" {
+					c.JSON(http.StatusUnprocessableEntity, gin.H{
+						"status":        http.StatusUnprocessableEntity,
+						"message":       "Order blocked: this order would exceed the customer's credit limit",
+						"creditBlocked": info,
+					})
+					return
+				}
+				creditWarning = info
 			}
 		}
 
