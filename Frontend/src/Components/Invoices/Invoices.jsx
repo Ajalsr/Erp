@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore from "../../store/useThemeStore";
@@ -119,6 +119,220 @@ const toRow = (inv) => ({
   voidReason:   inv.voidReason || "",
 });
 
+/* ─── Payment modes ─────────────────────────────────────────────────────── */
+const PAYMENT_MODES = ["Cash", "Bank Transfer", "Cheque", "Card", "Other"];
+const MODE_ICONS    = { Cash: "💵", "Bank Transfer": "🏦", Cheque: "📄", Card: "💳", Other: "🔄" };
+
+/* ─── RecordPaymentModal ────────────────────────────────────────────────── */
+const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
+  const [form, setForm] = useState({
+    customerId:   invoice.customerId,
+    customerName: invoice.customer,
+    invoiceId:    invoice._id,
+    invoiceNumber: invoice.id,
+    amount:       invoice.balance > 0 ? invoice.balance.toFixed(2) : "",
+    date:         new Date().toISOString().split("T")[0],
+    paymentMode:  "Bank Transfer",
+    reference:    "",
+    notes:        "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [errors,  setErrors]  = useState({});
+  const [modeOpen, setModeOpen] = useState(false);
+  const modeRef = useRef(null);
+
+  useEffect(() => {
+    const h = e => { if (modeRef.current && !modeRef.current.contains(e.target)) setModeOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const enteredAmt = parseFloat(form.amount) || 0;
+  const balanceDue = invoice.balance;
+  const remaining  = Math.max(0, balanceDue - enteredAmt);
+  const overpay    = enteredAmt > balanceDue && balanceDue > 0;
+
+  const handleSubmit = async () => {
+    const e = {};
+    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) e.amount = "Enter a valid amount";
+    if (!form.date) e.date = "Select a date";
+    if (Object.keys(e).length) { setErrors(e); return; }
+    setLoading(true);
+    try {
+      await axiosInstance.post("/api/payments/", { ...form, amount: Number(form.amount) });
+      nexusToast.success(`Payment of ${fmt(Number(form.amount))} recorded`);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setErrors({ submit: err.response?.data?.message || "Failed to record payment" });
+    } finally { setLoading(false); }
+  };
+
+  const inp = {
+    width: "100%", padding: "10px 13px",
+    background: isDark ? T.input : "#fff",
+    border: `1.5px solid ${T.inputBdr}`, borderRadius: 9,
+    color: T.text, fontSize: 13, outline: "none",
+    fontFamily: "'DM Sans', sans-serif", transition: "border-color .15s",
+  };
+  const lbl = { display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9000,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: "rgba(0,0,0,.55)", backdropFilter: "blur(6px)",
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <style>{`@keyframes pmtIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}`}</style>
+
+      <div style={{
+        background: T.surface, borderRadius: 18, width: 520, maxHeight: "90vh",
+        overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)",
+        border: `1.5px solid ${T.border}`, animation: "pmtIn .2s ease both",
+      }}>
+        {/* Header */}
+        <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, color: T.text }}>💳 Record Payment</div>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
+              {invoice.id} · {invoice.customer}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, width: 30, height: 30, cursor: "pointer", color: T.muted, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        </div>
+
+        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Invoice summary */}
+          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            {[
+              { label: "Invoice Total", value: fmt(invoice.amount), color: T.text },
+              { label: "Already Paid",  value: fmt(invoice.paid),   color: "#10b981" },
+              { label: "Balance Due",   value: fmt(balanceDue),     color: balanceDue > 0 ? "#ef4444" : "#10b981" },
+            ].map(({ label, value, color }) => (
+              <div key={label}>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 3 }}>{label}</div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color }}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Amount */}
+          <div>
+            <label style={lbl}>Amount Received (AED) <span style={{ color: "#ef4444" }}>*</span></label>
+            <input
+              type="number" min="0" step="0.01" placeholder="0.00"
+              value={form.amount}
+              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+              style={{
+                ...inp, fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 600,
+                borderColor: errors.amount ? "#ef4444" : overpay ? T.accent : T.inputBdr,
+              }}
+            />
+            {errors.amount && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 3 }}>{errors.amount}</div>}
+            {enteredAmt > 0 && (
+              <div style={{ marginTop: 8, padding: "10px 13px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: T.muted }}>{overpay ? "Excess Payment" : "Remaining After"}</span>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: overpay ? T.accent : remaining === 0 ? "#10b981" : "#ef4444" }}>
+                  {overpay ? `+${fmt(enteredAmt - balanceDue)}` : fmt(remaining)}
+                </span>
+              </div>
+            )}
+            {remaining === 0 && !overpay && enteredAmt > 0 && (
+              <div style={{ marginTop: 6, padding: "5px 10px", background: "rgba(16,185,129,.1)", border: "1px solid rgba(16,185,129,.3)", borderRadius: 7, fontSize: 11, color: "#10b981", textAlign: "center", fontWeight: 600 }}>
+                ✓ This payment will fully settle the invoice
+              </div>
+            )}
+          </div>
+
+          {/* Date + Mode row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div>
+              <label style={lbl}>Payment Date <span style={{ color: "#ef4444" }}>*</span></label>
+              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                style={{ ...inp, borderColor: errors.date ? "#ef4444" : T.inputBdr }} />
+              {errors.date && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 3 }}>{errors.date}</div>}
+            </div>
+            <div ref={modeRef} style={{ position: "relative" }}>
+              <label style={lbl}>Payment Mode</label>
+              <button type="button" onClick={() => setModeOpen(o => !o)} style={{
+                ...inp, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer",
+                borderColor: modeOpen ? T.accent : T.inputBdr,
+              }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>{MODE_ICONS[form.paymentMode] || "💳"}</span>
+                  <span style={{ fontWeight: 500 }}>{form.paymentMode}</span>
+                </span>
+                <span style={{ fontSize: 10, color: T.muted, transition: "transform .15s", transform: modeOpen ? "rotate(180deg)" : "none" }}>▼</span>
+              </button>
+              {modeOpen && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
+                  background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10,
+                  boxShadow: "0 16px 40px rgba(0,0,0,.2)", overflow: "hidden",
+                }}>
+                  {PAYMENT_MODES.map(m => (
+                    <div key={m} onClick={() => { setForm(f => ({ ...f, paymentMode: m })); setModeOpen(false); }}
+                      style={{
+                        padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500,
+                        borderBottom: `1px solid ${T.border}`,
+                        background: form.paymentMode === m ? "rgba(245,158,11,.08)" : "transparent",
+                        display: "flex", alignItems: "center", gap: 10,
+                        color: form.paymentMode === m ? T.accent : T.text, transition: "background .1s",
+                      }}
+                      onMouseEnter={e => { if (form.paymentMode !== m) e.currentTarget.style.background = T.surface2; }}
+                      onMouseLeave={e => { if (form.paymentMode !== m) e.currentTarget.style.background = "transparent"; }}>
+                      <span>{MODE_ICONS[m]}</span>{m}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Reference */}
+          <div>
+            <label style={lbl}>Reference / Cheque No.</label>
+            <input style={inp} placeholder="e.g. TXN-001234 or Cheque #456"
+              value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} />
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label style={lbl}>Notes</label>
+            <textarea style={{ ...inp, resize: "vertical", minHeight: 56 }} placeholder="Optional internal notes…"
+              value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+          </div>
+
+          {errors.submit && (
+            <div style={{ padding: "10px 13px", background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.3)", borderRadius: 8, color: "#ef4444", fontSize: 13 }}>
+              {errors.submit}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 10, paddingTop: 2 }}>
+            <button onClick={onClose} style={{
+              flex: 1, padding: "11px 0", borderRadius: 9, fontSize: 13, fontWeight: 600,
+              cursor: "pointer", background: T.surface2, color: T.muted,
+              border: `1.5px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif",
+            }}>Cancel</button>
+            <button onClick={handleSubmit} disabled={loading} style={{
+              flex: 2, padding: "11px 0", borderRadius: 9, fontSize: 13, fontWeight: 700,
+              cursor: loading ? "not-allowed" : "pointer", opacity: loading ? .6 : 1,
+              background: T.accent, color: "#0a0e1a", border: "none",
+              fontFamily: "'DM Sans', sans-serif", boxShadow: "0 4px 14px rgba(245,158,11,.3)",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}>
+              {loading ? "Saving…" : "✓ Record Payment"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ─── Main Component ────────────────────────────────────────────────────── */
 const Invoices = () => {
   const navigate = useNavigate();
@@ -149,8 +363,31 @@ const Invoices = () => {
   const [page,         setPage]         = useState(1);
 
   /* drawer */
-  const [selected,   setSelected]  = useState(null);
-  const [drawerTab,  setDrawerTab] = useState("overview");
+  const [selected,       setSelected]      = useState(null);
+  const [drawerTab,      setDrawerTab]     = useState("overview");
+  const [linkedCNs,      setLinkedCNs]     = useState([]);
+  const [cnLoading,      setCnLoading]     = useState(false);
+  const [linkedPayments, setLinkedPayments] = useState([]);
+  const [pmtLoading,     setPmtLoading]    = useState(false);
+  const [paymentInvoice, setPaymentInvoice] = useState(null);
+
+  useEffect(() => {
+    if (!selected || drawerTab !== "credits") return;
+    setCnLoading(true);
+    axiosInstance.get(`/api/credit-notes/by-invoice/${selected._id}`)
+      .then(res => setLinkedCNs(res.data?.data || []))
+      .catch(() => setLinkedCNs([]))
+      .finally(() => setCnLoading(false));
+  }, [selected, drawerTab]);
+
+  useEffect(() => {
+    if (!selected || drawerTab !== "payments") return;
+    setPmtLoading(true);
+    axiosInstance.get(`/api/payments/?invoiceId=${selected._id}`)
+      .then(res => setLinkedPayments(res.data?.data?.payments || []))
+      .catch(() => setLinkedPayments([]))
+      .finally(() => setPmtLoading(false));
+  }, [selected, drawerTab]);
 
   /* derived */
   const filtered = useMemo(() => {
@@ -458,7 +695,7 @@ const Invoices = () => {
                 </div>
                 {/* Drawer Tabs */}
                 <div style={{ display: "flex", gap: 0, marginTop: 8 }}>
-                  {["overview", "items", "history"].map(tab => (
+                  {["overview", "items", "payments", "credits", "history"].map(tab => (
                     <DrawerTab key={tab} T={T} label={tab.charAt(0).toUpperCase() + tab.slice(1)} active={drawerTab === tab} onClick={() => setDrawerTab(tab)} />
                   ))}
                 </div>
@@ -544,10 +781,46 @@ const Invoices = () => {
                         </>
                       )}
 
+                      {/* Send Invoice / Send Reminder */}
+                      {["draft", "sent", "unpaid", "overdue", "partial"].includes(selected.status) && (
+                        <button
+                          onClick={async () => {
+                            const email = window.prompt("Send to email address:", selected.customerEmail || "");
+                            if (email === null) return;
+                            try {
+                              await axiosInstance.post(`/api/invoices/${selected._id}/send`, { toEmail: email || undefined });
+                              nexusToast.success("Invoice sent successfully");
+                              loadInvoices();
+                            } catch (e) {
+                              nexusToast.error(e.response?.data?.message || "Failed to send invoice");
+                            }
+                          }}
+                          style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue, fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                          📧 Send Invoice
+                        </button>
+                      )}
+
+                      {selected.status === "overdue" && (
+                        <button
+                          onClick={async () => {
+                            const email = window.prompt("Send reminder to:", selected.customerEmail || "");
+                            if (email === null) return;
+                            try {
+                              await axiosInstance.post(`/api/invoices/${selected._id}/send-reminder`, { toEmail: email || undefined });
+                              nexusToast.success("Payment reminder sent");
+                            } catch (e) {
+                              nexusToast.error(e.response?.data?.message || "Failed to send reminder");
+                            }
+                          }}
+                          style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                          🔔 Send Reminder
+                        </button>
+                      )}
+
                       {/* Record payment — sent/unpaid/overdue/partial */}
                       {["sent", "unpaid", "overdue", "partial"].includes(selected.status) && (
                         <button
-                          onClick={() => navigate("/Sales/PaymentsReceived")}
+                          onClick={() => setPaymentInvoice(selected)}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           💳 Record Payment
                         </button>
@@ -570,6 +843,23 @@ const Invoices = () => {
                           📋 Raise Credit Note
                         </button>
                       )}
+
+                      {/* Clone invoice */}
+                      <button
+                        onClick={() => navigate("/Sales/Createinvoices", {
+                          state: {
+                            clone: {
+                              customerId:   selected.customerId,
+                              customerName: selected.customer,
+                              lineItems:    selected.lineItems,
+                              notes:        selected.notes,
+                              paymentTerms: selected.paymentTerms,
+                            }
+                          }
+                        })}
+                        style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)", color: "#f59e0b", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                        📄 Clone Invoice
+                      </button>
 
                       {/* Shareable link */}
                       {selected.publicToken && (
@@ -665,6 +955,132 @@ const Invoices = () => {
                   </div>
                 )}
 
+                {/* ── Payments Tab ── */}
+                {drawerTab === "payments" && (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: T.text, margin: 0 }}>Payments Recorded</p>
+                      {["sent", "unpaid", "overdue", "partial"].includes(selected.status) && (
+                        <button
+                          onClick={() => setPaymentInvoice(selected)}
+                          style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none" }}>
+                          + Record Payment
+                        </button>
+                      )}
+                    </div>
+                    {pmtLoading ? (
+                      <div style={{ textAlign: "center", padding: "40px 0", color: T.muted, fontSize: 13 }}>Loading…</div>
+                    ) : linkedPayments.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "48px 0", color: T.muted, fontSize: 13 }}>
+                        <div style={{ fontSize: 28, marginBottom: 10 }}>💳</div>
+                        No payments recorded for this invoice
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {linkedPayments.map((p, i) => {
+                          const modeColor = { Cash: "#10b981", "Bank Transfer": "#3b82f6", Cheque: "#f59e0b", Card: "#8b5cf6", Other: "#64748b" }[p.paymentMode] || "#64748b";
+                          return (
+                            <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, padding: "12px 14px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                <div>
+                                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.blue, fontWeight: 600 }}>{p.paymentNumber}</span>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: `${modeColor}18`, color: modeColor, border: `1px solid ${modeColor}30` }}>
+                                      {p.paymentMode || "Other"}
+                                    </span>
+                                    {p.reference && (
+                                      <span style={{ fontSize: 11, color: T.muted }}>Ref: {p.reference}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: "right" }}>
+                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color: "#10b981", margin: 0 }}>
+                                    {fmt(p.amount)}
+                                  </p>
+                                  <p style={{ fontSize: 11, color: T.muted, margin: "3px 0 0" }}>
+                                    {p.date ? new Date(p.date).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div style={{ marginTop: 4, padding: "10px 14px", background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 12, color: T.muted }}>Total paid</span>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#10b981" }}>
+                            {fmt(linkedPayments.reduce((s, p) => s + (p.amount || 0), 0))}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Credits Tab ── */}
+                {drawerTab === "credits" && (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: T.text, margin: 0 }}>Credit Notes Applied</p>
+                      <button
+                        onClick={() => navigate("/Sales/CreditNotes", {
+                          state: {
+                            prefill: {
+                              customerId:    selected.customerId,
+                              customerName:  selected.customer,
+                              invoiceId:     selected._id,
+                              invoiceNumber: selected.id,
+                            }
+                          }
+                        })}
+                        style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue }}>
+                        + New Credit Note
+                      </button>
+                    </div>
+
+                    {cnLoading ? (
+                      <div style={{ textAlign: "center", padding: "40px 0", color: T.muted, fontSize: 13 }}>Loading…</div>
+                    ) : linkedCNs.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "48px 0", color: T.muted, fontSize: 13 }}>
+                        <div style={{ fontSize: 28, marginBottom: 10 }}>📋</div>
+                        No credit notes linked to this invoice
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {linkedCNs.map((cn, i) => {
+                          const statusColor = {
+                            draft: "#94a3b8", pending_approval: "#f59e0b", approved: "#8b5cf6",
+                            applied: "#10b981", closed: "#64748b", void: "#ef4444",
+                          }[cn.status] || "#64748b";
+                          return (
+                            <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, padding: "12px 14px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                <div>
+                                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.blue, fontWeight: 600 }}>{cn.creditNoteNumber}</span>
+                                  <p style={{ fontSize: 12, color: T.muted, margin: "3px 0 0" }}>{cn.reason || "—"}</p>
+                                </div>
+                                <div style={{ textAlign: "right" }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: `${statusColor}18`, color: statusColor, border: `1px solid ${statusColor}30` }}>
+                                    {cn.status}
+                                  </span>
+                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: T.text, margin: "5px 0 0" }}>
+                                    AED {Number(cn.totals?.grandTotal || 0).toFixed(2)}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 12, color: T.muted }}>Total credits applied</span>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#10b981" }}>
+                            AED {linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).reduce((s, cn) => s + (cn.totals?.grandTotal || 0), 0).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* ── History Tab ── */}
                 {drawerTab === "history" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
@@ -701,6 +1117,16 @@ const Invoices = () => {
           </>
         )}
       </div>
+
+      {paymentInvoice && (
+        <RecordPaymentModal
+          T={T}
+          isDark={isDark}
+          invoice={paymentInvoice}
+          onClose={() => setPaymentInvoice(null)}
+          onSaved={() => { loadInvoices(); setSelected(null); }}
+        />
+      )}
     </>
   );
 };

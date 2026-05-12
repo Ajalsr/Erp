@@ -59,6 +59,18 @@ func EnsureIndexes(client *mongo.Client) {
 		// GRNs
 		{collection: "grns", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "createdAt", Value: -1}}, name: "orgId_createdAt"},
 
+		// Credit Notes
+		{collection: "credit_notes", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "createdAt", Value: -1}}, name: "orgId_createdAt"},
+		{collection: "credit_notes", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_status"},
+		{collection: "credit_notes", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "creditNoteNumber", Value: -1}}, name: "orgId_creditNoteNumber"},
+		{collection: "credit_notes", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "sourceDocId", Value: 1}}, name: "orgId_sourceDocId"},
+
+		// Debit Notes
+		{collection: "debit_notes", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "createdAt", Value: -1}}, name: "orgId_createdAt"},
+		{collection: "debit_notes", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_status"},
+		{collection: "debit_notes", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "debitNoteNumber", Value: -1}}, name: "orgId_debitNoteNumber"},
+		{collection: "debit_notes", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "sourceDocId", Value: 1}}, name: "orgId_sourceDocId"},
+
 		// Org members (used on every authenticated request by RequireOrg middleware)
 		{collection: "org_members", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "userId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_userId_status"},
 	}

@@ -45,22 +45,22 @@ export default function SalesReport() {
   const [loading,  setLoading]  = useState(true);
   const [orders,   setOrders]   = useState([]);
   const [invStats, setInvStats] = useState({});
-  const [pmtStats, setPmtStats] = useState({});
-  const [soStats,  setSoStats]  = useState({});
+  const [cnStats,  setCnStats]  = useState({});
+  const [invoices, setInvoices] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [soRes, invRes, pmtRes, soStRes] = await Promise.allSettled([
+      const [soRes, invRes, cnRes, invListRes] = await Promise.allSettled([
         axiosInstance.get("/api/sales-orders/getsaleorder?limit=500"),
         axiosInstance.get("/api/invoices/stats"),
-        axiosInstance.get("/api/payments/stats"),
-        axiosInstance.get("/api/sales-orders/stats"),
+        axiosInstance.get("/api/credit-notes/stats"),
+        axiosInstance.get("/api/invoices/?limit=500"),
       ]);
       setOrders(soRes.status === "fulfilled" ? (soRes.value.data?.salesOrders || soRes.value.data?.data?.salesOrders || []) : []);
       setInvStats(invRes.status === "fulfilled" ? invRes.value.data?.data || invRes.value.data || {} : {});
-      setPmtStats(pmtRes.status === "fulfilled" ? pmtRes.value.data?.data || pmtRes.value.data || {} : {});
-      setSoStats(soStRes.status === "fulfilled" ? soStRes.value.data?.data || soStRes.value.data || {} : {});
+      setCnStats(cnRes.status === "fulfilled" ? cnRes.value.data?.data || {} : {});
+      setInvoices(invListRes.status === "fulfilled" ? (invListRes.value.data?.data?.invoices || invListRes.value.data?.invoices || []) : []);
     } finally {
       setLoading(false);
     }
@@ -83,6 +83,11 @@ export default function SalesReport() {
   const avgOrderVal   = totalOrders > 0 ? totalRevenue / totalOrders : 0;
   const completedOrds = filtered.filter(o => ["completed", "confirmed", "closed"].includes((o.status || "").toLowerCase())).length;
 
+  const invoicedTotal   = invStats.totalAmount || invStats.total || 0;
+  const creditsApplied  = cnStats.totalApplied || 0;
+  const creditsPending  = cnStats.totalPending || 0;
+  const netRevenue      = Math.max(0, invoicedTotal - creditsApplied);
+
   // Monthly trend (last 6 months)
   const trendData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
@@ -101,6 +106,32 @@ export default function SalesReport() {
     statusMap[s] = (statusMap[s] || 0) + 1;
   });
   const pieData = Object.entries(statusMap).map(([name, value]) => ({ name, value, color: STATUS_COLOR[name] || "#64748b" }));
+
+  // AR Aging
+  const agingBuckets = { current: [], d30: [], d60: [], d90: [], d90p: [] };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  invoices
+    .filter(inv => !["paid", "void", "draft"].includes((inv.status || "").toLowerCase()))
+    .forEach(inv => {
+      const due = inv.dueDate ? new Date(inv.dueDate) : null;
+      if (!due) { agingBuckets.current.push(inv); return; }
+      due.setHours(0, 0, 0, 0);
+      const days = Math.floor((today - due) / 86400000);
+      if (days <= 0)       agingBuckets.current.push(inv);
+      else if (days <= 30) agingBuckets.d30.push(inv);
+      else if (days <= 60) agingBuckets.d60.push(inv);
+      else if (days <= 90) agingBuckets.d90.push(inv);
+      else                 agingBuckets.d90p.push(inv);
+    });
+  const agingSum = (arr) => arr.reduce((s, i) => s + (i.balanceDue || i.total || 0), 0);
+  const agingRows = [
+    { label: "Current",    key: "current", color: "#10b981", items: agingBuckets.current },
+    { label: "1–30 days",  key: "d30",     color: "#3b82f6", items: agingBuckets.d30    },
+    { label: "31–60 days", key: "d60",     color: "#f59e0b", items: agingBuckets.d60    },
+    { label: "61–90 days", key: "d90",     color: "#f97316", items: agingBuckets.d90    },
+    { label: "90+ days",   key: "d90p",    color: "#ef4444", items: agingBuckets.d90p   },
+  ];
+  const totalAging = agingRows.reduce((s, r) => s + agingSum(r.items), 0);
 
   // Top customers
   const custMap = {};
@@ -174,12 +205,12 @@ export default function SalesReport() {
       </div>
 
       {/* KPI Cards */}
-      <div className="rpt-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
+      <div className="rpt-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 14 }}>
         {[
           { label: "Total Revenue",    value: fmtK(totalRevenue),   sub: `${totalOrders} orders`, icon: <FaMoneyBillWave />, color: "#3b82f6", dim: T.blueDim   },
           { label: "Orders",           value: totalOrders,          sub: `${completedOrds} completed`, icon: <FaFileAlt />,       color: "#10b981", dim: T.greenDim  },
           { label: "Avg Order Value",  value: fmtK(avgOrderVal),    sub: "per order",           icon: <FaChartLine />,     color: "#8b5cf6", dim: T.purpleDim },
-          { label: "Invoiced",         value: fmtK(invStats.totalAmount || invStats.total || 0), sub: `${invStats.count || invStats.total || 0} invoices`, icon: <FaUsers />, color: "#f59e0b", dim: T.amberDim },
+          { label: "Invoiced",         value: fmtK(invoicedTotal), sub: `${invStats.count || 0} invoices`, icon: <FaUsers />, color: "#f59e0b", dim: T.amberDim },
         ].map((kpi, i) => (
           <div key={i} className="rpt-stat" style={{ ...card, padding: "20px", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: 0, left: 16, right: 16, height: 1, background: `linear-gradient(90deg, transparent, ${kpi.color}50, transparent)` }} />
@@ -192,6 +223,49 @@ export default function SalesReport() {
               <div style={{ width: 40, height: 40, borderRadius: 11, background: kpi.dim, color: kpi.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
                 {kpi.icon}
               </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Credit Notes Summary Band */}
+      <div className="rpt-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 20 }}>
+        {[
+          {
+            label: "Net Revenue",
+            value: fmtK(netRevenue),
+            sub:   creditsApplied > 0 ? `After ${fmtK(creditsApplied)} in credits` : "No credits applied",
+            color: "#10b981",
+            barColor: "#10b981",
+            pct: invoicedTotal > 0 ? (netRevenue / invoicedTotal) * 100 : 100,
+          },
+          {
+            label: "Credits Applied",
+            value: fmtK(creditsApplied),
+            sub:   `${cnStats.countByStatus?.applied?.count || cnStats.countByStatus?.closed?.count || 0} credit notes applied`,
+            color: "#f43f5e",
+            barColor: "#f43f5e",
+            pct: invoicedTotal > 0 ? (creditsApplied / invoicedTotal) * 100 : 0,
+          },
+          {
+            label: "Credits Pending",
+            value: fmtK(creditsPending),
+            sub:   `${cnStats.totalVoid || 0} voided`,
+            color: "#f59e0b",
+            barColor: "#f59e0b",
+            pct: invoicedTotal > 0 ? (creditsPending / invoicedTotal) * 100 : 0,
+          },
+        ].map((item, i) => (
+          <div key={i} style={{ ...card, padding: "16px 20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div>
+                <p style={{ fontSize: 10, color: T.textSec, fontWeight: 700, margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.07em" }}>{item.label}</p>
+                <p className="rpt-sora" style={{ fontSize: 18, fontWeight: 800, color: item.color, margin: "0 0 3px", lineHeight: 1 }}>{item.value}</p>
+                <p style={{ fontSize: 11, color: T.textMuted, margin: 0 }}>{item.sub}</p>
+              </div>
+            </div>
+            <div style={{ height: 4, background: isDark ? "rgba(255,255,255,0.06)" : "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.min(100, item.pct).toFixed(1)}%`, background: item.barColor, borderRadius: 2, transition: "width 0.4s ease" }} />
             </div>
           </div>
         ))}
@@ -282,6 +356,79 @@ export default function SalesReport() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* AR Aging */}
+      <div className="rpt-up-3" style={{ ...card, overflow: "hidden", marginBottom: 20 }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <p className="rpt-sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>AR Aging Report</p>
+            <p style={{ fontSize: 11, color: T.textSec, margin: "3px 0 0" }}>Outstanding receivables by age — excludes paid, void & draft invoices</p>
+          </div>
+          <span className="rpt-sora" style={{ fontSize: 15, fontWeight: 800, color: "#ef4444" }}>{fmtMoney(totalAging)}</span>
+        </div>
+
+        {/* Bucket summary cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 0, borderBottom: `1px solid ${T.border}` }}>
+          {agingRows.map((r, i) => {
+            const amt = agingSum(r.items);
+            const pct = totalAging > 0 ? (amt / totalAging) * 100 : 0;
+            return (
+              <div key={r.key} style={{ padding: "14px 18px", borderRight: i < 4 ? `1px solid ${T.border}` : "none" }}>
+                <p style={{ fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 6px" }}>{r.label}</p>
+                <p className="rpt-sora" style={{ fontSize: 16, fontWeight: 800, color: r.color, margin: "0 0 4px" }}>{fmtK(amt)}</p>
+                <p style={{ fontSize: 11, color: T.textSec, margin: "0 0 8px" }}>{r.items.length} invoice{r.items.length !== 1 ? "s" : ""}</p>
+                <div style={{ height: 3, background: isDark ? "rgba(255,255,255,0.06)" : "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.min(100, pct).toFixed(1)}%`, background: r.color, borderRadius: 2, transition: "width 0.4s ease" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Overdue invoice rows */}
+        {[...agingBuckets.d30, ...agingBuckets.d60, ...agingBuckets.d90, ...agingBuckets.d90p].length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: T.surface2 }}>
+                  {["Invoice #", "Customer", "Invoice Date", "Due Date", "Days Overdue", "Balance Due"].map((h, i) => (
+                    <th key={i} style={{ padding: "9px 16px", textAlign: i >= 5 ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", whiteSpace: "nowrap", borderBottom: `1px solid ${T.border}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {agingRows.slice(1).flatMap(r => r.items.map(inv => {
+                  const due = inv.dueDate ? new Date(inv.dueDate) : null;
+                  const days = due ? Math.max(0, Math.floor((today - due) / 86400000)) : 0;
+                  return (
+                    <tr key={inv._id} className="rpt-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <td style={{ padding: "10px 16px", fontFamily: "'DM Mono', monospace", fontWeight: 600, color: T.blueLight }}>{inv.invoiceNumber || inv.id || "—"}</td>
+                      <td style={{ padding: "10px 16px", fontWeight: 600, color: T.textPri }}>{inv.customer || inv.customerName || "—"}</td>
+                      <td style={{ padding: "10px 16px", color: T.textSec }}>{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</td>
+                      <td style={{ padding: "10px 16px", color: T.textSec }}>{due ? due.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</td>
+                      <td style={{ padding: "10px 16px" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999,
+                          background: days > 90 ? "rgba(239,68,68,0.12)" : days > 60 ? "rgba(249,115,22,0.12)" : days > 30 ? "rgba(245,158,11,0.12)" : "rgba(59,130,246,0.12)",
+                          color:      days > 90 ? "#ef4444"              : days > 60 ? "#f97316"              : days > 30 ? "#f59e0b"              : "#3b82f6",
+                          border: `1px solid ${days > 90 ? "rgba(239,68,68,0.3)" : days > 60 ? "rgba(249,115,22,0.3)" : days > 30 ? "rgba(245,158,11,0.3)" : "rgba(59,130,246,0.3)"}` }}>
+                          {days}d overdue
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, fontFamily: "'DM Mono', monospace", color: days > 60 ? "#ef4444" : T.textPri }}>{fmtMoney(inv.balanceDue || inv.total || 0)}</td>
+                    </tr>
+                  );
+                }))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {totalAging === 0 && (
+          <div style={{ padding: "32px 0", textAlign: "center", color: T.textMuted, fontSize: 13 }}>
+            No outstanding receivables
+          </div>
+        )}
       </div>
 
       {/* Orders table */}

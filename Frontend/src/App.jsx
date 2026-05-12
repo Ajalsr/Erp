@@ -44,7 +44,10 @@ import Warehouses from "./Components/Inventory/Warehouses"
 import Adjustments from "./Components/Inventory/Adjustments"
 import Enquiries from "./Components/Enquiries/Enquiries"
 import CreditNotes from "./Components/CreditNotes/CreditNotes"
+import DebitNotes from "./Components/DebitNotes/DebitNotes"
 import PublicInvoice from "./Components/Invoices/PublicInvoice"
+import Quotes from "./Components/Quotes/Quotes"
+import CreateQuote from "./Components/Quotes/CreateQuote"
 import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
 
 function App() {
@@ -124,7 +127,10 @@ function App() {
             <Route path="/Inventory/stock-summary"  element={<StockSummary />} />
             <Route path="/Inventory/warehouses"     element={<Warehouses />} />
             <Route path="/Inventory/adjustments"    element={<Adjustments />} />
-            <Route path="/Sales/CreditNotes"         element={<CreditNotes />} />
+            <Route path="/Sales/CreditNotes"           element={<CreditNotes />} />
+            <Route path="/Purchase/DebitNotes"         element={<DebitNotes />} />
+            <Route path="/Sales/Quotes"                element={<Quotes />} />
+            <Route path="/Sales/Quotes/Create"         element={<CreateQuote />} />
           </Route>
 
           {/* Public invoice — no layout, no auth */}

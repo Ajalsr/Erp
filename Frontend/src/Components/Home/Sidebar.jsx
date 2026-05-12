@@ -24,6 +24,7 @@ const MENU = [
   { icon: HiShoppingCart,    label: 'Sales',      subItems: [
     { name: 'Customers',          route: '/Sales/Customers' },
     { name: 'Enquiries',          route: '/Sales/Enquiries' },
+    { name: 'Quotes',             route: '/Sales/Quotes' },
     { name: 'Sales Orders',       route: '/Sales/Salesorders' },
     { name: 'Outbound',           route: '/Sales/Outbound' },
     { name: 'Delivery Notes',     route: '/Sales/Deliverynote' },
@@ -38,6 +39,7 @@ const MENU = [
      { name: 'Bills',            route: '/Purchase/Bills' },
     { name: 'Stock',            route: '/Purchase/Stock' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
+    { name: 'Debit Notes',      route: '/Purchase/DebitNotes' },
   ]},
   { icon: TbReportAnalytics, label: 'Reports',    subItems: [
     { name: 'Sales Report',     route: '/Reports/sales' },

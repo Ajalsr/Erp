@@ -85,6 +85,7 @@ export default function Dashboard() {
     totalPayable, openBillsCount, partialBillsCount, overdueBillsCount, recentBills,
     totalPOs, pendingPOs, receivedPOs, totalPOValue, recentPOs,
     totalVendors, totalPaid, thisMonthPaid, vendorPaymentsCount,
+    arAging, apAging, cashflowIn, cashflowOut, cashflowNet,
   } = stats;
 
   const weeklyOrders = useMemo(() => {
@@ -354,6 +355,24 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ══ P&L SUMMARY BAND ════════════════════════════════════════ */}
+      <div className="s3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+        {[
+          { label: "Revenue This Month",  value: thisMonthRevenue, color: T.green,  dim: T.greenDim,  icon: "↑", note: `${paymentsCount} payments received` },
+          { label: "Expenses This Month", value: thisMonthPaid,    color: T.red,    dim: T.redDim,    icon: "↓", note: `${vendorPaymentsCount} vendor payments` },
+          { label: "Net This Month",      value: thisMonthRevenue - thisMonthPaid, color: (thisMonthRevenue - thisMonthPaid) >= 0 ? T.green : T.red, dim: (thisMonthRevenue - thisMonthPaid) >= 0 ? T.greenDim : T.redDim, icon: "≈", note: (thisMonthRevenue - thisMonthPaid) >= 0 ? "Profit" : "Loss" },
+        ].map((m, i) => (
+          <div key={i} style={{ ...card({ padding: "18px 22px" }), display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: m.dim, color: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800, flexShrink: 0 }}>{m.icon}</div>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".08em", margin: "0 0 4px" }}>{m.label}</p>
+              {loading ? <Sk w={120} h={20} r={6} /> : <p className="sora" style={{ fontSize: 20, fontWeight: 800, color: m.color, margin: "0 0 2px", lineHeight: 1 }}>{fmtAED(m.value, true)}</p>}
+              <p style={{ fontSize: 11, color: T.textSec, margin: 0 }}>{m.note}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* ══ KPI CARDS ═══════════════════════════════════════════════ */}
       <div className="s3" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 14 }}>
         {[
@@ -395,6 +414,107 @@ export default function Dashboard() {
               <p style={{ fontSize: 11, fontWeight: 600, color: T.textPri, margin: 0, lineHeight: 1.3 }}>{a.label}</p>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* ══ AR + AP AGING ═══════════════════════════════════════════ */}
+      <div className="s5" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+
+        {/* AR Aging */}
+        {[
+          { title: "AR Aging", subtitle: "Receivables overdue", aging: arAging, positiveColor: T.green, nav: "/Sales/Invoices" },
+          { title: "AP Aging", subtitle: "Payables overdue",    aging: apAging, positiveColor: T.red,   nav: "/Purchase/Bills" },
+        ].map(({ title, subtitle, aging, nav }) => {
+          const buckets = [
+            { label: "Current",   val: aging.current, color: T.green  },
+            { label: "1–30 days", val: aging.d30,     color: T.blue   },
+            { label: "31–60",     val: aging.d60,     color: T.amber  },
+            { label: "61–90",     val: aging.d90,     color: "#f97316"},
+            { label: "90+",       val: aging.d90p,    color: T.red    },
+          ];
+          const total = buckets.reduce((s, b) => s + b.val, 0);
+          return (
+            <div key={title} style={card({ padding: 0, overflow: "hidden" })}>
+              <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${bdr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>{title}</p>
+                  <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>{subtitle}</p>
+                </div>
+                <button className="lnk" onClick={() => navigate(nav)} style={{ fontSize: 11, color: T.textSec, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+                  View all <FaArrowRight size={8} />
+                </button>
+              </div>
+              <div style={{ padding: "12px 18px" }}>
+                {/* Stacked bar */}
+                <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 12, gap: 1 }}>
+                  {buckets.map((b, i) => {
+                    const pct = total > 0 ? (b.val / total) * 100 : 0;
+                    return pct > 0 ? <div key={i} style={{ width: `${pct}%`, background: b.color, borderRadius: i === 0 ? "4px 0 0 4px" : i === buckets.length-1 ? "0 4px 4px 0" : 0 }} /> : null;
+                  })}
+                  {total === 0 && <div style={{ width: "100%", background: isDark ? "rgba(255,255,255,0.06)" : "#e2e8f0" }} />}
+                </div>
+                {/* Bucket rows */}
+                {loading ? [1,2,3].map(i => <div key={i} style={{ marginBottom: 8 }}><Sk w="100%" h={12} /></div>) :
+                  buckets.map((b, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: b.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, color: T.textSec }}>{b.label}</span>
+                      </div>
+                      <span className="sora" style={{ fontSize: 12, fontWeight: 700, color: b.val > 0 ? b.color : T.textSec }}>{fmtAED(b.val, true)}</span>
+                    </div>
+                  ))
+                }
+                <div style={{ height: 1, background: bdr, margin: "8px 0" }} />
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: T.textSec }}>Total</span>
+                  <span className="sora" style={{ fontSize: 13, fontWeight: 800, color: T.textPri }}>{fmtAED(total, true)}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Cash Flow Projection */}
+        <div style={card({ padding: 0, overflow: "hidden" })}>
+          <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${bdr}` }}>
+            <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>30-Day Cash Flow</p>
+            <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>Expected in & out — next 30 days</p>
+          </div>
+          <div style={{ padding: "14px 18px" }}>
+            {/* Net indicator */}
+            <div style={{ textAlign: "center", marginBottom: 14 }}>
+              <p style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".08em", margin: "0 0 4px" }}>Net Position</p>
+              {loading ? <Sk w={120} h={28} r={7} style={{ margin: "0 auto" }} /> :
+                <p className="sora" style={{ fontSize: 24, fontWeight: 800, color: cashflowNet >= 0 ? T.green : T.red, margin: 0 }}>
+                  {cashflowNet >= 0 ? "+" : ""}{fmtAED(cashflowNet, true)}
+                </p>
+              }
+            </div>
+            {/* In / Out bars */}
+            {[
+              { label: "Expected In",  value: cashflowIn,  color: T.green, dim: T.greenDim },
+              { label: "Expected Out", value: cashflowOut, color: T.red,   dim: T.redDim   },
+            ].map(row => {
+              const maxVal = Math.max(cashflowIn, cashflowOut, 1);
+              const pct    = Math.min((row.value / maxVal) * 100, 100);
+              return (
+                <div key={row.label} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, color: T.textSec }}>{row.label}</span>
+                    {loading ? <Sk w={80} h={11} /> : <span className="sora" style={{ fontSize: 12, fontWeight: 700, color: row.color }}>{fmtAED(row.value, true)}</span>}
+                  </div>
+                  <div style={{ height: 6, background: isDark ? "rgba(255,255,255,0.06)" : "#e2e8f0", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pct}%`, background: row.color, borderRadius: 3, transition: "width .6s ease" }} />
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ height: 1, background: bdr, margin: "10px 0 8px" }} />
+            <p style={{ fontSize: 10, color: T.textSec, margin: 0, lineHeight: 1.5 }}>
+              Based on invoice due dates and bill due dates within the next 30 days.
+            </p>
+          </div>
         </div>
       </div>
 

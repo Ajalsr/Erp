@@ -251,6 +251,18 @@ export default function Outbound() {
     setSavingDN(true);
     try {
       await axiosInstance.post("/api/delivery-notes/", payload);
+      // Mark included SOs as invoiced so they disappear from outbound on next load
+      await Promise.allSettled(
+        soIds.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, { status: "invoiced" }))
+      );
+      // Remove dispatched items from local state immediately
+      const dispatchedSoIds = new Set(soIds);
+      setOutboundItems(prev => prev.filter(i => !dispatchedSoIds.has(i.salesOrderId)));
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        outboundItems.filter(i => dispatchedSoIds.has(i.salesOrderId)).forEach(i => next.delete(i._id));
+        return next;
+      });
       navigate("/Sales/Deliverynote");
     } catch (err) {
       console.error("Failed to save delivery note", err);

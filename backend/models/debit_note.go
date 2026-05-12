@@ -2,21 +2,21 @@ package models
 
 import "time"
 
-// CreditNote is raised against a customer invoice to reduce the AR balance.
+// DebitNote is raised against a vendor bill to reduce the AP balance.
 // Status flow: draft → pending_approval → approved → applied → closed
 // (void is allowed from draft/pending_approval/approved)
-type CreditNote struct {
-	ID               string `json:"_id,omitempty" bson:"_id,omitempty"`
-	CreditNoteNumber string `json:"creditNoteNumber" bson:"creditNoteNumber"`
+type DebitNote struct {
+	ID              string `json:"_id,omitempty" bson:"_id,omitempty"`
+	DebitNoteNumber string `json:"debitNoteNumber" bson:"debitNoteNumber"`
 
-	// Source document (always an invoice for a credit note)
+	// Source document (always a bill for a debit note)
 	SourceDocID     string `json:"sourceDocId,omitempty"     bson:"sourceDocId,omitempty"`
-	SourceDocType   string `json:"sourceDocType,omitempty"   bson:"sourceDocType,omitempty"` // "invoice"
+	SourceDocType   string `json:"sourceDocType,omitempty"   bson:"sourceDocType,omitempty"` // "bill"
 	SourceDocNumber string `json:"sourceDocNumber,omitempty" bson:"sourceDocNumber,omitempty"`
 
-	// Customer
-	CustomerID   string `json:"customerId"   bson:"customerId"`
-	CustomerName string `json:"customerName" bson:"customerName"`
+	// Vendor / Supplier
+	VendorID   string `json:"vendorId"   bson:"vendorId"`
+	VendorName string `json:"vendorName" bson:"vendorName"`
 
 	Date         string       `json:"date"         bson:"date"`
 	Reason       string       `json:"reason"       bson:"reason"`
