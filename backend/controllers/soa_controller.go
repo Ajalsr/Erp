@@ -18,9 +18,9 @@ type SOATransaction struct {
 	Reference   string    `json:"reference"`
 	Type        string    `json:"type"` // "invoice" | "payment"
 	Description string    `json:"description"`
-	Debit       float64   `json:"debit"`   // invoice amount
-	Credit      float64   `json:"credit"`  // payment amount
-	Balance     float64   `json:"balance"` // running balance
+	Debit       float64   `json:"debit"`
+	Credit      float64   `json:"credit"`
+	Balance     float64   `json:"balance"`
 }
 
 // GetStatementOfAccount — GET /api/customers/:id/statement?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
@@ -37,13 +37,11 @@ func GetStatementOfAccount() gin.HandlerFunc {
 			return
 		}
 
-		// Parse date range (default: current month)
+		// Default date range: current month
 		now := time.Now()
-		startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
+		startDate := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		endDate := startDate.AddDate(0, 1, 0).AddDate(0, 0, -1)
 
-		startDate := startOfMonth
-		endDate := endOfMonth
 		if s := c.Query("startDate"); s != "" {
 			if t, err := time.Parse("2006-01-02", s); err == nil {
 				startDate = t
@@ -51,11 +49,14 @@ func GetStatementOfAccount() gin.HandlerFunc {
 		}
 		if e := c.Query("endDate"); e != "" {
 			if t, err := time.Parse("2006-01-02", e); err == nil {
-				endDate = t.Add(24*time.Hour - time.Second)
+				endDate = t
 			}
 		}
 
-		// ── 1. Get customer info ────────────────────────────────────────────
+		startStr := startDate.Format("2006-01-02")
+		endStr := endDate.Format("2006-01-02")
+
+		// ── 1. Customer info ────────────────────────────────────────────────
 		var customer bson.M
 		custCol := config.GetCollection(config.DB, "customers")
 		if err := custCol.FindOne(ctx, bson.M{"_id": customerObjID, "orgId": orgID}).Decode(&customer); err != nil {
@@ -63,48 +64,43 @@ func GetStatementOfAccount() gin.HandlerFunc {
 			return
 		}
 
-		// ── 2. Get invoices for this customer in range ─────────────────────
-		invoiceCol := config.GetCollection(config.DB, "invoices")
+		invoiceCol    := config.GetCollection(config.DB, "invoices")
+		paymentCol    := config.GetCollection(config.DB, "payments")
+		creditNoteCol := config.GetCollection(config.DB, "credit_notes")
+
+		var transactions []SOATransaction
+
+		// ── 2. Invoices in range (exclude voided) ───────────────────────────
 		invCursor, err := invoiceCol.Find(ctx, bson.M{
 			"orgId":      orgID,
 			"customerId": customerIDStr,
-			"createdAt":  bson.M{"$gte": startDate, "$lte": endDate},
+			"issueDate":  bson.M{"$gte": startStr, "$lte": endStr},
+			"status":     bson.M{"$ne": "voided"},
 		})
-
-		var transactions []SOATransaction
 		if err == nil {
 			defer invCursor.Close(ctx)
 			var invoices []bson.M
 			invCursor.All(ctx, &invoices)
 			for _, inv := range invoices {
-				grandTotal, _ := inv["grandTotal"].(float64)
-				if grandTotal == 0 {
-					if totals, ok := inv["totals"].(bson.M); ok {
-						grandTotal, _ = totals["grandTotal"].(float64)
-					}
-				}
+				grandTotal := soaInvoiceTotal(inv)
 				invNum, _ := inv["invoiceNumber"].(string)
 				status, _ := inv["status"].(string)
-				t := extractTimeFromSOA(inv, "createdAt")
 				transactions = append(transactions, SOATransaction{
-					Date:        t,
+					Date:        soaParseDateStr(inv["issueDate"]),
 					Reference:   invNum,
 					Type:        "invoice",
 					Description: "Invoice - " + status,
 					Debit:       grandTotal,
-					Credit:      0,
 				})
 			}
 		}
 
-		// ── 3. Get payments for this customer in range ─────────────────────
-		paymentCol := config.GetCollection(config.DB, "payments")
+		// ── 3. Payments in range ────────────────────────────────────────────
 		payCursor, err := paymentCol.Find(ctx, bson.M{
 			"orgId":      orgID,
 			"customerId": customerIDStr,
-			"createdAt":  bson.M{"$gte": startDate, "$lte": endDate},
+			"date":       bson.M{"$gte": startStr, "$lte": endStr},
 		})
-
 		if err == nil {
 			defer payCursor.Close(ctx)
 			var payments []bson.M
@@ -116,46 +112,73 @@ func GetStatementOfAccount() gin.HandlerFunc {
 				if mode == "" {
 					mode = "payment"
 				}
-				ref, _ := pay["reference"].(string)
 				desc := "Payment received"
-				if ref != "" {
+				if ref, _ := pay["reference"].(string); ref != "" {
 					desc += " - Ref: " + ref
 				}
-				t := extractTimeFromSOA(pay, "createdAt")
 				transactions = append(transactions, SOATransaction{
-					Date:        t,
+					Date:        soaParseDateStr(pay["date"]),
 					Reference:   payNum,
 					Type:        "payment",
 					Description: desc + " (" + mode + ")",
-					Debit:       0,
 					Credit:      amount,
 				})
 			}
 		}
 
-		// ── 4. Calculate opening balance (invoices - payments before startDate) ──
+		// ── 4. Applied credit notes in range ───────────────────────────────
+		// Credit notes reduce the customer's balance but don't create payment
+		// records, so they must be included separately as credit entries.
+		cnCursor, err := creditNoteCol.Find(ctx, bson.M{
+			"orgId":      orgID,
+			"customerId": customerIDStr,
+			"date":       bson.M{"$gte": startStr, "$lte": endStr},
+			"status":     bson.M{"$in": []string{"applied", "closed"}},
+		})
+		if err == nil {
+			defer cnCursor.Close(ctx)
+			var cns []bson.M
+			cnCursor.All(ctx, &cns)
+			for _, cn := range cns {
+				cnAmount := soaCNTotal(cn)
+				cnNum, _ := cn["creditNoteNumber"].(string)
+				srcNum, _ := cn["sourceDocNumber"].(string)
+				desc := "Credit Note applied"
+				if srcNum != "" {
+					desc += " against " + srcNum
+				}
+				transactions = append(transactions, SOATransaction{
+					Date:        soaParseDateStr(cn["date"]),
+					Reference:   cnNum,
+					Type:        "credit_note",
+					Description: desc,
+					Credit:      cnAmount,
+				})
+			}
+		}
+
+		// ── 5. Opening balance: invoices - payments - credit notes before startDate
 		var openingBalance float64
+
 		invBeforeCursor, _ := invoiceCol.Find(ctx, bson.M{
-			"orgId": orgID, "customerId": customerIDStr,
-			"createdAt": bson.M{"$lt": startDate},
+			"orgId":      orgID,
+			"customerId": customerIDStr,
+			"issueDate":  bson.M{"$lt": startStr},
+			"status":     bson.M{"$ne": "voided"},
 		})
 		if invBeforeCursor != nil {
 			defer invBeforeCursor.Close(ctx)
 			var prevInvoices []bson.M
 			invBeforeCursor.All(ctx, &prevInvoices)
 			for _, inv := range prevInvoices {
-				gt, _ := inv["grandTotal"].(float64)
-				if gt == 0 {
-					if totals, ok := inv["totals"].(bson.M); ok {
-						gt, _ = totals["grandTotal"].(float64)
-					}
-				}
-				openingBalance += gt
+				openingBalance += soaInvoiceTotal(inv)
 			}
 		}
+
 		payBeforeCursor, _ := paymentCol.Find(ctx, bson.M{
-			"orgId": orgID, "customerId": customerIDStr,
-			"createdAt": bson.M{"$lt": startDate},
+			"orgId":      orgID,
+			"customerId": customerIDStr,
+			"date":       bson.M{"$lt": startStr},
 		})
 		if payBeforeCursor != nil {
 			defer payBeforeCursor.Close(ctx)
@@ -167,7 +190,22 @@ func GetStatementOfAccount() gin.HandlerFunc {
 			}
 		}
 
-		// ── 5. Sort by date, compute running balance ───────────────────────
+		cnBeforeCursor, _ := creditNoteCol.Find(ctx, bson.M{
+			"orgId":      orgID,
+			"customerId": customerIDStr,
+			"date":       bson.M{"$lt": startStr},
+			"status":     bson.M{"$in": []string{"applied", "closed"}},
+		})
+		if cnBeforeCursor != nil {
+			defer cnBeforeCursor.Close(ctx)
+			var prevCNs []bson.M
+			cnBeforeCursor.All(ctx, &prevCNs)
+			for _, cn := range prevCNs {
+				openingBalance -= soaCNTotal(cn)
+			}
+		}
+
+		// ── 5. Sort by date, compute running balance ────────────────────────
 		sort.Slice(transactions, func(i, j int) bool {
 			return transactions[i].Date.Before(transactions[j].Date)
 		})
@@ -177,8 +215,6 @@ func GetStatementOfAccount() gin.HandlerFunc {
 			runningBalance += transactions[i].Debit - transactions[i].Credit
 			transactions[i].Balance = runningBalance
 		}
-
-		closingBalance := runningBalance
 
 		if transactions == nil {
 			transactions = []SOATransaction{}
@@ -200,25 +236,50 @@ func GetStatementOfAccount() gin.HandlerFunc {
 					"code":        customer["customerCode"],
 				},
 				"period": gin.H{
-					"startDate": startDate.Format("2006-01-02"),
-					"endDate":   endDate.Format("2006-01-02"),
+					"startDate": startStr,
+					"endDate":   endStr,
 				},
 				"openingBalance": openingBalance,
-				"closingBalance": closingBalance,
+				"closingBalance": runningBalance,
 				"transactions":   transactions,
 			},
 		})
 	}
 }
 
-func extractTimeFromSOA(doc bson.M, key string) time.Time {
-	if v, ok := doc[key]; ok {
-		switch t := v.(type) {
-		case time.Time:
-			return t
-		case primitive.DateTime:
-			return t.Time()
+// soaCNTotal reads grandTotal from credit_notes.totals.grandTotal
+func soaCNTotal(cn bson.M) float64 {
+	if totals, ok := cn["totals"].(bson.M); ok {
+		if gt, ok := totals["grandTotal"].(float64); ok {
+			return gt
 		}
+	}
+	return 0
+}
+
+// soaInvoiceTotal reads grandTotal from invoices.totals.grandTotal
+func soaInvoiceTotal(inv bson.M) float64 {
+	if totals, ok := inv["totals"].(bson.M); ok {
+		if gt, ok := totals["grandTotal"].(float64); ok {
+			return gt
+		}
+	}
+	return 0
+}
+
+// soaParseDateStr parses a "YYYY-MM-DD" string value from a bson.M field
+func soaParseDateStr(v interface{}) time.Time {
+	if s, ok := v.(string); ok {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			return t
+		}
+	}
+	// fallback for legacy records that stored a DateTime
+	switch t := v.(type) {
+	case primitive.DateTime:
+		return t.Time()
+	case time.Time:
+		return t
 	}
 	return time.Now()
 }

@@ -41,10 +41,34 @@ func GetAllStocks() gin.HandlerFunc {
 			return
 		}
 
+		// Build item-group id → name map
+		igMap := map[string]string{}
+		igCol := config.GetCollection(config.DB, "item_groups")
+		igCursor, igErr := igCol.Find(ctx, bson.M{"orgId": orgIDStr})
+		if igErr == nil {
+			defer igCursor.Close(ctx)
+			var groups []bson.M
+			igCursor.All(ctx, &groups)
+			for _, g := range groups {
+				if id, ok := g["_id"].(primitive.ObjectID); ok {
+					igMap[id.Hex()] = fmt.Sprintf("%v", g["name"])
+				}
+			}
+		}
+
+		type StockWithCategory struct {
+			models.Stock
+			CategoryName string `json:"categoryName,omitempty"`
+		}
+		enriched := make([]StockWithCategory, len(stocks))
+		for i, s := range stocks {
+			enriched[i] = StockWithCategory{Stock: s, CategoryName: igMap[s.Category]}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "success",
-			"data":    stocks,
+			"data":    enriched,
 		})
 	}
 }
