@@ -1,0 +1,410 @@
+package controllers
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/backend/config"
+	"github.com/backend/models"
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+var quoteCollection *mongo.Collection = config.GetCollection(config.DB, "quotes")
+
+func CreateQuote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		userID, _ := c.Get("userId")
+
+		var q models.Quote
+		if err := c.ShouldBindJSON(&q); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid request body", "error": err.Error()})
+			return
+		}
+
+		count, _ := quoteCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
+		q.ID = primitive.NewObjectID()
+		q.QuoteNumber = fmt.Sprintf("QUO-%d-%04d", time.Now().Year(), count+1)
+		q.OrgID = orgID.(string)
+		q.CreatedBy = func() string {
+			if userID != nil {
+				return userID.(string)
+			}
+			return ""
+		}()
+		if q.Status == "" {
+			q.Status = "draft"
+		}
+		if q.QuoteDate == "" {
+			q.QuoteDate = time.Now().Format("2006-01-02")
+		}
+		for i := range q.LineItems {
+			q.LineItems[i].ID = primitive.NewObjectID()
+		}
+		q.CreatedAt = time.Now()
+		q.UpdatedAt = time.Now()
+
+		if _, err := quoteCollection.InsertOne(ctx, q); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create quote", "error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusCreated, gin.H{
+			"status":  http.StatusCreated,
+			"message": "Quote created successfully",
+			"data":    gin.H{"id": q.ID.Hex(), "quoteNumber": q.QuoteNumber},
+		})
+	}
+}
+
+func GetAllQuotes() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+
+		page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
+		limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "20"), 10, 64)
+		if page < 1 {
+			page = 1
+		}
+		if limit < 1 || limit > 200 {
+			limit = 20
+		}
+		skip := (page - 1) * limit
+
+		// Auto-expire: sent quotes past their validUntil date
+		today := time.Now().Format("2006-01-02")
+		quoteCollection.UpdateMany(ctx, bson.M{
+			"orgId":      orgID,
+			"status":     bson.M{"$in": []string{"draft", "sent"}},
+			"validUntil": bson.M{"$lt": today, "$ne": ""},
+		}, bson.M{"$set": bson.M{"status": "expired", "updatedAt": time.Now()}})
+
+		filter := bson.M{"orgId": orgID}
+		if status := c.Query("status"); status != "" && status != "all" {
+			filter["status"] = status
+		}
+		if customerId := c.Query("customerId"); customerId != "" {
+			filter["customerId"] = customerId
+		}
+
+		total, _ := quoteCollection.CountDocuments(ctx, filter)
+
+		opts := options.Find().
+			SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+			SetSkip(skip).
+			SetLimit(limit)
+
+		cursor, err := quoteCollection.Find(ctx, filter, opts)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to fetch quotes", "error": err.Error()})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var quotes []models.Quote
+		if err := cursor.All(ctx, &quotes); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to decode quotes", "error": err.Error()})
+			return
+		}
+		if quotes == nil {
+			quotes = []models.Quote{}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Quotes retrieved successfully",
+			"data": gin.H{
+				"quotes":     quotes,
+				"total":      total,
+				"page":       page,
+				"limit":      limit,
+				"totalPages": (total + limit - 1) / limit,
+			},
+		})
+	}
+}
+
+func GetQuoteByID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid quote ID"})
+			return
+		}
+
+		var q models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&q); err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to retrieve quote"})
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": q})
+	}
+}
+
+func GetQuoteStats() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+
+		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: bson.M{"orgId": orgID}}},
+			{{Key: "$group", Value: bson.M{
+				"_id":   "$status",
+				"count": bson.M{"$sum": 1},
+				"total": bson.M{"$sum": "$totals.grandTotal"},
+			}}},
+		}
+
+		cursor, err := quoteCollection.Aggregate(ctx, pipeline)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Stats failed"})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var rows []bson.M
+		cursor.All(ctx, &rows)
+
+		result := map[string]gin.H{}
+		for _, r := range rows {
+			st, _ := r["_id"].(string)
+			cnt, _ := r["count"].(int32)
+			tot, _ := r["total"].(float64)
+			result[st] = gin.H{"count": cnt, "total": tot}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{"byStatus": result}})
+	}
+}
+
+func UpdateQuote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid quote ID"})
+			return
+		}
+
+		var existing models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+		if existing.Status == "converted" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Converted quotes cannot be edited"})
+			return
+		}
+
+		var payload models.Quote
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid request body", "error": err.Error()})
+			return
+		}
+
+		for i := range payload.LineItems {
+			if payload.LineItems[i].ID.IsZero() {
+				payload.LineItems[i].ID = primitive.NewObjectID()
+			}
+		}
+
+		update := bson.M{"$set": bson.M{
+			"status":        payload.Status,
+			"quoteDate":     payload.QuoteDate,
+			"validUntil":    payload.ValidUntil,
+			"currency":      payload.Currency,
+			"paymentTerms":  payload.PaymentTerms,
+			"customerName":  payload.CustomerName,
+			"customerEmail": payload.CustomerEmail,
+			"customerId":    payload.CustomerID,
+			"billTo":        payload.BillTo,
+			"lineItems":     payload.LineItems,
+			"totals":        payload.Totals,
+			"notes":         payload.Notes,
+			"updatedAt":     time.Now(),
+		}}
+
+		if _, err := quoteCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update quote"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote updated successfully"})
+	}
+}
+
+func UpdateQuoteStatus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid quote ID"})
+			return
+		}
+
+		var req struct {
+			Status string `json:"status" binding:"required"`
+		}
+		if err := c.BindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid status"})
+			return
+		}
+
+		_, err = quoteCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgID},
+			bson.M{"$set": bson.M{"status": req.Status, "updatedAt": time.Now()}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update status"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote status updated"})
+	}
+}
+
+// ConvertQuoteToInvoice creates an Invoice from the quote's line items, marks the
+// quote as converted, and returns the new invoice ID.
+func ConvertQuoteToInvoice() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		userID, _ := c.Get("userId")
+
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid quote ID"})
+			return
+		}
+
+		var q models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&q); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+		if q.Status == "converted" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Quote already converted"})
+			return
+		}
+
+		// Build invoice line items from quote line items
+		invLineItems := make([]models.InvoiceLineItem, len(q.LineItems))
+		for i, li := range q.LineItems {
+			invLineItems[i] = models.InvoiceLineItem{
+				ID:        primitive.NewObjectID(),
+				Desc:      li.Desc,
+				Qty:       li.Qty,
+				UnitPrice: li.UnitPrice,
+				Discount:  li.Discount,
+				TaxRate:   li.TaxRate,
+				Subtotal:  li.Subtotal,
+				DiscAmt:   li.DiscAmt,
+				TaxAmt:    li.TaxAmt,
+				Total:     li.Total,
+			}
+		}
+
+		invCount, _ := invoiceCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
+		inv := models.Invoice{
+			ID:            primitive.NewObjectID(),
+			InvoiceNumber: fmt.Sprintf("INV-%d-%04d", time.Now().Year(), invCount+1),
+			IssueDate:     time.Now().Format("2006-01-02"),
+			DueDate:       q.ValidUntil,
+			Currency:      q.Currency,
+			PaymentTerms:  q.PaymentTerms,
+			CustomerID:    q.CustomerID,
+			BillTo:        models.InvoiceParty{Name: q.BillTo.Name, Address: q.BillTo.Address, TRN: q.BillTo.TRN},
+			LineItems:     invLineItems,
+			Totals:        models.InvoiceTotals{Subtotal: q.Totals.Subtotal, DiscountTotal: q.Totals.DiscountTotal, TaxTotal: q.Totals.TaxTotal, GrandTotal: q.Totals.GrandTotal},
+			Notes:         models.InvoiceNotes{Customer: q.Notes.Customer, Internal: q.Notes.Internal},
+			Status:        "draft",
+			BalanceDue:    q.Totals.GrandTotal,
+			OrgID:         orgID.(string),
+			CreatedBy: func() string {
+				if userID != nil {
+					return userID.(string)
+				}
+				return ""
+			}(),
+			PublicToken: generatePublicToken(),
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+
+		if _, err := invoiceCollection.InsertOne(ctx, inv); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create invoice from quote"})
+			return
+		}
+
+		// Mark quote as converted
+		quoteCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgID},
+			bson.M{"$set": bson.M{"status": "converted", "convertedTo": inv.ID.Hex(), "updatedAt": time.Now()}},
+		)
+
+		c.JSON(http.StatusCreated, gin.H{
+			"status":  http.StatusCreated,
+			"message": "Quote converted to invoice",
+			"data":    gin.H{"invoiceId": inv.ID.Hex(), "invoiceNumber": inv.InvoiceNumber},
+		})
+	}
+}
+
+func DeleteQuote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid quote ID"})
+			return
+		}
+
+		var existing models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+		if existing.Status == "converted" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Converted quotes cannot be deleted"})
+			return
+		}
+
+		quoteCollection.DeleteOne(ctx, bson.M{"_id": objectID, "orgId": orgID})
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote deleted"})
+	}
+}

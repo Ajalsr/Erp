@@ -10,6 +10,7 @@ import (
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -426,6 +427,113 @@ func VoidInvoice() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Invoice voided"})
+	}
+}
+
+// POST /api/invoices/:id/send — email invoice to the customer
+func SendInvoice() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
+			return
+		}
+
+		var inv models.Invoice
+		if err := invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&inv); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+			return
+		}
+
+		// Optional override email in body
+		var req struct {
+			ToEmail string `json:"toEmail"`
+			Message string `json:"message"`
+		}
+		c.ShouldBindJSON(&req)
+
+		toEmail := req.ToEmail
+		if toEmail == "" {
+			// Fall back to customer record
+			var cust models.Customer
+			if custID, err2 := primitive.ObjectIDFromHex(inv.CustomerID); err2 == nil {
+				customersCollection.FindOne(ctx, bson.M{"_id": custID}).Decode(&cust)
+				toEmail = cust.CustomerEmail
+			}
+		}
+		if toEmail == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "No recipient email found for this customer"})
+			return
+		}
+
+		if err := utils.SendInvoiceEmail(toEmail, inv, req.Message, false); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send invoice email", "error": err.Error()})
+			return
+		}
+
+		// Mark as sent if it was a draft
+		if inv.Status == "draft" {
+			token := inv.PublicToken
+			if token == "" {
+				token = generatePublicToken()
+			}
+			invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{
+				"status": "sent", "publicToken": token, "updatedAt": time.Now(),
+			}})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Invoice sent to " + toEmail})
+	}
+}
+
+// POST /api/invoices/:id/send-reminder — email a payment reminder for overdue invoices
+func SendInvoiceReminder() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
+			return
+		}
+
+		var inv models.Invoice
+		if err := invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&inv); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+			return
+		}
+
+		var req struct {
+			ToEmail string `json:"toEmail"`
+			Message string `json:"message"`
+		}
+		c.ShouldBindJSON(&req)
+
+		toEmail := req.ToEmail
+		if toEmail == "" {
+			var cust models.Customer
+			if custID, err2 := primitive.ObjectIDFromHex(inv.CustomerID); err2 == nil {
+				customersCollection.FindOne(ctx, bson.M{"_id": custID}).Decode(&cust)
+				toEmail = cust.CustomerEmail
+			}
+		}
+		if toEmail == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "No recipient email found for this customer"})
+			return
+		}
+
+		if err := utils.SendInvoiceEmail(toEmail, inv, req.Message, true); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send reminder email", "error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Reminder sent to " + toEmail})
 	}
 }
 

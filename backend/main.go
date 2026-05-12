@@ -92,8 +92,10 @@ func main() {
 	routes.ItemGroupRoutes(router)
 	routes.PriceListRoutes(router)
 	routes.EnquiryRoutes(router)
+	routes.QuoteRoutes(router)
 	routes.DeliveryNoteRoutes(router)
 	routes.CreditNoteRoutes(router)
+	routes.DebitNoteRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))

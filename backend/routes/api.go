@@ -80,6 +80,23 @@ func InvoiceRoutes(router *gin.Engine) {
 		invRoutes.PUT("/:id", controllers.UpdateInvoice())
 		invRoutes.PATCH("/:id/status", controllers.UpdateInvoiceStatus())
 		invRoutes.PATCH("/:id/void", controllers.VoidInvoice())
+		invRoutes.POST("/:id/send", controllers.SendInvoice())
+		invRoutes.POST("/:id/send-reminder", controllers.SendInvoiceReminder())
+	}
+}
+
+func QuoteRoutes(router *gin.Engine) {
+	qRoutes := router.Group("/api/quotes")
+	qRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		qRoutes.POST("/", controllers.CreateQuote())
+		qRoutes.GET("/", controllers.GetAllQuotes())
+		qRoutes.GET("/stats", controllers.GetQuoteStats())
+		qRoutes.GET("/:id", controllers.GetQuoteByID())
+		qRoutes.PUT("/:id", controllers.UpdateQuote())
+		qRoutes.PATCH("/:id/status", controllers.UpdateQuoteStatus())
+		qRoutes.POST("/:id/convert", controllers.ConvertQuoteToInvoice())
+		qRoutes.DELETE("/:id", controllers.DeleteQuote())
 	}
 }
 
@@ -89,10 +106,29 @@ func CreditNoteRoutes(router *gin.Engine) {
 	{
 		cnRoutes.POST("", controllers.CreateCreditNote())
 		cnRoutes.GET("", controllers.GetAllCreditNotes())
+		cnRoutes.GET("/stats", controllers.GetCreditNoteStats())
+		cnRoutes.GET("/by-invoice/:invoiceId", controllers.GetCreditNotesByInvoice())
 		cnRoutes.GET("/:id", controllers.GetCreditNoteByID())
-		cnRoutes.PATCH("/:id/issue", controllers.IssueCreditNote())
+		cnRoutes.PATCH("/:id/submit", controllers.SubmitCreditNote())
+		cnRoutes.PATCH("/:id/approve", controllers.ApproveCreditNote())
 		cnRoutes.PATCH("/:id/apply", controllers.ApplyCreditNote())
+		cnRoutes.PATCH("/:id/close", controllers.CloseCreditNote())
 		cnRoutes.PATCH("/:id/void", controllers.VoidCreditNote())
+	}
+}
+
+func DebitNoteRoutes(router *gin.Engine) {
+	dnRoutes := router.Group("/api/debit-notes")
+	dnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		dnRoutes.POST("", controllers.CreateDebitNote())
+		dnRoutes.GET("", controllers.GetAllDebitNotes())
+		dnRoutes.GET("/:id", controllers.GetDebitNoteByID())
+		dnRoutes.PATCH("/:id/submit", controllers.SubmitDebitNote())
+		dnRoutes.PATCH("/:id/approve", controllers.ApproveDebitNote())
+		dnRoutes.PATCH("/:id/apply", controllers.ApplyDebitNote())
+		dnRoutes.PATCH("/:id/close", controllers.CloseDebitNote())
+		dnRoutes.PATCH("/:id/void", controllers.VoidDebitNote())
 	}
 }
 

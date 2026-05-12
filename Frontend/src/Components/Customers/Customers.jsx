@@ -5,7 +5,7 @@ import {
   FaEnvelope, FaPhone, FaDownload, FaUpload,
   FaUsers, FaCheckCircle, FaClock, FaCreditCard,
   FaChevronLeft, FaChevronRight, FaBoxOpen, FaEdit,
-  FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaCalendarAlt
+  FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaCalendarAlt, FaSync
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
@@ -217,6 +217,7 @@ const Customers = () => {
   const [txnLoading,    setTxnLoading]           = useState(false);
   const [invoiceMap,   setInvoiceMap]           = useState({});
   const [creditStatus, setCreditStatus]          = useState(null);
+  const [customerCNs,  setCustomerCNs]           = useState([]);
   const [searchTerm, setSearchTerm]           = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -333,9 +334,7 @@ const Customers = () => {
     a.click();
   };
 
-  useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
-
-  useEffect(() => {
+  const loadInvoiceMap = useCallback(() => {
     axiosInstance.get("/api/invoices?limit=500")
       .then(res => {
         const map = {};
@@ -348,9 +347,7 @@ const Customers = () => {
             const grandTotal = inv.totals?.grandTotal ?? 0;
             const taxTotal   = inv.totals?.taxTotal   ?? 0;
             const subtotal   = inv.totals?.subtotal   ?? 0;
-            const paid       = inv.amountPaid ?? 0;
-            const balance    = Math.max(0, grandTotal - paid);
-            // Prorate tax and subtotal to the unpaid portion
+            const balance    = Math.max(0, inv.balanceDue ?? (grandTotal - (inv.amountPaid ?? 0)));
             const ratio      = grandTotal > 0 ? balance / grandTotal : 1;
             map[cid].receivables  += balance;
             map[cid].includedVat  += taxTotal  * ratio;
@@ -364,8 +361,19 @@ const Customers = () => {
       .catch(() => {});
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    handleGetCustomers();
+    loadInvoiceMap();
+  }, [handleGetCustomers, loadInvoiceMap]);
+
+  useEffect(() => { handleRefresh(); }, [handleRefresh]);
+
+  useWebSocket((event) => {
+    if (event.type === "customers_updated") handleRefresh();
+  });
+
   useEffect(() => {
-    if (activeTab !== "transactions" || !selectedItem?._id) return;
+    if (!["transactions", "statement"].includes(activeTab) || !selectedItem?._id) return;
     setTxnLoading(true);
     Promise.allSettled([
       axiosInstance.get(`/api/invoices?customerId=${selectedItem._id}&limit=100`),
@@ -383,9 +391,12 @@ const Customers = () => {
       .catch(() => setCreditStatus(null));
   }, [selectedItem?._id]);
 
-  useWebSocket((event) => {
-    if (event.type === "customers_updated") handleGetCustomers();
-  });
+  useEffect(() => {
+    if (!selectedItem?._id) { setCustomerCNs([]); return; }
+    axiosInstance.get(`/api/credit-notes?customerId=${selectedItem._id}`)
+      .then(r => setCustomerCNs(r.data?.data || []))
+      .catch(() => setCustomerCNs([]));
+  }, [selectedItem?._id]);
 
   // ── status badge config ───────────────────────────────────────────
   const statusCfg = {
@@ -431,9 +442,10 @@ const Customers = () => {
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
             {[
-              { label: "Export", icon: <FaDownload size={11} />, onClick: handleExport, variant: "ghost" },
-              { label: "Import", icon: <FaUpload size={11} />,   onClick: () => {},     variant: "ghost" },
-              { label: "New Customer", icon: <FaPlus size={11} />, onClick: () => navigate("/Sales/Customers/Newcustomers"), variant: "primary" },
+              { label: "Refresh",      icon: <FaSync size={11} />,    onClick: handleRefresh,                                                      variant: "ghost" },
+              { label: "Export",       icon: <FaDownload size={11} />, onClick: handleExport,                                                        variant: "ghost" },
+              { label: "Import",       icon: <FaUpload size={11} />,   onClick: () => {},                                                            variant: "ghost" },
+              { label: "New Customer", icon: <FaPlus size={11} />,     onClick: () => navigate("/Sales/Customers/Newcustomers"),                      variant: "primary" },
             ].map((btn) => (
               <button key={btn.label} className="action-btn" onClick={btn.onClick}
                 style={{
@@ -967,6 +979,7 @@ const Customers = () => {
                     { id: "overview",     label: "Overview" },
                     { id: "financials",   label: "Financials" },
                     { id: "transactions", label: "Transactions" },
+                    { id: "statement",    label: "Statement" },
                     { id: "contacts",     label: "Contacts" },
                   ].map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
@@ -988,7 +1001,8 @@ const Customers = () => {
               </div>
 
               {/* ── BODY ── */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
 
                 {/* ── OVERVIEW TAB ── */}
                 {activeTab === "overview" && (
@@ -1043,9 +1057,9 @@ const Customers = () => {
                       border: `1px solid ${outstanding > 0 ? "rgba(239,68,68,0.25)" : "rgba(16,185,129,0.25)"}`,
                       borderRadius: 14, padding: "18px 20px",
                       boxShadow: isDark ? "none" : "0 1px 6px rgba(0,0,0,0.05)",
-                      position: "relative", overflow: "hidden",
+                      position: "relative",
                     }}>
-                      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: outstanding > 0 ? "linear-gradient(90deg,#ef4444,#f87171,transparent)" : "linear-gradient(90deg,#10b981,#34d399,transparent)" }} />
+                      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "14px 14px 0 0", background: outstanding > 0 ? "linear-gradient(90deg,#ef4444,#f87171,transparent)" : "linear-gradient(90deg,#10b981,#34d399,transparent)" }} />
                       <p style={{ fontSize: 11, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 6px" }}>Outstanding Receivables</p>
                       <p className="cust-jakarta" style={{ fontSize: 28, fontWeight: 800, color: outstanding > 0 ? "#ef4444" : "#10b981", margin: "0 0 4px", letterSpacing: "-0.02em", fontFamily: "'DM Mono', monospace" }}>
                         {fmtMoney(outstanding)}
@@ -1054,6 +1068,67 @@ const Customers = () => {
                         {outstanding > 0 ? `Across ${invData.total || 0} invoice${invData.total !== 1 ? "s" : ""}` : "All invoices settled"}
                       </p>
                     </div>
+
+                    {/* Available Credit widget */}
+                    {(() => {
+                      const availableCredit = customerCNs
+                        .filter(cn => cn.status === "approved")
+                        .reduce((s, cn) => s + (cn.totals?.grandTotal || 0), 0);
+                      const creditsUsed = customerCNs
+                        .filter(cn => ["applied", "closed"].includes(cn.status))
+                        .reduce((s, cn) => s + (cn.totals?.grandTotal || 0), 0);
+                      const pendingApproval = customerCNs
+                        .filter(cn => ["draft", "pending_approval"].includes(cn.status))
+                        .reduce((s, cn) => s + (cn.totals?.grandTotal || 0), 0);
+                      if (customerCNs.length === 0) return null;
+                      const hasCredit = availableCredit > 0;
+                      const fmtAmt = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                      return (
+                        <div style={{
+                          background: isDark ? T.surface : "#fff",
+                          border: `1px solid ${hasCredit ? "rgba(59,130,246,0.3)" : T.border}`,
+                          borderRadius: 14, padding: "14px 16px",
+                          boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.04)",
+                          position: "relative",
+                        }}>
+                          {/* Top accent line */}
+                          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "14px 14px 0 0", background: hasCredit ? "linear-gradient(90deg,#3b82f6,#60a5fa,transparent)" : `linear-gradient(90deg,${T.border},transparent)` }} />
+
+                          {/* Header + balance on same row */}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                            <p style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                              <FaCreditCard size={10} /> Available Credit
+                            </p>
+                            <div style={{ textAlign: "right" }}>
+                              <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 18, fontWeight: 800, color: hasCredit ? T.blueLight : T.textMuted, margin: 0, lineHeight: 1 }}>
+                                {fmtAmt(availableCredit)}
+                              </p>
+                              <p style={{ fontSize: 10, color: T.textSec, margin: "3px 0 0" }}>
+                                {hasCredit
+                                  ? `${customerCNs.filter(cn => cn.status === "approved").length} CN${customerCNs.filter(cn => cn.status === "approved").length !== 1 ? "s" : ""} ready`
+                                  : "no unapplied credits"}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Compact 3-stat divider row */}
+                          <div style={{ display: "flex", borderTop: `1px solid ${T.border}`, paddingTop: 10, gap: 0 }}>
+                            {[
+                              { label: "Applied",   value: creditsUsed,     color: "#10b981" },
+                              { label: "Pending",   value: pendingApproval, color: "#f59e0b" },
+                              { label: "Available", value: availableCredit, color: T.blueLight },
+                            ].map(({ label, value, color }, i, arr) => (
+                              <div key={label} style={{ flex: 1, textAlign: "center", borderRight: i < arr.length - 1 ? `1px solid ${T.border}` : "none", padding: "0 8px" }}>
+                                <p style={{ fontSize: 9, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
+                                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, fontWeight: 700, color, margin: 0 }}>
+                                  {fmtAmt(value)}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Credit limit widget */}
                     {creditStatus && creditStatus.creditLimit > 0 && (() => {
@@ -1282,6 +1357,130 @@ const Customers = () => {
                   );
                 })()}
 
+                {/* ── STATEMENT TAB ── */}
+                {activeTab === "statement" && (() => {
+                  const todaySt = new Date(); todaySt.setHours(0, 0, 0, 0);
+                  const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+                  const fmtAmt  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+                  const outstanding = custInvoices.filter(inv =>
+                    !["paid", "void", "draft"].includes((inv.status || "").toLowerCase())
+                  );
+
+                  const agingBkts = [
+                    { label: "Current",    color: "#10b981", items: [] },
+                    { label: "1–30 days",  color: "#3b82f6", items: [] },
+                    { label: "31–60 days", color: "#f59e0b", items: [] },
+                    { label: "61–90 days", color: "#f97316", items: [] },
+                    { label: "90+ days",   color: "#ef4444", items: [] },
+                  ];
+                  outstanding.forEach(inv => {
+                    const due = inv.dueDate ? new Date(inv.dueDate) : null;
+                    if (!due) { agingBkts[0].items.push(inv); return; }
+                    due.setHours(0, 0, 0, 0);
+                    const days = Math.floor((todaySt - due) / 86400000);
+                    if      (days <= 0)  agingBkts[0].items.push(inv);
+                    else if (days <= 30) agingBkts[1].items.push(inv);
+                    else if (days <= 60) agingBkts[2].items.push(inv);
+                    else if (days <= 90) agingBkts[3].items.push(inv);
+                    else                 agingBkts[4].items.push(inv);
+                  });
+
+                  const totalOutstanding = outstanding.reduce((s, i) => s + (i.balanceDue || i.total || 0), 0);
+                  const totalPaid        = custPayments.reduce((s, p) => s + (p.amount || 0), 0);
+
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                      {/* Header summary */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                        {[
+                          { label: "Total Invoiced",   value: fmtAmt(custInvoices.reduce((s, i) => s + (i.total || 0), 0)), color: T.blueLight },
+                          { label: "Total Paid",        value: fmtAmt(totalPaid),        color: "#10b981" },
+                          { label: "Balance Outstanding", value: fmtAmt(totalOutstanding), color: totalOutstanding > 0 ? "#ef4444" : "#10b981" },
+                        ].map((kpi, i) => (
+                          <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+                            <p style={{ fontSize: 10, color: T.textSec, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>{kpi.label}</p>
+                            <p style={{ fontSize: 15, fontWeight: 800, color: kpi.color, margin: 0, fontFamily: "'DM Mono', monospace" }}>{kpi.value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Aging buckets */}
+                      <div>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Aging Summary</p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {agingBkts.map((bkt, i) => {
+                            const amt = bkt.items.reduce((s, inv) => s + (inv.balanceDue || inv.total || 0), 0);
+                            const pct = totalOutstanding > 0 ? (amt / totalOutstanding) * 100 : 0;
+                            return (
+                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 11, color: bkt.color, fontWeight: 700, minWidth: 76 }}>{bkt.label}</span>
+                                <div style={{ flex: 1, height: 6, background: T.surface2, borderRadius: 3, overflow: "hidden" }}>
+                                  <div style={{ height: "100%", width: `${Math.min(100, pct).toFixed(1)}%`, background: bkt.color, borderRadius: 3, transition: "width 0.4s ease" }} />
+                                </div>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: T.textPri, fontFamily: "'DM Mono', monospace", minWidth: 100, textAlign: "right" }}>
+                                  {fmtAmt(amt)}
+                                </span>
+                                <span style={{ fontSize: 10, color: T.textSec, minWidth: 30, textAlign: "right" }}>
+                                  {bkt.items.length}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Invoice list */}
+                      {txnLoading ? (
+                        <div style={{ textAlign: "center", padding: "24px 0", color: T.textSec, fontSize: 12 }}>Loading…</div>
+                      ) : outstanding.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: "32px 0", color: T.textMuted, fontSize: 13 }}>
+                          <div style={{ fontSize: 26, marginBottom: 8 }}>✅</div>
+                          No outstanding balance
+                        </div>
+                      ) : (
+                        <div>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Outstanding Invoices</p>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {outstanding.map((inv, i) => {
+                              const due = inv.dueDate ? new Date(inv.dueDate) : null;
+                              if (due) due.setHours(0, 0, 0, 0);
+                              const daysOvr = due ? Math.floor((todaySt - due) / 86400000) : 0;
+                              const isOvr   = daysOvr > 0;
+                              const agingColor = daysOvr > 90 ? "#ef4444" : daysOvr > 60 ? "#f97316" : daysOvr > 30 ? "#f59e0b" : daysOvr > 0 ? "#3b82f6" : "#10b981";
+                              return (
+                                <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: T.blueLight, fontFamily: "'DM Mono', monospace" }}>{inv.invoiceNumber || inv.id || "—"}</span>
+                                      <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `${agingColor}18`, color: agingColor, border: `1px solid ${agingColor}30` }}>
+                                        {isOvr ? `${daysOvr}d overdue` : "Current"}
+                                      </span>
+                                    </div>
+                                    <div style={{ display: "flex", gap: 12 }}>
+                                      <span style={{ fontSize: 11, color: T.textSec }}>Invoice: {fmtDate(inv.invoiceDate)}</span>
+                                      <span style={{ fontSize: 11, color: isOvr ? "#ef4444" : T.textSec }}>Due: {fmtDate(inv.dueDate)}</span>
+                                    </div>
+                                  </div>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: isOvr ? "#ef4444" : T.textPri, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
+                                    {fmtAmt(inv.balanceDue || inv.total || 0)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Total footer */}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", marginTop: 6, background: T.surface2, borderRadius: 9, border: `1px solid ${T.border}` }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec }}>Total Outstanding</span>
+                            <span style={{ fontSize: 14, fontWeight: 800, color: "#ef4444", fontFamily: "'DM Mono', monospace" }}>{fmtAmt(totalOutstanding)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* ── CONTACTS TAB ── */}
                 {activeTab === "contacts" && (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 220, gap: 12, padding: "20px 0" }}>
@@ -1295,6 +1494,7 @@ const Customers = () => {
                     </button>
                   </div>
                 )}
+              </div>
               </div>
             </div>
           </>

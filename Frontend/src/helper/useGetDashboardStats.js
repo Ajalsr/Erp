@@ -69,6 +69,15 @@ const DEFAULT_STATS = {
   todayOrdersPct:        0,
   revenuePct:            0,
   pendingActionsPct:     0,
+
+  // ── AR / AP Aging ─────────────────────────────────────────────────────────
+  arAging:  { current: 0, d30: 0, d60: 0, d90: 0, d90p: 0 },
+  apAging:  { current: 0, d30: 0, d60: 0, d90: 0, d90p: 0 },
+
+  // ── 30-day Cash Flow Projection ───────────────────────────────────────────
+  cashflowIn:  0,
+  cashflowOut: 0,
+  cashflowNet: 0,
 };
 
 const useGetDashboardStats = () => {
@@ -84,6 +93,7 @@ const useGetDashboardStats = () => {
         dashRes, statsRes, activeListRes, salesRes, stocksRes,
         recentOrdersRes, recentCustRes, invoiceStatsRes, paymentStatsRes,
         billStatsRes, billsRes, poStatsRes, poisRes, vendorRes, vendorPayStatsRes,
+        allInvoicesRes, allBillsRes,
       ] = await Promise.allSettled([
         axiosInstance.get('/api/customers/dashboard'),
         axiosInstance.get('/api/customers/stats'),
@@ -100,6 +110,8 @@ const useGetDashboardStats = () => {
         axiosInstance.get('/api/purchase-orders/getorders?limit=5'),
         axiosInstance.get('/api/vendors/?limit=1'),
         axiosInstance.get('/api/vendor-payments/stats'),
+        axiosInstance.get('/api/invoices/?limit=300'),
+        axiosInstance.get('/api/bills/?limit=300'),
       ]);
 
       // ── Customers ──────────────────────────────────────────────────────────
@@ -231,6 +243,58 @@ const useGetDashboardStats = () => {
         vendorPaymentsCount = safe(d.count);
       }
 
+      // ── AR / AP Aging + Cash Flow Projection ──────────────────────────────
+      const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
+      const in30 = new Date(todayMidnight); in30.setDate(in30.getDate() + 30);
+
+      const arAging  = { current: 0, d30: 0, d60: 0, d90: 0, d90p: 0 };
+      let   cfIn     = 0; // cash expected in (next 30 days)
+
+      if (allInvoicesRes.status === 'fulfilled') {
+        const invs = allInvoicesRes.value.data?.data?.invoices ?? [];
+        invs.filter(inv => !['paid','void','draft'].includes((inv.status||'').toLowerCase()))
+            .forEach(inv => {
+              const bal = safe(inv.balanceDue ?? inv.totals?.grandTotal);
+              const due = inv.dueDate ? new Date(inv.dueDate) : null;
+              if (due) {
+                due.setHours(0,0,0,0);
+                if (due >= todayMidnight && due <= in30) cfIn += bal;
+              }
+              if (!due || due >= todayMidnight) { arAging.current += bal; return; }
+              const d = Math.floor((todayMidnight - due) / 86400000);
+              if      (d <= 30) arAging.d30  += bal;
+              else if (d <= 60) arAging.d60  += bal;
+              else if (d <= 90) arAging.d90  += bal;
+              else              arAging.d90p += bal;
+            });
+      }
+
+      const apAging  = { current: 0, d30: 0, d60: 0, d90: 0, d90p: 0 };
+      let   cfOut    = 0; // cash expected out (next 30 days)
+
+      if (allBillsRes.status === 'fulfilled') {
+        const bills = allBillsRes.value.data?.data?.bills ?? [];
+        bills.filter(b => !['paid'].includes((b.status||'').toLowerCase()))
+             .forEach(b => {
+               const bal = safe(b.balanceDue ?? (safe(b.totals?.grandTotal) - safe(b.amountPaid)));
+               const due = b.dueDate ? new Date(b.dueDate) : null;
+               if (due) {
+                 due.setHours(0,0,0,0);
+                 if (due >= todayMidnight && due <= in30) cfOut += bal;
+               }
+               if (!due || due >= todayMidnight) { apAging.current += bal; return; }
+               const d = Math.floor((todayMidnight - due) / 86400000);
+               if      (d <= 30) apAging.d30  += bal;
+               else if (d <= 60) apAging.d60  += bal;
+               else if (d <= 90) apAging.d90  += bal;
+               else              apAging.d90p += bal;
+             });
+      }
+
+      const cashflowIn  = cfIn;
+      const cashflowOut = cfOut;
+      const cashflowNet = cfIn - cfOut;
+
       // ── Progress bar percentages ───────────────────────────────────────────
       const todayOrdersPct    = Math.min(Math.round((todayNewOrders / 20)     * 100), 100);
       const revenuePct        = Math.min(Math.round((todayRevenue   / 50_000) * 100), 100);
@@ -249,6 +313,8 @@ const useGetDashboardStats = () => {
         totalVendors, activeVendors,
         totalPaid, thisMonthPaid, vendorPaymentsCount,
         todayOrdersPct, revenuePct, pendingActionsPct,
+        arAging, apAging,
+        cashflowIn, cashflowOut, cashflowNet,
       });
 
     } catch (err) {
