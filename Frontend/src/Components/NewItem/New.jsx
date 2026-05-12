@@ -1006,7 +1006,7 @@ const New = () => {
 
               {(formData.brand || formData.category || formData.weight) && (
                 <div style={{ padding:'12px 16px',background:T.surface,borderBottom:`1.5px solid ${T.border}` }}>
-                  {[['Brand',formData.brand],['Category',formData.category],['Weight',formData.weight?`${formData.weight} kg`:'']].filter(([,v])=>v).map(([l,v])=>(
+                  {[['Brand',formData.brand],['Category',groupOptions.find(g=>g.value===formData.category)?.label||formData.category],['Weight',formData.weight?`${formData.weight} kg`:'']].filter(([,v])=>v).map(([l,v])=>(
                     <div key={l} style={{ display:'flex',justifyContent:'space-between',marginBottom:4 }}>
                       <span style={{ fontSize:11,color:T.textSec }}>{l}</span>
                       <span style={{ fontSize:11,fontWeight:600,color:T.textPri,textTransform:'capitalize' }}>{v}</span>
