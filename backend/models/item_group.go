@@ -12,6 +12,7 @@ type ItemGroup struct {
 	Description string             `json:"description"   bson:"description"`
 	ParentID    string             `json:"parentId"      bson:"parentId"` // empty = root group
 	Color       string             `json:"color"         bson:"color"`
+	CodePrefix  string             `json:"codePrefix"    bson:"codePrefix"` // e.g. "ELEC-"
 	Status      string             `json:"status"        bson:"status"` // active | inactive
 
 	OrgID     string    `json:"orgId,omitempty" bson:"orgId,omitempty"`

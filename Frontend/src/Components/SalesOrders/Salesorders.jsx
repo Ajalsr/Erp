@@ -475,6 +475,12 @@ const Salesorders = () => {
                           style={{ padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.textSec, cursor: "pointer", fontFamily: "inherit", fontWeight: "500" }}>
                           View
                         </button>
+                        {item.status === "draft" && (
+                          <button className="so-tbl-btn" onClick={() => navigate(`/Sales/Salesorders/Newsalesorders/${item._id || item.id}`)}
+                            style={{ padding: "4px 10px", border: `1px solid ${T.blue}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.blue, cursor: "pointer", fontFamily: "inherit", fontWeight: "500", display: "flex", alignItems: "center", gap: "4px" }}>
+                            <FaEdit size={10} /> Edit
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

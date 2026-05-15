@@ -10,24 +10,24 @@ const useAddCustomer = () => {
       // The form gives each entry a local id: Date.now() so React can key
       // the list. The backend assigns real ObjectIDs; sending a JS timestamp
       // as _id would cause a BSON ObjectID parse error in Go.
-      const contactPersons = (inputs.contactPersons || []).map(
-        ({ id: _localId, ...rest }) => rest  // strip local UI key
-      );
+      const contactPersons = (inputs.contactPersons || []).map(cp => {
+        const entry = { ...cp };
+        delete entry.id;
+        return entry;
+      });
 
       // ── 2. documents ──────────────────────────────────────────────────
       // File() objects cannot be JSON-serialised. We forward only the
       // metadata the backend model needs; binary upload should use a
       // separate multipart endpoint.
-      const documents = (inputs.documents || []).map(
-        ({ file: _blob, id: _localId, ...rest }) => ({
-          name:        rest.name        || '',
-          type:        rest.type        || '',        // matches DOCUMENT_TYPES id
-          size:        rest.size        || 0,
-          uploadDate:  rest.uploadDate  || new Date().toISOString(),
-          status:      rest.status      || 'pending',
-          description: rest.description || '',
-        })
-      );
+      const documents = (inputs.documents || []).map(doc => ({
+        name:        doc.name        || '',
+        type:        doc.type        || '',
+        size:        doc.size        || 0,
+        uploadDate:  doc.uploadDate  || new Date().toISOString(),
+        status:      doc.status      || 'pending',
+        description: doc.description || '',
+      }));
 
       // ── 3. Numeric fields ─────────────────────────────────────────────
       // The form stores these as strings (''); Go expects float64.
@@ -68,15 +68,20 @@ const useAddCustomer = () => {
         country:       inputs.country       || '',
 
         // ── Finance  (form name → model json tag)
-        currency:      inputs.currency     || 'UAE Dirham',
-        payment_terms: inputs.paymentTerms || 'Due on Receipt',  // ← mapped
-        credit_limit:  creditLimit,
-        credit_used:   creditUsed,    // ← new field
-        no_of_days:    noOfDays,      // ← new field
+        currency:             inputs.currency             || 'UAE Dirham',
+        payment_terms:        inputs.paymentTerms         || 'Due on Receipt',  // ← mapped
+        credit_limit:         creditLimit,
+        credit_limit_action:  inputs.credit_limit_action  || 'warn',
+        credit_used:          creditUsed,
+        no_of_days:           noOfDays,
 
         // ── Relations
         contactPersons: contactPersons,
         documents:      documents,
+
+        // ── Legal & Tax
+        trnNumber: inputs.trnNumber || '',
+        legalForm: inputs.legalForm || '',
 
         // ── Extras  (form name → model json tag)
         custom_fields:  inputs.customFields  || {},   // ← mapped

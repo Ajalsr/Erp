@@ -175,16 +175,16 @@ export default function Item() {
 
   const closeDrawer = useCallback(() => { setIsDrawerOpen(false); setSelectedItem(null); handleGetItem(); }, [handleGetItem]);
 
-  const toggleRow = (id) => setSelectedRows(prev => {
-    const n = new Set(prev);
-    n.has(id) ? n.delete(id) : n.add(id);
-    return n;
-  });
+  // const toggleRow = (id) => setSelectedRows(prev => {
+  //   const n = new Set(prev);
+  //   n.has(id) ? n.delete(id) : n.add(id);
+  //   return n;
+  // });
 
-  const toggleAll = () => {
-    if (selectedRows.size === filteredItems.length) setSelectedRows(new Set());
-    else setSelectedRows(new Set(filteredItems.map(i => i._id || i.id)));
-  };
+  // const toggleAll = () => {
+  //   if (selectedRows.size === filteredItems.length) setSelectedRows(new Set());
+  //   else setSelectedRows(new Set(filteredItems.map(i => i._id || i.id)));
+  // };
 
   const handleAdjustStock = async () => {
     const newQty = parseFloat(adjustQty);
@@ -457,14 +457,14 @@ export default function Item() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${border}` }}>
-              <th style={{ padding: "12px 16px", width: 40, textAlign: "center" }}>
+              {/* <th style={{ padding: "12px 16px", width: 40, textAlign: "center" }}>
                 <input
                   type="checkbox"
                   className="itm-check"
                   checked={selectedRows.size === filteredItems.length && filteredItems.length > 0}
                   onChange={toggleAll}
                 />
-              </th>
+              </th> */}
               {["Item", "Code", "Brand", "Unit", "Stock", "Price", ""].map((h, i) => (
                 <th key={i} style={{
                   padding: "12px 14px", textAlign: i === 5 ? "right" : "left",
@@ -502,14 +502,14 @@ export default function Item() {
                   }}
                 >
                   {/* Checkbox */}
-                  <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                  {/* <td style={{ padding: "12px 16px", textAlign: "center" }}>
                     <input
                       type="checkbox"
                       className="itm-check"
                       checked={sel}
                       onChange={() => toggleRow(item._id || item.id)}
                     />
-                  </td>
+                  </td> */}
 
                   {/* Item */}
                   <td style={{ padding: "12px 14px" }}>
@@ -526,7 +526,7 @@ export default function Item() {
                         >
                           {item.name}
                         </button>
-                        <p style={{ fontSize: 10, color: T.textSec, margin: "2px 0 0" }}>{item.sku || item.item_code}</p>
+                        <p style={{ fontSize: 10, color: T.textSec, margin: "2px 0 0" }}>{item.item_code}</p>
                       </div>
                     </div>
                   </td>
@@ -1090,7 +1090,7 @@ function DrawerOverview({ item, T, isDark, surface2, border }) {
       {/* Fields grid */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <Field icon={<FaBarcode />}  label="Item Code" value={item.item_code} mono />
-        <Field icon={<FaTag />}      label="SKU"       value={item.sku}       mono />
+        {/* <Field icon={<FaTag />}      label="SKU"       value={item.sku}       mono /> */}
         <Field icon={<FaIndustry />} label="Brand"     value={item.brand}     />
         <Field icon={<FaCubes />}    label="Type"      value={item.type}      />
         <Field icon={<FaRuler />}    label="Unit"      value={item.unit}      />

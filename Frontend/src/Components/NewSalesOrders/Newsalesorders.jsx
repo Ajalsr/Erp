@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useGetItem from '../../helper/useGetItem';
 import useGetCustomers from '../../helper/useGetCustomers';
@@ -502,6 +502,8 @@ const Newsalesorders = () => {
   const customerDropdownRef=useRef(null);
   const fileInputRef=useRef(null);
   const navigate=useNavigate();
+  const { id: editId } = useParams();
+  const isEditMode = !!editId;
 
   const salesTypeOptions=[{value:'SO',label:'SO — Standard Sale Order'},{value:'MOA',label:'MOA — Material on Approval'},{value:'MOA_COLLECT',label:'MOA Collect — Material on Approval Collect'},{value:'FREE_DELIVERY',label:'Free Delivery'}];
   const paymentTermsOptions=[
@@ -547,10 +549,55 @@ const Newsalesorders = () => {
   const calcTotal=()=>calcSub()+calcVAT()+(parseFloat(shippingCharges)||0)+(parseFloat(adjustment)||0);
 
   useEffect(()=>{
+    if(isEditMode) return; // number/date are loaded from the draft
     setOrderDate(new Date().toISOString().split('T')[0]);
     const d=new Date(),m=(d.getMonth()+1).toString().padStart(2,'0'),y=d.getFullYear();
     setOrderNumber(`SO-${y}${m}-${Math.floor(Math.random()*1000).toString().padStart(3,'0')}`);
-  },[]);
+  },[isEditMode]);
+
+  // Load draft for editing
+  useEffect(()=>{
+    if(!isEditMode) return;
+    axiosInstance.get(`/api/sales-orders/${editId}`)
+      .then(res=>{
+        const o=res.data?.data||res.data;
+        setOrderNumber(o.orderNumber||'');
+        setSalesType(o.salesType||'SO');
+        setOrderDate(o.orderDate?o.orderDate.split('T')[0]:'');
+        setLpoNumber(o.lpoNumber||'');
+        setLpoValue(o.lpoValue!=null?String(o.lpoValue):'');
+        setLpoDate(o.lpoDate?o.lpoDate.split('T')[0]:'');
+        setExpectedShipmentDate(o.expectedShipmentDate?o.expectedShipmentDate.split('T')[0]:'');
+        setPaymentTerms(o.paymentTerms||'due_on_receipt');
+        setSalesperson(o.salesperson||'');
+        setShippingCharges(o.shippingCharges!=null?String(o.shippingCharges):'0');
+        setAdjustment(o.adjustment!=null?String(o.adjustment):'0');
+        setCustomerNotes(o.customerNotes||'');
+        setTermsAndConditions(o.termsAndConditions||'');
+        if(o.items?.length){
+          setItems(o.items.map((it,idx)=>({
+            id: idx+1,
+            itemId:       it.itemId||it._id||'',
+            details:      it.details||'',
+            sku:          it.sku||'',
+            quantity:     it.quantity||1,
+            rate:         it.rate||'',
+            discount:     it.discount!=null?String(it.discount):'',
+            discountType: it.discountType||'percentage',
+            amount:       it.amount!=null?String(it.amount):'',
+            unit:         it.unit||'',
+          })));
+          // Fetch stock availability for all draft line items
+          o.items.forEach(it=>{ const id=it.itemId||it._id; if(id) fetchStockAvailability(id); });
+        }
+        // Resolve the customer object so the credit-status banner works
+        if(o.customerId && customersData){
+          const found=customersData.find(c=>c._id===o.customerId||c.id===o.customerId);
+          if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+        }
+      })
+      .catch(()=>{ import('react-hot-toast').then(m=>m.toast.error('Failed to load order')); });
+  },[isEditMode,editId,customersData,fetchStockAvailability]);
   useEffect(()=>{handleGetItem();handleGetCustomers();},[]);
   useEffect(()=>{
     if(!inventoryData)return;
@@ -604,12 +651,40 @@ const Newsalesorders = () => {
       .then(r=>setCreditStatus(r.data?.data||null))
       .catch(()=>setCreditStatus(null));
   },[selectedCustomer?._id]);
+  // ── Stock availability cache ──────────────────────────────────────
+  const [stockInfo,setStockInfo]=useState({});         // { itemId: { inHand, committed, available, loading } }
+  const fetchedIdsRef=useRef(new Set());
+
+  const fetchStockAvailability=useCallback(async(itemId)=>{
+    if(!itemId||fetchedIdsRef.current.has(itemId))return;
+    fetchedIdsRef.current.add(itemId);
+    setStockInfo(prev=>({...prev,[itemId]:{loading:true}}));
+    try{
+      const res=await axiosInstance.get(`/api/stocks/${itemId}/availability`);
+      const d=res.data?.data||res.data;
+      setStockInfo(prev=>({...prev,[itemId]:{inHand:d.inHand??0,committed:d.committed??0,available:d.available??0,loading:false}}));
+    }catch{
+      setStockInfo(prev=>({...prev,[itemId]:{inHand:0,committed:0,available:0,loading:false}}));
+    }
+  },[]);
+
+  const getStockStatus=(requested,available)=>{
+    if(available<=0)return'out_of_stock';
+    if(requested>available)return'insufficient';
+    return'sufficient';
+  };
+
   const addNewRow=()=>{const id=items.length>0?Math.max(...items.map(i=>i.id))+1:1;setItems([...items,{id,itemId:'',details:'',sku:'',quantity:1,rate:'',discount:'',discountType:'percentage',amount:'',unit:''}]);};
   const handleRemoveItem=idx=>{
     if(items.length<=1){const u=[...items];u[idx]={id:u[idx].id,itemId:'',details:'',sku:'',quantity:1,rate:'',discount:'',discountType:'percentage',amount:'',unit:''};setItems(u);return;}
     setItems(items.filter((_,i)=>i!==idx));if(showItemDropdown===idx)setShowItemDropdown(null);
   };
-  const handleItemSelect=(idx,sel)=>{const u=[...items],rate=sel.selling_price||sel.price||0,qty=1;u[idx]={...u[idx],itemId:sel._id||sel.itemId,details:sel.name||sel.itemName||'No name',sku:sel.sku||'No SKU',rate,unit:sel.unit||sel.Unit||'pcs',quantity:qty,amount:calcAmt(qty,rate,u[idx].discount,u[idx].discountType)};setItems(u);setShowItemDropdown(null);setSearchTerm('');};
+  const handleItemSelect=(idx,sel)=>{
+    const u=[...items],rate=sel.selling_price||sel.price||0,qty=1,itemId=sel._id||sel.itemId;
+    u[idx]={...u[idx],itemId,details:sel.name||sel.itemName||'No name',sku:sel.sku||'No SKU',rate,unit:sel.unit||sel.Unit||'pcs',quantity:qty,amount:calcAmt(qty,rate,u[idx].discount,u[idx].discountType)};
+    setItems(u);setShowItemDropdown(null);setSearchTerm('');
+    fetchStockAvailability(itemId);
+  };
   const handleQuantityChange=(idx,val)=>{const u=[...items],qty=parseFloat(val)||1;u[idx].quantity=qty;if(u[idx].rate)u[idx].amount=calcAmt(qty,u[idx].rate,u[idx].discount,u[idx].discountType);setItems(u);};
   const handleRateChange=(idx,val)=>{const u=[...items],rate=parseFloat(val)||0;u[idx].rate=rate;if(u[idx].quantity)u[idx].amount=calcAmt(u[idx].quantity,rate,u[idx].discount,u[idx].discountType);setItems(u);};
   const handleDiscountChange=(idx,val)=>{const u=[...items];u[idx].discount=val;if(u[idx].quantity&&u[idx].rate)u[idx].amount=calcAmt(u[idx].quantity,u[idx].rate,val,u[idx].discountType);setItems(u);};
@@ -656,6 +731,7 @@ const Newsalesorders = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const hasItemsAdded=items.some(i=>i.details&&i.quantity>0);
+  const isCreditHardBlocked=!!(creditStatus?.exceeded&&creditStatus?.creditLimitAction==='block');
 
   return (
     <div className="nso-root" style={{minHeight:'100vh',background:T.bg,padding:'20px 20px 90px'}}>
@@ -665,25 +741,56 @@ const Newsalesorders = () => {
       <SuccessToaster message={successMessage} isVisible={showSuccessToaster} onClose={()=>setShowSuccessToaster(false)}/>
 
       {creditBlockError && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <div style={{background:T.card,borderRadius:12,padding:'28px 32px',maxWidth:440,width:'90%',boxShadow:'0 8px 32px rgba(0,0,0,0.25)'}}>
-            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
-              <span style={{fontSize:22}}>🚫</span>
-              <span style={{fontWeight:700,fontSize:16,color:'#dc2626'}}>Order Blocked — Credit Limit Exceeded</span>
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',backdropFilter:'blur(8px)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+          <div style={{background:T.surface,borderRadius:20,maxWidth:420,width:'100%',boxShadow:isDark?'0 32px 80px rgba(0,0,0,0.7)':'0 32px 80px rgba(0,0,0,0.18)',overflow:'hidden',border:`1.5px solid ${isDark?'rgba(220,38,38,0.3)':'#fecaca'}`}}>
+            {/* Red accent top bar */}
+            <div style={{height:4,background:'linear-gradient(90deg,#dc2626,#ef4444,#f87171)'}}/>
+            {/* Header */}
+            <div style={{padding:'24px 24px 0',display:'flex',alignItems:'flex-start',gap:14}}>
+              <div style={{width:46,height:46,borderRadius:14,background:'rgba(220,38,38,0.12)',border:'1.5px solid rgba(220,38,38,0.25)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:20}}>🚫</div>
+              <div>
+                <p style={{fontSize:16,fontWeight:800,color:'#dc2626',margin:'0 0 4px',fontFamily:"'Sora',sans-serif",letterSpacing:'-0.02em'}}>Credit Limit Exceeded</p>
+                <p style={{fontSize:12,color:T.textSec,margin:0,lineHeight:1.5}}>This order cannot be placed — it would exceed the customer's approved credit limit.</p>
+              </div>
             </div>
-            <p style={{color:T.text,fontSize:13,marginBottom:16,lineHeight:1.6}}>
-              This order cannot be saved because it would exceed the customer's credit limit.
-            </p>
-            <div style={{background:isDark?'#1e1e1e':'#fef2f2',borderRadius:8,padding:'12px 16px',marginBottom:20,fontSize:13,color:T.text,display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-              <span style={{color:T.subText}}>Credit Limit</span><span style={{fontWeight:600}}>AED {creditBlockError.creditLimit?.toLocaleString()}</span>
-              <span style={{color:T.subText}}>Currently Used</span><span style={{fontWeight:600}}>AED {creditBlockError.currentUsed?.toLocaleString()}</span>
-              <span style={{color:T.subText}}>This Order</span><span style={{fontWeight:600}}>AED {creditBlockError.thisOrder?.toLocaleString()}</span>
-              <span style={{color:'#dc2626',fontWeight:600}}>Projected Total</span><span style={{fontWeight:700,color:'#dc2626'}}>AED {creditBlockError.projectedUsed?.toLocaleString()}</span>
+            {/* Stats */}
+            <div style={{margin:'20px 24px',borderRadius:12,overflow:'hidden',border:`1.5px solid ${isDark?'rgba(255,255,255,0.07)':'#f1f5f9'}`}}>
+              {[
+                {label:'Credit Limit',    value:creditBlockError.creditLimit,   color:T.textPri,  bg: isDark?'rgba(255,255,255,0.03)':'#f8fafc'},
+                {label:'Currently Used',  value:creditBlockError.currentUsed,   color:T.textPri,  bg:'transparent'},
+                {label:'This Order',      value:creditBlockError.thisOrder,     color:'#f59e0b',  bg: isDark?'rgba(245,158,11,0.06)':'#fffbeb'},
+                {label:'Projected Total', value:creditBlockError.projectedUsed, color:'#dc2626',  bg: isDark?'rgba(220,38,38,0.08)':'#fef2f2', bold:true},
+              ].map((row,i)=>(
+                <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:row.bg,borderBottom:i<3?`1px solid ${isDark?'rgba(255,255,255,0.05)':'#f1f5f9'}`:'none'}}>
+                  <span style={{fontSize:12,color:T.textSec,fontWeight:row.bold?700:500}}>{row.label}</span>
+                  <span style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:row.bold?800:600,color:row.color}}>
+                    AED {row.value?.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                  </span>
+                </div>
+              ))}
             </div>
-            <p style={{color:T.subText,fontSize:12,marginBottom:20}}>To proceed, reduce the order value or ask a manager to raise the customer's credit limit.</p>
-            <button onClick={()=>setCreditBlockError(null)} style={{width:'100%',padding:'10px',background:'#dc2626',color:'#fff',border:'none',borderRadius:8,fontWeight:600,cursor:'pointer',fontSize:14}}>
-              OK, go back to order
-            </button>
+            {/* Overflow bar */}
+            <div style={{margin:'0 24px 20px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontWeight:600,color:T.textSec,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>
+                <span>Credit Used</span>
+                <span style={{color:'#dc2626'}}>Exceeds by AED {(creditBlockError.projectedUsed-creditBlockError.creditLimit)?.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+              </div>
+              <div style={{height:6,background:isDark?'rgba(255,255,255,0.08)':'#f1f5f9',borderRadius:99,overflow:'hidden'}}>
+                <div style={{height:'100%',width:'100%',background:'linear-gradient(90deg,#f59e0b,#ef4444)',borderRadius:99}}/>
+              </div>
+            </div>
+            {/* Footer note */}
+            <div style={{margin:'0 24px 20px',padding:'10px 12px',background:isDark?'rgba(255,255,255,0.03)':'#f8fafc',borderRadius:9,border:`1px solid ${isDark?'rgba(255,255,255,0.06)':'#e2e8f0'}`}}>
+              <p style={{fontSize:11,color:T.textSec,margin:0,lineHeight:1.6}}>
+                To proceed, reduce the order total or ask a manager to raise the customer's credit limit.
+              </p>
+            </div>
+            {/* Action */}
+            <div style={{padding:'0 24px 24px'}}>
+              <button onClick={()=>setCreditBlockError(null)} style={{width:'100%',padding:'12px',background:'linear-gradient(135deg,#dc2626,#b91c1c)',color:'#fff',border:'none',borderRadius:11,fontWeight:700,cursor:'pointer',fontSize:13,fontFamily:"'DM Sans',sans-serif",letterSpacing:'0.01em',boxShadow:'0 4px 14px rgba(220,38,38,0.35)',transition:'all .15s'}}>
+                Go Back &amp; Edit Order
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -707,7 +814,7 @@ const Newsalesorders = () => {
               <span style={{padding:'5px 12px',borderRadius:99,background:'#fef9c3',border:'1.5px solid #fef08a',fontSize:11,fontWeight:700,color:'#854d0e',letterSpacing:'.04em'}}>● DRAFT</span>
               <button onClick={handleCancel} className="nso-bg">Cancel</button>
               <button onClick={handleSaveAsDraft} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save Draft'}</button>
-              <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()}>
+              <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
                 {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
               </button>
             </div>
@@ -852,9 +959,18 @@ const Newsalesorders = () => {
                     const bar=pct>=90?'#ef4444':pct>=70?'#f59e0b':'#10b981';
                     return(
                       <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
-                        {creditStatus.exceeded&&(
-                          <div style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:8,marginBottom:8,fontSize:11,color:'#ef4444',fontWeight:600}}>
-                            ⚠ Credit limit exceeded — order will still be saved, please confirm with finance.
+                        {isCreditHardBlocked&&(
+                          <div style={{display:'flex',alignItems:'flex-start',gap:8,padding:'10px 12px',background:'rgba(220,38,38,0.12)',border:'1.5px solid rgba(220,38,38,0.4)',borderRadius:9,marginBottom:8}}>
+                            <span style={{fontSize:15,flexShrink:0}}>🚫</span>
+                            <div>
+                              <div style={{fontSize:12,fontWeight:700,color:'#dc2626'}}>Order Blocked — Credit Limit Exceeded</div>
+                              <div style={{fontSize:11,fontWeight:500,color:'#b91c1c',marginTop:2}}>This customer has a block policy. Reduce the order value or raise their credit limit to proceed.</div>
+                            </div>
+                          </div>
+                        )}
+                        {creditStatus.exceeded&&!isCreditHardBlocked&&(
+                          <div style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',background:'rgba(245,158,11,0.1)',border:'1px solid rgba(245,158,11,0.35)',borderRadius:8,marginBottom:8,fontSize:11,color:'#b45309',fontWeight:600}}>
+                            ⚠ Credit limit exceeded — order will be saved with a finance warning.
                           </div>
                         )}
                         <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:T.textSec,marginBottom:5}}>
@@ -921,8 +1037,11 @@ const Newsalesorders = () => {
             <div style={{borderRadius:12,overflow:'hidden',border:`1.5px solid ${T.border}`}}>
               <table className="nso-table">
                 <thead><tr>
-                  <th style={{width:'35%'}}>Item Details</th>
-                  <th>Quantity</th>
+                  <th style={{width:'28%'}}>Item Details</th>
+                  <th>Req. Qty</th>
+                  <th style={{fontSize:10,color:'#64748b'}}>In Stock</th>
+                  <th style={{fontSize:10,color:'#64748b'}}>Available</th>
+                  <th style={{fontSize:10,color:'#64748b'}}>Status</th>
                   <th>Rate (AED)</th>
                   <th>Discount</th>
                   <th style={{textAlign:'right'}}>Amount</th>
@@ -947,6 +1066,32 @@ const Newsalesorders = () => {
                           <button className="nso-qbtn" onClick={()=>handleQuantityChange(index,(parseFloat(item.quantity)||1)+1)}>+</button>
                         </div>
                       </td>
+                      {/* ── Stock availability columns ── */}
+                      {(()=>{
+                        const si=item.itemId?stockInfo[item.itemId]:null;
+                        const status=si&&!si.loading?getStockStatus(parseFloat(item.quantity)||0,si.available):null;
+                        const mono={fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700};
+                        return(<>
+                          <td style={{textAlign:'center'}}>
+                            {!item.itemId?<span style={{color:'#94a3b8',fontSize:11}}>—</span>
+                            :si?.loading?<div style={{width:14,height:14,border:'2px solid #e2e8f0',borderTopColor:'#3b82f6',borderRadius:'50%',animation:'nsoSpin .7s linear infinite',margin:'0 auto'}}/>
+                            :<span style={{...mono,color:'#0f172a'}}>{si.inHand}</span>}
+                          </td>
+                          <td style={{textAlign:'center'}}>
+                            {!item.itemId?<span style={{color:'#94a3b8',fontSize:11}}>—</span>
+                            :si?.loading?null
+                            :<span style={{...mono,color:status==='out_of_stock'?'#ef4444':status==='insufficient'?'#f59e0b':'#10b981'}}>{si.available}</span>}
+                          </td>
+                          <td style={{textAlign:'center'}}>
+                            {!item.itemId||!si||si.loading?<span style={{color:'#94a3b8',fontSize:11}}>—</span>
+                            :status==='sufficient'
+                              ?<span style={{fontSize:11,fontWeight:700,color:'#15803d',background:'#dcfce7',padding:'2px 8px',borderRadius:99,whiteSpace:'nowrap'}}>✓ OK</span>
+                            :status==='insufficient'
+                              ?<span style={{fontSize:11,fontWeight:700,color:'#b45309',background:'#fef9c3',padding:'2px 8px',borderRadius:99,whiteSpace:'nowrap'}}>⚠ Short</span>
+                              :<span style={{fontSize:11,fontWeight:700,color:'#dc2626',background:'#fee2e2',padding:'2px 8px',borderRadius:99,whiteSpace:'nowrap'}}>✕ None</span>}
+                          </td>
+                        </>);
+                      })()}
                       <td><input type="text" value={item.rate} onChange={e=>handleRateChange(index,e.target.value)} className="nso-tinp" placeholder="0.00" style={{fontFamily:"'DM Mono',monospace",width:110}}/></td>
                       <td>
                         <div style={{display:'flex',alignItems:'center'}}>
@@ -984,7 +1129,7 @@ const Newsalesorders = () => {
                     </tr>
                   ))}
                   {!hasItemsAdded&&(
-                    <tr><td colSpan={6} style={{padding:32,textAlign:'center'}}>
+                    <tr><td colSpan={9} style={{padding:32,textAlign:'center'}}>
                       <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10,color:T.textSec}}>
                         <div style={{width:44,height:44,borderRadius:14,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>🛍</div>
                         <div style={{fontSize:13,fontWeight:600,color:T.textSec}}>No items added yet</div>
@@ -1116,7 +1261,7 @@ const Newsalesorders = () => {
           <div style={{display:'flex',gap:10}}>
             <button onClick={handleCancel} className="nso-bg">Cancel</button>
             <button onClick={handleSaveAsDraft} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save as Draft'}</button>
-            <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()}>
+            <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
               {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
             </button>
           </div>

@@ -219,7 +219,11 @@ func CreateSalesOrder() gin.HandlerFunc {
 					"projectedUsed": math.Round(projectedUsed*100) / 100,
 					"exceeded":      true,
 				}
-				if customer.CreditLimitAction == "block" {
+				action := customer.CreditLimitAction
+			if action == "" {
+				action = "warn"
+			}
+			if action == "block" {
 					c.JSON(http.StatusUnprocessableEntity, gin.H{
 						"status":        http.StatusUnprocessableEntity,
 						"message":       "Order blocked: this order would exceed the customer's credit limit",
@@ -633,12 +637,6 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		if req.Status != nil {
 			setFields["status"] = *req.Status
 		}
-		if req.ShippingCharges != nil {
-			setFields["shippingCharges"] = *req.ShippingCharges
-		}
-		if req.Adjustment != nil {
-			setFields["adjustment"] = *req.Adjustment
-		}
 		if req.CustomerNotes != nil {
 			setFields["customerNotes"] = *req.CustomerNotes
 		}
@@ -646,17 +644,111 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			setFields["termsAndConditions"] = *req.TermsAndConditions
 		}
 
-		if req.ShippingCharges != nil || req.Adjustment != nil {
-			newShipping := existingOrder.ShippingCharges
-			newAdjustment := existingOrder.Adjustment
-			if req.ShippingCharges != nil {
-				newShipping = *req.ShippingCharges
+		// Header fields (draft edit)
+		if req.CustomerID != nil {
+			setFields["customerId"] = *req.CustomerID
+			// Resolve customer name
+			if custObjID, err2 := primitive.ObjectIDFromHex(*req.CustomerID); err2 == nil {
+				var cust models.Customer
+				if err3 := customersCollection.FindOne(ctx, bson.M{"_id": custObjID}).Decode(&cust); err3 == nil {
+					setFields["customerName"] = cust.CustomerDisplayName
+					setFields["customerCode"] = cust.CustomerCode
+				}
 			}
-			if req.Adjustment != nil {
-				newAdjustment = *req.Adjustment
+		}
+		if req.SalesType != nil {
+			setFields["salesType"] = *req.SalesType
+		}
+		if req.OrderDate != nil {
+			setFields["orderDate"] = *req.OrderDate
+		}
+		if req.LpoNumber != nil {
+			setFields["lpoNumber"] = *req.LpoNumber
+		}
+		if req.LpoDate != nil {
+			setFields["lpoDate"] = *req.LpoDate
+		}
+		if req.LpoValue != nil {
+			setFields["lpoValue"] = *req.LpoValue
+		}
+		if req.ExpectedShipmentDate != nil {
+			setFields["expectedShipmentDate"] = *req.ExpectedShipmentDate
+		}
+		if req.PaymentTerms != nil {
+			setFields["paymentTerms"] = *req.PaymentTerms
+		}
+		if req.Salesperson != nil {
+			setFields["salesperson"] = *req.Salesperson
+		}
+
+		// Recalculate totals when items are provided
+		subTotal := existingOrder.SubTotal
+		vat := existingOrder.VAT
+		if len(req.Items) > 0 {
+			var newItems []models.SalesOrderItem
+			var newSubTotal float64
+			for _, itemReq := range req.Items {
+				itemObjectID, err2 := primitive.ObjectIDFromHex(itemReq.ItemID)
+				if err2 != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid item ID: " + itemReq.ItemID})
+					return
+				}
+				var inventoryItem models.Stock
+				if err3 := itemsCollection.FindOne(ctx, bson.M{"_id": itemObjectID}).Decode(&inventoryItem); err3 != nil {
+					c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Item not found: " + itemReq.ItemID})
+					return
+				}
+				rate := itemReq.Rate
+				if rate <= 0 {
+					if r, err4 := strconv.ParseFloat(inventoryItem.SellingPrice, 64); err4 == nil {
+						rate = r
+					}
+				}
+				amount := calculateItemAmount(itemReq.Quantity, rate, itemReq.Discount.Float64(), itemReq.DiscountType)
+				base := itemReq.Quantity * rate
+				var discountAED float64
+				switch itemReq.DiscountType {
+				case "percentage":
+					discountAED = math.Round(base*(itemReq.Discount.Float64()/100)*100) / 100
+				case "fixed":
+					discountAED = itemReq.Discount.Float64()
+				}
+				newItems = append(newItems, models.SalesOrderItem{
+					ID:           primitive.NewObjectID(),
+					ItemID:       itemReq.ItemID,
+					Details:      inventoryItem.Name,
+					Quantity:     itemReq.Quantity,
+					Rate:         rate,
+					Discount:     itemReq.Discount,
+					DiscountType: itemReq.DiscountType,
+					DiscountUnit: itemReq.DiscountUnit,
+					DiscountAED:  models.FlexFloat(discountAED),
+					Amount:       amount,
+					Unit:         inventoryItem.Unit,
+				})
+				newSubTotal += amount
 			}
-			newTotal := math.Round((existingOrder.SubTotal+existingOrder.VAT+newShipping+newAdjustment)*100) / 100
-			setFields["total"] = newTotal
+			newSubTotal = math.Round(newSubTotal*100) / 100
+			vat = math.Round(newSubTotal*0.05*100) / 100
+			subTotal = newSubTotal
+			setFields["items"] = newItems
+			setFields["subTotal"] = subTotal
+			setFields["vat"] = vat
+		}
+
+		// Recompute total from current or updated values
+		newShipping := existingOrder.ShippingCharges
+		newAdjustment := existingOrder.Adjustment
+		if req.ShippingCharges != nil {
+			newShipping = *req.ShippingCharges
+			setFields["shippingCharges"] = newShipping
+		}
+		if req.Adjustment != nil {
+			newAdjustment = *req.Adjustment
+			setFields["adjustment"] = newAdjustment
+		}
+		if len(req.Items) > 0 || req.ShippingCharges != nil || req.Adjustment != nil {
+			setFields["total"] = math.Round((subTotal+vat+newShipping+newAdjustment)*100) / 100
 		}
 
 		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": setFields})

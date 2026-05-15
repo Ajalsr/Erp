@@ -23,6 +23,7 @@ func StockRoutes(router *gin.Engine) {
 	{
 		stockRoutes.GET("/getitem", controllers.GetAllStocks())
 		stockRoutes.POST("/additem", controllers.AddItem())
+		stockRoutes.GET("/:id/availability", controllers.GetItemStockAvailability())
 		stockRoutes.PATCH("/:id/reduce", controllers.ReduceStock())
 		stockRoutes.PATCH("/:id/increase", controllers.IncreaseStock())
 	}

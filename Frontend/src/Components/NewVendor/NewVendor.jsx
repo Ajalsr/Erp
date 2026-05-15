@@ -501,9 +501,8 @@ export default function NewVendor() {
 
   const [form, setForm] = useState({
     // Identity
-    vendorType: '', salutation: '', firstName: '', lastName: '',
-    displayName: '', companyName: '', vendorCode: '', taxId: '',
-    website: '',
+    vendorType: '', displayName: '', companyName: '', vendorCode: '',
+    trnNumber: '', tradeLicenseNo: '', website: '',
     // Contact
     email: '', phone: '', workPhone: '', mobile: '',
     // Address — Billing
@@ -512,8 +511,7 @@ export default function NewVendor() {
     sameAsBilling: true,
     shipStreet: '', shipCity: '', shipState: '', shipPostal: '', shipCountry: '',
     // Finance
-    currency: 'AED', paymentTerms: '', creditLimit: '',
-    noOfDays: '', trnNumber: '',
+    currency: 'AED', paymentTerms: '', creditLimit: '', noOfDays: '',
     // Banking
     bankName: '', bankAccount: '', bankIban: '', bankSwift: '', bankBranch: '',
     // Notes
@@ -551,6 +549,7 @@ export default function NewVendor() {
     if (!form.displayName.trim()) e.displayName = 'Display name is required';
     if (!form.email.trim())       e.email        = 'Email address is required';
     if (!form.vendorType)         e.vendorType   = 'Vendor type is required';
+    if (!form.trnNumber.trim())   e.trnNumber    = 'TRN Number is required';
     return e;
   };
 
@@ -567,15 +566,13 @@ export default function NewVendor() {
     setSaving(true);
 
     const payload = {
-      vendorType:    form.vendorType,
-      salutation:    form.salutation,
-      firstName:     form.firstName,
-      lastName:      form.lastName,
-      displayName:   form.displayName,
-      companyName:   form.companyName,
-      vendorCode:    form.vendorCode,
-      taxId:         form.taxId,
-      website:       form.website,
+      vendorType:     form.vendorType,
+      displayName:    form.displayName,
+      companyName:    form.companyName,
+      vendorCode:     form.vendorCode,
+      trnNumber:      form.trnNumber,
+      tradeLicenseNo: form.tradeLicenseNo,
+      website:        form.website,
       email:         form.email,
       phone:         form.phone,
       workPhone:     form.workPhone,
@@ -597,7 +594,6 @@ export default function NewVendor() {
       currency:     form.currency,
       paymentTerms: form.paymentTerms,
       creditLimit:  parseFloat(form.creditLimit) || 0,
-      trnNumber:    form.trnNumber,
       banking: {
         bankName:    form.bankName,
         accountNo:   form.bankAccount,
@@ -627,7 +623,6 @@ export default function NewVendor() {
   /* ── Derived ── */
   const initials = form.displayName
     ? form.displayName.trim().split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase()
-    : form.firstName ? (form.firstName[0] + (form.lastName?.[0] || '')).toUpperCase()
     : '??';
   const avatarColor = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4'][
     (form.displayName.charCodeAt(0) || 65) % 6
@@ -814,43 +809,32 @@ export default function NewVendor() {
             <Section id="sec-identity" title="Vendor Identity" accent="#3b82f6" T={T}
               icon={<svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><rect x={2} y={5} width={20} height={14} rx={2}/><line x1={2} y1={10} x2={22} y2={10}/></svg>}
             >
-              <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, marginBottom: 16 }}>
-                <F label="Salutation" T={T}>
-                  <CustomSelect name="salutation" value={form.salutation} onChange={handleChange}
-                    options={['Mr.','Ms.','Mrs.','Dr.','Prof.']} placeholder="Select"
-                    T={T} isDark={isDark} />
-                </F>
+              <div style={{ ...grid2, marginBottom: 16 }}>
                 <F label="Vendor Type" req T={T}>
                   <CustomSelect name="vendorType" value={form.vendorType} onChange={handleChange}
                     options={VENDOR_TYPES} placeholder="Select type"
                     T={T} isDark={isDark} error={errors.vendorType} />
                 </F>
-              </div>
-
-              <div style={{ ...grid2, marginBottom: 16 }}>
-                <F label="First Name" T={T}>
-                  <Input name="firstName" value={form.firstName} onChange={handleChange} placeholder="e.g. Ahmed" T={T} />
-                </F>
-                <F label="Last Name" T={T}>
-                  <Input name="lastName" value={form.lastName} onChange={handleChange} placeholder="e.g. Al Rashid" T={T} />
-                </F>
-              </div>
-
-              <div style={{ ...grid2, marginBottom: 16 }}>
                 <F label="Display Name" req T={T}>
                   <Input name="displayName" value={form.displayName} onChange={handleChange} placeholder="Name shown on documents" T={T} error={errors.displayName} autoFocus />
                 </F>
-                <F label="Company / Trade Name" T={T}>
+              </div>
+
+              <div style={{ ...grid2, marginBottom: 16 }}>
+                <F label="Company Name" T={T}>
                   <Input name="companyName" value={form.companyName} onChange={handleChange} placeholder="Legal company name" T={T} />
+                </F>
+                <F label="Vendor Code" hint="auto if blank" T={T}>
+                  <Input name="vendorCode" value={form.vendorCode} onChange={handleChange} placeholder="VND-001" mono T={T} />
                 </F>
               </div>
 
               <div style={{ ...grid3 }}>
-                <F label="Vendor Code" hint="auto if blank" T={T}>
-                  <Input name="vendorCode" value={form.vendorCode} onChange={handleChange} placeholder="VND-001" mono T={T} />
+                <F label="TRN Number" req T={T}>
+                  <Input name="trnNumber" value={form.trnNumber} onChange={handleChange} placeholder="Tax Registration No." mono T={T} error={errors.trnNumber} />
                 </F>
-                <F label="Tax / TRN No." T={T}>
-                  <Input name="taxId" value={form.taxId} onChange={handleChange} placeholder="Tax registration no." mono T={T} />
+                <F label="Trade License No." T={T}>
+                  <Input name="tradeLicenseNo" value={form.tradeLicenseNo} onChange={handleChange} placeholder="TL-XXXXXXXX" mono T={T} />
                 </F>
                 <F label="Website" T={T}>
                   <Input name="website" value={form.website} onChange={handleChange} placeholder="https://example.com" T={T} />
@@ -986,12 +970,9 @@ export default function NewVendor() {
                   <Input type="number" name="noOfDays" value={form.noOfDays} onChange={handleChange} placeholder="0" mono T={T} />
                 </F>
               </div>
-              <div style={{ ...grid3 }}>
+              <div style={{ ...grid2 }}>
                 <F label="Credit Limit" T={T}>
                   <Input prefix="AED" type="number" name="creditLimit" value={form.creditLimit} onChange={handleChange} placeholder="0.00" mono T={T} />
-                </F>
-                <F label="TRN Number" T={T}>
-                  <Input name="trnNumber" value={form.trnNumber} onChange={handleChange} placeholder="VAT Reg No." mono T={T} />
                 </F>
               </div>
             </Section>

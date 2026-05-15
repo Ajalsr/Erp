@@ -52,6 +52,10 @@ type Customer struct {
 	ReorderPoint     float64 `json:"reorder_point,omitempty"      bson:"reorder_point,omitempty"`
 	Quantity         float64 `json:"quantity,omitempty"           bson:"quantity,omitempty"`
 
+	// ── Legal & Tax ──────────────────────────────────────────────────────
+	TrnNumber string `json:"trnNumber,omitempty" bson:"trnNumber,omitempty"`
+	LegalForm string `json:"legalForm,omitempty" bson:"legalForm,omitempty"`
+
 	// ── Extras ───────────────────────────────────────────────────────────
 	Remarks       string                 `json:"remarks,omitempty"        bson:"remarks,omitempty"`
 	ReportingTags []string               `json:"reporting_tags,omitempty" bson:"reporting_tags,omitempty"` // form sends "reporting_tags" (mapped from reportingTags)

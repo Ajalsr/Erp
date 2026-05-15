@@ -377,8 +377,17 @@ func UpdateCustomer() gin.HandlerFunc {
 
 		orgID, _ := c.Get("orgId")
 
+		// Match own-org customer OR a legacy customer created before org support was added.
+		findFilter := bson.M{
+			"_id": objectID,
+			"$or": []bson.M{
+				{"orgId": orgID},
+				{"orgId": bson.M{"$exists": false}},
+				{"orgId": ""},
+			},
+		}
 		var existingCustomer models.Customer
-		err = customersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existingCustomer)
+		err = customersCollection.FindOne(ctx, findFilter).Decode(&existingCustomer)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Customer not found"})
@@ -395,7 +404,8 @@ func UpdateCustomer() gin.HandlerFunc {
 		}
 
 		now := time.Now()
-		update := bson.M{"updated_at": now}
+		// Stamp orgId so legacy customers get assigned to the correct org on first edit.
+		update := bson.M{"updated_at": now, "orgId": fmt.Sprintf("%v", orgID)}
 
 		// ── String fields ─────────────────────────────────────────────────
 		strFields := map[string]string{
@@ -418,6 +428,9 @@ func UpdateCustomer() gin.HandlerFunc {
 			"remarks":             updateData.Remarks,
 			"updated_by":          updateData.UpdatedBy,
 			"customerType":        updateData.CustomerType,
+			"trnNumber":           updateData.TrnNumber,
+			"legalForm":           updateData.LegalForm,
+			"credit_limit_action": updateData.CreditLimitAction,
 		}
 		for key, val := range strFields {
 			if val != "" {
@@ -472,14 +485,14 @@ func UpdateCustomer() gin.HandlerFunc {
 			update["contactPersons"] = updateData.ContactPersons
 		}
 
-		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": update})
+		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": update})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update customer", "error": err.Error()})
 			return
 		}
 
 		var updatedCustomer models.Customer
-		_ = customersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&updatedCustomer)
+		_ = customersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedCustomer)
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "update", ID: id})
 
@@ -1021,19 +1034,25 @@ func GetCustomerCreditStatus() gin.HandlerFunc {
 			utilPct = math.Round((creditUsed/creditLimit)*10000) / 100
 		}
 
+		action := customer.CreditLimitAction
+		if action == "" {
+			action = "warn"
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "Credit status retrieved",
 			"data": gin.H{
-				"customerId":     id,
-				"customerName":   customer.CustomerDisplayName,
-				"creditLimit":    creditLimit,
-				"creditUsed":     creditUsed,
-				"available":      available,
-				"utilization":    utilPct,
-				"unpaidInvoices": unpaidInvoices,
-				"openOrders":     openOrders,
-				"exceeded":       creditLimit > 0 && creditUsed > creditLimit,
+				"customerId":        id,
+				"customerName":      customer.CustomerDisplayName,
+				"creditLimit":       creditLimit,
+				"creditUsed":        creditUsed,
+				"available":         available,
+				"utilization":       utilPct,
+				"unpaidInvoices":    unpaidInvoices,
+				"openOrders":        openOrders,
+				"exceeded":          creditLimit > 0 && creditUsed > creditLimit,
+				"creditLimitAction": action,
 			},
 		})
 	}
