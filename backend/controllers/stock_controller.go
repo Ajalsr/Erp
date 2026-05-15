@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/backend/config"
@@ -49,6 +50,83 @@ func GetAllStocks() gin.HandlerFunc {
 }
 
 var stockCollection = config.GetCollection(config.DB, "stocks")
+
+// GetItemStockAvailability returns in-hand, committed, and available qty for one item.
+// Committed = qty already reserved in open/confirmed/processing sales orders.
+// Available = in-hand - committed (floored at 0).
+func GetItemStockAvailability() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		itemIDStr := c.Param("id")
+		itemObjID, err := primitive.ObjectIDFromHex(itemIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid item ID"})
+			return
+		}
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		// ── 1. In-hand quantity from the stocks document ──────────────────
+		var stock models.Stock
+		if err := stockCollection.FindOne(ctx, bson.M{"_id": itemObjID}).Decode(&stock); err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"message": "Item not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+			}
+			return
+		}
+		inHand, _ := strconv.ParseFloat(stock.Quantity, 64)
+
+		// ── 2. Committed qty from open/confirmed/processing orders ─────────
+		soCol := config.GetCollection(config.DB, "sales_orders")
+		pipeline := []bson.M{
+			{"$match": bson.M{
+				"orgId":          orgIDStr,
+				"status":         bson.M{"$in": []string{"open", "confirmed", "processing"}},
+				"items.itemId":   itemIDStr,
+			}},
+			{"$unwind": "$items"},
+			{"$match": bson.M{"items.itemId": itemIDStr}},
+			{"$group": bson.M{
+				"_id":       nil,
+				"committed": bson.M{"$sum": "$items.quantity"},
+			}},
+		}
+		cur, err := soCol.Aggregate(ctx, pipeline)
+		var committedRes []struct {
+			Committed float64 `bson:"committed"`
+		}
+		if err == nil {
+			_ = cur.All(ctx, &committedRes)
+		}
+		committed := 0.0
+		if len(committedRes) > 0 {
+			committed = committedRes[0].Committed
+		}
+
+		available := inHand - committed
+		if available < 0 {
+			available = 0
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "success",
+			"data": gin.H{
+				"itemId":    itemIDStr,
+				"itemName":  stock.Name,
+				"unit":      stock.Unit,
+				"inHand":    inHand,
+				"committed": committed,
+				"available": available,
+			},
+		})
+	}
+}
 
 func AddItem() gin.HandlerFunc {
 	return func(c *gin.Context) {

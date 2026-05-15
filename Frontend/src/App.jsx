@@ -93,12 +93,15 @@ function App() {
             <Route path="/Items/Items/New" element={<New />} />
             <Route path="/Sales/Customers" element={<Customers />} />
             <Route path="/Sales/Customers/Newcustomers" element={<Newcustomers />} />
+            <Route path="/Sales/Customers/edit/:id" element={<Newcustomers />} />
+            <Route path="/sales/customers/edit/:id" element={<Newcustomers />} />
             <Route path="/Sales/Enquiries" element={<Enquiries />} />
             <Route path="/Sales/Salesorders" element={<Salesorders />} />
             <Route path="/Sales/Outbound" element={<Outbound />} />
             <Route path="/Sales/Deliverynote" element={<DeliveryNoteList />} />
             <Route path="/Sales/Deliverynote/:id" element={<DeliveryNote />} />
             <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders />} />
+            <Route path="/Sales/Salesorders/Newsalesorders/:id" element={<Newsalesorders />} />
             <Route path="/Purchase/Purchaseorders" element={<Purchaseorders />} />
             <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
             {/* FIXED: Was missing leading "/" — navigation silently 404'd */}

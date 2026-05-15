@@ -25,9 +25,11 @@ const DEFAULT_STATS = {
   recentOrders:          [],
 
   // ── Invoices ──────────────────────────────────────────────────────────────
-  pendingInvoicesCount:  0,
-  pendingInvoicesAmount: 0,
-  invoicesByStatus:      {},
+  pendingInvoicesCount:     0,
+  pendingInvoicesAmount:    0,
+  overdueInvoicesCount:     0,
+  overdueInvoicesAmount:    0,
+  invoicesByStatus:         {},
 
   // ── Payments Received ─────────────────────────────────────────────────────
   totalRevenue:          0,
@@ -39,6 +41,7 @@ const DEFAULT_STATS = {
   lowStockCount:         0,
   lowStockItems:         [],
   allItems:              [],
+  inventoryValue:        0,
 
   // ── Bills (Accounts Payable) ──────────────────────────────────────────────
   totalPayable:          0,
@@ -64,6 +67,10 @@ const DEFAULT_STATS = {
   totalPaid:             0,
   thisMonthPaid:         0,
   vendorPaymentsCount:   0,
+
+  // ── Quotes ────────────────────────────────────────────────────────────────
+  quotesCount:           0,
+  quotesAmount:          0,
 
   // ── Computed % ────────────────────────────────────────────────────────────
   todayOrdersPct:        0,
@@ -93,7 +100,7 @@ const useGetDashboardStats = () => {
         dashRes, statsRes, activeListRes, salesRes, stocksRes,
         recentOrdersRes, recentCustRes, invoiceStatsRes, paymentStatsRes,
         billStatsRes, billsRes, poStatsRes, poisRes, vendorRes, vendorPayStatsRes,
-        allInvoicesRes, allBillsRes,
+        allInvoicesRes, allBillsRes, quotesStatsRes,
       ] = await Promise.allSettled([
         axiosInstance.get('/api/customers/dashboard'),
         axiosInstance.get('/api/customers/stats'),
@@ -112,6 +119,7 @@ const useGetDashboardStats = () => {
         axiosInstance.get('/api/vendor-payments/stats'),
         axiosInstance.get('/api/invoices/?limit=300'),
         axiosInstance.get('/api/bills/?limit=300'),
+        axiosInstance.get('/api/quotes/stats'),
       ]);
 
       // ── Customers ──────────────────────────────────────────────────────────
@@ -160,6 +168,8 @@ const useGetDashboardStats = () => {
 
       // ── Stock ──────────────────────────────────────────────────────────────
       let totalItems = 0, lowStockCount = 0, lowStockItems = [], allItems = [];
+      let inventoryValue = 0;
+
       if (stocksRes.status === 'fulfilled') {
         const items = stocksRes.value.data?.data ?? [];
         totalItems = items.length; allItems = items;
@@ -173,6 +183,12 @@ const useGetDashboardStats = () => {
           return { id: item._id, name: item.itemName ?? item.name ?? 'Unknown', code: item.itemCode ?? item.code ?? '—', cur: qty, min: reorder, s: qty <= reorder / 2 ? 'critical' : 'warning' };
         });
         lowStockCount = lowStockItems.length;
+
+        inventoryValue = items.reduce((sum, item) => {
+          const qty  = parseFloat(item.quantity  ?? item.Quantity  ?? 0) || 0;
+          const cost = parseFloat(item.cost_price ?? item.CostPrice ?? 0) || 0;
+          return sum + qty * cost;
+        }, 0);
       }
 
       // ── Invoices ───────────────────────────────────────────────────────────
@@ -243,19 +259,36 @@ const useGetDashboardStats = () => {
         vendorPaymentsCount = safe(d.count);
       }
 
-      // ── AR / AP Aging + Cash Flow Projection ──────────────────────────────
+      // ── Quotes ────────────────────────────────────────────────────────────
+      let quotesCount = 0, quotesAmount = 0;
+      if (quotesStatsRes.status === 'fulfilled') {
+        const d = quotesStatsRes.value.data?.data ?? {};
+        quotesCount  = safe(d.totalQuotes ?? d.total ?? d.totalCount ?? d.count);
+        quotesAmount = safe(d.totalAmount ?? d.totalValue ?? d.amount);
+      }
+
+      // ── AR / AP Aging + Cash Flow + Overdue Invoices ──────────────────────
       const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
       const in30 = new Date(todayMidnight); in30.setDate(in30.getDate() + 30);
 
       const arAging  = { current: 0, d30: 0, d60: 0, d90: 0, d90p: 0 };
-      let   cfIn     = 0; // cash expected in (next 30 days)
+      let   cfIn     = 0;
+      let   overdueInvoicesCount = 0, overdueInvoicesAmount = 0;
 
       if (allInvoicesRes.status === 'fulfilled') {
         const invs = allInvoicesRes.value.data?.data?.invoices ?? [];
         invs.filter(inv => !['paid','void','draft'].includes((inv.status||'').toLowerCase()))
             .forEach(inv => {
-              const bal = safe(inv.balanceDue ?? inv.totals?.grandTotal);
-              const due = inv.dueDate ? new Date(inv.dueDate) : null;
+              const bal    = safe(inv.balanceDue ?? inv.totals?.grandTotal);
+              const status = (inv.status || '').toLowerCase();
+              const due    = inv.dueDate ? new Date(inv.dueDate) : null;
+
+              // overdue collection
+              if (status === 'overdue') {
+                overdueInvoicesCount++;
+                overdueInvoicesAmount += bal;
+              }
+
               if (due) {
                 due.setHours(0,0,0,0);
                 if (due >= todayMidnight && due <= in30) cfIn += bal;
@@ -270,7 +303,7 @@ const useGetDashboardStats = () => {
       }
 
       const apAging  = { current: 0, d30: 0, d60: 0, d90: 0, d90p: 0 };
-      let   cfOut    = 0; // cash expected out (next 30 days)
+      let   cfOut    = 0;
 
       if (allBillsRes.status === 'fulfilled') {
         const bills = allBillsRes.value.data?.data?.bills ?? [];
@@ -305,13 +338,16 @@ const useGetDashboardStats = () => {
         thisMonthNewCustomers, growthRate, activeCustomersList,
         inactiveCustomers, businessCustomers, individualCustomers,
         pendingOrders, totalOrders, completedOrders, todayNewOrders, todayRevenue, recentOrders,
-        totalItems, lowStockCount, lowStockItems, allItems,
-        pendingInvoicesCount, pendingInvoicesAmount, invoicesByStatus,
+        totalItems, lowStockCount, lowStockItems, allItems, inventoryValue,
+        pendingInvoicesCount, pendingInvoicesAmount,
+        overdueInvoicesCount, overdueInvoicesAmount,
+        invoicesByStatus,
         totalRevenue, thisMonthRevenue, paymentsCount,
         totalPayable, totalBillsCount, openBillsCount, partialBillsCount, overdueBillsCount, recentBills,
         totalPOs, pendingPOs, orderedPOs, receivedPOs, totalPOValue, recentPOs,
         totalVendors, activeVendors,
         totalPaid, thisMonthPaid, vendorPaymentsCount,
+        quotesCount, quotesAmount,
         todayOrdersPct, revenuePct, pendingActionsPct,
         arAging, apAging,
         cashflowIn, cashflowOut, cashflowNet,

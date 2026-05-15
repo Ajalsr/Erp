@@ -187,11 +187,28 @@ type SalesOrderItemRequest struct {
 }
 
 type UpdateSalesOrderRequest struct {
-	Status             *string  `json:"status,omitempty"`
-	ShippingCharges    *float64 `json:"shippingCharges,omitempty"`
-	Adjustment         *float64 `json:"adjustment,omitempty"`
-	CustomerNotes      *string  `json:"customerNotes,omitempty"`
-	TermsAndConditions *string  `json:"termsAndConditions,omitempty"`
+	// Status-only updates (used by approval flow)
+	Status *string `json:"status,omitempty"`
+
+	// Full draft edit — all order header fields
+	CustomerID           *string          `json:"customerId,omitempty"`
+	SalesType            *string          `json:"salesType,omitempty"`
+	OrderDate            *time.Time       `json:"orderDate,omitempty"`
+	LpoNumber            *string          `json:"lpoNumber,omitempty"`
+	LpoDate              *time.Time       `json:"lpoDate,omitempty"`
+	LpoValue             *float64         `json:"lpoValue,omitempty"`
+	ExpectedShipmentDate *time.Time       `json:"expectedShipmentDate,omitempty"`
+	PaymentTerms         *string          `json:"paymentTerms,omitempty"`
+	Salesperson          *string          `json:"salesperson,omitempty"`
+	Items                []SalesOrderItem `json:"items,omitempty"`
+
+	// Financials
+	ShippingCharges *float64 `json:"shippingCharges,omitempty"`
+	Adjustment      *float64 `json:"adjustment,omitempty"`
+
+	// Notes
+	CustomerNotes      *string `json:"customerNotes,omitempty"`
+	TermsAndConditions *string `json:"termsAndConditions,omitempty"`
 }
 
 type SalesOrderResponse struct {

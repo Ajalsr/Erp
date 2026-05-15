@@ -371,11 +371,12 @@ const New = () => {
   const [vendorOptions, setVendorOptions]   = useState([]);
   const [allAccounts, setAllAccounts]       = useState([]);
   const [groupOptions, setGroupOptions]     = useState([]);
+  const [groupPrefix, setGroupPrefix]       = useState('');
 
   const showInventorySection = salesEnabled && purchaseEnabled;
 
   const [formData, setFormData] = useState({
-    type: 'goods', name: '', item_code: '', sku: '', unit: '',
+    type: 'goods', name: '', item_code: '', unit: '',
     category: '', brand: '', manufacturer: '',
     length: '', width: '', height: '', dimension_unit: 'cm',
     weight: '', upc: '', mpn: '', ean: '', isbn: '',
@@ -387,9 +388,18 @@ const New = () => {
 
   const handleChange = useCallback((e) => {
     const { name, value } = e.target;
+    if (name === 'category') {
+      const grp = groupOptions.find(g => g.value === value);
+      const pfx = grp?.prefix || '';
+      setGroupPrefix(pfx);
+      // Reset item_code to just the prefix so user fills the suffix
+      setFormData(prev => ({ ...prev, category: value, item_code: pfx }));
+      setErrors(prev => { const n = { ...prev }; delete n.category; delete n.item_code; return n; });
+      return;
+    }
     setFormData(prev => ({ ...prev, [name]: value }));
     setErrors(prev => { const n = { ...prev }; delete n[name]; return n; });
-  }, []);
+  }, [groupOptions, setGroupPrefix]);
 
   /* ── Vendor + Account lists ── */
   useEffect(() => {
@@ -413,7 +423,11 @@ const New = () => {
     axiosInstance.get('/api/item-groups/?status=active')
       .then(res => {
         const list = res.data?.data?.groups || [];
-        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
+        setGroupOptions(list.map(g => {
+          const autoPrefix = g.name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase() + '-';
+          const savedPrefix = g.codePrefix ? g.codePrefix.replace(/-*$/, '') + '-' : null;
+          return { label: g.name, value: g.name, prefix: savedPrefix || autoPrefix };
+        }));
       })
       .catch(() => {});
   }, []);
@@ -440,9 +454,10 @@ const New = () => {
   const handleSubmit = async () => {
     // Validate all required fields and collect every error at once
     const newErrors = {};
-    if (!formData.name.trim())      newErrors.name      = 'Item name is required';
-    if (!formData.item_code.trim()) newErrors.item_code = 'Item code is required';
-    if (!formData.unit)             newErrors.unit      = 'Unit of measure is required';
+    if (!formData.name.trim()) newErrors.name = 'Item name is required';
+    const codeSuffix = groupPrefix ? formData.item_code.slice(groupPrefix.length).trim() : formData.item_code.trim();
+    if (!codeSuffix) newErrors.item_code = groupPrefix ? `Enter a code after the "${groupPrefix}" prefix` : 'Item code is required';
+    if (!formData.unit) newErrors.unit = 'Unit of measure is required';
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -642,8 +657,24 @@ const New = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <F label="Item Name" req T={T}><Input name="name" value={formData.name} onChange={handleChange} placeholder="e.g. Ergonomic Office Chair" autoFocus T={T} error={errors.name} /></F>
-                <F label="Item Code" req T={T}><Input name="item_code" value={formData.item_code} onChange={handleChange} placeholder="ITM-001" mono T={T} error={errors.item_code} /></F>
-                <F label="SKU" T={T}><Input name="sku" value={formData.sku} onChange={handleChange} placeholder="Stock keeping unit" mono T={T} /></F>
+                <F label="Item Code" req T={T}>
+                  <Input
+                    name="item_code"
+                    prefix={groupPrefix || undefined}
+                    value={groupPrefix ? formData.item_code.slice(groupPrefix.length) : formData.item_code}
+                    onChange={groupPrefix
+                      ? (e) => {
+                          const suffix = e.target.value;
+                          setFormData(prev => ({ ...prev, item_code: groupPrefix + suffix }));
+                          setErrors(prev => { const n = { ...prev }; delete n.item_code; return n; });
+                        }
+                      : handleChange}
+                    placeholder={groupPrefix ? 'suffix…' : 'ITM-001'}
+                    mono T={T}
+                    error={errors.item_code}
+                  />
+                </F>
+                {/* <F label="SKU" T={T}><Input name="sku" value={formData.sku} onChange={handleChange} placeholder="Stock keeping unit" mono T={T} /></F> */}
                 <F label="Category / Group" T={T}>
                   <PortalSelect T={T} isDark={isDark} name="category" value={formData.category} onChange={handleChange}
                     placeholder={groupOptions.length ? 'Select group…' : 'No groups yet — add in Item Groups'}

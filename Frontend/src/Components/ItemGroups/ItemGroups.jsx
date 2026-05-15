@@ -209,8 +209,11 @@ export default function ItemGroups() {
 }
 
 function EditGroupDrawer({ group, groups, T, isDark, COLORS, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: group.name, description: group.description || '', parentId: group.parentId || '', color: group.color || '#3b82f6', status: group.status || 'active' });
+  const [form, setForm] = useState({ name: group.name, description: group.description || '', parentId: group.parentId || '', color: group.color || '#3b82f6', status: group.status || 'active', codePrefix: group.codePrefix || '' });
   const [saving, setSaving] = useState(false);
+  const [prefixTouched, setPrefixTouched] = useState(!!group.codePrefix);
+
+  const derivePrefix = (name) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase();
 
   const handleSave = async () => {
     if (!form.name.trim()) { nexusToast.error('Name is required'); return; }
@@ -246,11 +249,41 @@ function EditGroupDrawer({ group, groups, T, isDark, COLORS, onClose, onSaved })
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>
               {label}{req && <span style={{ color: '#ef4444' }}> *</span>}
             </label>
-            <input name={name} value={form[name]} onChange={e => setForm(p => ({ ...p, [name]: e.target.value }))}
+            <input name={name} value={form[name]}
+              onChange={e => {
+                const val = e.target.value;
+                setForm(p => {
+                  const next = { ...p, [name]: val };
+                  if (name === 'name' && !prefixTouched) next.codePrefix = val.trim() ? derivePrefix(val) : '';
+                  return next;
+                });
+              }}
               placeholder={ph}
               style={{ width: '100%', height: name === 'description' ? 'auto' : 40, padding: name === 'description' ? '10px 12px' : '0 12px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
           </div>
         ))}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>
+            Item Code Prefix
+            <span style={{ fontSize: 9, fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, color: T.textSec, fontStyle: 'italic' }}>optional — auto-prepended when creating items</span>
+          </label>
+          <input
+            value={form.codePrefix}
+            onChange={e => {
+              const val = e.target.value.toUpperCase();
+              setPrefixTouched(val !== '' && val !== derivePrefix(form.name));
+              setForm(p => ({ ...p, codePrefix: val }));
+            }}
+            placeholder={form.name.trim() ? derivePrefix(form.name) + '-' : 'e.g. ELEC'}
+            maxLength={10}
+            style={{ width: '100%', height: 40, padding: '0 12px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: "'DM Mono', monospace", boxSizing: 'border-box', letterSpacing: '0.05em' }}
+          />
+          {form.codePrefix && (
+            <p style={{ fontSize: 11, color: '#10b981', margin: '5px 0 0', fontFamily: "'DM Mono', monospace" }}>
+              Preview: <strong>{form.codePrefix.replace(/-*$/, '')}</strong>-0001
+            </p>
+          )}
+        </div>
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>Parent Group</label>
           <select value={form.parentId} onChange={e => setForm(p => ({ ...p, parentId: e.target.value }))}

@@ -919,7 +919,7 @@ const Customers = () => {
                   </div>
 
                   {/* ── Action buttons ── */}
-                  {/* <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
+                  <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
                     {hasEmail && (
                       <a href={`mailto:${selectedItem.customerEmail}`} style={{
                         flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -946,17 +946,6 @@ const Customers = () => {
                         <FaPhone size={11} /> Call
                       </a>
                     )}
-                    <button onClick={() => navigate(`/Sales/Invoices/New?customerId=${selectedItem._id}`)} style={{
-                      flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                      padding: "8px 0", borderRadius: 9,
-                      background: isDark ? "rgba(139,92,246,0.1)" : "#faf5ff",
-                      border: `1px solid rgba(139,92,246,0.2)`,
-                      fontSize: 12, fontWeight: 600, color: T.purple, cursor: "pointer", fontFamily: "inherit",
-                      transition: "all 0.15s",
-                    }} onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(139,92,246,0.18)" : "#ede9fe"}
-                       onMouseLeave={e => e.currentTarget.style.background = isDark ? "rgba(139,92,246,0.1)" : "#faf5ff"}>
-                      <FaPlus size={10} /> Invoice
-                    </button>
                     <button onClick={() => navigate(`/sales/customers/edit/${selectedItem._id}`)} style={{
                       flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                       padding: "8px 0", borderRadius: 9,
@@ -967,7 +956,7 @@ const Customers = () => {
                        onMouseLeave={e => e.currentTarget.style.filter = "none"}>
                       <FaEdit size={11} /> Edit
                     </button>
-                  </div> */}
+                  </div>
                 </div>
 
                 {/* ── Pill tab bar ── */}

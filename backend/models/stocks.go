@@ -39,6 +39,5 @@ type Stock struct {
 	UpdatedAt        time.Time          `json:"updated_at" bson:"updated_at"`
 	CreatedBy        string             `json:"created_by" bson:"created_by"`
 	Category         string             `json:"category" bson:"category"`
-	SKU              string             `json:"sku" bson:"sku"`
 	Type             string             `json:"type" bson:"type"`
 }

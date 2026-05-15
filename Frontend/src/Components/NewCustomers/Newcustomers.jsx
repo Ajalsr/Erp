@@ -1,7 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
+import useUpdateCustomer from '../../helper/useUpdateCustomer';
+import axiosInstance from '../../helper/axiosInstance';
 import toast from "react-hot-toast";
 import PhoneInput, { getCountryCallingCode } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
@@ -853,27 +855,28 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date', T, is
   );
 };
 
-const CustomFieldsTab = ({ customFields, setFormData, T, isDark }) => (
+const CustomFieldsTab = ({ customFields, setFormData, customerType, T, isDark }) => (
   <div>
     <SectionHeader icon={<FaBuilding />} title="Custom Fields" subtitle="Additional business registration details" T={T} isDark={isDark} />
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-      {[
-        { label: 'Trade License Number', key: 'tradeLicenseNumber', placeholder: 'TL-XXXXXXXX' },
-        { label: 'TRL Number',           key: 'trlNumber',          placeholder: 'TRL-XXXXXX'  },
-      ].map(f => (
-        <div key={f.key}>
-          <Label T={T}>{f.label}</Label>
-          <input className="nc-input" type="text" value={customFields?.[f.key] || ''} placeholder={f.placeholder}
-            onChange={e => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, [f.key]: e.target.value } }))} />
+    {customerType === 'individual' ? (
+      <div style={{ padding: '32px 0', textAlign: 'center', border: `1.5px dashed ${T.border}`, borderRadius: '12px' }}>
+        <p style={{ fontSize: '13px', color: T.textSec, margin: 0 }}>No additional fields for individual customers.</p>
+      </div>
+    ) : (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div>
+          <Label T={T}>Trade License Number</Label>
+          <input className="nc-input" type="text" value={customFields?.tradeLicenseNumber || ''} placeholder="TL-XXXXXXXX"
+            onChange={e => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, tradeLicenseNumber: e.target.value } }))} />
         </div>
-      ))}
-      <DatePicker label="Registration Date" T={T} isDark={isDark}
-        value={customFields?.registrationDate || ''}
-        onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, registrationDate: v } }))} />
-      <DatePicker label="License Expiry Date" T={T} isDark={isDark}
-        value={customFields?.licenseExpiryDate || ''}
-        onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, licenseExpiryDate: v } }))} />
-    </div>
+        <DatePicker label="Registration Date" T={T} isDark={isDark}
+          value={customFields?.registrationDate || ''}
+          onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, registrationDate: v } }))} />
+        <DatePicker label="License Expiry Date" T={T} isDark={isDark}
+          value={customFields?.licenseExpiryDate || ''}
+          onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, licenseExpiryDate: v } }))} />
+      </div>
+    )}
   </div>
 );
 
@@ -934,9 +937,90 @@ const RemarksTab = ({ remarks, handleChange, T, isDark }) => (
   </div>
 );
 
+// ── Configurable Salutation Input ──────────────────────────────────
+const DEFAULT_SALUTATIONS = ['Mr.', 'Mrs.', 'Ms.', 'Miss', 'Dr.', 'Prof.', 'Engr.'];
+
+function SalutationInput({ value, onChange, name, T, isDark }) {
+  const [salutations, setSalutations] = useState(() => {
+    try {
+      const saved = localStorage.getItem('erp_salutations');
+      return saved ? JSON.parse(saved) : DEFAULT_SALUTATIONS;
+    } catch { return DEFAULT_SALUTATIONS; }
+  });
+  const [showManage, setShowManage] = useState(false);
+  const [newSal, setNewSal] = useState('');
+
+  const addSalutation = () => {
+    const v = newSal.trim();
+    if (!v || salutations.includes(v)) return;
+    const updated = [...salutations, v];
+    setSalutations(updated);
+    localStorage.setItem('erp_salutations', JSON.stringify(updated));
+    setNewSal('');
+  };
+
+  const removeSalutation = (s) => {
+    const updated = salutations.filter(x => x !== s);
+    setSalutations(updated);
+    localStorage.setItem('erp_salutations', JSON.stringify(updated));
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '7px' }}>
+        <label style={{ fontSize: '11px', fontWeight: '600', color: T.textSec, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Salutation</label>
+        <button type="button" onClick={() => setShowManage(true)}
+          style={{ fontSize: '10px', color: T.textSec, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
+          + Manage
+        </button>
+      </div>
+      <select className="nc-select" name={name} value={value} onChange={onChange}>
+        <option value="">Select</option>
+        {salutations.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+      {showManage && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: T.surface, borderRadius: '16px', padding: '24px', width: '340px', border: `1.5px solid ${T.border}`, boxShadow: '0 24px 64px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <p style={{ fontSize: '15px', fontWeight: '700', color: T.textPri, margin: 0 }}>Manage Salutations</p>
+              <button type="button" onClick={() => setShowManage(false)}
+                style={{ width: '28px', height: '28px', border: `1px solid ${T.border}`, borderRadius: '7px', background: 'transparent', cursor: 'pointer', color: T.textSec, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <FaTimes size={11} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+              <input className="nc-input" value={newSal} onChange={e => setNewSal(e.target.value)}
+                placeholder="e.g. Prof., Engr., HH" style={{ flex: 1 }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSalutation(); } }} />
+              <button type="button" onClick={addSalutation}
+                style={{ padding: '0 16px', background: isDark ? '#3b82f6' : '#2563eb', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                Add
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {salutations.map(s => (
+                <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', background: T.surface2, borderRadius: '999px', border: `1px solid ${T.border}`, fontSize: '12px', fontWeight: '600', color: T.textPri }}>
+                  {s}
+                  <button type="button" onClick={() => removeSalutation(s)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 0, display: 'flex', alignItems: 'center' }}>
+                    <FaTimes size={9} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────
 const Newcustomers = () => {
-  const { handleAddcustomer } = useAddCustomer();
+  const { handleAddcustomer }    = useAddCustomer();
+  const { handleUpdateCustomer } = useUpdateCustomer();
+  const { id: editId }           = useParams();
+  const isEditMode               = !!editId;
   const navigate    = useNavigate();
   const isDark      = useThemeStore((s) => s.isDark);
   const T           = getTheme(isDark);
@@ -949,12 +1033,52 @@ const Newcustomers = () => {
   const [formData, setFormData] = useState({
     customerType: 'business', customerCode: '', salutation: '',
     firstName: '', lastName: '', companyName: '', customerDisplayName: '',
+    trnNumber: '', legalForm: '',
     customerEmail: '', customerPhone: '', workPhone: '', mobile: '',
     streetAddress: '', city: '', postalCode: '', country: '',
     customFields: {}, reportingTags: [], remarks: '', documents: [],
     currency: 'AED', paymentTerms: 'Due on Receipt',
     credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
   });
+
+  // Load existing customer when editing
+  useEffect(() => {
+    if (!isEditMode) return;
+    axiosInstance.get(`/api/customers/${editId}`)
+      .then(res => {
+        const c = res.data?.data || res.data;
+        setFormData({
+          customerType:        c.customerType        || 'business',
+          customerCode:        c.customerCode        || '',
+          salutation:          c.salutation          || '',
+          firstName:           c.firstName           || '',
+          lastName:            c.lastName            || '',
+          companyName:         c.companyName         || '',
+          customerDisplayName: c.customerDisplayName || '',
+          trnNumber:           c.trnNumber           || '',
+          legalForm:           c.legalForm           || '',
+          customerEmail:       c.customerEmail       || '',
+          customerPhone:       c.customerPhone       || '',
+          workPhone:           c.workPhone           || '',
+          mobile:              c.mobile              || '',
+          streetAddress:       c.streetAddress       || '',
+          city:                c.city                || '',
+          postalCode:          c.postalCode          || '',
+          country:             c.country             || '',
+          customFields:        c.custom_fields       || {},
+          reportingTags:       c.reporting_tags      || [],
+          remarks:             c.remarks             || '',
+          documents:           c.documents           || [],
+          currency:            c.currency            || 'AED',
+          paymentTerms:        c.payment_terms       || 'Due on Receipt',
+          credit_limit:        c.credit_limit        != null ? String(c.credit_limit) : '',
+          no_of_days:          c.no_of_days          != null ? String(c.no_of_days)   : '',
+          credit_limit_action: c.credit_limit_action || 'warn',
+        });
+        setContactPersons(c.contactPersons || []);
+      })
+      .catch(() => toast.error('Failed to load customer'));
+  }, [isEditMode, editId]);
 
   const handleChange = useCallback((e) => {
     const { name, value, type, checked } = e.target;
@@ -1002,22 +1126,29 @@ const Newcustomers = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.customerDisplayName.trim()) { toast.error("Customer display name is required"); return; }
+    if (formData.customerType === 'business' && !formData.companyName.trim()) { toast.error("Company name is required for business customers"); return; }
+    if (!formData.trnNumber.trim()) { toast.error("TRN Number is required"); return; }
     setIsSubmitting(true);
     try {
-      await handleAddcustomer({ ...formData, contactPersons });
-      setFormData({
-        customerType: 'business', customerCode: '', salutation: '', firstName: '', lastName: '',
-        companyName: '', customerDisplayName: '', customerEmail: '', customerPhone: '',
-        workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
-        customFields: {}, reportingTags: [], remarks: '', documents: [],
-        currency: 'AED', paymentTerms: 'Due on Receipt',
-        credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
-      });
-      setContactPersons([]);
-      toast.success("Customer created successfully!");
-      setTimeout(() => navigate("/Sales/Customers"), 1800);
+      if (isEditMode) {
+        await handleUpdateCustomer(editId, { ...formData, contactPersons });
+        setTimeout(() => navigate("/Sales/Customers"), 1200);
+      } else {
+        await handleAddcustomer({ ...formData, contactPersons });
+        setFormData({
+          customerType: 'business', customerCode: '', salutation: '', firstName: '', lastName: '',
+          companyName: '', customerDisplayName: '', trnNumber: '', legalForm: '',
+          customerEmail: '', customerPhone: '',
+          workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
+          customFields: {}, reportingTags: [], remarks: '', documents: [],
+          currency: 'AED', paymentTerms: 'Due on Receipt',
+          credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
+        });
+        setContactPersons([]);
+        setTimeout(() => navigate("/Sales/Customers"), 1800);
+      }
     } catch {
-      toast.error("Error adding customer");
+      // toast already shown by helper
     } finally {
       setIsSubmitting(false);
     }
@@ -1062,8 +1193,8 @@ const Newcustomers = () => {
           <FaChevronLeft size={13} />
         </button>
         <div>
-          <h1 style={{ fontSize: '20px', fontWeight: '800', color: T.textPri, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>New Customer</h1>
-          <p style={{ fontSize: '12px', color: T.textSec, margin: '2px 0 0' }}>Fill in the details to create a new customer record</p>
+          <h1 style={{ fontSize: '20px', fontWeight: '800', color: T.textPri, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>{isEditMode ? 'Edit Customer' : 'New Customer'}</h1>
+          <p style={{ fontSize: '12px', color: T.textSec, margin: '2px 0 0' }}>{isEditMode ? 'Update the customer details below' : 'Fill in the details to create a new customer record'}</p>
         </div>
       </div>
 
@@ -1107,29 +1238,51 @@ const Newcustomers = () => {
             <div style={card}>
               <SectionHeader icon={<FaUser />} title="Primary Contact" subtitle="Basic identification information" T={T} isDark={isDark} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: '14px' }}>
-                  <CustomSelect name="salutation" label="Salutation" value={formData.salutation}
-                    onChange={handleChange} options={['Mr.','Mrs.','Ms.','Miss','Dr.']} placeholder="Select" T={T} isDark={isDark} />
-                  <div>
-                    <Label T={T}>First Name</Label>
-                    <input className="nc-input" name="firstName" value={formData.firstName} onChange={handleChange} placeholder="John" />
+                {formData.customerType === 'individual' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: '14px' }}>
+                    <SalutationInput name="salutation" value={formData.salutation} onChange={handleChange} T={T} isDark={isDark} />
+                    <div>
+                      <Label T={T}>First Name</Label>
+                      <input className="nc-input" name="firstName" value={formData.firstName} onChange={handleChange} placeholder="John" />
+                    </div>
+                    <div>
+                      <Label T={T}>Last Name</Label>
+                      <input className="nc-input" name="lastName" value={formData.lastName} onChange={handleChange} placeholder="Smith" />
+                    </div>
                   </div>
+                ) : (
                   <div>
-                    <Label T={T}>Last Name</Label>
-                    <input className="nc-input" name="lastName" value={formData.lastName} onChange={handleChange} placeholder="Smith" />
+                    <Label required T={T}>Company Name</Label>
+                    <input className="nc-input" name="companyName" value={formData.companyName} onChange={handleChange} placeholder="e.g. ACME Corp" required />
                   </div>
+                )}
+                <div>
+                  <Label required T={T}>Customer Display Name</Label>
+                  <input className="nc-input" name="customerDisplayName" value={formData.customerDisplayName}
+                    onChange={handleChange} placeholder="Name shown on documents" required />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div>
-                    <Label required T={T}>Customer Display Name</Label>
-                    <input className="nc-input" name="customerDisplayName" value={formData.customerDisplayName}
-                      onChange={handleChange} placeholder="Name shown on documents" required />
-                  </div>
-                  <div>
-                    <Label T={T}>Company Name</Label>
-                    <input className="nc-input" name="companyName" value={formData.companyName} onChange={handleChange} placeholder="ACME Corp" />
-                  </div>
+              </div>
+            </div>
+
+            {/* Legal & Tax Details */}
+            <div style={card}>
+              <SectionHeader icon={<FaBuilding />}
+                title="Legal & Tax Details"
+                subtitle={formData.customerType === 'business' ? 'Business registration and VAT information' : 'Tax identification number'}
+                T={T} isDark={isDark} />
+              <div style={{ display: 'grid', gridTemplateColumns: formData.customerType === 'business' ? '1fr 1fr' : '1fr', gap: '16px' }}>
+                <div>
+                  <Label required T={T}>TRN Number</Label>
+                  <input className="nc-input" name="trnNumber" value={formData.trnNumber}
+                    onChange={handleChange} placeholder="Tax Registration Number" />
                 </div>
+                {formData.customerType === 'business' && (
+                  <div>
+                    <Label T={T}>Legal Form</Label>
+                    <input className="nc-input" name="legalForm" value={formData.legalForm}
+                      onChange={handleChange} placeholder="e.g. LLC, FZCO, Sole Proprietorship" />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1191,7 +1344,7 @@ const Newcustomers = () => {
                 {activeTab === 'address'         && <AddressTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} />}
                 {activeTab === 'contact-persons' && <ContactPersonsTab contactPersons={contactPersons} setContactPersons={setContactPersons} T={T} isDark={isDark} />}
                 {activeTab === 'documents'       && <DocumentsTab documents={formData.documents} handleFileUpload={handleFileUpload} removeDocument={removeDocument} getFileIcon={getFileIcon} formatFileSize={formatFileSize} T={T} isDark={isDark} />}
-                {activeTab === 'custom-fields'   && <CustomFieldsTab customFields={formData.customFields} setFormData={setFormData} T={T} isDark={isDark} />}
+                {activeTab === 'custom-fields'   && <CustomFieldsTab customFields={formData.customFields} setFormData={setFormData} customerType={formData.customerType} T={T} isDark={isDark} />}
                 {activeTab === 'reporting-tags'  && <ReportingTagsTab reportingTags={formData.reportingTags} setFormData={setFormData} T={T} isDark={isDark} />}
                 {activeTab === 'remarks'         && <RemarksTab remarks={formData.remarks} handleChange={handleChange} T={T} isDark={isDark} />}
               </div>
@@ -1252,7 +1405,7 @@ const Newcustomers = () => {
                     Saving…
                   </>
                 ) : (
-                  <><FaCheckCircle size={14} /> Save Customer</>
+                  <><FaCheckCircle size={14} /> {isEditMode ? 'Update Customer' : 'Save Customer'}</>
                 )}
               </button>
               <button type="button" className="action-btn-secondary" onClick={() => setShowDiscard(true)} disabled={isSubmitting}

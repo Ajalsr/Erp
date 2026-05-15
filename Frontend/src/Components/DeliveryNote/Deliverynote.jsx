@@ -179,7 +179,7 @@ export default function DeliveryNote() {
       .catch(() => {});
   }, [activeOrg]);
 
-  // Compute pixel padding from % of letterhead's rendered height
+  
   useEffect(() => {
     if (!letterhead) { setTopPadPx(0); setBotPadPx(0); return; }
     const img = new Image();
