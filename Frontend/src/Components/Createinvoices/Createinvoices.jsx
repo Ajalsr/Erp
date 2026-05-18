@@ -541,11 +541,6 @@ const CreateInvoice = () => {
         {/* Topbar */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 24px", borderBottom: `1px solid ${T.border}`, background: T.topbar, transition: "background 0.25s, border-color 0.25s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 2 }}>
-              <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, color: T.accent }}>Nexus</span>
-              <span style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>ERP</span>
-            </div>
-            <span style={{ color: T.border }}>|</span>
             <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Invoices</button>
             <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 600, color: T.text }}>Create Invoice</span>
             <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.accent, background: `${T.accent}1a`, border: `1px solid ${T.accent}44`, padding: "3px 10px", borderRadius: 4 }}>{invoiceNumber}</span>

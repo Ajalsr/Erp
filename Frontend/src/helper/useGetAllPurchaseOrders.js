@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import api from './axiosInstance'
-import toast from 'react-hot-toast'
+import nexusToast from './nexusToast'
 
 const useGetAllPurchaseOrders = () => {
   const [data, setData]       = useState(null)
@@ -26,7 +26,7 @@ const useGetAllPurchaseOrders = () => {
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to load purchase orders.'
       setError(msg)
-      toast.error(msg)
+      nexusToast.error(msg)
       throw err
     } finally {
       setLoading(false)

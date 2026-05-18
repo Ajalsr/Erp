@@ -831,27 +831,6 @@ const PaymentsReceived = () => {
 
       <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif" }}>
 
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 2 }}>
-              <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: ".05em", color: T.accent }}>Nexus</span>
-              <span style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>ERP</span>
-            </div>
-            <span style={{ color: T.border }}>|</span>
-            <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 600 }}>Payments Received</span>
-          </div>
-          <button
-            onClick={() => setShowModal(true)}
-            style={{
-              padding: "8px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700,
-              cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none",
-              fontFamily: "'DM Sans', sans-serif", transition: ".15s",
-              boxShadow: "0 4px 12px rgba(245,158,11,.25)",
-            }}
-          >+ Record Payment</button>
-        </div>
-
         {/* Stat Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, padding: "24px 28px 0" }}>
           <StatCard T={T} label="Total Received"  value={fmt(stats.totalReceived)} sub={`${stats.count} payments`}       accent={T.accent2} icon="💰" />
@@ -889,6 +868,16 @@ const PaymentsReceived = () => {
               );
             })}
           </div>
+
+          {/* Action */}
+          <button
+            onClick={() => setShowModal(true)}
+            style={{
+              marginLeft: "auto", padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700,
+              cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none",
+              fontFamily: "'DM Sans', sans-serif", transition: ".15s",
+            }}
+          >+ Record Payment</button>
         </div>
 
         {/* Table */}

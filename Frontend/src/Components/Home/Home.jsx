@@ -79,7 +79,7 @@ export default function Dashboard() {
   const user   = useAuthStore((s) => s.user);
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
-  const initials = (user?.userId || "A").charAt(0).toUpperCase();
+
 
   const { stats, loading, error, refresh } = useGetDashboardStats();
 
@@ -232,9 +232,6 @@ export default function Dashboard() {
               <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
             </svg>
           </button>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg,${T.blue},${T.purple})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span className="sora" style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>{initials}</span>
-          </div>
         </div>
       </div>
 

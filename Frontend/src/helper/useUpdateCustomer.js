@@ -1,4 +1,4 @@
-import { toast } from 'react-hot-toast';
+import nexusToast from './nexusToast';
 import axiosInstance from './axiosInstance';
 
 const useUpdateCustomer = () => {
@@ -62,13 +62,13 @@ const useUpdateCustomer = () => {
 
       const response = await axiosInstance.put(`/api/customers/${id}`, payload);
 
-      toast.success('Customer updated successfully!', { duration: 4000 });
+      nexusToast.success('Customer updated successfully!');
       return response.data;
 
     } catch (error) {
       console.error('Error during update customer:', error);
       const msg = error.response?.data?.message || 'Unable to update the customer.';
-      toast.error(msg);
+      nexusToast.error(msg);
       throw error;
     }
   };

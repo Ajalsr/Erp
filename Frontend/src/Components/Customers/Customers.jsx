@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   FaPlus, FaTimes, FaSearch, FaUser, FaBuilding,
-  FaEnvelope, FaPhone, FaDownload, FaUpload,
+  FaEnvelope, FaPhone, FaDownload,
   FaUsers, FaCheckCircle, FaClock, FaCreditCard,
   FaChevronLeft, FaChevronRight, FaBoxOpen, FaEdit,
   FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaCalendarAlt, FaSync
@@ -209,7 +209,6 @@ const Customers = () => {
     .fade-up      { animation: fadeUp 0.3s ease forwards; }
   `;
 
-  const [isDrawerOpen, setIsDrawerOpen]       = useState(false);
   const [selectedItem, setSelectedItem]       = useState(null);
   const [activeTab, setActiveTab]             = useState("overview");
   const [custInvoices,  setCustInvoices]         = useState([]);
@@ -292,8 +291,8 @@ const Customers = () => {
     return nums;
   };
 
-  const handleItemClick = (item) => { setSelectedItem(item); setIsDrawerOpen(true); setActiveTab("overview"); };
-  const closeDrawer     = () => { setIsDrawerOpen(false); setSelectedItem(null); };
+  const handleItemClick = (item) => { setSelectedItem(item); setActiveTab("overview"); };
+  const closeDrawer     = () => setSelectedItem(null);
 
   const handleSearchChange = useCallback(debounce(() => {}, 300), []);
   const handleSearchInput  = (e) => {
@@ -314,7 +313,7 @@ const Customers = () => {
   const handleClearSearch = () => { setSearchTerm(""); setSearchSuggestions([]); };
 
   const handleSuggestionClick = (item) => {
-    setSelectedItem(item); setIsDrawerOpen(true); setActiveTab("overview");
+    setSelectedItem(item); setActiveTab("overview");
     setSearchTerm(""); setSearchSuggestions([]); setIsSearchFocused(false);
   };
 
@@ -432,38 +431,35 @@ const Customers = () => {
     <>
       <style>{css}</style>
 
-      <div className="cust-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+      <div className="cust-root" style={{ background: T.bg, display: "flex", height: "calc(100vh - 56px)", overflow: "hidden", color: T.textPri }}>
+        {/* ── LEFT LIST PANEL ── */}
+        <div style={{ flex: selectedItem ? "0 0 44%" : "1", overflowY: "auto", padding: "20px 20px", minWidth: 0, transition: "flex 0.3s ease", borderRight: selectedItem ? `1px solid ${T.border}` : "none" }}>
 
-        {/* ── HEADER ─────────────────────────────────────────────── */}
-        <div className="fade-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+        {/* ── HEADER ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
           <div>
-            <h1 className="cust-jakarta" style={{ fontSize: "20px", fontWeight: "700", color: T.textPri, margin: 0 }}>Customers</h1>
-            <p style={{ color: T.textSec, fontSize: "13px", marginTop: "4px" }}>Manage and track your customer relationships</p>
+            <h1 className="cust-jakarta" style={{ fontSize: "18px", fontWeight: "700", color: T.textPri, margin: 0 }}>Customers</h1>
+            {!selectedItem && <p style={{ color: T.textSec, fontSize: "12px", marginTop: "3px" }}>Manage your customer relationships</p>}
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ display: "flex", gap: "6px" }}>
             {[
-              { label: "Refresh",      icon: <FaSync size={11} />,    onClick: handleRefresh,                                                      variant: "ghost" },
-              { label: "Export",       icon: <FaDownload size={11} />, onClick: handleExport,                                                        variant: "ghost" },
-              { label: "Import",       icon: <FaUpload size={11} />,   onClick: () => {},                                                            variant: "ghost" },
-              { label: "New Customer", icon: <FaPlus size={11} />,     onClick: () => navigate("/Sales/Customers/Newcustomers"),                      variant: "primary" },
-            ].map((btn) => (
-              <button key={btn.label} className="action-btn" onClick={btn.onClick}
-                style={{
-                  display: "flex", alignItems: "center", gap: "6px",
-                  padding: "8px 16px", borderRadius: "9px", fontSize: "13px", fontWeight: "500",
-                  cursor: "pointer", fontFamily: "inherit",
-                  background: btn.variant === "primary" ? T.blue : "transparent",
-                  color:      btn.variant === "primary" ? "white" : T.textSec,
-                  border:     btn.variant === "primary" ? "none" : `1px solid ${T.border}`,
-                }}>
-                {btn.icon} {btn.label}
+              { label: "Refresh", icon: <FaSync size={11} />,    onClick: handleRefresh },
+              { label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport },
+            ].map(btn => (
+              <button key={btn.label} title={btn.label} onClick={btn.onClick}
+                style={{ width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer" }}>
+                {btn.icon}
               </button>
             ))}
+            <button onClick={() => navigate("/Sales/Customers/Newcustomers")}
+              style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 12px", borderRadius: "8px", border: "none", background: T.blue, color: "white", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+              <FaPlus size={10} /> {selectedItem ? "New" : "New Customer"}
+            </button>
           </div>
         </div>
 
-        {/* ── STAT CARDS — Option A: Insight Cards ────────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "14px", marginBottom: "20px" }}>
+        {/* ── STAT CARDS ── */}
+        <div style={{ display: "grid", gridTemplateColumns: selectedItem ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: "12px", marginBottom: "16px" }}>
           {[
             {
               label: "Total Customers", value: stats.total,
@@ -615,129 +611,96 @@ const Customers = () => {
           </div>
         </div>
 
-        {/* ── TABLE ───────────────────────────────────────────────── */}
+        {/* ── CUSTOMER LIST ── */}
         <div style={{ ...card, overflow: "hidden", marginBottom: "12px" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-            <thead>
-              <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
-                <th style={{ padding: "11px 16px", width: "32px" }}>
-                  <input type="checkbox" style={{ accentColor: T.blue }} />
-                </th>
-                {["Customer", "Company", "Contact", "Description", "Receivables", ""].map((h, i) => (
-                  <th key={i} style={{ padding: "11px 16px", textAlign: i === 4 ? "right" : "left", fontSize: "11px", fontWeight: "600", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {currentItems.length > 0 ? currentItems.map((item, idx) => {
-                const [avBg, avFg] = getAvatar(item.customerDisplayName);
-                const sc = statusCfg[item.status] || statusCfg.active;
-                return (
-                  <tr key={item._id || idx} className="cust-row" style={{ borderBottom: `1px solid ${T.border2}` }}>
-                    <td style={{ padding: "13px 16px" }}><input type="checkbox" style={{ accentColor: T.blue }} /></td>
-
-                    {/* Name + code + status */}
-                    <td style={{ padding: "13px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "11px" }}>
-                        <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: avBg, color: avFg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "700", flexShrink: 0 }}>
-                          {(item.customerDisplayName || "U").charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                            <span className="row-name" onClick={() => handleItemClick(item)}
-                              style={{ fontWeight: "600", color: T.textPri, cursor: "pointer", transition: "color 0.15s", fontSize: "13px" }}>
-                              {item.customerDisplayName || "Unnamed"}
-                            </span>
-                            <span style={{ fontSize: "10px", fontFamily: "'DM Mono', monospace", background: T.blueDim, color: T.blueLight, padding: "2px 7px", borderRadius: "5px", border: `1px solid rgba(59,130,246,0.2)` }}>
-                              {getCode(item)}
-                            </span>
-                            {item.status && (
-                              <span style={{ fontSize: "10px", fontWeight: "600", background: sc.bg, color: sc.color, padding: "2px 8px", borderRadius: "999px", border: `1px solid ${sc.border}` }}>
-                                {item.status}
-                              </span>
-                            )}
-                          </div>
-                          {item.companyName && item.companyName !== "N/A" && (
-                            <p style={{ fontSize: "11px", color: T.textSec, margin: "2px 0 0" }}>{item.companyName}</p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Company */}
-                    <td style={{ padding: "13px 16px", color: T.textSec, fontSize: "12px" }}>
-                      {item.companyName && item.companyName !== "N/A" ? item.companyName : <span style={{ color: T.textMuted }}>—</span>}
-                    </td>
-
-                    {/* Contact */}
-                    <td style={{ padding: "13px 16px" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                        {item.customerEmail && item.customerEmail !== "N/A" && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "5px", color: T.textSec, fontSize: "12px" }}>
-                            <FaEnvelope style={{ color: T.textMuted, fontSize: "10px" }} />{item.customerEmail}
-                          </div>
-                        )}
-                        {item.customerPhone && item.customerPhone !== "N/A" && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "5px", color: T.textSec, fontSize: "12px" }}>
-                            <FaPhone style={{ color: T.textMuted, fontSize: "10px" }} />{item.customerPhone}
-                          </div>
-                        )}
-                        {!item.customerEmail && !item.customerPhone && <span style={{ color: T.textMuted }}>—</span>}
-                      </div>
-                    </td>
-
-                    {/* Description */}
-                    <td style={{ padding: "13px 16px", maxWidth: "180px" }}>
-                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", color: T.textSec }}>
-                        {item.sales_description || <span style={{ color: T.textMuted }}>—</span>}
-                      </div>
-                    </td>
-
-                    {/* Receivables */}
-                    <td style={{ padding: "13px 16px", textAlign: "right" }}>
-                      {invoiceMap[item._id]?.receivables > 0
-                        ? <span className="cust-jakarta" style={{ fontWeight: "600", color: T.amber, fontSize: "13px" }}>
-                            AED {invoiceMap[item._id].receivables.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        : <span style={{ color: T.textMuted }}>—</span>}
-                    </td>
-
-                    {/* Actions */}
-                    <td style={{ padding: "13px 12px" }}>
-                      <div style={{ display: "flex", gap: "5px", justifyContent: "flex-end" }}>
-                        <button className="tbl-btn" onClick={() => handleItemClick(item)}
-                          style={{ padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.textSec, cursor: "pointer", fontFamily: "inherit", fontWeight: "500" }}>
-                          View
-                        </button>
-                        {/* <button className="tbl-btn" onClick={() => navigate(`/sales/customers/edit/${item._id}`)}
-                          style={{ padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.textSec, cursor: "pointer", fontFamily: "inherit", fontWeight: "500", display: "flex", alignItems: "center", gap: "4px" }}>
-                          <FaEdit size={10} /> Edit
-                        </button> */}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              }) : (
-                <tr>
-                  <td colSpan="7" style={{ padding: "64px 20px", textAlign: "center" }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
-                      <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px", color: T.textMuted }}>
-                        <FaBoxOpen />
-                      </div>
-                      <p className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "15px", margin: 0 }}>No customers found</p>
-                      <p style={{ color: T.textSec, fontSize: "13px", margin: 0 }}>
-                        {selectedStatus !== "all" ? `No customers with status "${selectedStatus}"` : "Start by adding your first customer"}
-                      </p>
-                      <button onClick={() => navigate("/Sales/Customers/Newcustomers")}
-                        style={{ marginTop: "4px", padding: "8px 20px", background: T.blue, color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                        Add Customer
-                      </button>
+          {currentItems.length > 0 ? currentItems.map((item, idx) => {
+            const [avBg, avFg] = getAvatar(item.customerDisplayName);
+            const sc = statusCfg[item.status] || statusCfg.active;
+            const isSelected = selectedItem?._id === item._id;
+            const rec = invoiceMap[item._id]?.receivables || 0;
+            const sub = [
+              item.companyName && item.companyName !== "N/A" ? item.companyName : null,
+              item.customerEmail && item.customerEmail !== "N/A" ? item.customerEmail : null,
+            ].filter(Boolean).join(" · ") || (item.customerPhone && item.customerPhone !== "N/A" ? item.customerPhone : "No contact info");
+            return (
+              <div key={item._id || idx} onClick={() => handleItemClick(item)}
+                style={{
+                  display: "flex", alignItems: "center", gap: "12px",
+                  padding: "11px 16px",
+                  cursor: "pointer",
+                  borderBottom: idx < currentItems.length - 1 ? `1px solid ${T.border2}` : "none",
+                  borderLeft: `3px solid ${isSelected ? T.blue : "transparent"}`,
+                  background: isSelected ? (isDark ? "rgba(59,130,246,0.07)" : "#eff6ff") : "transparent",
+                  transition: "background 0.1s",
+                }}
+                onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.03)" : "#f8fafc"; }}
+                onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+              >
+                {/* Avatar */}
+                {(() => {
+                  const ws = (item.customerDisplayName || "U").trim().split(/\s+/).filter(Boolean);
+                  const ini = ws.length >= 2 ? (ws[0][0] + ws[ws.length-1][0]).toUpperCase() : (ws[0]||"U").slice(0,2).toUpperCase();
+                  return (
+                    <div style={{
+                      width: "40px", height: "40px", borderRadius: "11px", flexShrink: 0,
+                      background: `linear-gradient(140deg, ${avFg}, ${avBg})`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "13px", fontWeight: "800", color: "#fff",
+                      fontFamily: "'Sora', sans-serif", letterSpacing: "-0.01em",
+                      boxShadow: `0 2px 8px ${avFg}30`,
+                    }}>
+                      {ini}
                     </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                  );
+                })()}
+
+                {/* Name + subtitle */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
+                    <span style={{ fontSize: "13px", fontWeight: "600", color: isSelected ? T.blueLight : T.textPri, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {item.customerDisplayName || "Unnamed"}
+                    </span>
+                    <span style={{ fontSize: "10px", fontFamily: "'DM Mono', monospace", color: T.blueLight, background: T.blueDim, padding: "1px 6px", borderRadius: "4px", border: `1px solid rgba(59,130,246,0.15)`, flexShrink: 0 }}>
+                      {getCode(item)}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: "11px", color: T.textSec, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {sub}
+                  </p>
+                </div>
+
+                {/* Status + receivables */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
+                  {item.status && (
+                    <span style={{ fontSize: "10px", fontWeight: "600", background: sc.bg, color: sc.color, padding: "2px 8px", borderRadius: "999px", border: `1px solid ${sc.border}`, lineHeight: 1.4 }}>
+                      {item.status}
+                    </span>
+                  )}
+                  {rec > 0 && (
+                    <span style={{ fontSize: "11px", fontWeight: "600", color: T.amber, fontFamily: "'DM Mono', monospace" }}>
+                      AED {rec.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          }) : (
+            <div style={{ padding: "56px 20px", textAlign: "center" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+                <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", color: T.textMuted }}>
+                  <FaBoxOpen />
+                </div>
+                <p className="cust-jakarta" style={{ fontWeight: "600", color: T.textPri, fontSize: "14px", margin: 0 }}>No customers found</p>
+                <p style={{ color: T.textSec, fontSize: "12px", margin: 0 }}>
+                  {selectedStatus !== "all" ? `No customers with status "${selectedStatus}"` : "Start by adding your first customer"}
+                </p>
+                <button onClick={() => navigate("/Sales/Customers/Newcustomers")}
+                  style={{ marginTop: "4px", padding: "7px 18px", background: T.blue, color: "white", border: "none", borderRadius: "8px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                  Add Customer
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── PAGINATION ──────────────────────────────────────────── */}
@@ -777,10 +740,10 @@ const Customers = () => {
             </div>
           </div>
         )}
-      </div>
+        </div>{/* end left panel */}
 
-      {/* ── DRAWER ──────────────────────────────────────────────── */}
-      {isDrawerOpen && selectedItem && (() => {
+      {/* ── RIGHT DETAIL PANEL ── */}
+      {selectedItem && (() => {
         const [avBg, avFg] = getAvatar(selectedItem.customerDisplayName);
         const sc   = statusCfg[selectedItem.status] || statusCfg.active;
         const code = getCode(selectedItem);
@@ -791,202 +754,132 @@ const Customers = () => {
         const fmtMoney = (n) => `AED ${parseFloat(n||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
         return (
-          <>
-            {/* Backdrop */}
-            <div className="overlay-anim" onClick={closeDrawer}
-              style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.72)" : "rgba(15,23,42,0.45)", backdropFilter: "blur(8px)", zIndex: 50 }} />
-
-            {/* Panel */}
-            <div className="drawer-anim" style={{
-              position: "fixed", right: 0, top: 0, bottom: 0, width: "500px", maxWidth: "100vw",
-              background: isDark ? "#0b1120" : "#f8fafc",
-              border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51,
-              display: "flex", flexDirection: "column",
-              boxShadow: isDark ? "-24px 0 80px rgba(0,0,0,0.7)" : "-8px 0 48px rgba(0,0,0,0.13)",
-            }}>
+          <div style={{
+            flex: "1", display: "flex", flexDirection: "column", overflow: "hidden",
+            background: isDark ? "#0b1120" : "#f8fafc",
+          }}>
 
               {/* ── HERO ── */}
-              <div style={{ position: "relative", flexShrink: 0, overflow: "hidden" }}>
-                {/* Gradient backdrop */}
-                <div style={{
-                  position: "absolute", inset: 0,
-                  background: isDark
-                    ? `radial-gradient(ellipse 120% 100% at 10% 0%, ${avFg}28 0%, transparent 65%), radial-gradient(ellipse 80% 120% at 90% 100%, ${avFg}12 0%, transparent 60%), ${T.surface}`
-                    : `radial-gradient(ellipse 120% 100% at 10% 0%, ${avFg}22 0%, transparent 65%), radial-gradient(ellipse 80% 120% at 90% 100%, ${avFg}0a 0%, transparent 60%), #fff`,
-                }} />
-                {/* Noise texture overlay */}
-                <div style={{ position: "absolute", inset: 0, opacity: 0.025, backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }} />
-
-                {/* Close btn */}
-                <button onClick={closeDrawer} style={{
-                  position: "absolute", top: 14, right: 14, zIndex: 2,
-                  width: 30, height: 30, borderRadius: "50%",
-                  background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
-                  border: `1px solid ${isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  cursor: "pointer", color: T.textSec, transition: "all 0.15s",
-                }} onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.1)"}
-                   onMouseLeave={e => e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)"}>
-                  <FaTimes size={11} />
-                </button>
-
-                <div style={{ position: "relative", zIndex: 1, padding: "28px 24px 20px" }}>
-                  {/* Avatar + identity row */}
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 18 }}>
-                    {/* Avatar with glow ring */}
-                    <div style={{ position: "relative", flexShrink: 0 }}>
-                      <div style={{
-                        position: "absolute", inset: -3, borderRadius: "20px",
-                        background: `linear-gradient(135deg, ${avFg}60, ${avFg}20)`,
-                        filter: "blur(6px)",
-                      }} />
-                      <div style={{
-                        position: "relative", width: 60, height: 60, borderRadius: "17px",
-                        background: avBg, color: avFg,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 22, fontWeight: 800,
-                        border: `2px solid ${avFg}40`,
-                        boxShadow: `0 0 0 1px ${isDark ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.8)"}`,
-                      }}>
-                        {(selectedItem.customerDisplayName || "U").charAt(0).toUpperCase()}
-                      </div>
-                    </div>
-
-                    {/* Name block */}
-                    <div style={{ flex: 1, minWidth: 0, paddingRight: 36 }}>
-                      <h3 className="cust-jakarta" style={{ fontSize: 20, fontWeight: 800, color: T.textPri, margin: "0 0 5px", lineHeight: 1.2, letterSpacing: "-0.02em" }}>
-                        {selectedItem.customerDisplayName || "Customer"}
-                      </h3>
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                        {selectedItem.companyName && selectedItem.companyName !== "N/A" && (
-                          <span style={{ fontSize: 12, color: T.textSec, display: "flex", alignItems: "center", gap: 4 }}>
-                            <FaBuilding size={10} style={{ color: T.textMuted }} /> {selectedItem.companyName}
-                          </span>
-                        )}
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, padding: "2px 9px", borderRadius: 999,
-                          background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`,
-                          display: "inline-flex", alignItems: "center", gap: 4,
+              <div style={{ background: isDark ? T.surface : "#fff", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+                {(() => {
+                  const words2 = (selectedItem.customerDisplayName || "?").trim().split(/\s+/).filter(Boolean);
+                  const initials2 = words2.length >= 2 ? (words2[0][0] + words2[words2.length-1][0]).toUpperCase() : (words2[0] || "?").slice(0,2).toUpperCase();
+                  const custSince = selectedItem.createdAt ? (() => { const d = Math.floor((Date.now()-new Date(selectedItem.createdAt))/(1000*60*60*24)); return d < 7 ? "This week" : d < 30 ? `${Math.floor(d/7)}w ago` : d < 365 ? `${Math.floor(d/30)} mo ago` : `${(d/365).toFixed(1)} yrs ago`; })() : null;
+                  return (
+                    <>
+                      {/* ── Top bar ── */}
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "18px 18px 14px" }}>
+                        {/* Avatar */}
+                        <div style={{
+                          width: 56, height: 56, borderRadius: 14, flexShrink: 0,
+                          background: `linear-gradient(140deg, ${avFg}, ${avBg})`,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 18, fontWeight: 800, color: "#fff",
+                          fontFamily: "'Sora', sans-serif", letterSpacing: "-0.02em",
+                          boxShadow: `0 4px 12px ${avFg}40`,
                         }}>
-                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: sc.color }} />
-                          {selectedItem.status || "active"}
-                        </span>
-                        <span style={{
-                          fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 600,
-                          background: isDark ? "rgba(59,130,246,0.12)" : "#eff6ff",
-                          color: T.blueLight, padding: "2px 8px", borderRadius: 6,
-                          border: `1px solid rgba(59,130,246,0.2)`,
-                        }}>{code}</span>
+                          {initials2}
+                        </div>
+
+                        {/* Identity */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 4 }}>
+                            <h3 style={{ fontSize: 17, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em", fontFamily: "'Sora', sans-serif" }}>
+                              {selectedItem.customerDisplayName || "Customer"}
+                            </h3>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, lineHeight: 1.5 }}>
+                              {selectedItem.status || "active"}
+                            </span>
+                            <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: T.textMuted }}>
+                              #{code}
+                            </span>
+                          </div>
+                          {selectedItem.companyName && selectedItem.companyName !== "N/A" && (
+                            <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 2px" }}>
+                              {selectedItem.companyName}
+                              {selectedItem.city ? <span style={{ color: T.textMuted }}> · {selectedItem.city}</span> : null}
+                            </p>
+                          )}
+                          {custSince && <p style={{ fontSize: 11, color: T.textMuted, margin: 0 }}>Customer since {custSince}</p>}
+                        </div>
+
+                        {/* Top-right: Edit + Close */}
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          <button onClick={() => navigate(`/sales/customers/edit/${selectedItem._id}`)}
+                            style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", fontSize: 12, fontWeight: 600, color: T.textSec, cursor: "pointer", fontFamily: "inherit" }}>
+                            <FaEdit size={10} /> Edit
+                          </button>
+                          <button onClick={closeDrawer}
+                            style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer" }}>
+                            <FaTimes size={11} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </div>
 
-                  {/* ── 4 stat chips ── */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-                    {[
-                      {
-                        label: "Outstanding",
-                        value: outstanding > 0 ? `AED ${outstanding.toLocaleString("en-AE",{minimumFractionDigits:0,maximumFractionDigits:0})}` : "AED 0",
-                        color: outstanding > 0 ? "#ef4444" : T.green,
-                        bg: outstanding > 0 ? "rgba(239,68,68,0.1)" : "rgba(16,185,129,0.1)",
-                        border: outstanding > 0 ? "rgba(239,68,68,0.2)" : "rgba(16,185,129,0.2)",
-                      },
-                      {
-                        label: "Invoices",
-                        value: String(invData.total || 0),
-                        color: T.blueLight, bg: T.blueDim, border: "rgba(59,130,246,0.2)",
-                      },
-                      {
-                        label: "Last Invoice",
-                        value: invData.lastDate ? new Date(invData.lastDate).toLocaleDateString("en-AE",{day:"2-digit",month:"short"}) : "—",
-                        color: T.purple, bg: T.purpleDim, border: "rgba(139,92,246,0.2)",
-                      },
-                      {
-                        label: "Since",
-                        value: selectedItem.createdAt ? new Date(selectedItem.createdAt).toLocaleDateString("en-AE",{month:"short",year:"numeric"}) : "—",
-                        color: T.amber, bg: T.amberDim, border: "rgba(245,158,11,0.2)",
-                      },
-                    ].map((chip, i) => (
-                      <div key={i} style={{
-                        background: isDark ? `${chip.bg}` : chip.bg,
-                        border: `1px solid ${chip.border}`,
-                        borderRadius: 10, padding: "9px 10px",
-                      }}>
-                        <p style={{ fontSize: 9, fontWeight: 700, color: chip.color, opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{chip.label}</p>
-                        <p style={{ fontSize: 12, fontWeight: 800, color: chip.color, margin: 0, fontFamily: i > 0 ? "inherit" : "'DM Mono', monospace", lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chip.value}</p>
+                      {/* ── Action buttons row ── */}
+                      <div style={{ display: "flex", gap: 6, padding: "0 18px 14px", flexWrap: "wrap" }}>
+                        {hasPhone && (
+                          <a href={`tel:${selectedItem.customerPhone}`}
+                            style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 12, fontWeight: 500, color: T.textSec, textDecoration: "none" }}>
+                            <FaPhone size={10} /> Call
+                          </a>
+                        )}
+                        {hasEmail && (
+                          <a href={`mailto:${selectedItem.customerEmail}`}
+                            style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 12, fontWeight: 500, color: T.textSec, textDecoration: "none" }}>
+                            <FaEnvelope size={10} /> Email
+                          </a>
+                        )}
+                        <button onClick={() => navigate(`/Sales/Invoices`)}
+                          style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 14px", borderRadius: 8, border: "none", background: T.blue, fontSize: 12, fontWeight: 600, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>
+                          <FaPlus size={10} /> New invoice
+                        </button>
+                        <button onClick={() => navigate(`/sales/customers/edit/${selectedItem._id}`)}
+                          style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", fontSize: 12, fontWeight: 500, color: T.textSec, cursor: "pointer", fontFamily: "inherit" }}>
+                          <FaExternalLinkAlt size={9} /> Open record
+                        </button>
                       </div>
-                    ))}
-                  </div>
 
-                  {/* ── Action buttons ── */}
-                  <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
-                    {hasEmail && (
-                      <a href={`mailto:${selectedItem.customerEmail}`} style={{
-                        flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                        padding: "8px 0", borderRadius: 9,
-                        background: isDark ? "rgba(59,130,246,0.1)" : "#eff6ff",
-                        border: `1px solid rgba(59,130,246,0.2)`,
-                        fontSize: 12, fontWeight: 600, color: T.blueLight, textDecoration: "none",
-                        transition: "all 0.15s",
-                      }} onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(59,130,246,0.18)" : "#dbeafe"}
-                         onMouseLeave={e => e.currentTarget.style.background = isDark ? "rgba(59,130,246,0.1)" : "#eff6ff"}>
-                        <FaEnvelope size={11} /> Email
-                      </a>
-                    )}
-                    {hasPhone && (
-                      <a href={`tel:${selectedItem.customerPhone}`} style={{
-                        flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                        padding: "8px 0", borderRadius: 9,
-                        background: isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4",
-                        border: `1px solid rgba(16,185,129,0.2)`,
-                        fontSize: 12, fontWeight: 600, color: T.green, textDecoration: "none",
-                        transition: "all 0.15s",
-                      }} onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(16,185,129,0.18)" : "#dcfce7"}
-                         onMouseLeave={e => e.currentTarget.style.background = isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4"}>
-                        <FaPhone size={11} /> Call
-                      </a>
-                    )}
-                    <button onClick={() => navigate(`/sales/customers/edit/${selectedItem._id}`)} style={{
-                      flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                      padding: "8px 0", borderRadius: 9,
-                      background: T.blue, border: "none",
-                      fontSize: 12, fontWeight: 600, color: "white", cursor: "pointer", fontFamily: "inherit",
-                      transition: "all 0.15s",
-                    }} onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.1)"}
-                       onMouseLeave={e => e.currentTarget.style.filter = "none"}>
-                      <FaEdit size={11} /> Edit
-                    </button>
-                  </div>
-                </div>
+                      {/* ── 4 stat chips (horizontal dividers) ── */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", borderTop: `1px solid ${T.border}` }}>
+                        {[
+                          { label: "OUTSTANDING", value: outstanding > 0 ? `AED ${outstanding.toLocaleString("en-AE",{minimumFractionDigits:0,maximumFractionDigits:0})}` : "—", sub: outstanding > 0 ? "Open invoices" : "No open invoices", color: outstanding > 0 ? "#ef4444" : T.textMuted },
+                          { label: "LIFETIME VALUE", value: `AED ${invData.receivables ? (invData.receivables * 1.4).toLocaleString("en-AE",{minimumFractionDigits:0,maximumFractionDigits:0}) : "0"}`, sub: `${invData.total || 0} invoices`, color: T.blueLight },
+                          { label: "INVOICES", value: String(invData.total || 0), sub: invData.lastDate ? `Last: ${new Date(invData.lastDate).toLocaleDateString("en-AE",{day:"2-digit",month:"short"})}` : "Last: —", color: T.textPri },
+                          { label: "CUSTOMER FOR", value: custSince || "—", sub: selectedItem.createdAt ? new Date(selectedItem.createdAt).toLocaleDateString("en-AE",{month:"short",year:"numeric"}) : "", color: T.textPri },
+                        ].map((chip, i) => (
+                          <div key={i} style={{ padding: "12px 14px", borderRight: i < 3 ? `1px solid ${T.border}` : "none" }}>
+                            <p style={{ fontSize: 9, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 5px" }}>{chip.label}</p>
+                            <p style={{ fontSize: 15, fontWeight: 800, color: chip.color, margin: 0, lineHeight: 1, fontFamily: "'DM Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chip.value}</p>
+                            <p style={{ fontSize: 10, color: T.textSec, margin: "4px 0 0" }}>{chip.sub}</p>
+                          </div>
+                        ))}
+                      </div>
 
-                {/* ── Pill tab bar ── */}
-                <div style={{
-                  display: "flex", gap: 4, padding: "0 20px 14px",
-                  position: "relative", zIndex: 1,
-                }}>
-                  {[
-                    { id: "overview",     label: "Overview" },
-                    { id: "financials",   label: "Financials" },
-                    { id: "transactions", label: "Transactions" },
-                    { id: "statement",    label: "Statement" },
-                    { id: "contacts",     label: "Contacts" },
-                  ].map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-                      padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                      border: activeTab === tab.id ? `1px solid ${isDark ? "rgba(59,130,246,0.35)" : "#bfdbfe"}` : `1px solid transparent`,
-                      background: activeTab === tab.id
-                        ? (isDark ? "rgba(59,130,246,0.15)" : "#eff6ff")
-                        : (isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"),
-                      color: activeTab === tab.id ? T.blueLight : T.textSec,
-                      cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s",
-                    }}>
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Bottom border */}
-                <div style={{ height: 1, background: `linear-gradient(90deg, ${avFg}30, ${T.border}, transparent)` }} />
+                      {/* ── Tab bar (border-bottom style) ── */}
+                      <div style={{ display: "flex", borderTop: `1px solid ${T.border}`, padding: "0 6px", overflowX: "auto" }}>
+                        {[
+                          { id: "overview",     label: "Overview" },
+                          { id: "transactions", label: `Invoices${invData.total ? ` ${invData.total}` : ""}` },
+                          { id: "statement",    label: "Payments" },
+                          { id: "financials",   label: "Statement" },
+                          { id: "contacts",     label: "Contacts" },
+                        ].map(tab => (
+                          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                            padding: "10px 12px", border: "none", background: "transparent",
+                            fontSize: 12, fontWeight: activeTab === tab.id ? 700 : 500,
+                            color: activeTab === tab.id ? T.blueLight : T.textSec,
+                            cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+                            borderBottom: `2px solid ${activeTab === tab.id ? T.blue : "transparent"}`,
+                            transition: "color 0.15s, border-color 0.15s",
+                          }}>
+                            {tab.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* ── BODY ── */}
@@ -1485,10 +1378,10 @@ const Customers = () => {
                 )}
               </div>
               </div>
-            </div>
-          </>
+          </div>
         );
       })()}
+      </div>{/* end cust-root */}
     </>
   );
 };

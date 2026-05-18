@@ -1,11 +1,11 @@
 import api from './axiosInstance'
-import { toast } from 'react-hot-toast'
+import nexusToast from './nexusToast'
 
 const useAddSalesOrder = () => {
   const handleAddSalesOrder = async (salesOrderData) => {
     try {
       const response = await api.post('/api/sales-orders/', salesOrderData)
-      toast.success("Sales order created successfully!")
+      nexusToast.success("Sales order created successfully!")
       return response.data
     } catch (error) {
       const data = error.response?.data
@@ -14,7 +14,7 @@ const useAddSalesOrder = () => {
         throw error
       }
       const errorMessage = data?.message || "Unable to create the sales order."
-      toast.error(errorMessage)
+      nexusToast.error(errorMessage)
       throw error
     }
   }

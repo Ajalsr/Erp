@@ -381,13 +381,31 @@ export default function Quotes() {
                     </>
                   )}
 
-                  {/* Convert to Invoice */}
+                  {/* Convert to Sales Order (preferred path for accepted quotes) */}
+                  {selected.status === "accepted" && (
+                    <button
+                      onClick={() => navigate("/Sales/Salesorders/Newsalesorders", { state: { fromQuote: {
+                        quoteId: selected._id,
+                        quoteNumber: selected.quoteNumber,
+                        customerId: selected.customerId,
+                        customerName: selected.customerName,
+                        paymentTerms: selected.paymentTerms,
+                        currency: selected.currency,
+                        grandTotal: selected.totals?.grandTotal,
+                        notes: selected.notes?.customer,
+                      }}})}
+                      style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "inherit", width: "100%" }}>
+                      📦 Create Sales Order →
+                    </button>
+                  )}
+
+                  {/* Convert to Invoice (quick path / skip SO) */}
                   {["sent", "accepted"].includes(selected.status) && (
                     <button
                       disabled={converting}
                       onClick={() => handleConvert(selected)}
                       style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: converting ? "not-allowed" : "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", color: "#8b5cf6", fontFamily: "inherit", width: "100%", opacity: converting ? 0.6 : 1 }}>
-                      {converting ? "Converting…" : "📄 Convert to Invoice"}
+                      {converting ? "Converting…" : "📄 Convert to Invoice (skip SO)"}
                     </button>
                   )}
 
