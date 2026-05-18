@@ -226,8 +226,10 @@ const OrgSwitcher = ({ isDark, D }) => {
 
 // ─────────────────────────────────────────────────────────────────
 const Navbar = ({ onToggleSidebar }) => {
-  const [dropdownOpen, setDropdownOpen] = useState(false)
-  const [notifOpen,    setNotifOpen]    = useState(false)
+  const [dropdownOpen,  setDropdownOpen]  = useState(false)
+  const [notifOpen,     setNotifOpen]     = useState(false)
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [searchVal,     setSearchVal]     = useState('')
   const dropdownRef = useRef(null)
   const notifRef    = useRef(null)
   const navigate    = useNavigate()
@@ -355,6 +357,38 @@ const Navbar = ({ onToggleSidebar }) => {
             )}
             <span className="nx-navbar-title" style={{ fontSize: '13px', fontWeight: '600', color: D.textPri }}>{title}</span>
           </div>
+        </div>
+
+        {/* ── Center search ── */}
+        <div style={{ flex: 1, maxWidth: '420px', margin: '0 16px', position: 'relative' }}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: D.textSec, pointerEvents: 'none', flexShrink: 0 }}>
+            <circle cx="11" cy="11" r="8" strokeWidth="2"/><path strokeLinecap="round" strokeWidth="2" d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input
+            value={searchVal}
+            onChange={e => setSearchVal(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            placeholder="Search across Nexus…"
+            style={{
+              width: '100%', height: '32px',
+              padding: '0 32px 0 32px',
+              border: `1px solid ${searchFocused ? (isDark ? 'rgba(59,130,246,0.5)' : '#93c5fd') : D.border}`,
+              borderRadius: '8px',
+              background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc',
+              color: D.textPri, fontSize: '12px',
+              outline: 'none', fontFamily: 'inherit',
+              transition: 'border-color 0.15s, box-shadow 0.15s',
+              boxShadow: searchFocused ? (isDark ? '0 0 0 3px rgba(59,130,246,0.15)' : '0 0 0 3px rgba(147,197,253,0.3)') : 'none',
+            }}
+          />
+          {searchVal && (
+            <button onClick={() => setSearchVal('')}
+              style={{ position: 'absolute', right: '9px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: D.textSec, padding: 0, lineHeight: 1, fontSize: '14px' }}>
+              ×
+            </button>
+          )}
         </div>
 
         {/* ── Right ── */}

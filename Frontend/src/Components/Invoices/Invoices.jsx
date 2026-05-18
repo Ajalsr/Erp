@@ -50,7 +50,7 @@ const COLS = [
   { key: "actions",  label: "",            w: "7%"  },
 ];
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 200;
 
 /* ─── StatusBadge ───────────────────────────────────────────────────────── */
 const StatusBadge = ({ status }) => {
@@ -371,6 +371,13 @@ const Invoices = () => {
   const [pmtLoading,     setPmtLoading]    = useState(false);
   const [paymentInvoice, setPaymentInvoice] = useState(null);
 
+  /* inline modals (replaces window.prompt) */
+  const [sendModal,  setSendModal]  = useState(null); // null | 'send' | 'reminder'
+  const [sendEmail,  setSendEmail]  = useState('');
+  const [sendLoading, setSendLoading] = useState(false);
+  const [voidModal,  setVoidModal]  = useState(false);
+  const [voidInput,  setVoidInput]  = useState('');
+
   useEffect(() => {
     if (!selected || drawerTab !== "credits") return;
     setCnLoading(true);
@@ -414,6 +421,33 @@ const Invoices = () => {
   const handleSearch       = (e) => { setSearch(e.target.value); setPage(1); };
   const handleStatusFilter = (s) => { setStatusFilter(s); setPage(1); };
 
+  const handleSendInvoice = async () => {
+    setSendLoading(true);
+    try {
+      const endpoint = sendModal === 'send'
+        ? `/api/invoices/${selected._id}/send`
+        : `/api/invoices/${selected._id}/send-reminder`;
+      await axiosInstance.post(endpoint, { toEmail: sendEmail || undefined });
+      nexusToast.success(sendModal === 'send' ? "Invoice sent successfully" : "Payment reminder sent");
+      if (sendModal === 'send') loadInvoices();
+      setSendModal(null); setSendEmail('');
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || (sendModal === 'send' ? "Failed to send invoice" : "Failed to send reminder"));
+    } finally { setSendLoading(false); }
+  };
+
+  const handleVoidInvoice = async () => {
+    setVoidLoading(true);
+    try {
+      await axiosInstance.patch(`/api/invoices/${selected._id}/void`, { reason: voidInput });
+      setSelected(null); loadInvoices();
+      nexusToast.success("Invoice voided");
+      setVoidModal(false); setVoidInput('');
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Failed to void invoice");
+    } finally { setVoidLoading(false); }
+  };
+
   /* stats */
   const stats = useMemo(() => {
     const total    = invoices.reduce((s, i) => s + i.amount, 0);
@@ -447,7 +481,7 @@ const Invoices = () => {
   const thStyle = (key) => ({
     fontSize: 10, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase",
     color: sortKey === key ? T.accent : T.muted,
-    padding: "0 12px 10px", textAlign: "left", cursor: key !== "actions" ? "pointer" : "default",
+    padding: "14px 12px 10px", textAlign: "left", cursor: key !== "actions" ? "pointer" : "default",
     userSelect: "none", whiteSpace: "nowrap",
     borderBottom: `1px solid ${T.border}`,
   });
@@ -482,30 +516,6 @@ const Invoices = () => {
       `}</style>
 
       <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif", position: "relative", overflow: "hidden" }}>
-
-        {/* ── Header ── */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 2 }}>
-              <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: ".05em", color: T.accent }}>Nexus</span>
-              <span style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>ERP</span>
-            </div>
-            <span style={{ color: T.border }}>|</span>
-            <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 600 }}>Invoices</span>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button style={{ ...inputStyle, padding: "7px 14px", cursor: "pointer", fontSize: 13, transition: ".15s" }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = T.subtle}
-              onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
-            >Export</button>
-            <button
-              onClick={() => navigate("/Sales/Createinvoices")}
-              style={{ padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none", transition: ".15s" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#fbbf24"}
-              onMouseLeave={e => e.currentTarget.style.background = T.accent}
-            >+ New Invoice</button>
-          </div>
-        </div>
 
         {/* ── Stat Cards ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, padding: "24px 28px 0" }}>
@@ -563,10 +573,24 @@ const Invoices = () => {
             <option value="customer">Sort: Customer</option>
             <option value="status">Sort: Status</option>
           </select>
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+            <button style={{ ...inputStyle, padding: "7px 14px", cursor: "pointer", fontSize: 13, transition: ".15s" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = T.subtle}
+              onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
+            >Export</button>
+            <button
+              onClick={() => navigate("/Sales/Createinvoices")}
+              style={{ padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none", transition: ".15s" }}
+              onMouseEnter={e => e.currentTarget.style.background = "#fbbf24"}
+              onMouseLeave={e => e.currentTarget.style.background = T.accent}
+            >+ New Invoice</button>
+          </div>
         </div>
 
         {/* ── Table ── */}
-        <div style={{ margin: "16px 28px 0", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ margin: "20px 28px 0", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
               <colgroup>
@@ -784,17 +808,7 @@ const Invoices = () => {
                       {/* Send Invoice / Send Reminder */}
                       {["draft", "sent", "unpaid", "overdue", "partial"].includes(selected.status) && (
                         <button
-                          onClick={async () => {
-                            const email = window.prompt("Send to email address:", selected.customerEmail || "");
-                            if (email === null) return;
-                            try {
-                              await axiosInstance.post(`/api/invoices/${selected._id}/send`, { toEmail: email || undefined });
-                              nexusToast.success("Invoice sent successfully");
-                              loadInvoices();
-                            } catch (e) {
-                              nexusToast.error(e.response?.data?.message || "Failed to send invoice");
-                            }
-                          }}
+                          onClick={() => { setSendEmail(selected.customerEmail || ""); setSendModal("send"); }}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue, fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           📧 Send Invoice
                         </button>
@@ -802,16 +816,7 @@ const Invoices = () => {
 
                       {selected.status === "overdue" && (
                         <button
-                          onClick={async () => {
-                            const email = window.prompt("Send reminder to:", selected.customerEmail || "");
-                            if (email === null) return;
-                            try {
-                              await axiosInstance.post(`/api/invoices/${selected._id}/send-reminder`, { toEmail: email || undefined });
-                              nexusToast.success("Payment reminder sent");
-                            } catch (e) {
-                              nexusToast.error(e.response?.data?.message || "Failed to send reminder");
-                            }
-                          }}
+                          onClick={() => { setSendEmail(selected.customerEmail || ""); setSendModal("reminder"); }}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           🔔 Send Reminder
                         </button>
@@ -878,18 +883,7 @@ const Invoices = () => {
                       {selected.status !== "void" && selected.status !== "paid" && (
                         <button
                           disabled={voidLoading}
-                          onClick={async () => {
-                            const reason = window.prompt(`Reason for voiding ${selected.id}? (optional)`);
-                            if (reason === null) return; // cancelled
-                            setVoidLoading(true);
-                            try {
-                              await axiosInstance.patch(`/api/invoices/${selected._id}/void`, { reason });
-                              setSelected(null); loadInvoices();
-                              nexusToast.success("Invoice voided");
-                            } catch (e) {
-                              nexusToast.error(e.response?.data?.message || "Failed to void invoice");
-                            } finally { setVoidLoading(false); }
-                          }}
+                          onClick={() => setVoidModal(true)}
                           style={{ padding: "8px 0", borderRadius: 7, fontSize: 12, cursor: voidLoading ? "not-allowed" : "pointer", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif", opacity: voidLoading ? 0.6 : 1 }}>
                           {voidLoading ? "Voiding…" : "Void Invoice"}
                         </button>
@@ -1126,6 +1120,76 @@ const Invoices = () => {
           onClose={() => setPaymentInvoice(null)}
           onSaved={() => { loadInvoices(); setSelected(null); }}
         />
+      )}
+
+      {/* ── Send / Reminder modal ── */}
+      {sendModal && selected && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
+          onClick={e => e.target === e.currentTarget && setSendModal(null)}>
+          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 400, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>
+              {sendModal === 'send' ? '📧 Send Invoice' : '🔔 Send Reminder'}
+            </div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>{selected.id} · {selected.customer}</div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>
+              Recipient Email
+            </label>
+            <input
+              type="email"
+              autoFocus
+              value={sendEmail}
+              onChange={e => setSendEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSendInvoice()}
+              placeholder="customer@example.com"
+              style={{ width: "100%", padding: "10px 13px", background: T.input, border: `1.5px solid ${T.inputBdr}`, borderRadius: 9, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif" }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={() => { setSendModal(null); setSendEmail(''); }}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.muted, border: `1.5px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif" }}>
+                Cancel
+              </button>
+              <button onClick={handleSendInvoice} disabled={sendLoading}
+                style={{ flex: 2, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: sendLoading ? "not-allowed" : "pointer", opacity: sendLoading ? 0.6 : 1, background: sendModal === 'send' ? "rgba(59,130,246,0.15)" : "rgba(239,68,68,0.12)", color: sendModal === 'send' ? T.blue : "#ef4444", border: `1px solid ${sendModal === 'send' ? "rgba(59,130,246,0.35)" : "rgba(239,68,68,0.3)"}`, fontFamily: "'DM Sans', sans-serif" }}>
+                {sendLoading ? "Sending…" : sendModal === 'send' ? "Send Invoice" : "Send Reminder"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Void modal ── */}
+      {voidModal && selected && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
+          onClick={e => e.target === e.currentTarget && setVoidModal(false)}>
+          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>🚫 Void Invoice</div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>
+              {selected.id} · This action cannot be undone.
+            </div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>
+              Reason <span style={{ color: T.subtle, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
+            </label>
+            <input
+              type="text"
+              autoFocus
+              value={voidInput}
+              onChange={e => setVoidInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleVoidInvoice()}
+              placeholder="e.g. Duplicate entry, Customer request…"
+              style={{ width: "100%", padding: "10px 13px", background: T.input, border: `1.5px solid ${T.inputBdr}`, borderRadius: 9, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif" }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={() => { setVoidModal(false); setVoidInput(''); }}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.muted, border: `1.5px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif" }}>
+                Cancel
+              </button>
+              <button onClick={handleVoidInvoice} disabled={voidLoading}
+                style={{ flex: 2, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: voidLoading ? "not-allowed" : "pointer", opacity: voidLoading ? 0.6 : 1, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", fontFamily: "'DM Sans', sans-serif" }}>
+                {voidLoading ? "Voiding…" : "Void Invoice"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

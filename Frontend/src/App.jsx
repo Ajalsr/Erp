@@ -19,6 +19,7 @@ import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute"
 import Vendors from "./Components/Vendor/Vendor"
 import NewVendor from "./Components/NewVendor/NewVendor"
 import GRN from "./Components/Purchase/GRN"
+import GRNList from "./Components/Purchase/GRNList"
 import Inbound from "./Components/Purchase/Inbound"
 import PurchaseStock from "./Components/Purchase/Stock"
 import CreateOrganization from "./Components/Organization/CreateOrganization"
@@ -62,7 +63,7 @@ function App() {
       <Toaster
         position="top-right"
         gutter={10}
-        containerStyle={{ top: 20, right: 20 }}
+        containerStyle={{ top: 68, right: 20 }}
         toastOptions={{
           style: {
             background: 'transparent',
@@ -107,7 +108,9 @@ function App() {
             {/* FIXED: Was missing leading "/" — navigation silently 404'd */}
             <Route path="/Purchase/Vendors" element={<Vendors />} />
             <Route path="/Purchase/Vendors/NewVendor" element={<NewVendor />} />
-            <Route path="/Purchase/GRN" element={<GRN />} />
+            <Route path="/Purchase/GRN" element={<GRNList />} />
+            <Route path="/Purchase/GRN/new" element={<GRN />} />
+            <Route path="/Purchase/GRN/:id" element={<GRN />} />
             <Route path="/Purchase/Inbound" element={<Inbound />} />
             <Route path="/Purchase/Stock" element={<PurchaseStock />} />
             {/* Organization settings & members */}

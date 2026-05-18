@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import axiosInstance from "../../helper/axiosInstance";
 import {
   FaTimes, FaSearch, FaBoxOpen, FaChevronLeft, FaChevronRight,
   FaCheck, FaBan, FaExclamationTriangle, FaTag, FaWarehouse,
@@ -165,31 +166,42 @@ export default function Inbound() {
     }
   };
 
-  const handleReceive = () => {
+  const [receiveLoading, setReceiveLoading] = useState(false);
+
+  const handleReceive = async () => {
     const sel = items.filter(i => selectedIds.has(i._id));
     if (!sel.length) return;
-    const grnNumber = `GRN-${Date.now().toString().slice(-6).padStart(6, "0")}`;
-    const totalQty  = sel.reduce((s, i) => s + (i.receiveQty || 0), 0);
-    const subTotal  = round2(sel.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0));
-    navigate("/Purchase/GRN", {
-      state: {
-        inboundData: {
-          items: sel,
-          summary: { totalItems: sel.length, totalQuantity: totalQty, subTotal },
-          note: inboundNote,
-          requiresApproval,
-          vendorId: sel[0]?.vendorId || '',
-        },
-        grn: {
-          number:   grnNumber,
-          date:     new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
-          vendor:   sel[0]?.vendor || "Vendor",
-          poNumber: sel[0]?.poNumber || "N/A",
-          status:   "Received",
-          note:     inboundNote,
-        },
-      },
-    });
+    setReceiveLoading(true);
+    try {
+      const grnNumber = `GRN-${Date.now().toString().slice(-6).padStart(6, "0")}`;
+      const payload = {
+        grnNumber,
+        purchaseOrderId:  sel[0]?.poId     || '',
+        poNumber:         sel[0]?.poNumber || '',
+        vendorId:         sel[0]?.vendorId || '',
+        vendorName:       sel[0]?.vendor   || '',
+        receiptDate:      new Date().toISOString(),
+        notes:            inboundNote,
+        requiresApproval,
+        status:           'pending',
+        items: sel.map(i => ({
+          itemId:      i.itemId     || '',
+          details:     i.name       || '',
+          itemCode:    i.item_code  || '',
+          orderedQty:  i.orderedQty || 0,
+          receivedQty: i.receiveQty || 0,
+          unit:        i.unit       || 'Pcs',
+          rate:        parseFloat(i.costPrice || 0),
+        })),
+      };
+      await axiosInstance.post('/api/grns/', payload);
+      navigate('/Purchase/GRN');
+    } catch (err) {
+      console.error('GRN create error:', err);
+      alert('Failed to create GRN. Please try again.');
+    } finally {
+      setReceiveLoading(false);
+    }
   };
 
   const handleCancelRequest = (id) => { setItemToCancel(id); setShowCancelModal(true); };
@@ -334,11 +346,11 @@ export default function Inbound() {
             </div>
 
             {/* Receive button */}
-            <button className="ob-btn" onClick={handleReceive} disabled={selectedIds.size === 0}
-              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 18px", background: selectedIds.size === 0 ? T.surface2 : T.blue, color: selectedIds.size === 0 ? T.textMuted : "white", border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+            <button className="ob-btn" onClick={handleReceive} disabled={selectedIds.size === 0 || receiveLoading}
+              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 18px", background: selectedIds.size === 0 ? T.surface2 : T.blue, color: selectedIds.size === 0 ? T.textMuted : "white", border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: (selectedIds.size === 0 || receiveLoading) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: receiveLoading ? 0.7 : 1 }}>
               <MdMoveToInbox size={14} />
-              Receive Goods
-              {selectedIds.size > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px" }}>{selectedIds.size}</span>}
+              {receiveLoading ? 'Saving…' : 'Receive Goods'}
+              {!receiveLoading && selectedIds.size > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px" }}>{selectedIds.size}</span>}
             </button>
           </div>
         </div>
@@ -648,9 +660,9 @@ export default function Inbound() {
                   <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Grand Total (incl. VAT)</p>
                   <p className="ob-jakarta" style={{ fontSize: "20px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalValue)}</p>
                 </div>
-                <button className="ob-btn" onClick={handleReceive}
-                  style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
-                  <MdMoveToInbox size={14} /> Receive Goods
+                <button className="ob-btn" onClick={handleReceive} disabled={receiveLoading}
+                  style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: receiveLoading ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: receiveLoading ? 0.7 : 1 }}>
+                  <MdMoveToInbox size={14} /> {receiveLoading ? 'Saving…' : 'Receive Goods'}
                 </button>
               </div>
 

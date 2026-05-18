@@ -238,14 +238,19 @@ export default function CreateQuote() {
     customer: c,
   }));
 
-  // Pre-fill from edit/clone state
-  const prefill = location.state?.edit || location.state?.clone || null;
-  const isEdit  = !!location.state?.edit;
+  // Pre-fill from edit/clone state or from Enquiry conversion
+  const prefill    = location.state?.edit || location.state?.clone || null;
+  const isEdit     = !!location.state?.edit;
+  const fromEnquiry = location.state?.fromEnquiry || null;
 
   const [customerId,    setCustomerId]    = useState(prefill?.customerId || "");
-  const [customerName,  setCustomerName]  = useState(prefill?.customerName || "");
-  const [customerEmail, setCustomerEmail] = useState(prefill?.customerEmail || "");
-  const [billTo,        setBillTo]        = useState(prefill?.billTo || { name: "", address: "", trn: "" });
+  const [customerName,  setCustomerName]  = useState(prefill?.customerName || fromEnquiry?.customerName || "");
+  const [customerEmail, setCustomerEmail] = useState(prefill?.customerEmail || fromEnquiry?.email || "");
+  const [billTo,        setBillTo]        = useState(prefill?.billTo || {
+    name: fromEnquiry?.customerName || "",
+    address: fromEnquiry?.company ? `${fromEnquiry.company}` : "",
+    trn: "",
+  });
   const [quoteDate,     setQuoteDate]     = useState(today());
   const [validUntil,    setValidUntil]    = useState(net30());
   const [currency,      setCurrency]      = useState(prefill?.currency || "AED");
@@ -253,10 +258,16 @@ export default function CreateQuote() {
   const [lineItems,     setLineItems]     = useState(
     prefill?.lineItems?.length
       ? prefill.lineItems.map(li => ({ ...li, _uid: uid(), discountType: li.discountType || "percentage" }))
-      : [EMPTY_ITEM()]
+      : fromEnquiry?.estimatedValue
+        ? [{ ...EMPTY_ITEM(), desc: fromEnquiry.subject || "As per enquiry", unitPrice: fromEnquiry.estimatedValue }]
+        : [EMPTY_ITEM()]
   );
-  const [custNote,    setCustNote]    = useState(prefill?.notes?.customer || "");
-  const [internalNote,setInternalNote]= useState(prefill?.notes?.internal || "");
+  const [custNote,    setCustNote]    = useState(
+    prefill?.notes?.customer || (fromEnquiry?.description ? `Enquiry: ${fromEnquiry.description}` : "")
+  );
+  const [internalNote,setInternalNote]= useState(
+    prefill?.notes?.internal || (fromEnquiry?.enquiryNumber ? `Ref: ${fromEnquiry.enquiryNumber}` : "")
+  );
   const [saving,      setSaving]      = useState(false);
 
   // Totals
@@ -341,6 +352,18 @@ export default function CreateQuote() {
         </div>
 
         <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 24px" }}>
+
+          {/* From-Enquiry banner */}
+          {fromEnquiry && (
+            <div style={{ background: isDark ? "rgba(59,130,246,0.1)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.3)" : "#bfdbfe"}`, borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 13, color: isDark ? "#60a5fa" : "#1d4ed8", fontWeight: 600 }}>
+                Converted from Enquiry {fromEnquiry.enquiryNumber ? `#${fromEnquiry.enquiryNumber}` : ""} — {fromEnquiry.customerName}
+              </span>
+              <span style={{ fontSize: 12, color: isDark ? "#93c5fd" : "#3b82f6", marginLeft: "auto" }}>
+                Pre-filled from enquiry data. Select the customer from the dropdown to link the quote.
+              </span>
+            </div>
+          )}
 
           {/* Customer + Dates */}
           <Section title="Quote Details">

@@ -468,23 +468,52 @@ export default function Enquiries() {
                     ))}
                   </div>
 
-                  {/* Quick convert to Sales Order */}
-                  {selected.status !== "converted" && (
-                    <div style={{ marginTop: 20, padding: 14, background: T.greenDim, border: `1px solid ${T.green}22`, borderRadius: 10 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: T.green, marginBottom: 6 }}>Convert to Sales Order</div>
-                      <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>Mark as converted and navigate to create a Sales Order for this customer.</p>
-                      <button
-                        disabled={updatingStatus}
-                        onClick={async () => {
-                          await handleStatusUpdate("converted");
-                          navigate("/Sales/Salesorders/Newsalesorders");
-                        }}
-                        style={{ padding: "8px 14px", background: T.green, color: "#fff", border: "none",
-                          borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                        Convert & Create Order
-                      </button>
-                    </div>
-                  )}
+                  {/* Pipeline actions */}
+                  <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+                    {/* Enquiry → Quote */}
+                    {selected.status !== "quoted" && selected.status !== "converted" && selected.status !== "lost" && selected.status !== "cancelled" && (
+                      <div style={{ padding: 14, background: isDark ? "rgba(59,130,246,0.08)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.25)" : "#bfdbfe"}`, borderRadius: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#60a5fa" : "#1d4ed8", marginBottom: 5 }}>Create Quote from this Enquiry</div>
+                        <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>Mark as Quoted and open a new Quote pre-filled with this enquiry's data.</p>
+                        <button
+                          disabled={updatingStatus}
+                          onClick={async () => {
+                            await handleStatusUpdate("quoted");
+                            navigate("/Sales/Quotes/Create", { state: { fromEnquiry: {
+                              enquiryNumber: selected.enquiryNumber,
+                              customerName: selected.customerName,
+                              email: selected.email,
+                              company: selected.company,
+                              subject: selected.subject,
+                              description: selected.description,
+                              estimatedValue: selected.estimatedValue,
+                            }}});
+                          }}
+                          style={{ padding: "8px 16px", background: isDark ? "#2563eb" : "#1d4ed8", color: "#fff", border: "none",
+                            borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                          Create Quote →
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Enquiry → Sales Order (direct, for already-quoted or when skipping quote) */}
+                    {selected.status !== "converted" && selected.status !== "lost" && selected.status !== "cancelled" && (
+                      <div style={{ padding: 14, background: T.greenDim, border: `1px solid ${T.green}22`, borderRadius: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: T.green, marginBottom: 5 }}>Convert to Sales Order</div>
+                        <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>Skip quote and go directly to creating a Sales Order.</p>
+                        <button
+                          disabled={updatingStatus}
+                          onClick={async () => {
+                            await handleStatusUpdate("converted");
+                            navigate("/Sales/Salesorders/Newsalesorders");
+                          }}
+                          style={{ padding: "8px 14px", background: T.green, color: "#fff", border: "none",
+                            borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                          Convert & Create Order →
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useGetItem from '../../helper/useGetItem';
 import useGetCustomers from '../../helper/useGetCustomers';
@@ -502,6 +502,7 @@ const Newsalesorders = () => {
   const customerDropdownRef=useRef(null);
   const fileInputRef=useRef(null);
   const navigate=useNavigate();
+  const location=useLocation();
   const { id: editId } = useParams();
   const isEditMode = !!editId;
 
@@ -547,6 +548,23 @@ const Newsalesorders = () => {
   const calcSub=()=>items.reduce((t,i)=>t+(parseFloat(i.amount)||0),0);
   const calcVAT=()=>calcSub()*0.05;
   const calcTotal=()=>calcSub()+calcVAT()+(parseFloat(shippingCharges)||0)+(parseFloat(adjustment)||0);
+
+  // ── Stock availability cache ──────────────────────────────────────
+  const [stockInfo,setStockInfo]=useState({});
+  const fetchedIdsRef=useRef(new Set());
+
+  const fetchStockAvailability=useCallback(async(itemId)=>{
+    if(!itemId||fetchedIdsRef.current.has(itemId))return;
+    fetchedIdsRef.current.add(itemId);
+    setStockInfo(prev=>({...prev,[itemId]:{loading:true}}));
+    try{
+      const res=await axiosInstance.get(`/api/stocks/${itemId}/availability`);
+      const d=res.data?.data||res.data;
+      setStockInfo(prev=>({...prev,[itemId]:{inHand:d.inHand??0,committed:d.committed??0,available:d.available??0,loading:false}}));
+    }catch{
+      setStockInfo(prev=>({...prev,[itemId]:{inHand:0,committed:0,available:0,loading:false}}));
+    }
+  },[]);
 
   useEffect(()=>{
     if(isEditMode) return; // number/date are loaded from the draft
@@ -599,6 +617,19 @@ const Newsalesorders = () => {
       .catch(()=>{ import('react-hot-toast').then(m=>m.toast.error('Failed to load order')); });
   },[isEditMode,editId,customersData,fetchStockAvailability]);
   useEffect(()=>{handleGetItem();handleGetCustomers();},[]);
+
+  // Pre-fill from Quote conversion
+  useEffect(()=>{
+    const fq=location.state?.fromQuote;
+    if(!fq||isEditMode||!customersData)return;
+    if(fq.paymentTerms){const pt=fq.paymentTerms.toLowerCase().replace(' ','_');setPaymentTerms(pt);}
+    if(fq.notes){setCustomerNotes(fq.notes);}
+    if(fq.quoteNumber){setCustomerNotes(n=>(n?n+'\n':'')+'Ref Quote: '+fq.quoteNumber);}
+    if(fq.customerId){
+      const found=customersData.find(c=>c._id===fq.customerId);
+      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+    }
+  },[location.state,isEditMode,customersData]);
   useEffect(()=>{
     if(!inventoryData)return;
     setFilteredItems(!searchTerm?inventoryData.slice(0,10):inventoryData.filter(i=>i.name?.toLowerCase().includes(searchTerm.toLowerCase())||i._id?.toString().includes(searchTerm)||i.item_code?.toLowerCase().includes(searchTerm.toLowerCase())||i.sku?.toLowerCase().includes(searchTerm.toLowerCase())).slice(0,10));
@@ -651,22 +682,7 @@ const Newsalesorders = () => {
       .then(r=>setCreditStatus(r.data?.data||null))
       .catch(()=>setCreditStatus(null));
   },[selectedCustomer?._id]);
-  // ── Stock availability cache ──────────────────────────────────────
-  const [stockInfo,setStockInfo]=useState({});         // { itemId: { inHand, committed, available, loading } }
-  const fetchedIdsRef=useRef(new Set());
 
-  const fetchStockAvailability=useCallback(async(itemId)=>{
-    if(!itemId||fetchedIdsRef.current.has(itemId))return;
-    fetchedIdsRef.current.add(itemId);
-    setStockInfo(prev=>({...prev,[itemId]:{loading:true}}));
-    try{
-      const res=await axiosInstance.get(`/api/stocks/${itemId}/availability`);
-      const d=res.data?.data||res.data;
-      setStockInfo(prev=>({...prev,[itemId]:{inHand:d.inHand??0,committed:d.committed??0,available:d.available??0,loading:false}}));
-    }catch{
-      setStockInfo(prev=>({...prev,[itemId]:{inHand:0,committed:0,available:0,loading:false}}));
-    }
-  },[]);
 
   const getStockStatus=(requested,available)=>{
     if(available<=0)return'out_of_stock';

@@ -159,7 +159,9 @@ func GRNRoutes(router *gin.Engine) {
 	{
 		grnRoutes.POST("/", controllers.CreateGRN())
 		grnRoutes.GET("/", controllers.GetAllGRNs())
+		grnRoutes.GET("/stats", controllers.GetGRNStats())
 		grnRoutes.GET("/:id", controllers.GetGRNByID())
+		grnRoutes.PATCH("/:id", controllers.UpdateGRN())
 	}
 }
 

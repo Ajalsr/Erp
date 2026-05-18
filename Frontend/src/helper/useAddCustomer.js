@@ -1,4 +1,4 @@
-import { toast } from 'react-hot-toast';
+import nexusToast from './nexusToast';
 import axiosInstance from './axiosInstance/'; // ← carries Authorization header automatically
 
 const useAddCustomer = () => {
@@ -91,13 +91,13 @@ const useAddCustomer = () => {
 
       const response = await axiosInstance.post('/api/customers/addcustomers', payload);
 
-      toast.success('Customer added successfully!', { duration: 4000 });
+      nexusToast.success('Customer added successfully!');
       return response.data;
 
     } catch (error) {
       console.error('Error during add customer:', error);
       const msg = error.response?.data?.message || 'Unable to add the customer.';
-      toast.error(msg);
+      nexusToast.error(msg);
       throw error;
     }
   };

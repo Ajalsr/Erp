@@ -1128,6 +1128,7 @@ const Newcustomers = () => {
     if (!formData.customerDisplayName.trim()) { toast.error("Customer display name is required"); return; }
     if (formData.customerType === 'business' && !formData.companyName.trim()) { toast.error("Company name is required for business customers"); return; }
     if (!formData.trnNumber.trim()) { toast.error("TRN Number is required"); return; }
+    toast.dismiss();
     setIsSubmitting(true);
     try {
       if (isEditMode) {

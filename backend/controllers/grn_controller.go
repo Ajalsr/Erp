@@ -127,8 +127,34 @@ func GetAllGRNs() gin.HandlerFunc {
 		if pid := c.Query("purchaseOrderId"); pid != "" {
 			filter["purchaseOrderId"] = pid
 		}
+		if status := c.Query("status"); status != "" {
+			filter["status"] = status
+		}
+		if search := c.Query("search"); search != "" {
+			filter["$or"] = bson.A{
+				bson.M{"grnNumber":  bson.M{"$regex": search, "$options": "i"}},
+				bson.M{"vendorName": bson.M{"$regex": search, "$options": "i"}},
+				bson.M{"poNumber":   bson.M{"$regex": search, "$options": "i"}},
+			}
+		}
 
-		opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})
+		page, limit := 1, 20
+		if p := c.Query("page"); p != "" {
+			fmt.Sscanf(p, "%d", &page)
+		}
+		if l := c.Query("limit"); l != "" {
+			fmt.Sscanf(l, "%d", &limit)
+		}
+		if page < 1 { page = 1 }
+		if limit < 1 { limit = 20 }
+		skip := int64((page - 1) * limit)
+
+		total, _ := grnCollection.CountDocuments(ctx, filter)
+
+		opts := options.Find().
+			SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+			SetSkip(skip).
+			SetLimit(int64(limit))
 		cursor, err := grnCollection.Find(ctx, filter, opts)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": 500, "message": "Failed to fetch GRNs"})
@@ -142,7 +168,79 @@ func GetAllGRNs() gin.HandlerFunc {
 			grns = []models.GRN{}
 		}
 
-		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "GRNs retrieved", "data": grns})
+		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "GRNs retrieved", "data": gin.H{
+			"grns":  grns,
+			"total": total,
+		}})
+	}
+}
+
+func GetGRNStats() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		base := bson.M{"orgId": orgIDStr}
+		count := func(extra bson.M) int64 {
+			f := bson.M{"orgId": orgIDStr}
+			for k, v := range extra { f[k] = v }
+			n, _ := grnCollection.CountDocuments(ctx, f)
+			return n
+		}
+		total, _     := grnCollection.CountDocuments(ctx, base)
+		pending      := count(bson.M{"status": "pending"})
+		confirmed    := count(bson.M{"status": "confirmed"})
+		invoiced     := count(bson.M{"status": "invoiced"})
+
+		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "GRN stats", "data": gin.H{
+			"total":     total,
+			"pending":   pending,
+			"confirmed": confirmed,
+			"invoiced":  invoiced,
+		}})
+	}
+}
+
+func UpdateGRN() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		objID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": 400, "message": "Invalid GRN ID"})
+			return
+		}
+
+		var body struct {
+			Status string `json:"status"`
+			Notes  string `json:"notes"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": 400, "message": "Invalid request body"})
+			return
+		}
+
+		set := bson.M{"updatedAt": time.Now()}
+		if body.Status != "" { set["status"] = body.Status }
+		if body.Notes != ""  { set["notes"]  = body.Notes  }
+
+		result, err := grnCollection.UpdateOne(ctx,
+			bson.M{"_id": objID, "orgId": orgIDStr},
+			bson.M{"$set": set},
+		)
+		if err != nil || result.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": 404, "message": "GRN not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "GRN updated"})
 	}
 }
 

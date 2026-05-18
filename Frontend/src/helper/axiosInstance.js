@@ -1,5 +1,5 @@
 import axios from 'axios'
-import toast from 'react-hot-toast'
+import nexusToast from './nexusToast'
 import useAuthStore from '../store/useAuthStore'
 
 const api = axios.create({
@@ -24,18 +24,7 @@ const handleExpiredSession = (message = 'Your session has expired. Please log in
   if (logoutToastShown) return
   logoutToastShown = true
 
-  toast.error(message, {
-    duration: 4000,
-    icon: '🔒',
-    style: {
-      background: '#1e293b',
-      color: '#f1f5f9',
-      border: '1px solid rgba(239,68,68,0.3)',
-      borderRadius: '10px',
-      fontSize: '13px',
-      fontWeight: '500',
-    },
-  })
+  nexusToast.error(message)
 
   // Small delay so the toast renders before navigation
   setTimeout(() => {
