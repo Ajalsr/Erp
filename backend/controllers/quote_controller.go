@@ -374,6 +374,16 @@ func ConvertQuoteToInvoice() gin.HandlerFunc {
 			bson.M{"$set": bson.M{"status": "converted", "convertedTo": inv.ID.Hex(), "updatedAt": time.Now()}},
 		)
 
+		// Auto-convert linked enquiry if this quote was created from one
+		if q.SourceEnquiryId != "" {
+			if enqObjID, err := primitive.ObjectIDFromHex(q.SourceEnquiryId); err == nil {
+				enquiryCollection.UpdateOne(ctx,
+					bson.M{"_id": enqObjID, "orgId": orgID},
+					bson.M{"$set": bson.M{"status": "converted", "updatedAt": time.Now()}},
+				)
+			}
+		}
+
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Quote converted to invoice",

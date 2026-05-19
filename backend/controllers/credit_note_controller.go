@@ -366,6 +366,7 @@ func ApplyCreditNote() gin.HandlerFunc {
 		cnUpdate := bson.M{"status": "applied", "updatedAt": time.Now()}
 		if cn["sourceDocId"] == nil || cn["sourceDocId"] == "" {
 			cnUpdate["sourceDocId"] = sourceDocID
+			cnUpdate["sourceDocNumber"] = inv.InvoiceNumber
 		}
 		creditNoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": cnUpdate})
 

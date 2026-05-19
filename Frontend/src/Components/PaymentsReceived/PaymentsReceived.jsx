@@ -31,12 +31,61 @@ const fmtDate = (d) => {
   catch { return d; }
 };
 
-const MODES = ["Cash", "Bank Transfer", "Cheque", "Card", "Other"];
+const MODES = [
+  "Cash", "Bank Transfer", "Cheque", "PDC",
+  "Credit Card", "Debit Card", "Demand Draft",
+  "Online Transfer", "Letter of Credit", "Other",
+];
+
+const MODE_FIELDS = {
+  "Cash":             [{ key: "receiptNo",   label: "Receipt No.",         placeholder: "e.g. RCP-001" }],
+  "Bank Transfer":    [{ key: "bankName",    label: "Bank Name",           placeholder: "e.g. Emirates NBD" },
+                       { key: "txnRef",      label: "Transaction Ref No.", placeholder: "e.g. TXN-001234", required: true },
+                       { key: "accountNo",   label: "Account / IBAN",      placeholder: "e.g. AE070331234567890123456" }],
+  "Cheque":           [{ key: "chequeNo",    label: "Cheque No.",          placeholder: "e.g. 001234", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. ADIB" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. Dubai Mall Branch" }],
+  "PDC":              [{ key: "chequeNo",    label: "Cheque No.",          placeholder: "e.g. 001234", required: true },
+                       { key: "chequeDate",  label: "Cheque Date",         placeholder: "", type: "date", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. Mashreq Bank" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. DIFC Branch" }],
+  "Credit Card":      [{ key: "cardNetwork", label: "Card Network",        type: "select", options: ["Visa", "Mastercard", "Amex", "Other"] },
+                       { key: "last4",       label: "Last 4 Digits",       placeholder: "e.g. 4242" },
+                       { key: "approvalCode",label: "Approval Code",       placeholder: "e.g. 123456" }],
+  "Debit Card":       [{ key: "cardNetwork", label: "Card Network",        type: "select", options: ["Visa", "Mastercard", "Other"] },
+                       { key: "last4",       label: "Last 4 Digits",       placeholder: "e.g. 4242" },
+                       { key: "txnRef",      label: "Transaction Ref",     placeholder: "e.g. TXN-001234" }],
+  "Demand Draft":     [{ key: "ddNo",        label: "DD No.",              placeholder: "e.g. DD-001234", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. HDFC Bank" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. Main Branch" }],
+  "Online Transfer":  [{ key: "platform",   label: "Platform",            type: "select", options: ["NEFT", "RTGS", "IMPS", "UPI", "Wire Transfer", "Other"] },
+                       { key: "txnRef",      label: "Reference / UTR No.", placeholder: "e.g. UTR12345678", required: true }],
+  "Letter of Credit": [{ key: "lcNo",        label: "LC No.",              placeholder: "e.g. LC-001234", required: true },
+                       { key: "issuingBank", label: "Issuing Bank",        placeholder: "e.g. First Abu Dhabi Bank" },
+                       { key: "lcDate",      label: "LC Date",             placeholder: "", type: "date" }],
+  "Other":            [{ key: "txnRef",      label: "Reference / Description", placeholder: "Enter reference or description" }],
+};
+
+const getPrimaryRef = (mode, d = {}) => {
+  if (["Bank Transfer", "Online Transfer", "Debit Card", "Other"].includes(mode)) return d.txnRef || "";
+  if (["Cheque", "PDC"].includes(mode)) return d.chequeNo ? `CHQ-${d.chequeNo}` : "";
+  if (mode === "Demand Draft")     return d.ddNo || "";
+  if (mode === "Letter of Credit") return d.lcNo || "";
+  if (mode === "Credit Card")      return d.approvalCode ? `APPR-${d.approvalCode}` : "";
+  if (mode === "Cash")             return d.receiptNo || "";
+  return "";
+};
 
 const MODE_COLORS = {
-  "Cash":          { bg: "rgba(16,185,129,.12)",  border: "rgba(16,185,129,.3)",  text: "#10b981" },
-  "Bank Transfer": { bg: "rgba(59,130,246,.12)",   border: "rgba(59,130,246,.3)",  text: "#3b82f6" },
-  "Cheque":        { bg: "rgba(245,158,11,.12)",   border: "rgba(245,158,11,.3)",  text: "#f59e0b" },
+  "Cash":             { bg: "rgba(16,185,129,.12)", border: "rgba(16,185,129,.3)",  text: "#10b981" },
+  "Bank Transfer":    { bg: "rgba(59,130,246,.12)", border: "rgba(59,130,246,.3)",  text: "#3b82f6" },
+  "Cheque":           { bg: "rgba(245,158,11,.12)", border: "rgba(245,158,11,.3)",  text: "#f59e0b" },
+  "PDC":              { bg: "rgba(245,158,11,.12)", border: "rgba(245,158,11,.3)",  text: "#f59e0b" },
+  "Credit Card":      { bg: "rgba(139,92,246,.12)", border: "rgba(139,92,246,.3)",  text: "#8b5cf6" },
+  "Debit Card":       { bg: "rgba(139,92,246,.12)", border: "rgba(139,92,246,.3)",  text: "#8b5cf6" },
+  "Demand Draft":     { bg: "rgba(245,158,11,.12)", border: "rgba(245,158,11,.3)",  text: "#f59e0b" },
+  "Online Transfer":  { bg: "rgba(8,145,178,.12)",  border: "rgba(8,145,178,.3)",   text: "#0891b2" },
+  "Letter of Credit": { bg: "rgba(15,118,110,.12)", border: "rgba(15,118,110,.3)",  text: "#0f766e" },
   "Card":          { bg: "rgba(139,92,246,.12)",   border: "rgba(139,92,246,.3)",  text: "#8b5cf6" },
   "Other":         { bg: "rgba(100,116,139,.12)",  border: "rgba(100,116,139,.3)", text: "#94a3b8" },
 };
@@ -271,7 +320,7 @@ const PaymentDatePicker = ({ value, onChange, T }) => {
 };
 
 /* ── ModeSelect — styled dropdown matching Sel pattern ─────────── */
-const MODE_ICONS  = { "Cash": "💵", "Bank Transfer": "🏦", "Cheque": "📄", "Card": "💳", "Other": "🔄" };
+const MODE_ICONS  = { "Cash": "💵", "Bank Transfer": "🏦", "Cheque": "📄", "PDC": "📋", "Credit Card": "💳", "Debit Card": "💳", "Demand Draft": "📜", "Online Transfer": "🌐", "Letter of Credit": "📃", "Other": "🔄" };
 const MODE_ACCENT = ["#2563eb","#9333ea","#16a34a","#ea580c","#94a3b8"];
 
 const ModeSelect = ({ value, onChange, T }) => {
@@ -324,6 +373,7 @@ const ModeSelect = ({ value, onChange, T }) => {
               {MODES.length} methods
             </div>
           </div>
+          <div style={{ maxHeight: 260, overflowY: "auto" }}>
           {MODES.map((m, i) => {
             const active = value === m;
             const accent = MODE_ACCENT[i % MODE_ACCENT.length];
@@ -355,6 +405,7 @@ const ModeSelect = ({ value, onChange, T }) => {
               </div>
             );
           })}
+          </div>
         </div>
       )}
     </div>
@@ -374,7 +425,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   const [form, setForm] = useState({
     customerId: "", customerName: "", invoiceId: "", invoiceNumber: "",
     amount: "", date: new Date().toISOString().split("T")[0],
-    paymentMode: "Bank Transfer", reference: "", notes: "",
+    paymentMode: "Bank Transfer", details: {}, notes: "",
   });
   const [errors, setErrors] = useState({});
 
@@ -441,7 +492,12 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
     if (!validate()) return;
     setLoading(true);
     try {
-      await axiosInstance.post("/api/payments/", { ...form, amount: Number(form.amount) });
+      await axiosInstance.post("/api/payments/", {
+        ...form,
+        amount:         Number(form.amount),
+        reference:      getPrimaryRef(form.paymentMode, form.details),
+        paymentDetails: form.details,
+      });
       onSaved(); onClose();
     } catch (err) {
       setErrors({ submit: err.response?.data?.message || "Failed to record payment" });
@@ -707,17 +763,46 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
               <ModeSelect
                 T={T}
                 value={form.paymentMode}
-                onChange={m => setForm(f => ({ ...f, paymentMode: m }))}
+                onChange={m => setForm(f => ({ ...f, paymentMode: m, details: {} }))}
               />
             </div>
           </div>
 
-          {/* ── Reference ── */}
-          <div>
-            <label style={lbl}>Reference / Cheque No.</label>
-            <input style={inp} placeholder="e.g. TXN-001234 or Cheque #456"
-              value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} />
-          </div>
+          {/* Mode-specific fields */}
+          {(MODE_FIELDS[form.paymentMode] || []).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "14px 16px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.inputBdr}` }}>
+              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, margin: 0 }}>{form.paymentMode} Details</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {(MODE_FIELDS[form.paymentMode] || []).map(f => (
+                  <div key={f.key}>
+                    <label style={{ ...lbl, marginBottom: 4 }}>{f.label}{f.required && <span style={{ color: "#ef4444" }}> *</span>}</label>
+                    {f.type === "date" ? (
+                      <PaymentDatePicker
+                        value={form.details[f.key] || ""}
+                        onChange={val => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: val } }))}
+                        T={T}
+                      />
+                    ) : f.type === "select" ? (
+                      <select
+                        value={form.details[f.key] || ""}
+                        onChange={e => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: e.target.value } }))}
+                        style={{ ...inp, cursor: "pointer" }}>
+                        <option value="">Select…</option>
+                        {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        style={inp}
+                        placeholder={f.placeholder}
+                        value={form.details[f.key] || ""}
+                        onChange={e => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: e.target.value } }))}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── Notes ── */}
           <div>

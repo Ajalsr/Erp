@@ -19,8 +19,10 @@ const getT = (isDark) => isDark ? {
   topbar: "#ffffff", shadow: "0 12px 32px rgba(0,0,0,0.1)",
 };
 
-const ThemeCtx = createContext(getT(true));
-const useT = () => useContext(ThemeCtx);
+const ThemeCtx  = createContext(getT(true));
+const useT      = () => useContext(ThemeCtx);
+const StockCtx  = createContext([]);
+const useStock  = () => useContext(StockCtx);
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 const today  = () => new Date().toISOString().split("T")[0];
@@ -183,16 +185,126 @@ const CustomerSelect = ({ value, onChange, options, name }) => {
   );
 };
 
+/* ─── Item Combo (desc + stock picker) ─────────────────────────────────── */
+const ItemCombo = ({ value, stockId, onChange }) => {
+  const T      = useT();
+  const stocks = useStock();
+  const [q, setQ]           = useState(value || "");
+  const [open, setOpen]     = useState(false);
+  const [pos, setPos]       = useState({ top: 0, left: 0, width: 0 });
+  const wrapRef  = useRef(null);
+  const dropRef  = useRef(null);
+
+  // Keep local q in sync when parent resets (e.g. clone)
+  useEffect(() => { setQ(value || ""); }, [value]);
+
+  const filtered = q.trim()
+    ? stocks.filter(s => s.name?.toLowerCase().includes(q.toLowerCase()) || s.sku?.toLowerCase().includes(q.toLowerCase())).slice(0, 8)
+    : stocks.slice(0, 8);
+
+  const measure = () => {
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 2, left: r.left, width: r.width });
+  };
+
+  const handleFocus = () => { measure(); setOpen(true); };
+  const handleChange = (e) => {
+    setQ(e.target.value);
+    onChange({ desc: e.target.value, unitPrice: null, stockId: null }); // free type clears stockId
+    setOpen(true);
+  };
+  const pick = (s) => {
+    const price = parseFloat(s.selling_price || s.price || 0);
+    setQ(s.name || "");
+    setOpen(false);
+    onChange({ desc: s.name || "", unitPrice: price, stockId: s._id });
+  };
+
+  useEffect(() => {
+    const h = e => {
+      if (wrapRef.current?.contains(e.target) || dropRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <div style={{ position: "relative" }}>
+        <input
+          value={q}
+          onChange={handleChange}
+          onFocus={handleFocus}
+          placeholder="Search or type description…"
+          style={{
+            background: T.input, border: `1px solid ${stockId ? T.accent2 + "88" : T.border}`,
+            color: T.text, fontFamily: "inherit", fontSize: 13,
+            padding: "8px 28px 8px 10px", borderRadius: 7, outline: "none", width: "100%",
+            transition: "border-color .15s",
+          }}
+        />
+        {stockId && (
+          <span style={{
+            position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
+            fontSize: 9, fontWeight: 800, color: T.accent2,
+            background: T.accent2 + "22", padding: "1px 5px", borderRadius: 4,
+          }}>●</span>
+        )}
+      </div>
+      {open && filtered.length > 0 && createPortal(
+        <div ref={dropRef} style={{
+          position: "fixed", top: pos.top, left: pos.left, width: Math.max(pos.width, 240),
+          zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`,
+          borderRadius: 10, boxShadow: T.shadow, overflow: "hidden",
+        }}>
+          {filtered.map(s => (
+            <div
+              key={s._id}
+              onMouseDown={e => { e.preventDefault(); pick(s); }}
+              style={{
+                padding: "8px 12px", cursor: "pointer", borderBottom: `1px solid ${T.border}`,
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                transition: "background .1s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <div>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: T.text }}>{s.name}</p>
+                {s.sku && <p style={{ margin: 0, fontSize: 10, color: T.muted }}>{s.sku}</p>}
+              </div>
+              <span style={{ fontSize: 12, fontFamily: "'DM Mono',monospace", color: T.accent, flexShrink: 0, marginLeft: 8 }}>
+                AED {parseFloat(s.selling_price || 0).toFixed(2)}
+              </span>
+            </div>
+          ))}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
 /* ─── Line Item Row ─────────────────────────────────────────────────────── */
 const LineRow = ({ item, onChange, onRemove, isOnly }) => {
   const T = useT();
   const set = (k, v) => onChange({ ...item, [k]: v });
   const { subtotal, discAmt, taxAmt, total } = calcLine(item);
 
+  const handleItemPick = ({ desc, unitPrice, stockId }) => {
+    onChange({
+      ...item,
+      desc:       desc ?? item.desc,
+      unitPrice:  unitPrice !== null && unitPrice !== undefined ? unitPrice : item.unitPrice,
+      stockId:    stockId !== undefined ? stockId : item.stockId,
+    });
+  };
+
   return (
     <tr>
       <td style={{ padding: "6px 4px" }}>
-        <Inp value={item.desc} onChange={e => set("desc", e.target.value)} placeholder="Description" />
+        <ItemCombo value={item.desc} stockId={item.stockId} onChange={handleItemPick} />
       </td>
       <td style={{ padding: "6px 4px", width: 72 }}>
         <Inp type="number" min="1" value={item.qty} onChange={e => set("qty", e.target.value)} style={{ textAlign: "right" }} />
@@ -231,7 +343,8 @@ export default function CreateQuote() {
   const isDark    = useThemeStore(s => s.isDark);
   const T         = getT(isDark);
 
-  const { customers: rawCustomers } = useGetCustomers({ page: 1, limit: 200 });
+  const { handleGetCustomers, data: rawCustomers } = useGetCustomers();
+  useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
   const customerOpts = (rawCustomers || []).map(c => ({
     value: c._id,
     label: c.customerDisplayName || c.companyName || `${c.firstName} ${c.lastName}`.trim(),
@@ -243,7 +356,7 @@ export default function CreateQuote() {
   const isEdit     = !!location.state?.edit;
   const fromEnquiry = location.state?.fromEnquiry || null;
 
-  const [customerId,    setCustomerId]    = useState(prefill?.customerId || "");
+  const [customerId,    setCustomerId]    = useState(prefill?.customerId || fromEnquiry?.customerId || "");
   const [customerName,  setCustomerName]  = useState(prefill?.customerName || fromEnquiry?.customerName || "");
   const [customerEmail, setCustomerEmail] = useState(prefill?.customerEmail || fromEnquiry?.email || "");
   const [billTo,        setBillTo]        = useState(prefill?.billTo || {
@@ -258,10 +371,27 @@ export default function CreateQuote() {
   const [lineItems,     setLineItems]     = useState(
     prefill?.lineItems?.length
       ? prefill.lineItems.map(li => ({ ...li, _uid: uid(), discountType: li.discountType || "percentage" }))
-      : fromEnquiry?.estimatedValue
-        ? [{ ...EMPTY_ITEM(), desc: fromEnquiry.subject || "As per enquiry", unitPrice: fromEnquiry.estimatedValue }]
-        : [EMPTY_ITEM()]
+      : fromEnquiry?.lineItems?.length
+        ? fromEnquiry.lineItems.map(li => ({
+            ...EMPTY_ITEM(),
+            desc:       li.itemName || li.desc || "",
+            qty:        li.qty || 1,
+            unitPrice:  li.unitPrice || 0,
+            _enqItemId: li.itemId || null,
+            stockId:    li.itemId || null,
+          }))
+        : fromEnquiry?.estimatedValue
+          ? [{ ...EMPTY_ITEM(), desc: fromEnquiry.subject || "As per enquiry", unitPrice: fromEnquiry.estimatedValue }]
+          : [EMPTY_ITEM()]
   );
+
+  // Stock catalog — always loaded (used in item picker + price delta panel)
+  const [catalogItems, setCatalogItems] = useState([]);
+  useEffect(() => {
+    axiosInstance.get("/api/stocks/getitem")
+      .then(r => setCatalogItems(r.data?.data || []))
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [custNote,    setCustNote]    = useState(
     prefill?.notes?.customer || (fromEnquiry?.description ? `Enquiry: ${fromEnquiry.description}` : "")
   );
@@ -301,10 +431,12 @@ export default function CreateQuote() {
         quoteDate, validUntil, currency, paymentTerms,
         lineItems: lineItems.map((li, i) => {
           const { subtotal, discAmt, taxAmt, total } = computed[i];
-          return { desc: li.desc, qty: p(li.qty), unitPrice: p(li.unitPrice), discount: p(li.discount), taxRate: p(li.taxRate), subtotal, discAmt, taxAmt, total };
+          return { desc: li.desc, qty: p(li.qty), unitPrice: p(li.unitPrice), discount: p(li.discount), taxRate: p(li.taxRate), subtotal, discAmt, taxAmt, total, stockId: li.stockId || li._enqItemId || null };
         }),
         totals: { subtotal: subtotalSum, discountTotal: discountSum, taxTotal: taxSum, grandTotal },
         notes: { customer: custNote, internal: internalNote },
+        sourceEnquiryId:     fromEnquiry?._id || null,
+        sourceEnquiryNumber: fromEnquiry?.enquiryNumber || null,
       };
 
       if (isEdit && prefill?._id) {
@@ -333,6 +465,7 @@ export default function CreateQuote() {
 
   return (
     <ThemeCtx.Provider value={T}>
+    <StockCtx.Provider value={catalogItems}>
       <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", color: T.text }}>
         <style>{css}</style>
 
@@ -355,13 +488,65 @@ export default function CreateQuote() {
 
           {/* From-Enquiry banner */}
           {fromEnquiry && (
-            <div style={{ background: isDark ? "rgba(59,130,246,0.1)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.3)" : "#bfdbfe"}`, borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 13, color: isDark ? "#60a5fa" : "#1d4ed8", fontWeight: 600 }}>
-                Converted from Enquiry {fromEnquiry.enquiryNumber ? `#${fromEnquiry.enquiryNumber}` : ""} — {fromEnquiry.customerName}
-              </span>
-              <span style={{ fontSize: 12, color: isDark ? "#93c5fd" : "#3b82f6", marginLeft: "auto" }}>
-                Pre-filled from enquiry data. Select the customer from the dropdown to link the quote.
-              </span>
+            <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ background: isDark ? "rgba(59,130,246,0.1)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.3)" : "#bfdbfe"}`, borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, color: isDark ? "#60a5fa" : "#1d4ed8", fontWeight: 600 }}>
+                  Converted from Enquiry {fromEnquiry.enquiryNumber ? `#${fromEnquiry.enquiryNumber}` : ""} — {fromEnquiry.customerName}
+                </span>
+                <span style={{ fontSize: 12, color: isDark ? "#93c5fd" : "#3b82f6", marginLeft: "auto" }}>
+                  Pre-filled from enquiry data. Select the customer from the dropdown to link the quote.
+                </span>
+              </div>
+
+              {/* Price delta panel — shown only when enquiry has line items with catalog matches */}
+              {(() => {
+                if (!fromEnquiry.lineItems?.length || !catalogItems.length) return null;
+                const deltas = fromEnquiry.lineItems
+                  .filter(li => li.itemId)
+                  .map(li => {
+                    const cat = catalogItems.find(c => c._id === li.itemId);
+                    if (!cat) return null;
+                    const sys = parseFloat(cat.selling_price || 0);
+                    const offered = parseFloat(li.unitPrice || 0);
+                    if (sys === 0 || offered === sys) return null;
+                    const pct = ((offered - sys) / sys * 100).toFixed(1);
+                    return { name: li.itemName, offered, sys, pct };
+                  })
+                  .filter(Boolean);
+                if (!deltas.length) return null;
+                return (
+                  <div style={{ background: isDark ? "rgba(245,158,11,0.08)" : "#fffbeb",
+                    border: `1px solid ${isDark ? "rgba(245,158,11,0.3)" : "#fcd34d"}`,
+                    borderRadius: 10, padding: "10px 14px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase",
+                      letterSpacing: "0.06em", color: isDark ? "#f59e0b" : "#b45309", marginBottom: 8 }}>
+                      ⚠ Price Differences (Enquiry vs Catalogue)
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "4px 16px",
+                      fontSize: 12, color: T.text }}>
+                      <span style={{ fontWeight: 700, color: T.muted }}>Item</span>
+                      <span style={{ fontWeight: 700, color: T.muted, textAlign: "right" }}>Offered</span>
+                      <span style={{ fontWeight: 700, color: T.muted, textAlign: "right" }}>Catalogue</span>
+                      <span style={{ fontWeight: 700, color: T.muted, textAlign: "right" }}>Δ</span>
+                      {deltas.map((d, i) => (
+                        <>
+                          <span key={`n${i}`}>{d.name}</span>
+                          <span key={`o${i}`} style={{ textAlign: "right", fontFamily: "'DM Mono', monospace" }}>
+                            AED {d.offered.toFixed(2)}
+                          </span>
+                          <span key={`s${i}`} style={{ textAlign: "right", fontFamily: "'DM Mono', monospace" }}>
+                            AED {d.sys.toFixed(2)}
+                          </span>
+                          <span key={`p${i}`} style={{ textAlign: "right", fontFamily: "'DM Mono', monospace",
+                            fontWeight: 700, color: parseFloat(d.pct) < 0 ? T.red : T.accent2 }}>
+                            {parseFloat(d.pct) > 0 ? "+" : ""}{d.pct}%
+                          </span>
+                        </>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -477,6 +662,7 @@ export default function CreateQuote() {
           </div>
         </div>
       </div>
+    </StockCtx.Provider>
     </ThemeCtx.Provider>
   );
 }

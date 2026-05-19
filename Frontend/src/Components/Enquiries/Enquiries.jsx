@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   FaPlus, FaTimes, FaSearch, FaChevronLeft, FaChevronRight,
@@ -8,6 +9,7 @@ import {
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
+import useGetCustomers from "../../helper/useGetCustomers";
 
 const STATUSES = [
   { key: "all",       label: "All" },
@@ -50,12 +52,148 @@ const PriorityBadge = ({ priority }) => {
   );
 };
 
+const EMPTY_LINE = { itemId: "", itemName: "", qty: 1, unitPrice: 0, total: 0 };
+
 const EMPTY_FORM = {
-  customerName: "", email: "", phone: "", company: "",
+  customerId: "", customerName: "", email: "", phone: "", company: "",
   source: "Walk-in", subject: "", description: "",
-  estimatedValue: "", priority: "medium", assignedTo: "",
+  lineItems: [{ ...EMPTY_LINE }],
+  priority: "medium", assignedTo: "",
   followUpDate: "", notes: "", date: new Date().toISOString().slice(0, 10),
 };
+
+function ItemSearch({ value, onSelect, onType, allItems, T }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  const filtered = allItems.filter(i =>
+    (i.name || "").toLowerCase().includes(value.toLowerCase()) ||
+    (i.item_code || "").toLowerCase().includes(value.toLowerCase())
+  ).slice(0, 30);
+
+  useEffect(() => {
+    const h = e => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <input
+        value={value}
+        onChange={e => { onType(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Search item…"
+        style={{ width: "100%", padding: "7px 10px", border: `1.5px solid ${T.border}`,
+          borderRadius: 7, fontSize: 12, background: T.surface, color: T.textPri,
+          outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{ position: "absolute", top: "calc(100% + 2px)", left: 0, right: 0,
+          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+          zIndex: 2000, maxHeight: 180, overflowY: "auto",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.22)" }}>
+          {filtered.map((item, i) => (
+            <div key={item._id || i}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onSelect(item); setOpen(false); }}
+              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12,
+                borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : "none",
+                display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ fontWeight: 600, color: T.textPri }}>{item.name}</span>
+              <span style={{ fontSize: 11, color: T.textSec, fontFamily: "'DM Mono', monospace" }}>
+                {parseFloat(item.selling_price || 0) > 0 ? `AED ${parseFloat(item.selling_price).toFixed(2)}` : "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomerPicker({ value, valueLabel, onSelect, onClear, customers, T, border, inputStyle }) {
+  const [open, setOpen]   = useState(false);
+  const [search, setSearch] = useState("");
+  const [pos, setPos]     = useState({ top: 0, left: 0, width: 0 });
+  const trigRef = useRef(null);
+  const dropRef = useRef(null);
+
+  const filtered = customers.filter(c => {
+    const name = c.customerDisplayName || c.companyName || `${c.firstName || ""} ${c.lastName || ""}`.trim();
+    return (
+      name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.customerEmail || "").toLowerCase().includes(search.toLowerCase())
+    );
+  }).slice(0, 40);
+
+  const measure = () => {
+    if (!trigRef.current) return;
+    const r = trigRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4 + window.scrollY, left: r.left + window.scrollX, width: r.width });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    measure();
+    const h = (e) => {
+      if (!trigRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) {
+        setOpen(false); setSearch("");
+      }
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  return (
+    <div ref={trigRef}>
+      {value ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px",
+          border: `1.5px solid ${T.blue}`, borderRadius: 9, background: T.surface,
+          fontSize: 13, color: T.textPri }}>
+          <span style={{ flex: 1, fontWeight: 600 }}>{valueLabel}</span>
+          <button onClick={onClear} style={{ background: "none", border: "none", cursor: "pointer",
+            color: T.textSec, fontSize: 13, padding: 0, lineHeight: 1 }}>✕</button>
+        </div>
+      ) : (
+        <input
+          value={search}
+          onChange={e => { setSearch(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder="Search existing customers…"
+          style={{ ...inputStyle }}
+        />
+      )}
+      {open && !value && createPortal(
+        <div ref={dropRef} style={{
+          position: "absolute", top: pos.top, left: pos.left, width: pos.width,
+          zIndex: 99999, background: T.surface, border: `1.5px solid ${border}`,
+          borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+          maxHeight: 220, overflowY: "auto",
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 14, fontSize: 12, color: T.textSec, textAlign: "center" }}>
+              No match — leave blank to enter name manually
+            </div>
+          ) : filtered.map(c => {
+            const name = c.customerDisplayName || c.companyName || `${c.firstName || ""} ${c.lastName || ""}`.trim();
+            return (
+              <div key={c._id} onClick={() => { onSelect(c); setOpen(false); setSearch(""); }}
+                style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13,
+                  borderBottom: `1px solid ${border}`, color: T.textPri }}>
+                <div style={{ fontWeight: 600 }}>{name}</div>
+                {c.customerEmail && <div style={{ fontSize: 11, color: T.textSec }}>{c.customerEmail}</div>}
+              </div>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
 
 const LIMIT = 15;
 
@@ -89,6 +227,18 @@ export default function Enquiries() {
   // Status update in drawer
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
+  // Customers for picker
+  const { handleGetCustomers, data: customerList } = useGetCustomers();
+  useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
+
+  // Stock items for line item picker
+  const [allItems, setAllItems] = useState([]);
+  useEffect(() => {
+    axiosInstance.get("/api/stocks/getitem")
+      .then(r => setAllItems(r.data?.data || []))
+      .catch(() => {});
+  }, []);
+
   const loadEnquiries = useCallback(async () => {
     setLoading(true);
     try {
@@ -113,17 +263,53 @@ export default function Enquiries() {
   useEffect(() => { loadEnquiries(); }, [loadEnquiries]);
   useEffect(() => { loadStats(); }, [loadStats]);
 
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+
   const openDrawer = (enq) => { setSelected(enq); setDrawerOpen(true); setDrawerTab("overview"); setEditing(false); };
   const closeDrawer = () => { setDrawerOpen(false); setSelected(null); setEditing(false); };
+
+  const handleCreateCustomer = async () => {
+    if (!selected) return;
+    setCreatingCustomer(true);
+    try {
+      const nameParts = (selected.customerName || "").trim().split(" ");
+      const res = await axiosInstance.post("/api/customers/addcustomers", {
+        customerDisplayName: selected.customerName,
+        firstName:           nameParts[0] || "",
+        lastName:            nameParts.slice(1).join(" ") || "",
+        customerEmail:       selected.email || "",
+        customerPhone:       selected.phone || "",
+        companyName:         selected.company || "",
+        customerType:        "business",
+      });
+      const newId = res.data?.data?._id || res.data?._id;
+      nexusToast.success("Customer created successfully");
+      // Link enquiry to new customer
+      if (newId) {
+        await axiosInstance.put(`/api/enquiries/${selected._id}`, { customerId: newId });
+        const updated = { ...selected, customerId: newId };
+        setSelected(updated);
+        setEnquiries(prev => prev.map(e => e._id === selected._id ? updated : e));
+      }
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Failed to create customer");
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
 
   const handleCreate = async () => {
     if (!form.customerName.trim()) { nexusToast.error("Customer name is required"); return; }
     if (!form.subject.trim())      { nexusToast.error("Subject is required"); return; }
     setSubmitting(true);
     try {
+      const lineItems = (form.lineItems || []).filter(li => li.itemName.trim());
+      const estimatedValue = lineItems.reduce((s, li) =>
+        s + (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0), 0);
       await axiosInstance.post("/api/enquiries/", {
         ...form,
-        estimatedValue: parseFloat(form.estimatedValue) || 0,
+        lineItems,
+        estimatedValue,
       });
       nexusToast.success("Enquiry created successfully");
       setModalOpen(false);
@@ -153,12 +339,16 @@ export default function Enquiries() {
   const handleSaveEdit = async () => {
     setSaving(true);
     try {
+      const lineItems = (editForm.lineItems || []).filter(li => li.itemName?.trim());
+      const estimatedValue = lineItems.reduce((s, li) =>
+        s + (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0), 0);
       await axiosInstance.put(`/api/enquiries/${selected._id}`, {
         ...editForm,
-        estimatedValue: parseFloat(editForm.estimatedValue) || 0,
+        lineItems,
+        estimatedValue,
       });
       nexusToast.success("Enquiry updated");
-      const updated = { ...selected, ...editForm, estimatedValue: parseFloat(editForm.estimatedValue) || 0 };
+      const updated = { ...selected, ...editForm, lineItems, estimatedValue };
       setSelected(updated);
       setEnquiries(prev => prev.map(e => e._id === selected._id ? updated : e));
       setEditing(false);
@@ -407,6 +597,27 @@ export default function Enquiries() {
                         <span style={{ fontSize: 13, color: T.textPri, fontWeight: 500 }}>{val}</span>
                       </div>
                     ))}
+                    {/* Add to Customers — shown when no customerId linked */}
+                    {!selected.customerId && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 11, color: T.textSec }}>Not linked to a customer record</span>
+                          <button
+                            disabled={creatingCustomer}
+                            onClick={handleCreateCustomer}
+                            style={{ padding: "5px 12px", background: T.blue, color: "#fff", border: "none",
+                              borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: creatingCustomer ? "not-allowed" : "pointer",
+                              opacity: creatingCustomer ? 0.6 : 1, fontFamily: "inherit" }}>
+                            {creatingCustomer ? "Creating…" : "+ Add to Customers"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {selected.customerId && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
+                        <span style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>✓ Linked to customer record</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Enquiry details */}
@@ -480,13 +691,16 @@ export default function Enquiries() {
                           onClick={async () => {
                             await handleStatusUpdate("quoted");
                             navigate("/Sales/Quotes/Create", { state: { fromEnquiry: {
-                              enquiryNumber: selected.enquiryNumber,
-                              customerName: selected.customerName,
-                              email: selected.email,
-                              company: selected.company,
-                              subject: selected.subject,
-                              description: selected.description,
+                              _id:            selected._id,
+                              enquiryNumber:  selected.enquiryNumber,
+                              customerId:     selected.customerId || "",
+                              customerName:   selected.customerName,
+                              email:          selected.email,
+                              company:        selected.company,
+                              subject:        selected.subject,
+                              description:    selected.description,
                               estimatedValue: selected.estimatedValue,
+                              lineItems:      selected.lineItems || [],
                             }}});
                           }}
                           style={{ padding: "8px 16px", background: isDark ? "#2563eb" : "#1d4ed8", color: "#fff", border: "none",
@@ -505,7 +719,18 @@ export default function Enquiries() {
                           disabled={updatingStatus}
                           onClick={async () => {
                             await handleStatusUpdate("converted");
-                            navigate("/Sales/Salesorders/Newsalesorders");
+                            navigate("/Sales/Salesorders/Newsalesorders", { state: { fromEnquiry: {
+                              enquiryId:     selected._id,
+                              enquiryNumber: selected.enquiryNumber,
+                              customerId:    selected.customerId || "",
+                              customerName:  selected.customerName,
+                              email:         selected.email,
+                              phone:         selected.phone,
+                              company:       selected.company,
+                              subject:       selected.subject,
+                              lineItems:     selected.lineItems || [],
+                              notes:         selected.notes || "",
+                            }}});
                           }}
                           style={{ padding: "8px 14px", background: T.green, color: "#fff", border: "none",
                             borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
@@ -520,6 +745,28 @@ export default function Enquiries() {
               {/* ── Edit Tab ── */}
               {drawerTab === "edit" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14, animation: "enqFadeUp .2s ease" }}>
+                  <div>
+                    <label style={labelStyle}>Link Existing Customer (optional)</label>
+                    <CustomerPicker
+                      value={editForm.customerId || ""}
+                      valueLabel={editForm.customerName || ""}
+                      customers={customerList || []}
+                      T={T} border={border} inputStyle={inputStyle}
+                      onSelect={c => {
+                        const name = c.customerDisplayName || c.companyName || `${c.firstName || ""} ${c.lastName || ""}`.trim();
+                        setEditForm(f => ({
+                          ...f,
+                          customerId:   c._id,
+                          customerName: name,
+                          email:        c.customerEmail || f.email,
+                          phone:        c.phone || f.phone,
+                          company:      c.companyName || f.company,
+                        }));
+                      }}
+                      onClear={() => setEditForm(f => ({ ...f, customerId: "" }))}
+                    />
+                  </div>
+
                   {[
                     { key: "customerName", label: "Customer Name *" },
                     { key: "email",        label: "Email" },
@@ -528,7 +775,6 @@ export default function Enquiries() {
                     { key: "subject",      label: "Subject *" },
                     { key: "assignedTo",   label: "Assigned To" },
                     { key: "followUpDate", label: "Follow Up Date", type: "date" },
-                    { key: "estimatedValue", label: "Estimated Value (AED)", type: "number" },
                   ].map(({ key, label, type }) => (
                     <div key={key}>
                       <label style={labelStyle}>{label}</label>
@@ -537,6 +783,90 @@ export default function Enquiries() {
                         style={{ ...inputStyle }}/>
                     </div>
                   ))}
+
+                  {/* Line Items */}
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <label style={labelStyle}>Items & Prices</label>
+                      <button type="button"
+                        onClick={() => setEditForm(f => ({ ...f, lineItems: [...(f.lineItems || []), { ...EMPTY_LINE }] }))}
+                        style={{ fontSize: 11, fontWeight: 700, color: T.blue, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                        + Add Item
+                      </button>
+                    </div>
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 52px 80px 72px 20px", gap: 0,
+                        background: T.surface2, padding: "5px 8px", fontSize: 10, fontWeight: 700,
+                        letterSpacing: "0.06em", textTransform: "uppercase", color: T.textSec }}>
+                        <span>Item</span><span style={{ textAlign: "right" }}>Qty</span>
+                        <span style={{ textAlign: "right" }}>Price</span>
+                        <span style={{ textAlign: "right" }}>Total</span><span/>
+                      </div>
+                      {(editForm.lineItems || [{ ...EMPTY_LINE }]).map((li, idx) => {
+                        const total = (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0);
+                        return (
+                          <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 52px 80px 72px 20px",
+                            gap: 0, padding: "5px 8px", borderTop: `1px solid ${T.border}`, alignItems: "center" }}>
+                            <ItemSearch
+                              value={li.itemName || ""}
+                              allItems={allItems}
+                              T={T}
+                              onType={v => setEditForm(f => {
+                                const items = [...(f.lineItems || [])];
+                                items[idx] = { ...items[idx], itemName: v, itemId: "" };
+                                return { ...f, lineItems: items };
+                              })}
+                              onSelect={item => setEditForm(f => {
+                                const items = [...(f.lineItems || [])];
+                                const up = parseFloat(item.selling_price || 0);
+                                items[idx] = { ...items[idx], itemId: item._id, itemName: item.name,
+                                  unitPrice: up, total: (parseFloat(items[idx].qty) || 1) * up };
+                                return { ...f, lineItems: items };
+                              })}
+                            />
+                            <input type="number" min="0" value={li.qty}
+                              onChange={e => setEditForm(f => {
+                                const items = [...(f.lineItems || [])];
+                                const q = parseFloat(e.target.value) || 0;
+                                items[idx] = { ...items[idx], qty: q, total: q * (parseFloat(items[idx].unitPrice) || 0) };
+                                return { ...f, lineItems: items };
+                              })}
+                              style={{ width: "100%", padding: "5px 4px", border: `1px solid ${T.border}`,
+                                borderRadius: 5, fontSize: 12, background: T.surface, color: T.textPri,
+                                outline: "none", textAlign: "right", fontFamily: "'DM Mono', monospace" }}/>
+                            <input type="number" min="0" value={li.unitPrice}
+                              onChange={e => setEditForm(f => {
+                                const items = [...(f.lineItems || [])];
+                                const up = parseFloat(e.target.value) || 0;
+                                items[idx] = { ...items[idx], unitPrice: up, total: (parseFloat(items[idx].qty) || 0) * up };
+                                return { ...f, lineItems: items };
+                              })}
+                              style={{ width: "100%", padding: "5px 4px", border: `1px solid ${T.border}`,
+                                borderRadius: 5, fontSize: 12, background: T.surface, color: T.textPri,
+                                outline: "none", textAlign: "right", fontFamily: "'DM Mono', monospace" }}/>
+                            <span style={{ textAlign: "right", fontSize: 11, fontWeight: 600,
+                              color: T.textPri, fontFamily: "'DM Mono', monospace" }}>
+                              {total.toFixed(2)}
+                            </span>
+                            {(editForm.lineItems || []).length > 1 && (
+                              <button type="button"
+                                onClick={() => setEditForm(f => ({ ...f, lineItems: f.lineItems.filter((_, i) => i !== idx) }))}
+                                style={{ background: "none", border: "none", cursor: "pointer",
+                                  color: T.textSec, fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <div style={{ padding: "5px 8px", borderTop: `1px solid ${T.border}`,
+                        display: "flex", justifyContent: "flex-end", gap: 4,
+                        fontSize: 12, fontWeight: 700, color: T.textPri }}>
+                        <span style={{ color: T.textSec }}>Total:</span>
+                        <span style={{ fontFamily: "'DM Mono', monospace" }}>
+                          AED {(editForm.lineItems || []).reduce((s, li) => s + ((parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0)), 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
 
                   <div>
                     <label style={labelStyle}>Source</label>
@@ -628,6 +958,30 @@ export default function Enquiries() {
             {/* Modal body */}
             <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+
+                {/* Link existing customer (optional) */}
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={labelStyle}>Link Existing Customer (optional)</label>
+                  <CustomerPicker
+                    value={form.customerId}
+                    valueLabel={form.customerName}
+                    customers={customerList || []}
+                    T={T} border={border} inputStyle={inputStyle}
+                    onSelect={c => {
+                      const name = c.customerDisplayName || c.companyName || `${c.firstName || ""} ${c.lastName || ""}`.trim();
+                      setForm(f => ({
+                        ...f,
+                        customerId:   c._id,
+                        customerName: name,
+                        email:        c.customerEmail || f.email,
+                        phone:        c.phone || f.phone,
+                        company:      c.companyName || f.company,
+                      }));
+                    }}
+                    onClear={() => setForm(f => ({ ...f, customerId: "", customerName: "", email: "", phone: "", company: "" }))}
+                  />
+                </div>
+
                 {[
                   { key: "customerName", label: "Customer Name *", full: true },
                   { key: "email",        label: "Email" },
@@ -637,7 +991,6 @@ export default function Enquiries() {
                   { key: "assignedTo",   label: "Assigned To" },
                   { key: "date",         label: "Enquiry Date", type: "date" },
                   { key: "followUpDate", label: "Follow Up Date", type: "date" },
-                  { key: "estimatedValue", label: "Estimated Value (AED)", type: "number" },
                 ].map(({ key, label, full, type }) => (
                   <div key={key} style={{ gridColumn: full ? "1 / -1" : undefined }}>
                     <label style={labelStyle}>{label}</label>
@@ -646,6 +999,90 @@ export default function Enquiries() {
                       style={{ ...inputStyle }}/>
                   </div>
                 ))}
+
+                {/* Line Items */}
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <label style={labelStyle}>Items & Prices</label>
+                    <button type="button"
+                      onClick={() => setForm(f => ({ ...f, lineItems: [...f.lineItems, { ...EMPTY_LINE }] }))}
+                      style={{ fontSize: 11, fontWeight: 700, color: T.blue, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                      + Add Item
+                    </button>
+                  </div>
+                  <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 80px 24px", gap: 0,
+                      background: T.surface2, padding: "5px 10px", fontSize: 10, fontWeight: 700,
+                      letterSpacing: "0.06em", textTransform: "uppercase", color: T.textSec }}>
+                      <span>Item</span><span style={{ textAlign: "right" }}>Qty</span>
+                      <span style={{ textAlign: "right" }}>Price/Unit</span>
+                      <span style={{ textAlign: "right" }}>Total</span><span/>
+                    </div>
+                    {form.lineItems.map((li, idx) => {
+                      const total = (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0);
+                      return (
+                        <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 80px 24px",
+                          gap: 0, padding: "6px 10px", borderTop: `1px solid ${T.border}`, alignItems: "center" }}>
+                          <ItemSearch
+                            value={li.itemName}
+                            allItems={allItems}
+                            T={T}
+                            onType={v => setForm(f => {
+                              const items = [...f.lineItems];
+                              items[idx] = { ...items[idx], itemName: v, itemId: "" };
+                              return { ...f, lineItems: items };
+                            })}
+                            onSelect={item => setForm(f => {
+                              const items = [...f.lineItems];
+                              const up = parseFloat(item.selling_price || 0);
+                              items[idx] = { ...items[idx], itemId: item._id, itemName: item.name,
+                                unitPrice: up, total: (parseFloat(items[idx].qty) || 1) * up };
+                              return { ...f, lineItems: items };
+                            })}
+                          />
+                          <input type="number" min="0" value={li.qty}
+                            onChange={e => setForm(f => {
+                              const items = [...f.lineItems];
+                              const q = parseFloat(e.target.value) || 0;
+                              items[idx] = { ...items[idx], qty: q, total: q * (parseFloat(items[idx].unitPrice) || 0) };
+                              return { ...f, lineItems: items };
+                            })}
+                            style={{ width: "100%", padding: "6px 6px", border: `1px solid ${T.border}`,
+                              borderRadius: 6, fontSize: 12, background: T.surface, color: T.textPri,
+                              outline: "none", textAlign: "right", fontFamily: "'DM Mono', monospace" }}/>
+                          <input type="number" min="0" value={li.unitPrice}
+                            onChange={e => setForm(f => {
+                              const items = [...f.lineItems];
+                              const up = parseFloat(e.target.value) || 0;
+                              items[idx] = { ...items[idx], unitPrice: up, total: (parseFloat(items[idx].qty) || 0) * up };
+                              return { ...f, lineItems: items };
+                            })}
+                            style={{ width: "100%", padding: "6px 6px", border: `1px solid ${T.border}`,
+                              borderRadius: 6, fontSize: 12, background: T.surface, color: T.textPri,
+                              outline: "none", textAlign: "right", fontFamily: "'DM Mono', monospace" }}/>
+                          <span style={{ textAlign: "right", fontSize: 12, fontWeight: 600,
+                            color: T.textPri, fontFamily: "'DM Mono', monospace", padding: "0 2px" }}>
+                            {total.toFixed(2)}
+                          </span>
+                          {form.lineItems.length > 1 && (
+                            <button type="button"
+                              onClick={() => setForm(f => ({ ...f, lineItems: f.lineItems.filter((_, i) => i !== idx) }))}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec,
+                                fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div style={{ padding: "6px 10px", borderTop: `1px solid ${T.border}`,
+                      display: "flex", justifyContent: "flex-end", gap: 4,
+                      fontSize: 12, fontWeight: 700, color: T.textPri }}>
+                      <span style={{ color: T.textSec }}>Total:</span>
+                      <span style={{ fontFamily: "'DM Mono', monospace" }}>
+                        AED {form.lineItems.reduce((s, li) => s + ((parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0)), 0).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
                 <div>
                   <label style={labelStyle}>Source</label>
