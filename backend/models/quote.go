@@ -53,7 +53,9 @@ type Quote struct {
 	Notes         QuoteNotes         `json:"notes"            bson:"notes"`
 	// draft | sent | accepted | declined | expired | converted
 	Status      string    `json:"status"                 bson:"status"`
-	ConvertedTo string    `json:"convertedTo,omitempty"  bson:"convertedTo,omitempty"` // invoice ID
+	ConvertedTo         string `json:"convertedTo,omitempty"         bson:"convertedTo,omitempty"`
+	SourceEnquiryId     string `json:"sourceEnquiryId,omitempty"     bson:"sourceEnquiryId,omitempty"`
+	SourceEnquiryNumber string `json:"sourceEnquiryNumber,omitempty" bson:"sourceEnquiryNumber,omitempty"`
 	OrgID       string    `json:"orgId,omitempty"        bson:"orgId,omitempty"`
 	CreatedBy   string    `json:"createdBy"              bson:"createdBy"`
 	CreatedAt   time.Time `json:"createdAt"              bson:"createdAt"`

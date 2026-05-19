@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import {
   FaPlus, FaTimes, FaSearch, FaFileAlt,
   FaChevronLeft, FaChevronRight, FaEdit, FaTrash,
+  FaCheckCircle, FaTimesCircle, FaBoxOpen, FaFileInvoice,
+  FaCopy, FaPaperPlane, FaExchangeAlt, FaLink,
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
@@ -22,31 +24,46 @@ const STATUS_MAP = Object.fromEntries(STATUSES.filter(s => s.key !== "all").map(
 const Badge = ({ status }) => {
   const s = STATUS_MAP[status] || STATUS_MAP.draft;
   return (
-    <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
-      color: s.color, background: s.bg, whiteSpace: "nowrap", border: `1px solid ${s.color}30` }}>
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+      color: s.color, background: s.bg, whiteSpace: "nowrap",
+      border: `1px solid ${s.color}30`,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
       {s.label}
     </span>
   );
 };
+
+const initials = name =>
+  (name || "?").split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
 
 const fmt = (n, currency = "AED") =>
   `${currency} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const LIMIT = 15;
 
+const STAT_CARDS = [
+  { label: "Sent",      key: "sent",      color: "#3b82f6", icon: FaPaperPlane,    glow: "rgba(59,130,246,0.15)"  },
+  { label: "Accepted",  key: "accepted",  color: "#10b981", icon: FaCheckCircle,   glow: "rgba(16,185,129,0.15)"  },
+  { label: "Declined",  key: "declined",  color: "#ef4444", icon: FaTimesCircle,   glow: "rgba(239,68,68,0.15)"   },
+  { label: "Converted", key: "converted", color: "#8b5cf6", icon: FaExchangeAlt,   glow: "rgba(139,92,246,0.15)"  },
+];
+
 export default function Quotes() {
   const navigate  = useNavigate();
   const isDark    = useThemeStore(s => s.isDark);
   const T         = getTheme(isDark);
 
-  const [quotes,    setQuotes]    = useState([]);
-  const [total,     setTotal]     = useState(0);
-  const [page,      setPage]      = useState(1);
-  const [status,    setStatus]    = useState("all");
-  const [search,    setSearch]    = useState("");
-  const [loading,   setLoading]   = useState(true);
-  const [selected,  setSelected]  = useState(null);
-  const [stats,     setStats]     = useState({});
+  const [quotes,     setQuotes]     = useState([]);
+  const [total,      setTotal]      = useState(0);
+  const [page,       setPage]       = useState(1);
+  const [status,     setStatus]     = useState("all");
+  const [search,     setSearch]     = useState("");
+  const [loading,    setLoading]    = useState(true);
+  const [selected,   setSelected]   = useState(null);
+  const [stats,      setStats]      = useState({});
   const [converting, setConverting] = useState(false);
   const [deleting,   setDeleting]   = useState(false);
 
@@ -125,22 +142,22 @@ export default function Quotes() {
 
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
+    .qt-root * { box-sizing: border-box; }
     .qt-root { font-family: 'DM Sans', sans-serif; }
-    .qt-row { cursor: pointer; transition: background 0.12s; }
-    .qt-row:hover { background: ${isDark ? "rgba(255,255,255,0.03)" : "#f8fafc"} !important; }
+    .qt-row { cursor: pointer; transition: background 0.13s; }
+    .qt-row:hover { background: ${isDark ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.018)"} !important; }
     .qt-row.active { background: ${isDark ? "rgba(59,130,246,0.08)" : "#eff6ff"} !important; }
-    .qt-pill { cursor: pointer; transition: all 0.13s; }
+    .qt-pill { cursor: pointer; transition: all 0.13s; border: none; }
     .qt-pill:hover { opacity: 0.8; }
+    .qt-stat:hover { transform: translateY(-1px); }
+    .qt-stat { transition: transform 0.15s; }
+    .qt-action { transition: opacity 0.13s, transform 0.13s; }
+    .qt-action:hover { opacity: 0.85 !important; transform: translateY(-1px); }
     @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
     .qt-drawer { animation: slideIn 0.22s cubic-bezier(0.16,1,0.3,1) forwards; }
+    .qt-search:focus { border-color: ${isDark ? "rgba(99,102,241,0.5)" : "#a5b4fc"} !important; box-shadow: 0 0 0 3px ${isDark ? "rgba(99,102,241,0.12)" : "rgba(99,102,241,0.08)"} !important; }
+    ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 99px; }
   `;
-
-  const statCards = [
-    { label: "Sent",      key: "sent",      color: "#3b82f6" },
-    { label: "Accepted",  key: "accepted",  color: "#10b981" },
-    { label: "Declined",  key: "declined",  color: "#ef4444" },
-    { label: "Converted", key: "converted", color: "#8b5cf6" },
-  ];
 
   return (
     <div className="qt-root" style={{ background: T.bg, minHeight: "100vh", color: T.text }}>
@@ -152,110 +169,293 @@ export default function Quotes() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
           {/* Header */}
-          <div style={{ padding: "20px 24px 0", flexShrink: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ padding: "22px 28px 0", flexShrink: 0 }}>
+
+            {/* Title row */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div>
-                <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Quotes</h1>
-                <p style={{ fontSize: 12, color: T.muted, margin: "3px 0 0" }}>{total} quote{total !== 1 ? "s" : ""} total</p>
+                <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri || T.text, margin: 0, letterSpacing: "-0.4px" }}>
+                  Quotes
+                </h1>
+                <p style={{ fontSize: 12, color: T.textSec || T.muted, margin: "3px 0 0" }}>
+                  {total} quote{total !== 1 ? "s" : ""} · all pipelines
+                </p>
               </div>
               <button
                 onClick={() => navigate("/Sales/Quotes/Create")}
-                style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", background: T.accent, color: "#0a0e1a", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{
+                  display: "flex", alignItems: "center", gap: 7,
+                  padding: "9px 20px", background: T.blue || T.accent,
+                  color: "#fff", border: "none", borderRadius: 10,
+                  fontSize: 13, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "inherit", letterSpacing: "0.01em",
+                  boxShadow: `0 2px 10px ${T.blueDim || "rgba(59,130,246,0.3)"}`,
+                }}>
                 <FaPlus size={11} /> New Quote
               </button>
             </div>
 
             {/* Stat cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
-              {statCards.map(sc => {
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+              {STAT_CARDS.map(sc => {
                 const d = stats[sc.key] || {};
+                const Icon = sc.icon;
                 return (
-                  <div key={sc.key} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 11, padding: "12px 16px" }}>
-                    <p style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>{sc.label}</p>
-                    <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 18, fontWeight: 800, color: sc.color, margin: "0 0 2px" }}>{d.count || 0}</p>
-                    <p style={{ fontSize: 11, color: T.muted, margin: 0 }}>{fmt(d.total || 0)}</p>
+                  <div key={sc.key} className="qt-stat" style={{
+                    background: T.surface,
+                    border: `1px solid ${T.border}`,
+                    borderLeft: `3px solid ${sc.color}`,
+                    borderRadius: 12,
+                    padding: "14px 16px",
+                    position: "relative",
+                    overflow: "hidden",
+                  }}>
+                    <div style={{
+                      position: "absolute", right: 12, top: 12,
+                      width: 32, height: 32, borderRadius: 8,
+                      background: sc.glow, display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <Icon style={{ color: sc.color, fontSize: 13 }} />
+                    </div>
+                    <p style={{ fontSize: 10, color: T.textSec || T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>
+                      {sc.label}
+                    </p>
+                    <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: sc.color, margin: "0 0 3px", lineHeight: 1 }}>
+                      {d.count || 0}
+                    </p>
+                    <p style={{ fontSize: 11, color: T.textSec || T.muted, margin: 0, fontFamily: "'DM Mono',monospace" }}>
+                      {fmt(d.total || 0)}
+                    </p>
                   </div>
                 );
               })}
             </div>
 
-            {/* Filters */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-              <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
-                <FaSearch style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.muted, fontSize: 12 }} />
+            {/* Search + filter row */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
+              <div style={{ position: "relative", width: 260 }}>
+                <FaSearch style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.textSec || T.muted, fontSize: 11, pointerEvents: "none" }} />
                 <input
+                  className="qt-search"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder="Search quotes…"
-                  style={{ width: "100%", paddingLeft: 32, padding: "8px 12px 8px 32px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, color: T.text, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
+                  placeholder="Search quotes or customer…"
+                  style={{
+                    width: "100%", paddingLeft: 32, padding: "8px 12px 8px 32px",
+                    background: T.surface, border: `1.5px solid ${T.border}`,
+                    borderRadius: 9, fontSize: 12, color: T.text,
+                    fontFamily: "inherit", outline: "none", transition: "border-color 0.15s, box-shadow 0.15s",
+                  }}
                 />
               </div>
-              <div style={{ display: "flex", gap: 5 }}>
-                {STATUSES.map(s => (
-                  <button key={s.key} onClick={() => { setStatus(s.key); setPage(1); }} className="qt-pill"
-                    style={{ padding: "7px 13px", borderRadius: 8, fontSize: 11, fontWeight: 600, fontFamily: "inherit",
-                      border: status === s.key ? `1px solid ${isDark ? "rgba(59,130,246,0.4)" : "#bfdbfe"}` : `1px solid ${T.border}`,
-                      background: status === s.key ? (isDark ? "rgba(59,130,246,0.15)" : "#eff6ff") : "transparent",
-                      color: status === s.key ? (isDark ? "#60a5fa" : "#1d4ed8") : T.muted, cursor: "pointer" }}>
-                    {s.label}
-                  </button>
-                ))}
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {STATUSES.map(s => {
+                  const active = status === s.key;
+                  const sc = STATUS_MAP[s.key];
+                  return (
+                    <button
+                      key={s.key}
+                      onClick={() => { setStatus(s.key); setPage(1); }}
+                      className="qt-pill"
+                      style={{
+                        padding: "6px 13px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+                        fontFamily: "inherit",
+                        background: active ? (sc ? sc.bg : (isDark ? "rgba(99,102,241,0.15)" : "#eef2ff")) : "transparent",
+                        color: active ? (sc ? sc.color : (isDark ? "#818cf8" : "#4f46e5")) : (T.textSec || T.muted),
+                        border: active
+                          ? `1.5px solid ${sc ? sc.color + "55" : "rgba(99,102,241,0.35)"}`
+                          : `1.5px solid transparent`,
+                        cursor: "pointer",
+                      }}>
+                      {s.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
 
           {/* Table */}
-          <div style={{ flex: 1, overflow: "auto", padding: "0 24px" }}>
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <div style={{ flex: 1, overflow: "auto", padding: "0 28px 20px" }}>
+            <div style={{
+              background: T.surface,
+              border: `1px solid ${T.border}`,
+              borderRadius: 14, overflow: "hidden",
+            }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
-                  <tr style={{ background: T.surface2 }}>
-                    {["Quote #", "Customer", "Quote Date", "Valid Until", "Status", "Amount"].map((h, i) => (
-                      <th key={h} style={{ padding: "10px 16px", textAlign: i >= 5 ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                  <tr style={{ background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)" }}>
+                    {[
+                      { h: "Quote #",     align: "left"  },
+                      { h: "Customer",    align: "left"  },
+                      { h: "Quote Date",  align: "left"  },
+                      { h: "Valid Until", align: "left"  },
+                      { h: "Status",      align: "left"  },
+                      { h: "Amount",      align: "right" },
+                    ].map(({ h, align }) => (
+                      <th key={h} style={{
+                        padding: "11px 18px",
+                        textAlign: align,
+                        fontSize: 10, fontWeight: 700,
+                        color: T.textSec || T.muted,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                        borderBottom: `1px solid ${T.border}`,
+                        whiteSpace: "nowrap",
+                      }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={6} style={{ padding: "48px 16px", textAlign: "center", color: T.muted }}>Loading…</td></tr>
-                  ) : filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ padding: "56px 16px", textAlign: "center" }}>
-                        <FaFileAlt style={{ fontSize: 28, color: T.muted, marginBottom: 10, display: "block", margin: "0 auto 10px" }} />
-                        <p style={{ color: T.muted, fontSize: 13, margin: 0 }}>No quotes found</p>
-                        <button onClick={() => navigate("/Sales/Quotes/Create")}
-                          style={{ marginTop: 12, padding: "7px 18px", background: T.accent, color: "#0a0e1a", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                          Create your first quote
-                        </button>
+                      <td colSpan={6} style={{ padding: "52px 18px", textAlign: "center" }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                          <div style={{
+                            width: 28, height: 28, borderRadius: "50%",
+                            border: `3px solid ${T.border}`,
+                            borderTopColor: T.blue || T.accent,
+                            animation: "spin 0.8s linear infinite",
+                          }} />
+                          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                          <p style={{ color: T.textSec || T.muted, fontSize: 12, margin: 0 }}>Loading quotes…</p>
+                        </div>
                       </td>
                     </tr>
-                  ) : filtered.map(q => (
-                    <tr key={q._id} className={`qt-row${selected?._id === q._id ? " active" : ""}`}
-                      onClick={() => setSelected(selected?._id === q._id ? null : q)}
-                      style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <td style={{ padding: "12px 16px", fontFamily: "'DM Mono',monospace", fontWeight: 600, color: T.accent }}>{q.quoteNumber}</td>
-                      <td style={{ padding: "12px 16px", fontWeight: 600, color: T.text }}>{q.customerName || "—"}</td>
-                      <td style={{ padding: "12px 16px", color: T.muted }}>{q.quoteDate || "—"}</td>
-                      <td style={{ padding: "12px 16px", color: q.status === "expired" ? "#f59e0b" : T.muted }}>{q.validUntil || "—"}</td>
-                      <td style={{ padding: "12px 16px" }}><Badge status={q.status} /></td>
-                      <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: "'DM Mono',monospace", fontWeight: 700, color: T.text }}>{fmt(q.totals?.grandTotal, q.currency)}</td>
+                  ) : filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: "64px 18px", textAlign: "center" }}>
+                        <div style={{
+                          width: 52, height: 52, borderRadius: 14,
+                          background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          margin: "0 auto 12px",
+                        }}>
+                          <FaFileAlt style={{ fontSize: 22, color: T.textSec || T.muted }} />
+                        </div>
+                        <p style={{ color: T.textPri || T.text, fontSize: 14, fontWeight: 600, margin: "0 0 5px" }}>No quotes found</p>
+                        <p style={{ color: T.textSec || T.muted, fontSize: 12, margin: "0 0 16px" }}>
+                          {search ? "Try a different search term" : "Create your first quote to get started"}
+                        </p>
+                        {!search && (
+                          <button
+                            onClick={() => navigate("/Sales/Quotes/Create")}
+                            style={{
+                              padding: "8px 20px", background: T.blue || T.accent,
+                              color: "#fff", border: "none", borderRadius: 9,
+                              fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                            }}>
+                            <FaPlus style={{ marginRight: 6 }} /> Create Quote
+                          </button>
+                        )}
+                      </td>
                     </tr>
-                  ))}
+                  ) : filtered.map((q, idx) => {
+                    const isActive = selected?._id === q._id;
+                    const sc = STATUS_MAP[q.status] || STATUS_MAP.draft;
+                    return (
+                      <tr
+                        key={q._id}
+                        className={`qt-row${isActive ? " active" : ""}`}
+                        onClick={() => setSelected(isActive ? null : q)}
+                        style={{ borderBottom: idx < filtered.length - 1 ? `1px solid ${T.border}` : "none" }}>
+
+                        {/* Quote # */}
+                        <td style={{ padding: "13px 18px" }}>
+                          <span style={{
+                            fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 600,
+                            color: T.blue || T.accent,
+                            background: isDark ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.07)",
+                            padding: "3px 8px", borderRadius: 6,
+                          }}>
+                            {q.quoteNumber}
+                          </span>
+                        </td>
+
+                        {/* Customer */}
+                        <td style={{ padding: "13px 18px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                            <div style={{
+                              width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                              background: isDark ? "rgba(139,92,246,0.15)" : "rgba(139,92,246,0.1)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 11, fontWeight: 800, color: "#8b5cf6", fontFamily: "'Sora',sans-serif",
+                            }}>
+                              {initials(q.customerName)}
+                            </div>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: T.textPri || T.text }}>
+                              {q.customerName || "—"}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Dates */}
+                        <td style={{ padding: "13px 18px", fontSize: 12, color: T.textSec || T.muted }}>
+                          {q.quoteDate || "—"}
+                        </td>
+                        <td style={{ padding: "13px 18px", fontSize: 12, color: q.status === "expired" ? "#f59e0b" : (T.textSec || T.muted) }}>
+                          {q.validUntil || "—"}
+                        </td>
+
+                        {/* Status */}
+                        <td style={{ padding: "13px 18px" }}>
+                          <Badge status={q.status} />
+                        </td>
+
+                        {/* Amount */}
+                        <td style={{ padding: "13px 18px", textAlign: "right" }}>
+                          <span style={{
+                            fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700,
+                            color: T.textPri || T.text,
+                          }}>
+                            {fmt(q.totals?.grandTotal, q.currency)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, padding: "16px 0" }}>
-                <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
-                  style={{ padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: page <= 1 ? "not-allowed" : "pointer", opacity: page <= 1 ? 0.4 : 1 }}>
-                  <FaChevronLeft size={11} />
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: "18px 0 4px" }}>
+                <button
+                  disabled={page <= 1}
+                  onClick={() => setPage(p => p - 1)}
+                  style={{
+                    width: 32, height: 32, borderRadius: 8,
+                    border: `1px solid ${T.border}`, background: T.surface,
+                    color: T.textSec || T.muted, cursor: page <= 1 ? "not-allowed" : "pointer",
+                    opacity: page <= 1 ? 0.35 : 1, display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                  <FaChevronLeft size={10} />
                 </button>
-                <span style={{ fontSize: 12, color: T.muted }}>Page {page} of {totalPages}</span>
-                <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
-                  style={{ padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: page >= totalPages ? "not-allowed" : "pointer", opacity: page >= totalPages ? 0.4 : 1 }}>
-                  <FaChevronRight size={11} />
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i + 1).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    style={{
+                      width: 32, height: 32, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      border: p === page ? `1.5px solid ${T.blue || T.accent}` : `1px solid ${T.border}`,
+                      background: p === page ? (T.blue || T.accent) : T.surface,
+                      color: p === page ? "#fff" : (T.textSec || T.muted),
+                      cursor: "pointer", fontFamily: "inherit",
+                    }}>
+                    {p}
+                  </button>
+                ))}
+                <button
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(p => p + 1)}
+                  style={{
+                    width: 32, height: 32, borderRadius: 8,
+                    border: `1px solid ${T.border}`, background: T.surface,
+                    color: T.textSec || T.muted, cursor: page >= totalPages ? "not-allowed" : "pointer",
+                    opacity: page >= totalPages ? 0.35 : 1, display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                  <FaChevronRight size={10} />
                 </button>
               </div>
             )}
@@ -265,172 +465,313 @@ export default function Quotes() {
         {/* ── Drawer ── */}
         {selected && (
           <div className="qt-drawer" style={{
-            width: 380, flexShrink: 0, background: T.surface, borderLeft: `1px solid ${T.border}`,
-            display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden",
+            width: 400, flexShrink: 0,
+            background: T.surface,
+            borderLeft: `1px solid ${T.border}`,
+            display: "flex", flexDirection: "column",
+            height: "100vh", overflow: "hidden",
           }}>
+
             {/* Drawer header */}
-            <div style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+            <div style={{
+              padding: "20px 22px 16px",
+              borderBottom: `1px solid ${T.border}`,
+              flexShrink: 0,
+              background: isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.01)",
+            }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: T.accent, margin: "0 0 4px" }}>{selected.quoteNumber}</p>
-                  <p style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: "0 0 6px" }}>{selected.customerName || "Unknown Customer"}</p>
-                  <Badge status={selected.status} />
+                <div style={{ flex: 1, minWidth: 0, paddingRight: 12 }}>
+                  {/* Quote number chip */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{
+                      fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700,
+                      color: T.blue || T.accent,
+                      background: isDark ? "rgba(59,130,246,0.12)" : "rgba(59,130,246,0.08)",
+                      padding: "3px 9px", borderRadius: 6, border: `1px solid ${(T.blue || "#3b82f6") + "30"}`,
+                    }}>
+                      {selected.quoteNumber}
+                    </span>
+                    <Badge status={selected.status} />
+                  </div>
+
+                  {/* Customer */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                      background: isDark ? "rgba(139,92,246,0.15)" : "rgba(139,92,246,0.1)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 13, fontWeight: 800, color: "#8b5cf6", fontFamily: "'Sora',sans-serif",
+                    }}>
+                      {initials(selected.customerName)}
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 15, fontWeight: 700, color: T.textPri || T.text, margin: 0, lineHeight: 1.2 }}>
+                        {selected.customerName || "Unknown Customer"}
+                      </p>
+                      {selected.sourceEnquiryNumber && (
+                        <p style={{ fontSize: 11, color: T.textSec || T.muted, margin: "3px 0 0", display: "flex", alignItems: "center", gap: 4 }}>
+                          <FaLink size={9} /> From {selected.sourceEnquiryNumber}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Grand total hero */}
+                  <div style={{
+                    marginTop: 14, padding: "10px 14px",
+                    background: isDark ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.05)",
+                    borderRadius: 10, border: `1px solid rgba(139,92,246,0.18)`,
+                  }}>
+                    <p style={{ fontSize: 10, color: T.textSec || T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 2px" }}>
+                      Total Value
+                    </p>
+                    <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 20, fontWeight: 800, color: "#8b5cf6", margin: 0 }}>
+                      {fmt(selected.totals?.grandTotal, selected.currency)}
+                    </p>
+                  </div>
                 </div>
-                <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, padding: 4 }}>
-                  <FaTimes size={14} />
+
+                <button
+                  onClick={() => setSelected(null)}
+                  style={{
+                    width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+                    background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+                    border: "none", cursor: "pointer",
+                    color: T.textSec || T.muted, display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                  <FaTimes size={12} />
                 </button>
               </div>
             </div>
 
             {/* Drawer body */}
-            <div style={{ flex: 1, overflowY: "auto" }}>
-              <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-                {/* Details */}
-                <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
-                  {[
-                    ["Quote Date",   selected.quoteDate  || "—"],
-                    ["Valid Until",  selected.validUntil || "—"],
-                    ["Currency",     selected.currency   || "AED"],
-                    ["Payment Terms",selected.paymentTerms || "—"],
-                  ].map(([label, val]) => (
-                    <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                      <span style={{ fontSize: 11, color: T.muted }}>{label}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{val}</span>
-                    </div>
-                  ))}
-                </div>
+                {/* Details grid */}
+                <Section label="Quote Details">
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    {[
+                      { label: "Quote Date",    val: selected.quoteDate    || "—" },
+                      { label: "Valid Until",   val: selected.validUntil   || "—" },
+                      { label: "Currency",      val: selected.currency     || "AED" },
+                      { label: "Payment Terms", val: selected.paymentTerms || "—" },
+                    ].map(({ label, val }) => (
+                      <div key={label} style={{
+                        background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)",
+                        borderRadius: 9, padding: "10px 12px",
+                        border: `1px solid ${T.border}`,
+                      }}>
+                        <p style={{ fontSize: 10, color: T.textSec || T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 4px" }}>{label}</p>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri || T.text, margin: 0 }}>{val}</p>
+                      </div>
+                    ))}
+                  </div>
+                </Section>
 
                 {/* Line items */}
                 {selected.lineItems?.length > 0 && (
-                  <div>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Line Items</p>
+                  <Section label={`Line Items (${selected.lineItems.length})`}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {selected.lineItems.map((li, i) => (
-                        <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div key={i} style={{
+                          background: isDark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.02)",
+                          border: `1px solid ${T.border}`, borderRadius: 9,
+                          padding: "10px 13px",
+                          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+                        }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ fontSize: 12, fontWeight: 600, color: T.text, margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{li.desc || "—"}</p>
-                            <p style={{ fontSize: 11, color: T.muted, margin: 0 }}>Qty {li.qty} × {fmt(li.unitPrice, selected.currency)}</p>
+                            <p style={{ fontSize: 12, fontWeight: 600, color: T.textPri || T.text, margin: "0 0 3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {li.desc || "—"}
+                            </p>
+                            <p style={{ fontSize: 11, color: T.textSec || T.muted, margin: 0, fontFamily: "'DM Mono',monospace" }}>
+                              {li.qty} × {fmt(li.unitPrice, selected.currency)}
+                            </p>
                           </div>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: "'DM Mono',monospace", flexShrink: 0, marginLeft: 8 }}>{fmt(li.total, selected.currency)}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: T.textPri || T.text, fontFamily: "'DM Mono',monospace", flexShrink: 0 }}>
+                            {fmt(li.total, selected.currency)}
+                          </span>
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </Section>
                 )}
 
                 {/* Totals */}
-                <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
-                  {[
-                    ["Subtotal",   selected.totals?.subtotal],
-                    ["Discount",   selected.totals?.discountTotal],
-                    ["Tax",        selected.totals?.taxTotal],
-                  ].map(([label, val]) => (
-                    <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: T.muted }}>{label}</span>
-                      <span style={{ fontSize: 12, color: T.text, fontFamily: "'DM Mono',monospace" }}>{fmt(val, selected.currency)}</span>
+                <Section label="Totals">
+                  <div style={{ background: isDark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.02)", border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+                    {[
+                      { label: "Subtotal", val: selected.totals?.subtotal },
+                      { label: "Discount", val: selected.totals?.discountTotal },
+                      { label: "Tax",      val: selected.totals?.taxTotal },
+                    ].map(({ label, val }) => (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
+                        <span style={{ fontSize: 12, color: T.textSec || T.muted }}>{label}</span>
+                        <span style={{ fontSize: 12, color: T.textPri || T.text, fontFamily: "'DM Mono',monospace" }}>{fmt(val, selected.currency)}</span>
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 9, borderTop: `1px solid ${T.border}`, marginTop: 5 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.textPri || T.text }}>Grand Total</span>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: "#8b5cf6", fontFamily: "'DM Mono',monospace" }}>
+                        {fmt(selected.totals?.grandTotal, selected.currency)}
+                      </span>
                     </div>
-                  ))}
-                  <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: `1px solid ${T.border}`, marginTop: 4 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Total</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: T.accent, fontFamily: "'DM Mono',monospace" }}>{fmt(selected.totals?.grandTotal, selected.currency)}</span>
                   </div>
-                </div>
+                </Section>
 
                 {/* Notes */}
                 {selected.notes?.customer && (
-                  <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px" }}>
-                    <p style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>Notes</p>
-                    <p style={{ fontSize: 12, color: T.text, margin: 0, lineHeight: 1.5 }}>{selected.notes.customer}</p>
-                  </div>
+                  <Section label="Notes">
+                    <p style={{ fontSize: 12, color: T.textPri || T.text, margin: 0, lineHeight: 1.6, background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: `1px solid ${T.border}`, borderRadius: 9, padding: "10px 13px" }}>
+                      {selected.notes.customer}
+                    </p>
+                  </Section>
                 )}
 
                 {/* Actions */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {/* Edit — draft only */}
-                  {selected.status === "draft" && (
-                    <button
-                      onClick={() => navigate("/Sales/Quotes/Create", { state: { edit: selected } })}
-                      style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "inherit", width: "100%" }}>
-                      <FaEdit style={{ marginRight: 6 }} /> Edit Quote
-                    </button>
-                  )}
+                <Section label="Actions">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
 
-                  {/* Mark as Sent */}
-                  {selected.status === "draft" && (
-                    <button
-                      onClick={() => handleStatusChange(selected, "sent")}
-                      style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa", fontFamily: "inherit", width: "100%" }}>
-                      📤 Mark as Sent
-                    </button>
-                  )}
+                    {selected.status === "draft" && (
+                      <ActionBtn
+                        onClick={() => navigate("/Sales/Quotes/Create", { state: { edit: selected } })}
+                        icon={<FaEdit />}
+                        label="Edit Quote"
+                        color="#6366f1" glow="rgba(99,102,241,0.2)"
+                      />
+                    )}
 
-                  {/* Accept / Decline */}
-                  {["sent", "draft"].includes(selected.status) && (
-                    <>
-                      <button
-                        onClick={() => handleStatusChange(selected, "accepted")}
-                        style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "inherit", width: "100%" }}>
-                        ✓ Mark Accepted
-                      </button>
-                      <button
-                        onClick={() => handleStatusChange(selected, "declined")}
-                        style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", fontFamily: "inherit", width: "100%" }}>
-                        ✕ Mark Declined
-                      </button>
-                    </>
-                  )}
+                    {selected.status === "draft" && (
+                      <ActionBtn
+                        onClick={() => handleStatusChange(selected, "sent")}
+                        icon={<FaPaperPlane />}
+                        label="Mark as Sent"
+                        color="#3b82f6" glow="rgba(59,130,246,0.15)"
+                        outline
+                      />
+                    )}
 
-                  {/* Convert to Sales Order (preferred path for accepted quotes) */}
-                  {selected.status === "accepted" && (
-                    <button
-                      onClick={() => navigate("/Sales/Salesorders/Newsalesorders", { state: { fromQuote: {
-                        quoteId: selected._id,
-                        quoteNumber: selected.quoteNumber,
-                        customerId: selected.customerId,
-                        customerName: selected.customerName,
-                        paymentTerms: selected.paymentTerms,
-                        currency: selected.currency,
-                        grandTotal: selected.totals?.grandTotal,
-                        notes: selected.notes?.customer,
-                      }}})}
-                      style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "inherit", width: "100%" }}>
-                      📦 Create Sales Order →
-                    </button>
-                  )}
+                    {["sent", "draft"].includes(selected.status) && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+                        <ActionBtn
+                          onClick={() => handleStatusChange(selected, "accepted")}
+                          icon={<FaCheckCircle />}
+                          label="Mark Accepted"
+                          color="#10b981" glow="rgba(16,185,129,0.15)"
+                          outline
+                        />
+                        <ActionBtn
+                          onClick={() => handleStatusChange(selected, "declined")}
+                          icon={<FaTimesCircle />}
+                          label="Mark Declined"
+                          color="#ef4444" glow="rgba(239,68,68,0.1)"
+                          outline
+                        />
+                      </div>
+                    )}
 
-                  {/* Convert to Invoice (quick path / skip SO) */}
-                  {["sent", "accepted"].includes(selected.status) && (
-                    <button
-                      disabled={converting}
-                      onClick={() => handleConvert(selected)}
-                      style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: converting ? "not-allowed" : "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", color: "#8b5cf6", fontFamily: "inherit", width: "100%", opacity: converting ? 0.6 : 1 }}>
-                      {converting ? "Converting…" : "📄 Convert to Invoice (skip SO)"}
-                    </button>
-                  )}
+                    {selected.status === "accepted" && (
+                      <ActionBtn
+                        onClick={() => navigate("/Sales/Salesorders/Newsalesorders", { state: { fromQuote: {
+                          quoteId:      selected._id,
+                          quoteNumber:  selected.quoteNumber,
+                          customerId:   selected.customerId,
+                          customerName: selected.customerName,
+                          paymentTerms: selected.paymentTerms,
+                          currency:     selected.currency,
+                          grandTotal:   selected.totals?.grandTotal,
+                          notes:        selected.notes?.customer,
+                          lineItems:    selected.lineItems || [],
+                        }}})}
+                        icon={<FaBoxOpen />}
+                        label="Create Sales Order"
+                        color="#10b981" glow="rgba(16,185,129,0.2)"
+                      />
+                    )}
 
-                  {/* Clone */}
-                  <button
-                    onClick={() => navigate("/Sales/Quotes/Create", { state: { clone: selected } })}
-                    style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)", color: "#f59e0b", fontFamily: "inherit", width: "100%" }}>
-                    📋 Clone Quote
-                  </button>
+                    {["sent", "accepted"].includes(selected.status) && (
+                      <ActionBtn
+                        onClick={() => handleConvert(selected)}
+                        icon={<FaFileInvoice />}
+                        label={converting ? "Converting…" : "Convert to Invoice (skip SO)"}
+                        color="#8b5cf6" glow="rgba(139,92,246,0.15)"
+                        outline
+                        disabled={converting}
+                      />
+                    )}
 
-                  {/* Delete — not converted */}
-                  {selected.status !== "converted" && (
-                    <button
-                      disabled={deleting}
-                      onClick={() => handleDelete(selected)}
-                      style={{ padding: "8px 0", borderRadius: 7, fontSize: 12, cursor: deleting ? "not-allowed" : "pointer", background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", fontFamily: "inherit", opacity: deleting ? 0.6 : 1 }}>
-                      {deleting ? "Deleting…" : "Delete Quote"}
-                    </button>
-                  )}
-                </div>
+                    <ActionBtn
+                      onClick={() => navigate("/Sales/Quotes/Create", { state: { clone: selected } })}
+                      icon={<FaCopy />}
+                      label="Clone Quote"
+                      color="#f59e0b" glow="rgba(245,158,11,0.12)"
+                      outline
+                    />
+
+                    {selected.status !== "converted" && (
+                      <ActionBtn
+                        onClick={() => handleDelete(selected)}
+                        icon={<FaTrash />}
+                        label={deleting ? "Deleting…" : "Delete Quote"}
+                        color="#ef4444" glow="rgba(239,68,68,0.08)"
+                        outline
+                        disabled={deleting}
+                        small
+                      />
+                    )}
+                  </div>
+                </Section>
+
               </div>
             </div>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function Section({ label, children }) {
+  const isDark = useThemeStore(s => s.isDark);
+  const T = getTheme(isDark);
+  return (
+    <div>
+      <p style={{
+        fontSize: 10, fontWeight: 700, color: T.textSec || T.muted,
+        textTransform: "uppercase", letterSpacing: "0.08em",
+        margin: "0 0 8px", display: "flex", alignItems: "center", gap: 6,
+      }}>
+        {label}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function ActionBtn({ onClick, icon, label, color, glow, outline = false, disabled = false, small = false }) {
+  return (
+    <button
+      className="qt-action"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: "100%",
+        padding: small ? "8px 14px" : "10px 14px",
+        borderRadius: 9,
+        fontSize: small ? 12 : 13,
+        fontWeight: 600,
+        cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+        opacity: disabled ? 0.55 : 1,
+        border: outline ? `1.5px solid ${color}40` : "none",
+        background: outline ? glow : color,
+        color: outline ? color : "#fff",
+        boxShadow: !outline && !disabled ? `0 2px 8px ${glow}` : "none",
+        transition: "opacity 0.13s, transform 0.13s",
+      }}>
+      {icon}
+      {label}
+    </button>
   );
 }

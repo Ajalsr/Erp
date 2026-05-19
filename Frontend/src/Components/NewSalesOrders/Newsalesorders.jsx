@@ -505,6 +505,7 @@ const Newsalesorders = () => {
   const location=useLocation();
   const { id: editId } = useParams();
   const isEditMode = !!editId;
+  const fromQuoteLock = !isEditMode && !!location.state?.fromQuote;
 
   const salesTypeOptions=[{value:'SO',label:'SO — Standard Sale Order'},{value:'MOA',label:'MOA — Material on Approval'},{value:'MOA_COLLECT',label:'MOA Collect — Material on Approval Collect'},{value:'FREE_DELIVERY',label:'Free Delivery'}];
   const paymentTermsOptions=[
@@ -618,6 +619,17 @@ const Newsalesorders = () => {
   },[isEditMode,editId,customersData,fetchStockAvailability]);
   useEffect(()=>{handleGetItem();handleGetCustomers();},[]);
 
+  // helper — given raw line item objects + optional inventory catalog, produce SO items with itemId resolved
+  const resolveItems=(rawList,mapFn,inv)=>rawList.map((li,idx)=>{
+    const base=mapFn(li,idx);
+    if(base.itemId||!inv)return base;
+    const name=(base.details||'').toLowerCase().trim();
+    if(!name)return base;
+    const match=inv.find(s=>(s.name||'').toLowerCase().trim()===name);
+    if(!match)return base;
+    return{...base,itemId:match._id,sku:match.sku||base.sku||'',unit:match.unit||match.Unit||base.unit||''};
+  });
+
   // Pre-fill from Quote conversion
   useEffect(()=>{
     const fq=location.state?.fromQuote;
@@ -629,7 +641,42 @@ const Newsalesorders = () => {
       const found=customersData.find(c=>c._id===fq.customerId);
       if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
     }
-  },[location.state,isEditMode,customersData]);
+    if(fq.lineItems?.length){
+      const mapped=resolveItems(fq.lineItems,(li,idx)=>({
+        id:idx+1, itemId:li.stockId||li.itemId||'', details:li.desc||li.itemName||'',
+        sku:'', quantity:li.qty||1, rate:String(li.unitPrice||li.rate||''),
+        discount:String(li.discount||'0'), discountType:'percentage',
+        amount:String(li.total||''), unit:'',
+      }),inventoryData);
+      setItems(mapped);
+      mapped.forEach(it=>{ if(it.itemId) fetchStockAvailability(it.itemId); });
+    }
+  },[location.state,isEditMode,customersData,inventoryData,fetchStockAvailability]);
+
+  // Pre-fill from Enquiry conversion
+  useEffect(()=>{
+    const fe=location.state?.fromEnquiry;
+    if(!fe||isEditMode||!customersData)return;
+    if(fe.notes){setCustomerNotes(fe.notes);}
+    if(fe.enquiryNumber){setCustomerNotes(n=>(n?n+'\n':'')+'Ref Enquiry: '+fe.enquiryNumber);}
+    if(fe.customerId){
+      const found=customersData.find(c=>c._id===fe.customerId);
+      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+    } else if(fe.customerName){
+      setCustomerSearch(fe.customerName);
+    }
+    if(fe.lineItems?.length){
+      const mapped=resolveItems(fe.lineItems,(li,idx)=>({
+        id:idx+1, itemId:li.itemId||'', details:li.itemName||li.desc||'',
+        sku:'', quantity:li.qty||1, rate:String(li.unitPrice||''),
+        discount:'0', discountType:'percentage',
+        amount:String(li.total||''), unit:'',
+      }),inventoryData);
+      setItems(mapped);
+      mapped.forEach(it=>{ if(it.itemId) fetchStockAvailability(it.itemId); });
+    }
+  },[location.state,isEditMode,customersData,inventoryData,fetchStockAvailability]);
+
   useEffect(()=>{
     if(!inventoryData)return;
     setFilteredItems(!searchTerm?inventoryData.slice(0,10):inventoryData.filter(i=>i.name?.toLowerCase().includes(searchTerm.toLowerCase())||i._id?.toString().includes(searchTerm)||i.item_code?.toLowerCase().includes(searchTerm.toLowerCase())||i.sku?.toLowerCase().includes(searchTerm.toLowerCase())).slice(0,10));
@@ -847,8 +894,9 @@ const Newsalesorders = () => {
                   <div style={{position:'relative'}}>
                     <FaSearch style={{position:'absolute',left:13,top:'50%',transform:'translateY(-50%)',color:T.textSec,fontSize:12,pointerEvents:'none',zIndex:1}}/>
                     <input type="text" value={customerSearch}
-                      onChange={e=>{setCustomerSearch(e.target.value);setShowCustomerDropdown(true);}}
-                      onFocus={()=>{
+                      readOnly={fromQuoteLock}
+                      onChange={fromQuoteLock?undefined:e=>{setCustomerSearch(e.target.value);setShowCustomerDropdown(true);}}
+                      onFocus={fromQuoteLock?undefined:()=>{
                         const r=customerDropdownRef.current?.getBoundingClientRect();
                         if(r) setCustDropPos({top:r.bottom+4,left:r.left,width:Math.max(r.width,360)});
                         setShowCustomerDropdown(true);
@@ -856,19 +904,25 @@ const Newsalesorders = () => {
                       className="nso-inp"
                       placeholder="Search by name, company, email…"
                       style={{paddingLeft:36,paddingRight:40,
-                        borderColor:showCustomerDropdown?'#3b82f6':'#e2e8f0',
-                        boxShadow:showCustomerDropdown?'0 0 0 3px rgba(59,130,246,.12)':'none'}}
+                        borderColor:fromQuoteLock?'transparent':showCustomerDropdown?'#3b82f6':'#e2e8f0',
+                        boxShadow:showCustomerDropdown&&!fromQuoteLock?'0 0 0 3px rgba(59,130,246,.12)':'none',
+                        background:fromQuoteLock?'rgba(16,185,129,0.07)':'',
+                        cursor:fromQuoteLock?'default':'text',
+                        color:fromQuoteLock?'#10b981':''}}
                     />
-                    <button onClick={()=>{
-                        if(!showCustomerDropdown){
-                          const r=customerDropdownRef.current?.getBoundingClientRect();
-                          if(r) setCustDropPos({top:r.bottom+4,left:r.left,width:Math.max(r.width,360)});
-                        }
-                        setShowCustomerDropdown(!showCustomerDropdown);
-                      }}
-                      style={{position:'absolute',right:10,top:'50%',transform:`translateY(-50%) rotate(${showCustomerDropdown?180:0}deg)`,background:'none',border:'none',cursor:'pointer',color:T.textSec,padding:4,transition:'transform .2s',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                      <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-                    </button>
+                    {fromQuoteLock
+                      ? <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:10,fontWeight:700,color:'#10b981',background:'rgba(16,185,129,0.12)',padding:'2px 7px',borderRadius:6}}>LOCKED</span>
+                      : <button onClick={()=>{
+                          if(!showCustomerDropdown){
+                            const r=customerDropdownRef.current?.getBoundingClientRect();
+                            if(r) setCustDropPos({top:r.bottom+4,left:r.left,width:Math.max(r.width,360)});
+                          }
+                          setShowCustomerDropdown(!showCustomerDropdown);
+                        }}
+                        style={{position:'absolute',right:10,top:'50%',transform:`translateY(-50%) rotate(${showCustomerDropdown?180:0}deg)`,background:'none',border:'none',cursor:'pointer',color:T.textSec,padding:4,transition:'transform .2s',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                      </button>
+                    }
                   </div>
                   {showCustomerDropdown && ReactDOM.createPortal(
                     (
@@ -1090,12 +1144,12 @@ const Newsalesorders = () => {
                         return(<>
                           <td style={{textAlign:'center'}}>
                             {!item.itemId?<span style={{color:'#94a3b8',fontSize:11}}>—</span>
-                            :si?.loading?<div style={{width:14,height:14,border:'2px solid #e2e8f0',borderTopColor:'#3b82f6',borderRadius:'50%',animation:'nsoSpin .7s linear infinite',margin:'0 auto'}}/>
+                            :(!si||si.loading)?<div style={{width:14,height:14,border:'2px solid #e2e8f0',borderTopColor:'#3b82f6',borderRadius:'50%',animation:'nsoSpin .7s linear infinite',margin:'0 auto'}}/>
                             :<span style={{...mono,color:'#0f172a'}}>{si.inHand}</span>}
                           </td>
                           <td style={{textAlign:'center'}}>
                             {!item.itemId?<span style={{color:'#94a3b8',fontSize:11}}>—</span>
-                            :si?.loading?null
+                            :(!si||si.loading)?null
                             :<span style={{...mono,color:status==='out_of_stock'?'#ef4444':status==='insufficient'?'#f59e0b':'#10b981'}}>{si.available}</span>}
                           </td>
                           <td style={{textAlign:'center'}}>

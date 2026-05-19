@@ -12,7 +12,50 @@ import "react-datepicker/dist/react-datepicker.css";
 const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-const PAYMENT_MODES = ["Cash", "Bank Transfer", "Cheque", "Card", "Other"];
+const PAYMENT_MODES = [
+  "Cash", "Bank Transfer", "Cheque", "PDC",
+  "Credit Card", "Debit Card", "Demand Draft",
+  "Online Transfer", "Letter of Credit", "Other",
+];
+
+const MODE_FIELDS = {
+  "Cash":             [{ key: "receiptNo",   label: "Receipt No.",         placeholder: "e.g. RCP-001" }],
+  "Bank Transfer":    [{ key: "bankName",    label: "Bank Name",           placeholder: "e.g. Emirates NBD" },
+                       { key: "txnRef",      label: "Transaction Ref No.", placeholder: "e.g. TXN-001234", required: true },
+                       { key: "accountNo",   label: "Account / IBAN",      placeholder: "e.g. AE070331234567890123456" }],
+  "Cheque":           [{ key: "chequeNo",    label: "Cheque No.",          placeholder: "e.g. 001234", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. ADIB" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. Dubai Mall Branch" }],
+  "PDC":              [{ key: "chequeNo",    label: "Cheque No.",          placeholder: "e.g. 001234", required: true },
+                       { key: "chequeDate",  label: "Cheque Date",         placeholder: "", type: "date", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. Mashreq Bank" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. DIFC Branch" }],
+  "Credit Card":      [{ key: "cardNetwork", label: "Card Network",        type: "select", options: ["Visa", "Mastercard", "Amex", "Other"] },
+                       { key: "last4",       label: "Last 4 Digits",       placeholder: "e.g. 4242" },
+                       { key: "approvalCode",label: "Approval Code",       placeholder: "e.g. 123456" }],
+  "Debit Card":       [{ key: "cardNetwork", label: "Card Network",        type: "select", options: ["Visa", "Mastercard", "Other"] },
+                       { key: "last4",       label: "Last 4 Digits",       placeholder: "e.g. 4242" },
+                       { key: "txnRef",      label: "Transaction Ref",     placeholder: "e.g. TXN-001234" }],
+  "Demand Draft":     [{ key: "ddNo",        label: "DD No.",              placeholder: "e.g. DD-001234", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. HDFC Bank" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. Main Branch" }],
+  "Online Transfer":  [{ key: "platform",   label: "Platform",            type: "select", options: ["NEFT", "RTGS", "IMPS", "UPI", "Wire Transfer", "Other"] },
+                       { key: "txnRef",      label: "Reference / UTR No.", placeholder: "e.g. UTR12345678", required: true }],
+  "Letter of Credit": [{ key: "lcNo",        label: "LC No.",              placeholder: "e.g. LC-001234", required: true },
+                       { key: "issuingBank", label: "Issuing Bank",        placeholder: "e.g. First Abu Dhabi Bank" },
+                       { key: "lcDate",      label: "LC Date",             placeholder: "", type: "date" }],
+  "Other":            [{ key: "txnRef",      label: "Reference / Description", placeholder: "Enter reference or description" }],
+};
+
+const getPrimaryRef = (mode, d = {}) => {
+  if (["Bank Transfer", "Online Transfer", "Debit Card", "Other"].includes(mode)) return d.txnRef || "";
+  if (["Cheque", "PDC"].includes(mode)) return d.chequeNo ? `CHQ-${d.chequeNo}` : "";
+  if (mode === "Demand Draft")     return d.ddNo || "";
+  if (mode === "Letter of Credit") return d.lcNo || "";
+  if (mode === "Credit Card")      return d.approvalCode ? `APPR-${d.approvalCode}` : "";
+  if (mode === "Cash")             return d.receiptNo || "";
+  return "";
+};
 
 /* ── shared animation keyframe (injected once) ─────────────────── */
 const PORTAL_ANIM = `@keyframes pmSelIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}`;
@@ -189,8 +232,8 @@ const VendorSelect = ({ value, onChange, vendors = [], T, isDark, error }) => {
 };
 
 /* ── ModeSelect — portal dropdown with colored emoji icons ──────── */
-const MODE_ICONS   = { Cash: "💵", "Bank Transfer": "🏦", Cheque: "📄", Card: "💳", Other: "🔄" };
-const MODE_ACCENTS = { Cash: "#16a34a", "Bank Transfer": "#2563eb", Cheque: "#d97706", Card: "#9333ea", Other: "#94a3b8" };
+const MODE_ICONS   = { Cash: "💵", "Bank Transfer": "🏦", Cheque: "📄", PDC: "📋", "Credit Card": "💳", "Debit Card": "💳", "Demand Draft": "📜", "Online Transfer": "🌐", "Letter of Credit": "📃", Other: "🔄" };
+const MODE_ACCENTS = { Cash: "#16a34a", "Bank Transfer": "#2563eb", Cheque: "#d97706", PDC: "#f59e0b", "Credit Card": "#9333ea", "Debit Card": "#8b5cf6", "Demand Draft": "#d97706", "Online Transfer": "#0891b2", "Letter of Credit": "#0f766e", Other: "#94a3b8" };
 
 const ModeSelect = ({ value, onChange, T, isDark }) => {
   const [open, setOpen] = useState(false);
@@ -257,6 +300,7 @@ const ModeSelect = ({ value, onChange, T, isDark }) => {
               {PAYMENT_MODES.length} payment methods
             </span>
           </div>
+          <div style={{ maxHeight: 260, overflowY: "auto" }}>
           {PAYMENT_MODES.map(m => {
             const isActive = value === m;
             const ac = MODE_ACCENTS[m];
@@ -282,6 +326,7 @@ const ModeSelect = ({ value, onChange, T, isDark }) => {
               </div>
             );
           })}
+          </div>
         </div>,
         document.body
       )}
@@ -485,7 +530,7 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
     amount:      prefill?.amount      || "",
     date:        new Date().toISOString().split("T")[0],
     paymentMode: "Bank Transfer",
-    reference:   "",
+    details:     {},
     notes:       "",
   });
 
@@ -520,8 +565,6 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
   const selectVendor = (v) => {
     const name = v.displayName || v.companyName || "";
     setForm(f => ({ ...f, vendorId: v._id, vendorName: name, billId: "", billNumber: "", amount: "" }));
-    setVendorSearch(name);
-    setVendorOpen(false);
     setSelectedBill(null);
     setErrors(e => { const n = { ...e }; delete n.vendorId; return n; });
   };
@@ -559,8 +602,9 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
         billId:      form.billId   || undefined,
         billNumber:  form.billNumber || undefined,
         amount:      parseFloat(form.amount),
-        paymentMode: form.paymentMode,
-        reference:   form.reference,
+        paymentMode:    form.paymentMode,
+        reference:      getPrimaryRef(form.paymentMode, form.details),
+        paymentDetails: form.details,
         date:        form.date,
         notes:       form.notes,
       });
@@ -768,19 +812,49 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
               <label style={lbl}>Payment Mode <span style={{ color: "#ef4444" }}>*</span></label>
               <ModeSelect
                 value={form.paymentMode}
-                onChange={m => setForm(f => ({ ...f, paymentMode: m }))}
+                onChange={m => setForm(f => ({ ...f, paymentMode: m, details: {} }))}
                 T={T}
                 isDark={isDark}
               />
             </div>
           </div>
 
-          {/* Reference */}
-          <div>
-            <label style={lbl}>Reference / Cheque No.</label>
-            <input style={inp} placeholder="e.g. TXN-001234 or Cheque #456"
-              value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} />
-          </div>
+          {/* Mode-specific fields */}
+          {(MODE_FIELDS[form.paymentMode] || []).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "14px 16px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.textSec, margin: 0 }}>{form.paymentMode} Details</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {(MODE_FIELDS[form.paymentMode] || []).map(f => (
+                  <div key={f.key} style={{ gridColumn: f.type === "select" ? "1" : "auto" }}>
+                    <label style={{ ...lbl, marginBottom: 4 }}>{f.label}{f.required && <span style={{ color: "#ef4444" }}> *</span>}</label>
+                    {f.type === "date" ? (
+                      <ModernDatePicker
+                        value={form.details[f.key] || ""}
+                        onChange={val => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: val } }))}
+                        T={T}
+                        isDark={isDark}
+                      />
+                    ) : f.type === "select" ? (
+                      <select
+                        value={form.details[f.key] || ""}
+                        onChange={e => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: e.target.value } }))}
+                        style={{ ...inp, cursor: "pointer" }}>
+                        <option value="">Select…</option>
+                        {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        style={inp}
+                        placeholder={f.placeholder}
+                        value={form.details[f.key] || ""}
+                        onChange={e => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: e.target.value } }))}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Notes */}
           <div>
