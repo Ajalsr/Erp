@@ -4,8 +4,11 @@ import { useNavigate } from "react-router-dom";
 import {
   FaPlus, FaTimes, FaSearch, FaChevronLeft, FaChevronRight,
   FaPhoneAlt, FaEnvelope, FaBuilding, FaCalendarAlt,
-  FaUserTie, FaFilter, FaEdit, FaSave,
+  FaUserTie, FaFilter, FaEdit, FaSave, FaCheck,
 } from "react-icons/fa";
+import DatePicker from "react-datepicker";
+import { format, addDays, addMonths, addYears, isSameDay } from "date-fns";
+import "react-datepicker/dist/react-datepicker.css";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
@@ -64,53 +67,320 @@ const EMPTY_FORM = {
 
 function ItemSearch({ value, onSelect, onType, allItems, T }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [pos, setPos]   = useState({ top: 0, left: 0, width: 0 });
+  const wrapRef = useRef(null);
+  const dropRef = useRef(null);
 
   const filtered = allItems.filter(i =>
-    (i.name || "").toLowerCase().includes(value.toLowerCase()) ||
-    (i.item_code || "").toLowerCase().includes(value.toLowerCase())
-  ).slice(0, 30);
+    (i.name || "").toLowerCase().includes((value || "").toLowerCase()) ||
+    (i.item_code || "").toLowerCase().includes((value || "").toLowerCase())
+  ).slice(0, 20);
+
+  const measure = () => {
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+  };
 
   useEffect(() => {
-    const h = e => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const h = e => {
+      if (!wrapRef.current?.contains(e.target) && !dropRef.current?.contains(e.target))
+        setOpen(false);
+    };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={wrapRef}>
       <input
         value={value}
         onChange={e => { onType(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => { measure(); setOpen(true); }}
         placeholder="Search item…"
         style={{ width: "100%", padding: "7px 10px", border: `1.5px solid ${T.border}`,
           borderRadius: 7, fontSize: 12, background: T.surface, color: T.textPri,
-          outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+          outline: "none", fontFamily: "inherit", boxSizing: "border-box",
+          borderColor: value ? T.blue : T.border }}
       />
-      {open && filtered.length > 0 && (
-        <div style={{ position: "absolute", top: "calc(100% + 2px)", left: 0, right: 0,
-          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
-          zIndex: 2000, maxHeight: 180, overflowY: "auto",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.22)" }}>
+      {open && filtered.length > 0 && createPortal(
+        <div ref={dropRef} style={{
+          position: "fixed", top: pos.top, left: pos.left, width: Math.max(pos.width, 220),
+          zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`,
+          borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.32)",
+          maxHeight: 220, overflowY: "auto",
+        }}>
           {filtered.map((item, i) => (
             <div key={item._id || i}
               onMouseDown={e => e.preventDefault()}
               onClick={() => { onSelect(item); setOpen(false); }}
-              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 12,
+              style={{ padding: "9px 13px", cursor: "pointer", fontSize: 12,
                 borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : "none",
-                display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                transition: "background .1s" }}
               onMouseEnter={e => e.currentTarget.style.background = T.surface2}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ fontWeight: 600, color: T.textPri }}>{item.name}</span>
-              <span style={{ fontSize: 11, color: T.textSec, fontFamily: "'DM Mono', monospace" }}>
+              <div>
+                <div style={{ fontWeight: 600, color: T.textPri, fontSize: 12 }}>{item.name}</div>
+                {item.item_code && <div style={{ fontSize: 10, color: T.textSec, marginTop: 1 }}>{item.item_code}</div>}
+              </div>
+              <span style={{ fontSize: 11, color: T.blue, fontFamily: "'DM Mono', monospace", flexShrink: 0, marginLeft: 10 }}>
                 {parseFloat(item.selling_price || 0) > 0 ? `AED ${parseFloat(item.selling_price).toFixed(2)}` : "—"}
               </span>
             </div>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
+  );
+}
+
+function EnqDatePicker({ value, onChange, placeholder = "Select date", T }) {
+  const isDark = useThemeStore(s => s.isDark);
+  const [open, setOpen]     = useState(false);
+  const [mode, setMode]     = useState("calendar");
+  const [pos, setPos]       = useState({ top: 0, left: 0, width: 0 });
+  const trigRef = useRef(null);
+  const dropRef = useRef(null);
+  const sel = value ? new Date(value) : null;
+
+  const presets = [
+    { label: "Today",      v: new Date() },
+    { label: "Tomorrow",   v: addDays(new Date(), 1) },
+    { label: "+1 Week",    v: addDays(new Date(), 7) },
+    { label: "+1 Month",   v: addMonths(new Date(), 1) },
+    { label: "+3 Months",  v: addMonths(new Date(), 3) },
+    { label: "+6 Months",  v: addMonths(new Date(), 6) },
+  ];
+
+  const measure = () => {
+    const r = trigRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+  };
+
+  useEffect(() => {
+    const h = e => {
+      if (!trigRef.current?.contains(e.target) && !dropRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const pick = (d) => {
+    onChange(d.toISOString().split("T")[0]);
+    setOpen(false);
+    setMode("calendar");
+  };
+
+  const calCSS = `
+    .enq-dp .react-datepicker{font-family:'DM Sans',sans-serif!important;border:none!important;background:transparent!important;box-shadow:none!important;}
+    .enq-dp .react-datepicker__header{background:${isDark?"#111d30":"#f8fafc"}!important;border-bottom:1px solid ${T.border}!important;border-radius:0!important;padding-top:10px!important;}
+    .enq-dp .react-datepicker__current-month{color:${T.textPri}!important;font-size:13px!important;font-weight:700!important;}
+    .enq-dp .react-datepicker__day-name{color:${T.textSec}!important;font-weight:600!important;font-size:11px!important;}
+    .enq-dp .react-datepicker__day{color:${T.textPri}!important;border-radius:7px!important;font-size:12px!important;transition:all .1s!important;}
+    .enq-dp .react-datepicker__day:hover{background:${isDark?"rgba(59,130,246,0.2)":"#dbeafe"}!important;color:#3b82f6!important;}
+    .enq-dp .react-datepicker__day--selected{background:#3b82f6!important;color:#fff!important;font-weight:700!important;}
+    .enq-dp .react-datepicker__day--today{background:${isDark?"rgba(59,130,246,0.15)":"#eff6ff"}!important;color:#2563eb!important;font-weight:700!important;}
+    .enq-dp .react-datepicker__day--outside-month{color:${T.textSec}!important;opacity:.45!important;}
+    .enq-dp .react-datepicker__navigation-icon::before{border-color:${T.textSec}!important;}
+  `;
+
+  return (
+    <>
+      <style>{calCSS}</style>
+      <button type="button" ref={trigRef}
+        onClick={() => { measure(); setOpen(o => !o); }}
+        style={{
+          width: "100%", padding: "8px 12px", display: "flex", alignItems: "center",
+          justifyContent: "space-between", gap: 8,
+          border: `1.5px solid ${open ? T.blue : sel ? T.blue : T.border}`,
+          borderRadius: 8, background: sel ? (isDark ? "rgba(59,130,246,0.08)" : "#eff6ff") : T.surface,
+          cursor: "pointer", fontSize: 12, color: sel ? T.textPri : T.textSec,
+          fontFamily: "inherit", transition: "all .15s",
+          boxShadow: open ? `0 0 0 3px ${T.blue}22` : "none",
+        }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <FaCalendarAlt style={{ fontSize: 11, color: sel ? T.blue : T.textSec, flexShrink: 0 }} />
+          <span style={{ fontWeight: sel ? 600 : 400 }}>
+            {sel ? format(sel, "MMM dd, yyyy") : placeholder}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {sel && (
+            <span onMouseDown={e => { e.stopPropagation(); onChange(""); }}
+              style={{ fontSize: 10, color: T.textSec, cursor: "pointer", lineHeight: 1,
+                width: 16, height: 16, borderRadius: 4, background: T.surface2,
+                display: "flex", alignItems: "center", justifyContent: "center" }}>✕</span>
+          )}
+          <svg width={10} height={10} viewBox="0 0 24 24" fill="none"
+            stroke={T.textSec} strokeWidth={2.5} strokeLinecap="round">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </div>
+      </button>
+
+      {open && createPortal(
+        <div ref={dropRef} className="enq-dp" style={{
+          position: "fixed", top: pos.top, left: pos.left, width: Math.max(pos.width, 280),
+          zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`,
+          borderRadius: 12, boxShadow: "0 16px 48px rgba(0,0,0,.35)", overflow: "hidden",
+        }}>
+          {/* Tabs */}
+          <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, background: isDark ? "#0d1526" : "#f8fafc" }}>
+            {[["calendar","📅 Calendar"],["quick","⚡ Quick"]].map(([v, l]) => (
+              <button key={v} onClick={() => setMode(v)} style={{
+                flex: 1, padding: "9px 8px", fontSize: 11, fontWeight: 700,
+                border: "none", cursor: "pointer", background: "transparent",
+                color: mode === v ? T.blue : T.textSec,
+                borderBottom: mode === v ? `2px solid ${T.blue}` : "2px solid transparent",
+                fontFamily: "inherit",
+              }}>{l}</button>
+            ))}
+          </div>
+
+          {mode === "calendar" ? (
+            <div style={{ padding: "8px 6px 6px" }}>
+              <DatePicker selected={sel} onChange={pick} inline
+                renderCustomHeader={({ date, decreaseMonth, increaseMonth }) => (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 8px" }}>
+                    <button onClick={decreaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
+                      border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
+                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <FaChevronLeft style={{ fontSize: 9 }}/>
+                    </button>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: T.textPri }}>
+                      {format(date, "MMMM yyyy")}
+                    </span>
+                    <button onClick={increaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
+                      border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
+                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <FaChevronRight style={{ fontSize: 9 }}/>
+                    </button>
+                  </div>
+                )}
+              />
+            </div>
+          ) : (
+            <div style={{ padding: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {presets.map(p => {
+                const active = sel && isSameDay(sel, p.v);
+                return (
+                  <button key={p.label} onClick={() => pick(p.v)} style={{
+                    padding: "9px 10px", borderRadius: 8, textAlign: "left",
+                    border: `1.5px solid ${active ? T.blue : T.border}`,
+                    background: active ? (isDark ? "rgba(59,130,246,0.12)" : "#eff6ff") : T.surface2,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: active ? T.blue : T.textPri }}>{p.label}</div>
+                    <div style={{ fontSize: 10, color: T.textSec, marginTop: 2, fontFamily: "'DM Mono',monospace" }}>
+                      {format(p.v, "MMM dd, yyyy")}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {sel && (
+            <div style={{ margin: "0 10px 10px", padding: "8px 12px",
+              background: isDark ? "rgba(16,185,129,0.08)" : "#f0fdf4",
+              border: `1px solid ${isDark ? "rgba(16,185,129,0.25)" : "#bbf7d0"}`,
+              borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.textPri }}>
+                {format(sel, "EEE, MMM dd, yyyy")}
+              </span>
+              <FaCheck style={{ fontSize: 10, color: "#10b981" }}/>
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+function EnqSelect({ value, onChange, options, placeholder = "Select…", T }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos]   = useState({ top: 0, left: 0, width: 0 });
+  const trigRef = useRef(null);
+  const dropRef = useRef(null);
+
+  const measure = () => {
+    const r = trigRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+  };
+
+  useEffect(() => {
+    const h = e => {
+      if (!trigRef.current?.contains(e.target) && !dropRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const selected = options.find(o => (o.value ?? o) === value);
+  const label = selected ? (selected.label ?? selected) : value;
+
+  return (
+    <>
+      <button type="button" ref={trigRef}
+        onClick={() => { measure(); setOpen(o => !o); }}
+        style={{
+          width: "100%", padding: "8px 12px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          border: `1.5px solid ${open ? T.blue : T.border}`,
+          borderRadius: 8, background: T.surface, cursor: "pointer",
+          fontSize: 13, color: value ? T.textPri : T.textSec,
+          fontFamily: "inherit", fontWeight: value ? 600 : 400,
+          transition: "all .15s",
+          boxShadow: open ? `0 0 0 3px ${T.blue}22` : "none",
+        }}>
+        <span>{label || placeholder}</span>
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none"
+          stroke={T.textSec} strokeWidth={2.5} strokeLinecap="round"
+          style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0 }}>
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {open && createPortal(
+        <div ref={dropRef} style={{
+          position: "fixed", top: pos.top, left: pos.left, width: Math.max(pos.width, 160),
+          zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`,
+          borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,.3)",
+          overflow: "hidden", maxHeight: 240, overflowY: "auto",
+        }}>
+          {options.map((opt, i) => {
+            const v = opt.value ?? opt;
+            const l = opt.label ?? opt;
+            const dot = opt.color;
+            const isActive = v === value;
+            return (
+              <div key={v}
+                onClick={() => { onChange(v); setOpen(false); }}
+                style={{
+                  padding: "9px 13px", cursor: "pointer", fontSize: 13,
+                  display: "flex", alignItems: "center", gap: 8,
+                  background: isActive ? (T.blue + "18") : "transparent",
+                  borderBottom: i < options.length - 1 ? `1px solid ${T.border}` : "none",
+                  fontWeight: isActive ? 700 : 400,
+                  color: isActive ? T.blue : T.textPri,
+                  transition: "background .1s",
+                }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.surface2; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                {dot && <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }}/>}
+                <span>{l}</span>
+                {isActive && <svg style={{ marginLeft: "auto", flexShrink: 0 }} width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={T.blue} strokeWidth={2.5} strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+              </div>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
 
@@ -385,9 +655,10 @@ export default function Enquiries() {
   return (
     <>
       <style>{`
-        @keyframes enqSlideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
-        @keyframes enqOverlay { from{opacity:0} to{opacity:1} }
-        @keyframes enqFadeUp  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes enqSlideIn  { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+        @keyframes enqOverlay  { from{opacity:0} to{opacity:1} }
+        @keyframes enqFadeUp   { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes enqModalIn  { from{opacity:0;transform:translate(-50%,-50%) scale(0.96)} to{opacity:1;transform:translate(-50%,-50%) scale(1)} }
         .enq-row:hover { background:${isDark ? "rgba(255,255,255,.03)" : "#f8fafc"} !important; }
         .enq-tab { cursor:pointer; padding:8px 14px; border-radius:8px; font-size:12px; font-weight:600;
           border:none; background:transparent; font-family:inherit; transition:all .15s; }
@@ -870,20 +1141,22 @@ export default function Enquiries() {
 
                   <div>
                     <label style={labelStyle}>Source</label>
-                    <select value={editForm.source || ""} className="enq-input"
-                      onChange={e => setEditForm(f => ({ ...f, source: e.target.value }))}
-                      style={{ ...inputStyle }}>
-                      {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    <EnqSelect T={T} value={editForm.source || ""}
+                      onChange={v => setEditForm(f => ({ ...f, source: v }))}
+                      options={SOURCES.map(s => ({ value: s, label: s }))}
+                      placeholder="Select source…" />
                   </div>
 
                   <div>
                     <label style={labelStyle}>Priority</label>
-                    <select value={editForm.priority || "medium"} className="enq-input"
-                      onChange={e => setEditForm(f => ({ ...f, priority: e.target.value }))}
-                      style={{ ...inputStyle }}>
-                      {PRIORITIES.map(p => <option key={p} value={p} style={{ textTransform: "capitalize" }}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-                    </select>
+                    <EnqSelect T={T} value={editForm.priority || "medium"}
+                      onChange={v => setEditForm(f => ({ ...f, priority: v }))}
+                      options={[
+                        { value: "low",    label: "Low",    color: "#64748b" },
+                        { value: "medium", label: "Medium", color: "#f59e0b" },
+                        { value: "high",   label: "High",   color: "#ef4444" },
+                      ]}
+                      placeholder="Select priority…" />
                   </div>
 
                   <div>
@@ -942,7 +1215,7 @@ export default function Enquiries() {
           <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
             width: 560, maxWidth: "95vw", maxHeight: "90vh", background: T.surface,
             border: `1px solid ${border}`, borderRadius: 16, zIndex: 51,
-            display: "flex", flexDirection: "column", animation: "enqFadeUp .2s ease" }}>
+            display: "flex", flexDirection: "column", animation: "enqModalIn .2s cubic-bezier(0.16,1,0.3,1)" }}>
 
             {/* Modal header */}
             <div style={{ padding: "18px 22px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
@@ -989,16 +1262,25 @@ export default function Enquiries() {
                   { key: "company",      label: "Company" },
                   { key: "subject",      label: "Subject / Product Interest *", full: true },
                   { key: "assignedTo",   label: "Assigned To" },
-                  { key: "date",         label: "Enquiry Date", type: "date" },
-                  { key: "followUpDate", label: "Follow Up Date", type: "date" },
-                ].map(({ key, label, full, type }) => (
+                ].map(({ key, label, full }) => (
                   <div key={key} style={{ gridColumn: full ? "1 / -1" : undefined }}>
                     <label style={labelStyle}>{label}</label>
-                    <input type={type || "text"} value={form[key] || ""} className="enq-input"
+                    <input type="text" value={form[key] || ""} className="enq-input"
                       onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
                       style={{ ...inputStyle }}/>
                   </div>
                 ))}
+
+                <div>
+                  <label style={labelStyle}>Enquiry Date</label>
+                  <EnqDatePicker value={form.date} T={T} placeholder="Select date"
+                    onChange={v => setForm(f => ({ ...f, date: v }))} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Follow Up Date</label>
+                  <EnqDatePicker value={form.followUpDate} T={T} placeholder="Select date"
+                    onChange={v => setForm(f => ({ ...f, followUpDate: v }))} />
+                </div>
 
                 {/* Line Items */}
                 <div style={{ gridColumn: "1 / -1" }}>
@@ -1086,20 +1368,22 @@ export default function Enquiries() {
 
                 <div>
                   <label style={labelStyle}>Source</label>
-                  <select value={form.source} className="enq-input"
-                    onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
-                    style={{ ...inputStyle }}>
-                    {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <EnqSelect T={T} value={form.source}
+                    onChange={v => setForm(f => ({ ...f, source: v }))}
+                    options={SOURCES.map(s => ({ value: s, label: s }))}
+                    placeholder="Select source…" />
                 </div>
 
                 <div>
                   <label style={labelStyle}>Priority</label>
-                  <select value={form.priority} className="enq-input"
-                    onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
-                    style={{ ...inputStyle }}>
-                    {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-                  </select>
+                  <EnqSelect T={T} value={form.priority}
+                    onChange={v => setForm(f => ({ ...f, priority: v }))}
+                    options={[
+                      { value: "low",    label: "Low",    color: "#64748b" },
+                      { value: "medium", label: "Medium", color: "#f59e0b" },
+                      { value: "high",   label: "High",   color: "#ef4444" },
+                    ]}
+                    placeholder="Select priority…" />
                 </div>
 
                 <div style={{ gridColumn: "1 / -1" }}>
