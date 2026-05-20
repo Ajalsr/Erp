@@ -23,6 +23,18 @@ const CURRENCY_OPTIONS = cc.codes().map(code => {
   return d ? { label: `${d.currency} (${code})`, value: code } : null;
 }).filter(Boolean);
 
+const PAYMENT_TERMS_OPTIONS = [
+  { value: 'Due on Receipt', label: 'Due on Receipt' },
+  { value: 'Net 7',          label: 'Net 7 — due in 7 days' },
+  { value: 'Net 15',         label: 'Net 15 — due in 15 days' },
+  { value: 'Net 30',         label: 'Net 30 — due in 30 days' },
+  { value: 'Net 45',         label: 'Net 45 — due in 45 days' },
+  { value: 'Net 60',         label: 'Net 60 — due in 60 days' },
+  { value: 'Net 90',         label: 'Net 90 — due in 90 days' },
+  { value: '50% Advance',    label: '50% Advance — balance on delivery' },
+  { value: '100% Advance',   label: '100% Advance — full payment upfront' },
+];
+
 // ── Dynamic CSS (theme-aware) ──────────────────────────────────────
 const makeStyles = (T, isDark) => `
   @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
@@ -144,9 +156,8 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
     <SectionHeader icon={<FaWallet />} title="Finance Details" subtitle="Set credit limits and payment terms" T={T} isDark={isDark} />
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
       {[
-        { label: 'Credit Limit',  name: 'credit_limit', placeholder: 'e.g. 50,000' },
-        { label: 'Payment Terms', name: 'paymentTerms', placeholder: 'e.g. Net 30'  },
-        { label: 'No. of Days',   name: 'no_of_days',   placeholder: 'e.g. 30'      },
+        { label: 'Credit Limit', name: 'credit_limit', placeholder: 'e.g. 50,000' },
+        { label: 'No. of Days',  name: 'no_of_days',   placeholder: 'e.g. 30'     },
       ].map(f => (
         <div key={f.name}>
           <Label T={T}>{f.label}</Label>
@@ -154,6 +165,18 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
             onChange={handleChange} placeholder={f.placeholder} />
         </div>
       ))}
+      <div>
+        <Label T={T}>Payment Terms</Label>
+        <CustomSelect
+          name="paymentTerms"
+          value={formData.paymentTerms || 'Due on Receipt'}
+          onChange={handleChange}
+          options={PAYMENT_TERMS_OPTIONS}
+          placeholder="Select payment terms"
+          T={T}
+          isDark={isDark}
+        />
+      </div>
       <div>
         <Label T={T}>Currency</Label>
         <CustomSelect name="currency" value={formData.currency} onChange={handleChange}
@@ -397,10 +420,12 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
   const measurePos = useCallback(() => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    const dropH = Math.min(filtered.length * 44 + (searchable ? 56 : 16), 320);
+    const listH   = Math.min(filtered.length * 44, 244); // matches maxHeight:244 in render
+    const headerH = searchable ? 56 : 0;
+    const dropH   = listH + headerH + 16;                // +16 for inner padding
     const spaceBelow = window.innerHeight - r.bottom;
     const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
-    setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width });
+    setDropPos({ top, left: r.left, width: r.width });
     setReady(true);
   }, [filtered.length, searchable]);
 
@@ -447,7 +472,7 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
 
   const dropdown = (
     <div ref={dropRef}
-      style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, width: dropPos.width,
+      style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: dropPos.width,
                zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: '12px',
                boxShadow: isDark ? '0 16px 48px rgba(0,0,0,0.5)' : '0 16px 48px rgba(0,0,0,0.12)',
                overflow: 'hidden', fontFamily: "'DM Sans', sans-serif",

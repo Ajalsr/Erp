@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useAuthStore from '../../store/useAuthStore';
 import useGetItem from '../../helper/useGetItem';
 import useGetCustomers from '../../helper/useGetCustomers';
 import useAddSalesOrder from '../../helper/useAddSalesOrder';
@@ -382,7 +383,7 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
                 <button onClick={decreaseMonth} disabled={prevMonthButtonDisabled}
                   style={{width:28,height:28,borderRadius:8,border:`1.5px solid ${T.border}`,background:T.surface,cursor:'pointer',color:T.textSec,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .12s'}}
                   onMouseEnter={e=>{e.currentTarget.style.background=isDark?'rgba(59,130,246,0.1)':'#eff6ff';e.currentTarget.style.borderColor='#3b82f6';}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#e2e8f0';}}>
+                  onMouseLeave={e=>{e.currentTarget.style.background=T.surface;e.currentTarget.style.borderColor=T.border;}}>
                   <FaChevronLeft style={{fontSize:10}}/>
                 </button>
                 <span style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:14,color:T.textPri,letterSpacing:'-.01em'}}>
@@ -391,7 +392,7 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
                 <button onClick={increaseMonth} disabled={nextMonthButtonDisabled}
                   style={{width:28,height:28,borderRadius:8,border:`1.5px solid ${T.border}`,background:T.surface,cursor:'pointer',color:T.textSec,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .12s'}}
                   onMouseEnter={e=>{e.currentTarget.style.background=isDark?'rgba(59,130,246,0.1)':'#eff6ff';e.currentTarget.style.borderColor='#3b82f6';}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#e2e8f0';}}>
+                  onMouseLeave={e=>{e.currentTarget.style.background=T.surface;e.currentTarget.style.borderColor=T.border;}}>
                   <FaChevronRight style={{fontSize:10}}/>
                 </button>
               </div>
@@ -404,12 +405,12 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
               return (
                 <button key={p.label} onClick={()=>{onChange(p.value.toISOString().split('T')[0]);setOpen(false);setMode('calendar');}}
                   style={{padding:'10px 12px',borderRadius:10,textAlign:'left',cursor:'pointer',transition:'all .15s',
-                    border:`1.5px solid ${active?'#3b82f6':'#e2e8f0'}`,
-                    background:active?'#eff6ff':'#fff',
+                    border:`1.5px solid ${active?'#3b82f6':T.border}`,
+                    background:active?(isDark?'rgba(59,130,246,0.12)':'#eff6ff'):T.surface2,
                   }}
-                  onMouseEnter={e=>{if(!active){e.currentTarget.style.background='#f8fafc';e.currentTarget.style.borderColor='#bfdbfe';}}}
-                  onMouseLeave={e=>{if(!active){e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#e2e8f0';}}}>
-                  <div style={{fontSize:12,fontWeight:700,color:active?'#2563eb':'#0f172a'}}>{p.label}</div>
+                  onMouseEnter={e=>{if(!active){e.currentTarget.style.background=isDark?'rgba(255,255,255,0.04)':'#f8fafc';e.currentTarget.style.borderColor='#bfdbfe';}}}
+                  onMouseLeave={e=>{if(!active){e.currentTarget.style.background=T.surface2;e.currentTarget.style.borderColor=T.border;}}}>
+                  <div style={{fontSize:12,fontWeight:700,color:active?'#2563eb':T.textPri}}>{p.label}</div>
                   <div style={{fontSize:10,color:T.textSec,marginTop:2,fontFamily:"'DM Mono',monospace"}}>{format(p.value,'MMM dd, yyyy')}</div>
                 </button>
               );
@@ -438,11 +439,11 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
       <label className="nso-lbl">{label}{required&&<span className="nso-req">*</span>}</label>
       <button type="button" ref={triggerRef} onClick={()=>setOpen(!open)} style={{
         width:'100%',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',
-        border:`1.5px solid ${open?'#3b82f6':sel?'#3b82f6':'#e2e8f0'}`,
-        borderRadius:10,background:sel?'#eff6ff':'#fff',cursor:'pointer',fontSize:13,transition:'all .15s',
+        border:`1.5px solid ${open?'#3b82f6':sel?'#3b82f6':T.border}`,
+        borderRadius:10,background:sel?(isDark?'rgba(59,130,246,0.08)':'#eff6ff'):T.surface,cursor:'pointer',fontSize:13,transition:'all .15s',
         boxShadow:open?'0 0 0 3px rgba(59,130,246,.12)':'none',
       }}>
-        <span style={{color:sel?'#0f172a':'#94a3b8',fontWeight:sel?600:400,fontFamily:"'DM Sans',sans-serif"}}>
+        <span style={{color:sel?T.textPri:'#94a3b8',fontWeight:sel?600:400,fontFamily:"'DM Sans',sans-serif"}}>
           {sel?format(new Date(value),'MMM dd, yyyy'):placeholder}
         </span>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -450,10 +451,10 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
             <span onClick={e=>{e.stopPropagation();onChange('');setOpen(false);}}
               style={{width:18,height:18,borderRadius:5,background:T.surface2,color:T.textSec,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,cursor:'pointer',transition:'all .12s'}}
               onMouseEnter={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.color='#ef4444';}}
-              onMouseLeave={e=>{e.currentTarget.style.background='#f1f5f9';e.currentTarget.style.color='#94a3b8';}}>✕</span>
+              onMouseLeave={e=>{e.currentTarget.style.background=T.surface2;e.currentTarget.style.color=T.textSec;}}>✕</span>
           )}
-          <div style={{width:28,height:28,borderRadius:8,background:open||sel?'#eff6ff':'#f8fafc',border:`1.5px solid ${open||sel?'#bfdbfe':'#e2e8f0'}`,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}}>
-            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke={open||sel?'#3b82f6':'#94a3b8'} strokeWidth={2} strokeLinecap="round"><rect x={3} y={4} width={18} height={18} rx={3}/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          <div style={{width:28,height:28,borderRadius:8,background:open||sel?(isDark?'rgba(59,130,246,0.12)':'#eff6ff'):T.surface2,border:`1.5px solid ${open||sel?'#bfdbfe':T.border}`,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}}>
+            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke={open||sel?'#3b82f6':T.textSec} strokeWidth={2} strokeLinecap="round"><rect x={3} y={4} width={18} height={18} rx={3}/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
           </div>
         </div>
       </button>
@@ -494,6 +495,9 @@ const Newsalesorders = () => {
   const [successMessage,setSuccessMessage]=useState('');
   const [creditBlockError,setCreditBlockError]=useState(null);
   const [lpoError,setLpoError]=useState('');
+
+  const activeOrg=useAuthStore(s=>s.activeOrg);
+  const isAdminOrOwner=['owner','admin'].includes((activeOrg?.role||'').toLowerCase());
 
   const {handleGetItem,data:inventoryData,loading:inventoryLoading}=useGetItem();
   const {handleGetCustomers,data:customersData,loading:customersLoading}=useGetCustomers();
@@ -784,11 +788,12 @@ const Newsalesorders = () => {
     });
     if(apiItems.length===0)throw new Error('Please add at least one item to the sales order');
     if(!selectedCustomer)throw new Error('Please select a customer');
-    if(!lpoNumber.trim())throw new Error('LPO Number is required');
+    if(isAdminOrOwner&&!lpoNumber.trim())throw new Error('LPO Number is required');
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed to save draft');setShowSuccessToaster(true);}};
   const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){setLpoError(e.response.data?.message||'LPO number already exists');return;}setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSubmitForApproval=async()=>{try{const d=prepareSalesOrderData('pending_approval'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){setLpoError(e.response.data?.message||'LPO number already in use by another active order');return;}setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
@@ -874,12 +879,20 @@ const Newsalesorders = () => {
               </div>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <span style={{padding:'5px 12px',borderRadius:99,background:'#fef9c3',border:'1.5px solid #fef08a',fontSize:11,fontWeight:700,color:'#854d0e',letterSpacing:'.04em'}}>● DRAFT</span>
+              {isAdminOrOwner
+                ? <span style={{padding:'5px 12px',borderRadius:99,background:'#fef9c3',border:'1.5px solid #fef08a',fontSize:11,fontWeight:700,color:'#854d0e',letterSpacing:'.04em'}}>● DRAFT</span>
+                : <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(251,191,36,0.12)',border:'1.5px solid rgba(251,191,36,0.3)',fontSize:11,fontWeight:700,color:'#d97706',letterSpacing:'.04em'}}>⏳ PENDING APPROVAL</span>
+              }
               <button onClick={handleCancel} className="nso-bg">Cancel</button>
               <button onClick={handleSaveAsDraft} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save Draft'}</button>
-              <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
-                {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
-              </button>
+              {isAdminOrOwner
+                ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
+                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
+                  </button>
+                : <button onClick={handleSubmitForApproval} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
+                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Submit for Approval</>}
+                  </button>
+              }
             </div>
           </div>
         </div>
@@ -1022,7 +1035,7 @@ const Newsalesorders = () => {
                         <div style={{fontSize:11,color:'#3b82f6',marginTop:2}}>{[selectedCustomer.companyName&&`🏢 ${selectedCustomer.companyName}`,selectedCustomer.customerEmail&&`✉ ${selectedCustomer.customerEmail}`,selectedCustomer.customerPhone&&`📞 ${selectedCustomer.customerPhone}`].filter(Boolean).join('  ·  ')}</div>
                       </div>
                     </div>
-                    <button onClick={()=>{setSelectedCustomer(null);setCustomerSearch('');setCreditStatus(null);}} style={{fontSize:11,color:'#ef4444',background:'#fef2f2',border:'1.5px solid #fecaca',borderRadius:7,padding:'4px 10px',cursor:'pointer',fontWeight:700,flexShrink:0}}>Clear</button>
+                    {/* <button onClick={()=>{setSelectedCustomer(null);setCustomerSearch('');setCreditStatus(null);}} style={{fontSize:11,color:'#ef4444',background:'#fef2f2',border:'1.5px solid #fecaca',borderRadius:7,padding:'4px 10px',cursor:'pointer',fontWeight:700,flexShrink:0}}>Clear</button> */}
                   </div>
                   {creditStatus&&creditStatus.creditLimit>0&&(()=>{
                     const pct=Math.min(creditStatus.utilization,100);
@@ -1075,14 +1088,14 @@ const Newsalesorders = () => {
         {/* Section 2 — LPO */}
         <Section title="LPO Details" icon="📄" accent="#8b5cf6">
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginBottom:18}}>
-            <Field label="LPO Number" req>
+            <Field label="LPO Number" req={isAdminOrOwner}>
               <input type="text" value={lpoNumber} onChange={e=>{setLpoNumber(e.target.value);setLpoError('');}} className="nso-inp" placeholder="LPO-2024-001" style={{fontFamily:"'DM Mono',monospace",borderColor:lpoError?'#ef4444':undefined}}/>
               {lpoError&&<div style={{color:'#ef4444',fontSize:12,marginTop:5,display:'flex',alignItems:'center',gap:5}}><span>⚠</span>{lpoError}</div>}
             </Field>
             <ModernDatePicker value={lpoDate} onChange={setLpoDate} label="LPO Date" placeholder="Select LPO date"/>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>
-            <Field label="LPO Value (AED)" req>
+            <Field label="LPO Value (AED)" req={isAdminOrOwner}>
               <div style={{position:'relative'}}>
                 <span style={{position:'absolute',left:13,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:T.textSec,fontFamily:"'DM Mono',monospace"}}>AED</span>
                 <input type="number" value={lpoValue} onChange={e=>setLpoValue(e.target.value)} className="nso-inp" placeholder="0.00" step="0.01" style={{paddingLeft:46,fontFamily:"'DM Mono',monospace"}}/>
@@ -1331,9 +1344,14 @@ const Newsalesorders = () => {
           <div style={{display:'flex',gap:10}}>
             <button onClick={handleCancel} className="nso-bg">Cancel</button>
             <button onClick={handleSaveAsDraft} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save as Draft'}</button>
-            <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
-              {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
-            </button>
+            {isAdminOrOwner
+              ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
+                  {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
+                </button>
+              : <button onClick={handleSubmitForApproval} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
+                  {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Submit for Approval</>}
+                </button>
+            }
           </div>
         </div>
 

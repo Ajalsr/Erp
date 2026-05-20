@@ -4,13 +4,16 @@ import {
   FaChevronLeft, FaChevronRight, FaBoxOpen,
   FaFileInvoiceDollar, FaEdit, FaBan,
   FaSortAmountDown, FaSortAmountUp, FaDownload,
-  FaCheckCircle, FaClock, FaTimesCircle, FaSpinner
+  FaCheckCircle, FaClock, FaTimesCircle, FaSpinner,
+  FaHourglassHalf, FaThumbsUp, FaThumbsDown
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import useGetAllSalesOrder from "../../helper/useGetAllSalesOrder";
 import useWebSocket from "../../helper/useWebSocket";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useAuthStore from "../../store/useAuthStore";
+import axiosInstance from "../../helper/axiosInstance";
 
 
 const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWidth = 120 }) => {
@@ -142,7 +145,11 @@ const formatDate = (d) => {
   return dt.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" });
 };
 
-const formatStatus = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : "Unknown";
+const formatStatus = (s) => {
+  if (!s) return "Unknown";
+  const map = { pending_approval: "Pending Approval", cancel_requested: "Cancel Requested" };
+  return map[s] || s.charAt(0).toUpperCase() + s.slice(1);
+};
 
 const transformOrders = (apiData) => {
   if (!apiData?.salesOrders) return [];
@@ -171,21 +178,26 @@ const transformOrders = (apiData) => {
 };
 
 const STATUS_CFG = {
-  draft:      { color: "#f59e0b", dim: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "Draft"       },
-  confirmed:  { color: "#10b981", dim: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  label: "Confirmed"   },
-  open:       { color: "#3b82f6", dim: "rgba(59,130,246,0.12)",  border: "rgba(59,130,246,0.25)",  label: "Open"        },
-  "in progress":{ color:"#8b5cf6",dim:"rgba(139,92,246,0.12)",   border:"rgba(139,92,246,0.25)",   label:"In Progress"  },
-  completed:  { color: "#10b981", dim: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  label: "Completed"   },
-  closed:     { color: "#64748b", dim: "rgba(100,116,139,0.12)", border: "rgba(100,116,139,0.25)", label: "Closed"      },
-  cancelled:  { color: "#ef4444", dim: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.25)",   label: "Cancelled"   },
+  draft:            { color: "#f59e0b", dim: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "Draft"            },
+  confirmed:        { color: "#10b981", dim: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  label: "Confirmed"        },
+  open:             { color: "#3b82f6", dim: "rgba(59,130,246,0.12)",  border: "rgba(59,130,246,0.25)",  label: "Open"             },
+  "in progress":    { color: "#8b5cf6", dim: "rgba(139,92,246,0.12)",  border: "rgba(139,92,246,0.25)",  label: "In Progress"      },
+  completed:        { color: "#10b981", dim: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  label: "Completed"        },
+  closed:           { color: "#64748b", dim: "rgba(100,116,139,0.12)", border: "rgba(100,116,139,0.25)", label: "Closed"           },
+  cancelled:        { color: "#ef4444", dim: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.25)",   label: "Cancelled"        },
+  pending_approval: { color: "#f59e0b", dim: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.3)",   label: "Pending Approval" },
+  approved:         { color: "#06b6d4", dim: "rgba(6,182,212,0.12)",   border: "rgba(6,182,212,0.25)",   label: "Approved"         },
+  rejected:         { color: "#ef4444", dim: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.25)",   label: "Rejected"         },
 };
 const getStatus = (raw) => STATUS_CFG[raw?.toLowerCase()] || STATUS_CFG.closed;
 
 const Salesorders = () => {
   const { handleGetSalesorder, data, loading, error } = useGetAllSalesOrder();
-  const navigate  = useNavigate();
-  const isDark    = useThemeStore((s) => s.isDark);
-  const T         = getTheme(isDark);
+  const navigate    = useNavigate();
+  const isDark      = useThemeStore((s) => s.isDark);
+  const T           = getTheme(isDark);
+  const activeOrg   = useAuthStore((s) => s.activeOrg);
+  const isAdminOrOwner = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase());
 
   const [drawer,        setDrawer]       = useState(false);
   const [selected,      setSelected]     = useState(null);
@@ -195,7 +207,21 @@ const Salesorders = () => {
   const [sortBy,        setSortBy]       = useState("date");
   const [sortDir,       setSortDir]      = useState("desc");
   const [page,          setPage]         = useState(1);
+  const [approvingId,   setApprovingId]  = useState(null);
   const perPage = 10;
+
+  const updateOrderStatus = async (id, status) => {
+    setApprovingId(id);
+    try {
+      await axiosInstance.patch(`/api/sales-orders/${id}/status`, { status });
+      await handleGetSalesorder();
+      if (selected?.id === id) setSelected(prev => prev ? { ...prev, rawStatus: status, status: formatStatus(status) } : null);
+    } catch (e) {
+      alert(e.response?.data?.message || "Failed to update status.");
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   useEffect(() => { handleGetSalesorder(); }, [handleGetSalesorder]);
 
@@ -227,7 +253,7 @@ const Salesorders = () => {
   const stats = {
     total:    allOrders.length,
     open:     allOrders.filter(o => ["open","confirmed","in progress"].includes(o.rawStatus)).length,
-    pending:  allOrders.filter(o => o.rawStatus === "draft").length,
+    pending:  allOrders.filter(o => ["draft","pending_approval"].includes(o.rawStatus)).length,
     value:    allOrders.reduce((s, o) => s + o.total, 0),
   };
 
@@ -372,7 +398,7 @@ const Salesorders = () => {
 
             {/* Status pills */}
             <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-              {["all", "open", "draft", "approved", "shipped", "invoiced", "completed", "cancel_requested", "cancelled"].map(s => (
+              {["all", "open", "pending_approval", "approved", "confirmed", "draft", "shipped", "invoiced", "completed", "rejected", "cancelled"].map(s => (
                 <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
                   className={`so-pill${statusFilter === s ? " so-pill-active" : ""}`}
                   style={{ padding: "5px 11px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", background: "transparent", color: T.textSec, border: `1px solid ${T.border}`, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -475,11 +501,25 @@ const Salesorders = () => {
                           style={{ padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.textSec, cursor: "pointer", fontFamily: "inherit", fontWeight: "500" }}>
                           View
                         </button>
-                        {item.status === "draft" && (
+                        {item.rawStatus === "draft" && (
                           <button className="so-tbl-btn" onClick={() => navigate(`/Sales/Salesorders/Newsalesorders/${item._id || item.id}`)}
                             style={{ padding: "4px 10px", border: `1px solid ${T.blue}`, borderRadius: "7px", background: "transparent", fontSize: "11px", color: T.blue, cursor: "pointer", fontFamily: "inherit", fontWeight: "500", display: "flex", alignItems: "center", gap: "4px" }}>
                             <FaEdit size={10} /> Edit
                           </button>
+                        )}
+                        {isAdminOrOwner && item.rawStatus === "pending_approval" && (
+                          <>
+                            <button className="so-tbl-btn" disabled={approvingId === item.id}
+                              onClick={() => updateOrderStatus(item.id, "approved")}
+                              style={{ padding: "4px 10px", border: "1px solid rgba(16,185,129,0.4)", borderRadius: "7px", background: "rgba(16,185,129,0.08)", fontSize: "11px", color: "#10b981", cursor: "pointer", fontFamily: "inherit", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <FaThumbsUp size={9} /> Approve
+                            </button>
+                            <button className="so-tbl-btn" disabled={approvingId === item.id}
+                              onClick={() => updateOrderStatus(item.id, "rejected")}
+                              style={{ padding: "4px 10px", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "7px", background: "rgba(239,68,68,0.08)", fontSize: "11px", color: "#ef4444", cursor: "pointer", fontFamily: "inherit", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <FaThumbsDown size={9} /> Reject
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -677,6 +717,42 @@ const Salesorders = () => {
                 {/* OVERVIEW TAB */}
                 {activeTab === "overview" && (
                   <>
+                    {/* Approval action panel — admin only, pending_approval orders */}
+                    {isAdminOrOwner && selected.rawStatus === "pending_approval" && (
+                      <div style={{ background: "rgba(245,158,11,0.08)", border: "1.5px solid rgba(245,158,11,0.3)", borderRadius: 14, padding: "16px 18px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                          <div style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(245,158,11,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>⏳</div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#d97706" }}>Awaiting Your Approval</div>
+                            <div style={{ fontSize: 11, color: T.textSec, marginTop: 2 }}>Review the order details then approve or reject.</div>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button disabled={approvingId === selected.id}
+                            onClick={() => updateOrderStatus(selected.id, "approved")}
+                            style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: approvingId ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, opacity: approvingId ? 0.7 : 1 }}>
+                            <FaThumbsUp size={12} /> {approvingId === selected.id ? "Processing…" : "Approve Order"}
+                          </button>
+                          <button disabled={approvingId === selected.id}
+                            onClick={() => updateOrderStatus(selected.id, "rejected")}
+                            style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "1.5px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.08)", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: approvingId ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
+                            <FaThumbsDown size={12} /> Reject
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Rejected banner */}
+                    {selected.rawStatus === "rejected" && (
+                      <div style={{ background: "rgba(239,68,68,0.08)", border: "1.5px solid rgba(239,68,68,0.25)", borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 18 }}>🚫</span>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>Order Rejected</div>
+                          <div style={{ fontSize: 11, color: T.textSec, marginTop: 2 }}>This order was rejected. The creator can edit and resubmit.</div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Financial summary card — first so Total is always reachable */}
                     <div style={{
                       background: isDark ? T.surface : "#fff",

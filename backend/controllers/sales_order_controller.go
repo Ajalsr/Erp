@@ -79,17 +79,21 @@ func CreateSalesOrder() gin.HandlerFunc {
 			return
 		}
 
+		orgID, _  := c.Get("orgId")
+		userID, _ := c.Get("userId")
+
 		// ── Duplicate LPO check ───────────────────────────────────────────────
+		// Rejected SOs free up their LPO number — only block on active/pending/approved SOs.
 		if req.LpoNumber != "" {
-			orgID, _ := c.Get("orgId")
 			count, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
 				"orgId":     fmt.Sprintf("%v", orgID),
 				"lpoNumber": req.LpoNumber,
+				"status":    bson.M{"$ne": "rejected"},
 			})
 			if count > 0 {
 				c.JSON(http.StatusConflict, gin.H{
 					"status":  http.StatusConflict,
-					"message": fmt.Sprintf("LPO number '%s' already exists. Each LPO number must be unique.", req.LpoNumber),
+					"message": fmt.Sprintf("LPO number '%s' is already in use by an active order.", req.LpoNumber),
 				})
 				return
 			}
@@ -164,8 +168,14 @@ func CreateSalesOrder() gin.HandlerFunc {
 		adjustment := math.Round(req.Adjustment*100) / 100
 		total := math.Round((subTotal+vat+shipping+adjustment)*100) / 100
 
-		orgID, _ := c.Get("orgId")
-
+		// ── Role check: admin/owner vs non-privileged ─────────────────────────
+		privileged := false
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		if orgObjID, parseErr := primitive.ObjectIDFromHex(orgIDStr); parseErr == nil {
+			if role, ok := getMemberRole(ctx, orgObjID, fmt.Sprintf("%v", userID)); ok {
+				privileged = isAdminOrOwner(role)
+			}
+		}
 		// ── Credit limit check ────────────────────────────────────────────────
 		// When CreditLimitAction == "block" (or "block" is the org default) and the
 		// new order would push the customer over their credit limit, return 422 and
@@ -261,7 +271,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 			Total:                total,
 			CustomerNotes:        req.CustomerNotes,
 			TermsAndConditions:   req.TermsAndConditions,
-			Status:               "open",
+			Status:               func() string { if privileged { return "open" }; return "pending_approval" }(),
 			CreatedAt:            time.Now(),
 			UpdatedAt:            time.Now(),
 		}
@@ -558,11 +568,23 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 		validStatuses := map[string]bool{
 			"draft": true, "pending": true, "approved": true, "shipped": true,
 			"completed": true, "cancelled": true, "open": true, "invoiced": true,
-			"cancel_requested": true,
+			"cancel_requested": true, "pending_approval": true, "confirmed": true, "rejected": true,
 		}
 		if !validStatuses[req.Status] {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid status value"})
 			return
+		}
+
+		// Only admin/owner can approve or reject
+		if req.Status == "approved" || req.Status == "rejected" || req.Status == "confirmed" {
+			statusUserID, _ := c.Get("userId")
+			statusOrgIDStr := fmt.Sprintf("%v", orgID)
+			if statusOrgObjID, err2 := primitive.ObjectIDFromHex(statusOrgIDStr); err2 == nil {
+				if statusRole, ok2 := getMemberRole(ctx, statusOrgObjID, fmt.Sprintf("%v", statusUserID)); !ok2 || !isAdminOrOwner(statusRole) {
+					c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admin or owner can approve, reject, or confirm sales orders."})
+					return
+				}
+			}
 		}
 
 		setFields := bson.M{"status": req.Status, "updatedAt": time.Now()}
@@ -662,14 +684,38 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		if req.OrderDate != nil {
 			setFields["orderDate"] = *req.OrderDate
 		}
-		if req.LpoNumber != nil {
-			setFields["lpoNumber"] = *req.LpoNumber
-		}
-		if req.LpoDate != nil {
-			setFields["lpoDate"] = *req.LpoDate
-		}
-		if req.LpoValue != nil {
-			setFields["lpoValue"] = *req.LpoValue
+		if req.LpoNumber != nil || req.LpoDate != nil || req.LpoValue != nil {
+			// Only admin/owner can write LPO fields
+			lpoUserID, _ := c.Get("userId")
+			lpoOrgIDStr := fmt.Sprintf("%v", orgID)
+			lpoPrivileged := false
+			if lpoOrgObjID, err2 := primitive.ObjectIDFromHex(lpoOrgIDStr); err2 == nil {
+				if lpoRole, ok2 := getMemberRole(ctx, lpoOrgObjID, fmt.Sprintf("%v", lpoUserID)); ok2 {
+					lpoPrivileged = isAdminOrOwner(lpoRole)
+				}
+			}
+			if !lpoPrivileged {
+				c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admin or owner can set LPO fields."})
+				return
+			}
+			// LPO is locked once order is confirmed
+			if existingOrder.Status == "confirmed" {
+				c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "LPO is locked after confirmation."})
+				return
+			}
+			if req.LpoNumber != nil {
+				setFields["lpoNumber"] = *req.LpoNumber
+				// Auto-confirm when LPO is saved on an approved order
+				if existingOrder.Status == "approved" && *req.LpoNumber != "" {
+					setFields["status"] = "confirmed"
+				}
+			}
+			if req.LpoDate != nil {
+				setFields["lpoDate"] = *req.LpoDate
+			}
+			if req.LpoValue != nil {
+				setFields["lpoValue"] = *req.LpoValue
+			}
 		}
 		if req.ExpectedShipmentDate != nil {
 			setFields["expectedShipmentDate"] = *req.ExpectedShipmentDate
