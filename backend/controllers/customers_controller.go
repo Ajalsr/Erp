@@ -1057,3 +1057,166 @@ func GetCustomerCreditStatus() gin.HandlerFunc {
 		})
 	}
 }
+
+// GetCustomerStatement returns all invoices + payments for a customer in a date range,
+// with a running balance column — suitable for printing a customer account statement.
+// GET /api/customers/:id/statement?from=2006-01-02&to=2006-01-02
+func GetCustomerStatement() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		custIDStr := c.Param("id")
+
+		custObjID, err := primitive.ObjectIDFromHex(custIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid customer ID"})
+			return
+		}
+
+		var cust models.Customer
+		if err := customersCollection.FindOne(ctx, bson.M{"_id": custObjID, "orgId": orgID}).Decode(&cust); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Customer not found"})
+			return
+		}
+
+		fromStr := c.DefaultQuery("from", time.Now().AddDate(0, -3, 0).Format("2006-01-02"))
+		toStr := c.DefaultQuery("to", time.Now().Format("2006-01-02"))
+
+		fromTime, _ := time.Parse("2006-01-02", fromStr)
+		toTime, err2 := time.Parse("2006-01-02", toStr)
+		if err2 != nil {
+			toTime = time.Now()
+		}
+		toTime = toTime.Add(24*time.Hour - time.Second)
+
+		invCol := config.GetCollection(config.DB, "invoices")
+		pmtCol := config.GetCollection(config.DB, "payments")
+
+		// Fetch invoices in range
+		invCursor, _ := invCol.Find(ctx, bson.M{
+			"orgId":      orgID,
+			"customerId": custIDStr,
+			"issueDate":  bson.M{"$gte": fromStr, "$lte": toStr},
+			"status":     bson.M{"$ne": "void"},
+			"type":       bson.M{"$ne": "proforma"},
+		}, options.Find().SetSort(bson.D{{Key: "issueDate", Value: 1}}))
+		var invoices []models.Invoice
+		if invCursor != nil {
+			invCursor.All(ctx, &invoices)
+		}
+
+		// Fetch payments in range
+		pmtCursor, _ := pmtCol.Find(ctx, bson.M{
+			"orgId":      orgID,
+			"customerId": custIDStr,
+			"date":       bson.M{"$gte": fromStr, "$lte": toStr},
+		}, options.Find().SetSort(bson.D{{Key: "date", Value: 1}}))
+		var payments []models.Payment
+		if pmtCursor != nil {
+			pmtCursor.All(ctx, &payments)
+		}
+
+		type StatementLine struct {
+			Date        string  `json:"date"`
+			Type        string  `json:"type"` // "invoice" | "payment" | "credit"
+			Reference   string  `json:"reference"`
+			Description string  `json:"description"`
+			Debit       float64 `json:"debit"`
+			Credit      float64 `json:"credit"`
+			Balance     float64 `json:"balance"`
+		}
+
+		// Merge and sort by date
+		type rawItem struct {
+			date string
+			line StatementLine
+		}
+		var items []rawItem
+
+		// Opening balance: sum all unpaid invoices before fromDate
+		var openingBalance float64
+		prevInvCursor, _ := invCol.Aggregate(ctx, []bson.M{
+			{"$match": bson.M{
+				"orgId":      orgID,
+				"customerId": custIDStr,
+				"issueDate":  bson.M{"$lt": fromStr},
+				"status":     bson.M{"$nin": []string{"void", "paid"}},
+				"type":       bson.M{"$ne": "proforma"},
+			}},
+			{"$group": bson.M{"_id": nil, "balance": bson.M{"$sum": "$balanceDue"}}},
+		})
+		if prevInvCursor != nil {
+			var res []struct{ Balance float64 `bson:"balance"` }
+			prevInvCursor.All(ctx, &res)
+			if len(res) > 0 {
+				openingBalance = res[0].Balance
+			}
+		}
+
+		for _, inv := range invoices {
+			items = append(items, rawItem{date: inv.IssueDate, line: StatementLine{
+				Date:        inv.IssueDate,
+				Type:        "invoice",
+				Reference:   inv.InvoiceNumber,
+				Description: fmt.Sprintf("Invoice %s", inv.InvoiceNumber),
+				Debit:       inv.Totals.GrandTotal,
+			}})
+		}
+		for _, pmt := range payments {
+			desc := fmt.Sprintf("Payment — %s", pmt.PaymentMode)
+			if pmt.InvoiceNumber != "" {
+				desc += " for " + pmt.InvoiceNumber
+			}
+			items = append(items, rawItem{date: pmt.Date, line: StatementLine{
+				Date:        pmt.Date,
+				Type:        "payment",
+				Reference:   pmt.PaymentNumber,
+				Description: desc,
+				Credit:      pmt.Amount,
+			}})
+		}
+
+		// Sort by date string (ISO format sorts correctly)
+		for i := 0; i < len(items); i++ {
+			for j := i + 1; j < len(items); j++ {
+				if items[j].date < items[i].date {
+					items[i], items[j] = items[j], items[i]
+				}
+			}
+		}
+
+		balance := openingBalance
+		var lines []StatementLine
+		for _, item := range items {
+			balance += item.line.Debit - item.line.Credit
+			item.line.Balance = balance
+			lines = append(lines, item.line)
+		}
+		if lines == nil {
+			lines = []StatementLine{}
+		}
+
+		custName := cust.CustomerDisplayName
+		if custName == "" {
+			custName = cust.CompanyName
+		}
+
+		fromTimeCheck := fromTime
+		_ = fromTimeCheck
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": http.StatusOK,
+			"data": gin.H{
+				"customerId":     custIDStr,
+				"customerName":   custName,
+				"from":           fromStr,
+				"to":             toStr,
+				"openingBalance": openingBalance,
+				"closingBalance": balance,
+				"lines":          lines,
+			},
+		})
+	}
+}

@@ -26,13 +26,14 @@ const buildTheme = (isDark) => ({
 
 /* ─── Status Config ─────────────────────────────────────────────────────── */
 const STATUS = {
-  paid:    { label: "Paid",    bg: "rgba(16,185,129,.12)",  border: "rgba(16,185,129,.3)",  text: "#10b981" },
-  unpaid:  { label: "Unpaid",  bg: "rgba(245,158,11,.12)",  border: "rgba(245,158,11,.3)",  text: "#f59e0b" },
-  sent:    { label: "Sent",    bg: "rgba(139,92,246,.12)",  border: "rgba(139,92,246,.3)",  text: "#8b5cf6" },
-  overdue: { label: "Overdue", bg: "rgba(239,68,68,.12)",   border: "rgba(239,68,68,.3)",   text: "#ef4444" },
-  partial: { label: "Partial", bg: "rgba(59,130,246,.12)",  border: "rgba(59,130,246,.3)",  text: "#3b82f6" },
-  draft:   { label: "Draft",   bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.3)", text: "#94a3b8" },
-  void:    { label: "Void",    bg: "rgba(30,30,30,.15)",    border: "rgba(100,100,100,.3)", text: "#64748b" },
+  paid:     { label: "Paid",     bg: "rgba(16,185,129,.12)",  border: "rgba(16,185,129,.3)",  text: "#10b981" },
+  unpaid:   { label: "Unpaid",   bg: "rgba(245,158,11,.12)",  border: "rgba(245,158,11,.3)",  text: "#f59e0b" },
+  sent:     { label: "Sent",     bg: "rgba(139,92,246,.12)",  border: "rgba(139,92,246,.3)",  text: "#8b5cf6" },
+  overdue:  { label: "Overdue",  bg: "rgba(239,68,68,.12)",   border: "rgba(239,68,68,.3)",   text: "#ef4444" },
+  partial:  { label: "Partial",  bg: "rgba(59,130,246,.12)",  border: "rgba(59,130,246,.3)",  text: "#3b82f6" },
+  draft:    { label: "Draft",    bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.3)", text: "#94a3b8" },
+  void:     { label: "Void",     bg: "rgba(30,30,30,.15)",    border: "rgba(100,100,100,.3)", text: "#64748b" },
+  proforma: { label: "Proforma", bg: "rgba(124,58,237,.12)",  border: "rgba(124,58,237,.3)",  text: "#7c3aed" },
 };
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
@@ -109,7 +110,9 @@ const toRow = (inv) => ({
   amount:       inv.totals?.grandTotal ?? 0,
   paid:         inv.amountPaid ?? 0,
   balance:      inv.balanceDue  ?? (inv.totals?.grandTotal ?? 0),
-  status:       inv.status || "unpaid",
+  status:       inv.type === "proforma" ? "proforma" : (inv.status || "unpaid"),
+  docType:      inv.type || "invoice",
+  proformaConvertedTo: inv.proformaConvertedTo || "",
   items:        (inv.lineItems || []).length,
   currency:     inv.currency || "AED",
   paymentTerms: inv.paymentTerms || "",
@@ -343,7 +346,8 @@ const Invoices = () => {
   const [invoices,     setInvoices]    = useState([]);
   const [loading,      setLoading]     = useState(true);
   const [voidLoading,  setVoidLoading] = useState(false);
-  const [issueLoading, setIssueLoading] = useState(false);
+  const [issueLoading,       setIssueLoading]       = useState(false);
+  const [finalizingProforma, setFinalizingProforma] = useState(false);
 
   const loadInvoices = useCallback(() => {
     setLoading(true);
@@ -779,8 +783,38 @@ const Invoices = () => {
                         </div>
                       )}
 
+                      {/* Proforma actions */}
+                      {selected.docType === "proforma" && !selected.proformaConvertedTo && (
+                        <>
+                          <div style={{ padding: "10px 14px", borderRadius: 7, background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.25)", fontSize: 12, color: "#a78bfa" }}>
+                            📋 Proforma invoice — not recorded in AR. Finalize to convert to a real invoice.
+                          </div>
+                          <button
+                            disabled={finalizingProforma}
+                            onClick={async () => {
+                              setFinalizingProforma(true);
+                              try {
+                                const res = await axiosInstance.post(`/api/invoices/${selected._id}/finalize`);
+                                nexusToast.success(`Invoice ${res.data?.data?.invoiceNumber} created`);
+                                setSelected(null); loadInvoices();
+                              } catch (e) {
+                                nexusToast.error(e.response?.data?.message || "Finalize failed");
+                              } finally { setFinalizingProforma(false); }
+                            }}
+                            style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: finalizingProforma ? "not-allowed" : "pointer", background: "#7c3aed", color: "#fff", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%", opacity: finalizingProforma ? 0.6 : 1 }}>
+                            {finalizingProforma ? "Finalizing…" : "✓ Finalize → Create Invoice"}
+                          </button>
+                        </>
+                      )}
+
+                      {selected.docType === "proforma" && selected.proformaConvertedTo && (
+                        <div style={{ padding: "10px 14px", borderRadius: 7, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)", fontSize: 12, color: "#10b981" }}>
+                          ✓ Proforma finalized — Invoice created.
+                        </div>
+                      )}
+
                       {/* Draft-only actions */}
-                      {selected.status === "draft" && (
+                      {selected.status === "draft" && selected.docType !== "proforma" && (
                         <>
                           <button
                             disabled={issueLoading}
@@ -1076,36 +1110,61 @@ const Invoices = () => {
                 )}
 
                 {/* ── History Tab ── */}
-                {drawerTab === "history" && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                    {drawerHistory.map((h, i) => (
-                      <div key={i} style={{ display: "flex", gap: 14, paddingBottom: 20, position: "relative" }}>
-                        {/* Timeline line */}
-                        {i < drawerHistory.length - 1 && (
-                          <div style={{ position: "absolute", left: 7, top: 18, bottom: 0, width: 1, background: T.border }} />
-                        )}
-                        {/* Dot */}
-                        <div style={{ width: 15, height: 15, borderRadius: "50%", background: T.accent2, flexShrink: 0, marginTop: 2, border: `2px solid ${T.surface}`, position: "relative", zIndex: 1 }} />
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 500 }}>{h.event}</div>
-                          <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>
-                            {fmtDate(h.date)} · {h.user}
+                {drawerTab === "history" && (() => {
+                  // Build unified timeline: structural events + each payment + each credit applied
+                  const timelineEntries = [
+                    ...drawerHistory.map(h => ({
+                      date: new Date(h.date || 0),
+                      dot: T.accent2,
+                      label: h.event,
+                      sub: `${fmtDate(h.date)} · ${h.user}`,
+                    })),
+                    ...linkedPayments.map(p => ({
+                      date: new Date(p.date || p.createdAt || 0),
+                      dot: "#10b981",
+                      label: `Payment received — ${fmt(p.amount)}`,
+                      sub: [
+                        p.date ? new Date(p.date).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : null,
+                        p.paymentMode || "Other",
+                        p.paymentNumber,
+                        p.reference ? `Ref: ${p.reference}` : null,
+                      ].filter(Boolean).join(" · "),
+                    })),
+                    ...linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).map(cn => ({
+                      date: new Date(cn.updatedAt || cn.createdAt || 0),
+                      dot: "#3b82f6",
+                      label: `Credit note applied — ${fmt(cn.totals?.grandTotal || 0)}`,
+                      sub: [
+                        cn.creditNoteNumber,
+                        cn.updatedAt ? new Date(cn.updatedAt).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : null,
+                      ].filter(Boolean).join(" · "),
+                    })),
+                  ].sort((a, b) => a.date - b.date);
+
+                  if (timelineEntries.length === 0) return (
+                    <div style={{ textAlign: "center", padding: "48px 0", color: T.muted, fontSize: 13 }}>
+                      <div style={{ fontSize: 28, marginBottom: 10 }}>📋</div>
+                      No history yet
+                    </div>
+                  );
+
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                      {timelineEntries.map((entry, i) => (
+                        <div key={i} style={{ display: "flex", gap: 14, paddingBottom: 20, position: "relative" }}>
+                          {i < timelineEntries.length - 1 && (
+                            <div style={{ position: "absolute", left: 7, top: 18, bottom: 0, width: 1, background: T.border }} />
+                          )}
+                          <div style={{ width: 15, height: 15, borderRadius: "50%", background: entry.dot, flexShrink: 0, marginTop: 2, border: `2px solid ${T.surface}`, position: "relative", zIndex: 1 }} />
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 500 }}>{entry.label}</div>
+                            <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>{entry.sub}</div>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                    {/* Payment status */}
-                    {selected.paid > 0 && (
-                      <div style={{ display: "flex", gap: 14 }}>
-                        <div style={{ width: 15, height: 15, borderRadius: "50%", background: T.accent, flexShrink: 0, marginTop: 2, border: `2px solid ${T.surface}`, position: "relative", zIndex: 1 }} />
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 500 }}>Payment received — {fmt(selected.paid)}</div>
-                          <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>Bank Transfer · Auto-recorded</div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </>

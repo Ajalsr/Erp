@@ -126,6 +126,9 @@ type SalesOrder struct {
 	UpdatedAt            time.Time          `json:"updatedAt" bson:"updatedAt"`
 	CreatedBy            string             `json:"createdBy,omitempty" bson:"createdBy,omitempty"`
 	UpdatedBy            string             `json:"updatedBy,omitempty" bson:"updatedBy,omitempty"`
+	SourceQuoteID        string             `json:"sourceQuoteId,omitempty"     bson:"sourceQuoteId,omitempty"`
+	SourceQuoteNumber    string             `json:"sourceQuoteNumber,omitempty" bson:"sourceQuoteNumber,omitempty"`
+	FulfillmentStatus    string             `json:"fulfillmentStatus,omitempty" bson:"fulfillmentStatus,omitempty"`
 }
 
 // SalesOrderItem — one line in an order.
@@ -138,12 +141,13 @@ type SalesOrderItem struct {
 	Details      string             `json:"details" bson:"details"`
 	Quantity     float64            `json:"quantity" bson:"quantity" binding:"required,min=1"`
 	Rate         float64            `json:"rate" bson:"rate"`
-	Discount     FlexFloat          `json:"discount" bson:"discount"`         // ← FlexFloat: handles "15", "15%", 15
-	DiscountType string             `json:"discountType" bson:"discountType"` // "percentage" | "fixed"
-	DiscountUnit string             `json:"discountUnit" bson:"discountUnit"` // "%" | "AED"
-	DiscountAED  FlexFloat          `json:"discountAed" bson:"discountAed"`   // ← FlexFloat: AED deduction
+	Discount     FlexFloat          `json:"discount" bson:"discount"`
+	DiscountType string             `json:"discountType" bson:"discountType"`
+	DiscountUnit string             `json:"discountUnit" bson:"discountUnit"`
+	DiscountAED  FlexFloat          `json:"discountAed" bson:"discountAed"`
 	Amount       float64            `json:"amount" bson:"amount"`
 	Unit         string             `json:"unit" bson:"unit"`
+	FulfilledQty float64            `json:"fulfilledQty" bson:"fulfilledQty"`
 }
 
 type Attachment struct {

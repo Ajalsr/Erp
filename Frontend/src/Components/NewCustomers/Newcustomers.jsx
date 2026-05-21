@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
 import useUpdateCustomer from '../../helper/useUpdateCustomer';
 import axiosInstance from '../../helper/axiosInstance';
-import toast from "react-hot-toast";
+import toast from "../../helper/nexusToast";
 import PhoneInput, { getCountryCallingCode } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import { AiOutlineFileAdd, AiOutlineDelete } from "react-icons/ai";
@@ -709,7 +709,9 @@ const CountrySelect = ({ value, onChange, options, iconComponent }) => {
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 
-const DatePicker = ({ value, onChange, label, placeholder = 'Select date', T, isDark }) => {
+const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => {
+  const isDark = useThemeStore(s => s.isDark);
+  const T = getTheme(isDark);
   const [open,      setOpen]      = useState(false);
   const [ready,     setReady]     = useState(false);
   const [viewYear,  setViewYear]  = useState(() => value ? new Date(value).getFullYear()  : new Date().getFullYear());
@@ -894,10 +896,10 @@ const CustomFieldsTab = ({ customFields, setFormData, customerType, T, isDark })
           <input className="nc-input" type="text" value={customFields?.tradeLicenseNumber || ''} placeholder="TL-XXXXXXXX"
             onChange={e => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, tradeLicenseNumber: e.target.value } }))} />
         </div>
-        <DatePicker label="Registration Date" T={T} isDark={isDark}
+        <DatePicker label="Registration Date"
           value={customFields?.registrationDate || ''}
           onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, registrationDate: v } }))} />
-        <DatePicker label="License Expiry Date" T={T} isDark={isDark}
+        <DatePicker label="License Expiry Date"
           value={customFields?.licenseExpiryDate || ''}
           onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, licenseExpiryDate: v } }))} />
       </div>

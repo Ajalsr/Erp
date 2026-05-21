@@ -54,6 +54,8 @@ type Quote struct {
 	// draft | sent | accepted | declined | expired | converted
 	Status      string    `json:"status"                 bson:"status"`
 	ConvertedTo         string `json:"convertedTo,omitempty"         bson:"convertedTo,omitempty"`
+	ConvertedToSO       string `json:"convertedToSO,omitempty"       bson:"convertedToSO,omitempty"`
+	ConvertedToSONumber string `json:"convertedToSONumber,omitempty" bson:"convertedToSONumber,omitempty"`
 	SourceEnquiryId     string `json:"sourceEnquiryId,omitempty"     bson:"sourceEnquiryId,omitempty"`
 	SourceEnquiryNumber string `json:"sourceEnquiryNumber,omitempty" bson:"sourceEnquiryNumber,omitempty"`
 	OrgID       string    `json:"orgId,omitempty"        bson:"orgId,omitempty"`

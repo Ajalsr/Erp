@@ -54,9 +54,11 @@ type Invoice struct {
 	AmountPaid    float64            `json:"amountPaid"                bson:"amountPaid"`
 	BalanceDue    float64            `json:"balanceDue"                bson:"balanceDue"`
 	PublicToken   string             `json:"publicToken,omitempty"     bson:"publicToken,omitempty"`
-	VoidReason    string             `json:"voidReason,omitempty"      bson:"voidReason,omitempty"`
-	VoidedAt      time.Time          `json:"voidedAt,omitempty"        bson:"voidedAt,omitempty"`
-	OrgID         string             `json:"orgId,omitempty"           bson:"orgId,omitempty"`
+	Type               string    `json:"type,omitempty"              bson:"type,omitempty"` // "invoice" | "proforma"
+	ProformaConvertedTo string   `json:"proformaConvertedTo,omitempty" bson:"proformaConvertedTo,omitempty"`
+	VoidReason         string    `json:"voidReason,omitempty"        bson:"voidReason,omitempty"`
+	VoidedAt           time.Time `json:"voidedAt,omitempty"          bson:"voidedAt,omitempty"`
+	OrgID              string    `json:"orgId,omitempty"             bson:"orgId,omitempty"`
 	CreatedAt     time.Time          `json:"createdAt"                 bson:"createdAt"`
 	UpdatedAt     time.Time          `json:"updatedAt"                 bson:"updatedAt"`
 	CreatedBy     string             `json:"createdBy"                 bson:"createdBy"`

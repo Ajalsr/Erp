@@ -319,9 +319,14 @@ export default function DeliveryNote() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#10b981' }}>
           <FaCheckCircle size={11} /> Invoiced: {note.invoiceNumber}
         </div>
-      ) : (
+      ) : (isDispatched || isDelivered) ? (
         <button className="dn-btn" onClick={handleCreateInvoice}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>
+          <FaFileInvoiceDollar size={11} /> Create Invoice
+        </button>
+      ) : (
+        <button disabled title="Confirm dispatch first to create an invoice"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: T.textSec, cursor: 'not-allowed', opacity: 0.5 }}>
           <FaFileInvoiceDollar size={11} /> Create Invoice
         </button>
       )}
@@ -776,11 +781,16 @@ export default function DeliveryNote() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#10b981' }}>
                     <FaCheckCircle size={13} /> Invoice {note.invoiceNumber}
                   </div>
-                ) : (
+                ) : (isDispatched || isDelivered) ? (
                   <button className="dn-btn" onClick={handleCreateInvoice}
                     style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
                     <FaFileInvoiceDollar size={13} /> Create Invoice →
                   </button>
+                ) : (
+                  <div title="Confirm dispatch first to create an invoice"
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, color: T.textSec, opacity: 0.55 }}>
+                    <FaFileInvoiceDollar size={13} /> Create Invoice — confirm dispatch first
+                  </div>
                 )}
               </div>
 

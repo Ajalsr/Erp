@@ -64,8 +64,9 @@ export default function Quotes() {
   const [loading,    setLoading]    = useState(true);
   const [selected,   setSelected]   = useState(null);
   const [stats,      setStats]      = useState({});
-  const [converting, setConverting] = useState(false);
-  const [deleting,   setDeleting]   = useState(false);
+  const [converting,    setConverting]    = useState(false);
+  const [convertingToSO, setConvertingToSO] = useState(false);
+  const [deleting,      setDeleting]      = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -126,6 +127,21 @@ export default function Quotes() {
       nexusToast.error(e.response?.data?.message || "Delete failed");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleConvertToSO(q) {
+    if (!window.confirm(`Auto-convert ${q.quoteNumber} to a draft Sales Order?`)) return;
+    setConvertingToSO(true);
+    try {
+      const res = await axiosInstance.post(`/api/quotes/${q._id}/convert-to-so`);
+      nexusToast.success(`Sales Order ${res.data?.data?.orderNumber} created`);
+      setSelected(null);
+      load();
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Conversion failed");
+    } finally {
+      setConvertingToSO(false);
     }
   }
 
@@ -686,6 +702,16 @@ export default function Quotes() {
                         icon={<FaBoxOpen />}
                         label="Create Sales Order"
                         color="#10b981" glow="rgba(16,185,129,0.2)"
+                      />
+                    )}
+
+                    {["sent", "accepted"].includes(selected.status) && (
+                      <ActionBtn
+                        onClick={() => handleConvertToSO(selected)}
+                        icon={<FaExchangeAlt />}
+                        label={convertingToSO ? "Converting…" : "Quick Convert to SO"}
+                        color="#10b981" glow="rgba(16,185,129,0.15)"
+                        disabled={convertingToSO}
                       />
                     )}
 

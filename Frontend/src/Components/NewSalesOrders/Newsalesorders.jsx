@@ -271,9 +271,15 @@ const Toaster = ({ message, type='info', onConfirm, onCancel, isVisible }) => {
 };
 
 /* ── SuccessToaster ── */
-const SuccessToaster = ({ message, isVisible, onClose }) => {
+const TOASTER_CFG = {
+  success: { bg:'#dcfce7', color:'#10b981', icon:'✓', border:'rgba(16,185,129,0.25)' },
+  warn:    { bg:'rgba(245,158,11,0.15)', color:'#f59e0b', icon:'⚠', border:'rgba(245,158,11,0.35)' },
+  error:   { bg:'rgba(239,68,68,0.12)',  color:'#ef4444', icon:'✕', border:'rgba(239,68,68,0.3)'   },
+};
+const SuccessToaster = ({ message, isVisible, onClose, type='success' }) => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const cfg = TOASTER_CFG[type] || TOASTER_CFG.success;
   const [ex,setEx]=useState(false);
   useEffect(()=>{
     if(isVisible){const t=setTimeout(()=>{setEx(true);setTimeout(()=>{onClose?.();setEx(false);},300);},3000);return()=>clearTimeout(t);}
@@ -281,8 +287,8 @@ const SuccessToaster = ({ message, isVisible, onClose }) => {
   if(!isVisible&&!ex)return null;
   return ReactDOM.createPortal(
     <div style={{position:'fixed',top:20,right:20,zIndex:10001,transition:'all .3s',opacity:ex?0:1,transform:ex?'translateX(120%)':'translateX(0)'}}>
-      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,padding:'14px 18px',display:'flex',alignItems:'center',gap:12,minWidth:320,boxShadow:'0 20px 40px rgba(0,0,0,.12)'}}>
-        <div style={{width:32,height:32,borderRadius:10,background:'#dcfce7',color:'#10b981',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:14}}>✓</div>
+      <div style={{background:T.surface,border:`1.5px solid ${cfg.border}`,borderRadius:14,padding:'14px 18px',display:'flex',alignItems:'center',gap:12,minWidth:320,boxShadow:'0 20px 40px rgba(0,0,0,.12)'}}>
+        <div style={{width:32,height:32,borderRadius:10,background:cfg.bg,color:cfg.color,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:14}}>{cfg.icon}</div>
         <p style={{flex:1,fontSize:13,fontWeight:600,color:T.textPri,margin:0}}>{message}</p>
         <button onClick={()=>{setEx(true);setTimeout(()=>{onClose?.();setEx(false);},300);}} style={{color:T.textSec,background:'none',border:'none',cursor:'pointer',padding:2,fontSize:14}}>✕</button>
       </div>
@@ -493,6 +499,8 @@ const Newsalesorders = () => {
   const [showCancelToaster,setShowCancelToaster]=useState(false);
   const [showSuccessToaster,setShowSuccessToaster]=useState(false);
   const [successMessage,setSuccessMessage]=useState('');
+  const [toasterType,setToasterType]=useState('success');
+  const [editStatus,setEditStatus]=useState('');
   const [creditBlockError,setCreditBlockError]=useState(null);
   const [lpoError,setLpoError]=useState('');
 
@@ -584,6 +592,7 @@ const Newsalesorders = () => {
     axiosInstance.get(`/api/sales-orders/${editId}`)
       .then(res=>{
         const o=res.data?.data||res.data;
+        setEditStatus(o.status||'');
         setOrderNumber(o.orderNumber||'');
         setSalesType(o.salesType||'SO');
         setOrderDate(o.orderDate?o.orderDate.split('T')[0]:'');
@@ -792,8 +801,9 @@ const Newsalesorders = () => {
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setSuccessMessage(e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){setLpoError(e.response.data?.message||'LPO number already exists');return;}setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
-  const handleSubmitForApproval=async()=>{try{const d=prepareSalesOrderData('pending_approval'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){setLpoError(e.response.data?.message||'LPO number already in use by another active order');return;}setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setToasterType('success');setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSubmitForApproval=async()=>{try{const d=prepareSalesOrderData('pending_approval'),r=await handleAddSalesOrder(d);if(r?.data?.id){setToasterType('success');setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleResubmit=async()=>{try{const d=prepareSalesOrderData('pending_approval');await axiosInstance.put(`/api/sales-orders/${editId}`,d);setToasterType('success');setSuccessMessage('Order resubmitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to resubmit.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
@@ -806,7 +816,7 @@ const Newsalesorders = () => {
       {/* useMemo: only re-generate the style block when the theme changes, not on every keystroke */}
       <style>{useMemo(()=>buildCSS(isDark),[isDark])}</style>
       <Toaster message="Are you sure you want to cancel? All unsaved changes will be lost." type="warning" isVisible={showCancelToaster} onConfirm={confirmCancel} onCancel={cancelCancel}/>
-      <SuccessToaster message={successMessage} isVisible={showSuccessToaster} onClose={()=>setShowSuccessToaster(false)}/>
+      <SuccessToaster message={successMessage} isVisible={showSuccessToaster} onClose={()=>setShowSuccessToaster(false)} type={toasterType}/>
 
       {creditBlockError && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',backdropFilter:'blur(8px)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
@@ -879,19 +889,25 @@ const Newsalesorders = () => {
               </div>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
-              {isAdminOrOwner
-                ? <span style={{padding:'5px 12px',borderRadius:99,background:'#fef9c3',border:'1.5px solid #fef08a',fontSize:11,fontWeight:700,color:'#854d0e',letterSpacing:'.04em'}}>● DRAFT</span>
-                : <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(251,191,36,0.12)',border:'1.5px solid rgba(251,191,36,0.3)',fontSize:11,fontWeight:700,color:'#d97706',letterSpacing:'.04em'}}>⏳ PENDING APPROVAL</span>
+              {editStatus==='rejected'
+                ? <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(239,68,68,0.1)',border:'1.5px solid rgba(239,68,68,0.3)',fontSize:11,fontWeight:700,color:'#ef4444',letterSpacing:'.04em'}}>✕ REJECTED</span>
+                : isAdminOrOwner
+                  ? <span style={{padding:'5px 12px',borderRadius:99,background:'#fef9c3',border:'1.5px solid #fef08a',fontSize:11,fontWeight:700,color:'#854d0e',letterSpacing:'.04em'}}>● DRAFT</span>
+                  : <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(251,191,36,0.12)',border:'1.5px solid rgba(251,191,36,0.3)',fontSize:11,fontWeight:700,color:'#d97706',letterSpacing:'.04em'}}>⏳ PENDING APPROVAL</span>
               }
               <button onClick={handleCancel} className="nso-bg">Cancel</button>
               <button onClick={handleSaveAsDraft} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save Draft'}</button>
-              {isAdminOrOwner
-                ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
-                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
+              {isEditMode&&editStatus==='rejected'
+                ? <button onClick={handleResubmit} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
+                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Resubmit for Approval</>}
                   </button>
-                : <button onClick={handleSubmitForApproval} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
-                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Submit for Approval</>}
-                  </button>
+                : isAdminOrOwner
+                  ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
+                      {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
+                    </button>
+                  : <button onClick={handleSubmitForApproval} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
+                      {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Submit for Approval</>}
+                    </button>
               }
             </div>
           </div>
@@ -1344,13 +1360,17 @@ const Newsalesorders = () => {
           <div style={{display:'flex',gap:10}}>
             <button onClick={handleCancel} className="nso-bg">Cancel</button>
             <button onClick={handleSaveAsDraft} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save as Draft'}</button>
-            {isAdminOrOwner
-              ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
-                  {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
+            {isEditMode&&editStatus==='rejected'
+              ? <button onClick={handleResubmit} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
+                  {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Resubmit for Approval</>}
                 </button>
-              : <button onClick={handleSubmitForApproval} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
-                  {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Submit for Approval</>}
-                </button>
+              : isAdminOrOwner
+                ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
+                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
+                  </button>
+                : <button onClick={handleSubmitForApproval} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
+                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Submit for Approval</>}
+                  </button>
             }
           </div>
         </div>

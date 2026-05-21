@@ -392,6 +392,98 @@ func ConvertQuoteToInvoice() gin.HandlerFunc {
 	}
 }
 
+// ConvertQuoteToSalesOrder creates a draft SalesOrder from the quote's line items,
+// marks the quote as converted (to SO), and returns the new SO id + orderNumber.
+func ConvertQuoteToSalesOrder() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		userID, _ := c.Get("userId")
+
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid quote ID"})
+			return
+		}
+
+		var q models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&q); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+		if q.Status == "converted" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Quote already converted"})
+			return
+		}
+
+		// Map quote line items → SO items (desc used as details, no stock deduction at draft)
+		soItems := make([]models.SalesOrderItem, 0, len(q.LineItems))
+		for _, li := range q.LineItems {
+			soItems = append(soItems, models.SalesOrderItem{
+				ID:       primitive.NewObjectID(),
+				ItemID:   li.ID.Hex(), // placeholder — user can update before confirming
+				Details:  li.Desc,
+				Quantity: li.Qty,
+				Rate:     li.UnitPrice,
+				Discount: models.FlexFloat(li.Discount),
+				Amount:   li.Total,
+			})
+		}
+
+		soCount, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
+		createdByStr := ""
+		if userID != nil {
+			createdByStr = fmt.Sprintf("%v", userID)
+		}
+
+		so := models.SalesOrder{
+			ID:                primitive.NewObjectID(),
+			OrderNumber:       fmt.Sprintf("SO-%d-%04d", time.Now().Year(), soCount+1),
+			CustomerID:        q.CustomerID,
+			CustomerName:      q.CustomerName,
+			SalesType:         "SO",
+			OrderDate:         time.Now(),
+			PaymentTerms:      q.PaymentTerms,
+			Items:             soItems,
+			SubTotal:          q.Totals.Subtotal,
+			VAT:               q.Totals.TaxTotal,
+			Total:             q.Totals.GrandTotal,
+			CustomerNotes:     q.Notes.Customer,
+			Status:            "draft",
+			SourceQuoteID:     q.ID.Hex(),
+			SourceQuoteNumber: q.QuoteNumber,
+			OrgID:             orgID.(string),
+			CreatedBy:         createdByStr,
+			CreatedAt:         time.Now(),
+			UpdatedAt:         time.Now(),
+		}
+
+		if _, err := salesOrdersCollection.InsertOne(ctx, so); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create sales order from quote"})
+			return
+		}
+
+		// Mark quote as converted (to SO)
+		quoteCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgID},
+			bson.M{"$set": bson.M{
+				"status":            "converted",
+				"convertedToSO":     so.ID.Hex(),
+				"convertedToSONumber": so.OrderNumber,
+				"updatedAt":         time.Now(),
+			}},
+		)
+
+		c.JSON(http.StatusCreated, gin.H{
+			"status":  http.StatusCreated,
+			"message": "Quote converted to Sales Order",
+			"data":    gin.H{"salesOrderId": so.ID.Hex(), "orderNumber": so.OrderNumber},
+		})
+	}
+}
+
 func DeleteQuote() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

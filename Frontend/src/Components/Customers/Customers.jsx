@@ -764,7 +764,7 @@ const Customers = () => {
                 {(() => {
                   const words2 = (selectedItem.customerDisplayName || "?").trim().split(/\s+/).filter(Boolean);
                   const initials2 = words2.length >= 2 ? (words2[0][0] + words2[words2.length-1][0]).toUpperCase() : (words2[0] || "?").slice(0,2).toUpperCase();
-                  const custSince = selectedItem.createdAt ? (() => { const d = Math.floor((Date.now()-new Date(selectedItem.createdAt))/(1000*60*60*24)); return d < 7 ? "This week" : d < 30 ? `${Math.floor(d/7)}w ago` : d < 365 ? `${Math.floor(d/30)} mo ago` : `${(d/365).toFixed(1)} yrs ago`; })() : null;
+                  const custSince = selectedItem.created_at ? (() => { const d = Math.floor((Date.now()-new Date(selectedItem.created_at))/(1000*60*60*24)); return d < 7 ? "This week" : d < 30 ? `${Math.floor(d/7)}w ago` : d < 365 ? `${Math.floor(d/30)} mo ago` : `${(d/365).toFixed(1)} yrs ago`; })() : null;
                   return (
                     <>
                       {/* ── Top bar ── */}
@@ -846,7 +846,7 @@ const Customers = () => {
                           { label: "OUTSTANDING", value: outstanding > 0 ? `AED ${outstanding.toLocaleString("en-AE",{minimumFractionDigits:0,maximumFractionDigits:0})}` : "—", sub: outstanding > 0 ? "Open invoices" : "No open invoices", color: outstanding > 0 ? "#ef4444" : T.textMuted },
                           { label: "LIFETIME VALUE", value: `AED ${invData.receivables ? (invData.receivables * 1.4).toLocaleString("en-AE",{minimumFractionDigits:0,maximumFractionDigits:0}) : "0"}`, sub: `${invData.total || 0} invoices`, color: T.blueLight },
                           { label: "INVOICES", value: String(invData.total || 0), sub: invData.lastDate ? `Last: ${new Date(invData.lastDate).toLocaleDateString("en-AE",{day:"2-digit",month:"short"})}` : "Last: —", color: T.textPri },
-                          { label: "CUSTOMER FOR", value: custSince || "—", sub: selectedItem.createdAt ? new Date(selectedItem.createdAt).toLocaleDateString("en-AE",{month:"short",year:"numeric"}) : "", color: T.textPri },
+                          { label: "CUSTOMER FOR", value: selectedItem.created_at ? new Date(selectedItem.created_at).toLocaleDateString("en-AE",{month:"short",year:"numeric"}) : "—", sub: custSince || "", color: T.textPri },
                         ].map((chip, i) => (
                           <div key={i} style={{ padding: "12px 14px", borderRight: i < 3 ? `1px solid ${T.border}` : "none" }}>
                             <p style={{ fontSize: 9, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 5px" }}>{chip.label}</p>
@@ -951,6 +951,35 @@ const Customers = () => {
                       </p>
                     </div>
 
+                    {/* Unused Credits widget — from voided invoice payments */}
+                    {(selectedItem.unused_credits || 0) > 0 && (
+                      <div style={{
+                        background: isDark ? T.surface : "#fff",
+                        border: "1.5px solid rgba(16,185,129,0.3)",
+                        borderRadius: 14, padding: "14px 16px",
+                        boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.04)",
+                        position: "relative",
+                      }}>
+                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "14px 14px 0 0", background: "linear-gradient(90deg,#10b981,#34d399,transparent)" }} />
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <p style={{ fontSize: 11, fontWeight: 700, color: "#10b981", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 4px" }}>
+                              Unused Credits
+                            </p>
+                            <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 20, fontWeight: 800, color: "#10b981", margin: 0 }}>
+                              AED {(selectedItem.unused_credits || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                            <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>From voided invoice payments — apply to future invoices</p>
+                          </div>
+                          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Available Credit widget */}
                     {(() => {
                       const availableCredit = customerCNs
@@ -1048,7 +1077,7 @@ const Customers = () => {
                     <div style={{ background: isDark ? T.surface : "#fff", border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.04)" }}>
                       {[
                         { icon: "🏷️", label: "Customer Code",  value: code,                                    mono: true  },
-                        { icon: "💳", label: "Payment Terms",  value: selectedItem.paymentTerms || "—",        mono: false },
+                        { icon: "💳", label: "Payment Terms",  value: selectedItem.payment_terms || "—",        mono: false },
                         { icon: "💵", label: "Currency",       value: selectedItem.currency || "AED",          mono: false },
                         // { icon: "🔑", label: "Customer ID",    value: selectedItem._id?.slice(-8) || "N/A",    mono: true  },
                       ].map(({ icon, label, value, mono }, i, arr) => (
@@ -1099,7 +1128,7 @@ const Customers = () => {
                       {/* Summary rows */}
                       <div style={{ background: isDark ? T.surface : "#fff", border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
                         {[
-                          { label: "Payment Terms",  value: selectedItem.paymentTerms || "—" },
+                          { label: "Payment Terms",  value: selectedItem.payment_terms || "—" },
                           { label: "Currency",       value: selectedItem.currency || "AED" },
                           { label: "Total Invoices", value: String(invData.total || 0) },
                         ].map(({ label, value }, i, arr) => (

@@ -58,9 +58,17 @@ export default function Item() {
   const [adjustItem,    setAdjustItem]    = useState(null);
   const [adjustQty,     setAdjustQty]     = useState("");
   const [adjustLoading, setAdjustLoading] = useState(false);
+  const [availability,  setAvailability]  = useState({});
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { handleGetItem(); }, [handleGetItem]);
+
+  useEffect(() => {
+    if (!selectedItem?._id) { setAvailability({}); return; }
+    axiosInstance.get(`/api/stocks/${selectedItem._id}/availability`)
+      .then(r => setAvailability(r.data?.data || {}))
+      .catch(() => setAvailability({}));
+  }, [selectedItem?._id]);
 
   useEffect(() => {
     if (!selectedItem?._id || (activeTab !== "transactions" && activeTab !== "history")) return;
@@ -378,6 +386,7 @@ export default function Item() {
               text={text} muted={muted} bg={bg}
               activeTab={activeTab} setActiveTab={setActiveTab}
               itemOrders={itemOrders} ordersLoading={ordersLoading}
+              requested={availability.requested ?? 0}
               onClose={closePanel}
               onAdjust={(item)=>{setAdjustItem(item);setAdjustQty(String(item.quantity??0));}}
               onEdit={(item)=>navigate(`/Items/Items/Edit/${item._id||item.id}`)}
@@ -444,7 +453,7 @@ function MiniSparkline({ vals, color }) {
 }
 
 /* ─── Detail panel ────────────────────────────────────────────────────── */
-function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, onClose, onAdjust, onEdit }) {
+function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, requested, onClose, onAdjust, onEdit }) {
   const state = stockState(item.quantity, item.reorder_point);
   const qty   = parseFloat(item.quantity || 0);
   const reo   = parseFloat(item.reorder_point || 0);
@@ -548,8 +557,8 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
           </div>
         )}
 
-        {/* KPI grid — 4 cols */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 24px 6px"}}>
+        {/* KPI grid — 5 cols */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,padding:"14px 24px 6px"}}>
           <KpiCard
             label="Stock on hand"
             value={`${qty} ${item.unit||"units"}`}
@@ -579,6 +588,14 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
             value={portfolioVal>0?`AED ${fmtN(portfolioVal)}`:"—"}
             sub={item.selling_price?`Cost ${fmtAED(item.selling_price)} / ${item.unit||"u"}`:"No price set"}
             icon={<FaTag size={12}/>}
+            T={T} isDark={isDark} muted={muted} text={text}
+          />
+          <KpiCard
+            label="Requested qty"
+            value={requested>0?`${fmtN(requested)} ${item.unit||"units"}`:"—"}
+            tone={requested>0?"warn":""}
+            sub={requested>0?"Pending approval":"No pending orders"}
+            icon={<FaExclamationTriangle size={12}/>}
             T={T} isDark={isDark} muted={muted} text={text}
           />
         </div>

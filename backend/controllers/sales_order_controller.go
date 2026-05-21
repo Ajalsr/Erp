@@ -248,6 +248,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 		if req.OrderNumber == "" {
 			req.OrderNumber = generateOrderNumber(ctx)
 		}
+		soStatus := func() string { if privileged { return "open" }; return "pending_approval" }()
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
 			OrgID:                orgID.(string),
@@ -271,7 +272,8 @@ func CreateSalesOrder() gin.HandlerFunc {
 			Total:                total,
 			CustomerNotes:        req.CustomerNotes,
 			TermsAndConditions:   req.TermsAndConditions,
-			Status:               func() string { if privileged { return "open" }; return "pending_approval" }(),
+			Status:               soStatus,
+			CreatedBy:            fmt.Sprintf("%v", userID),
 			CreatedAt:            time.Now(),
 			UpdatedAt:            time.Now(),
 		}
@@ -287,6 +289,36 @@ func CreateSalesOrder() gin.HandlerFunc {
 		}
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "create", ID: salesOrder.ID.Hex()})
+
+		// Notify admins/owners when a non-privileged user submits for approval
+		if soStatus == "pending_approval" {
+			go func() {
+				nCtx, nCancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer nCancel()
+				orgObjID, _ := primitive.ObjectIDFromHex(orgIDStr)
+				cur, err2 := orgMemberCollection.Find(nCtx, bson.M{
+					"orgId":  orgObjID,
+					"status": "active",
+					"role":   bson.M{"$in": []string{"owner", "admin"}},
+				})
+				if err2 == nil {
+					var admins []models.OrgMember
+					cur.All(nCtx, &admins)
+					cur.Close(nCtx)
+					title := "Sales Order Needs Approval"
+					msg := fmt.Sprintf("Order %s for %s (AED %.2f) submitted by %s — awaiting your approval.",
+						salesOrder.OrderNumber, salesOrder.CustomerName, salesOrder.Total, fmt.Sprintf("%v", userID))
+					meta := map[string]string{
+						"orderId":     salesOrder.ID.Hex(),
+						"orderNumber": salesOrder.OrderNumber,
+						"submittedBy": fmt.Sprintf("%v", userID),
+					}
+					for _, m := range admins {
+						pushNotificationWithMeta(m.UserID, "approval_request", title, msg, orgIDStr, "", meta)
+					}
+				}
+			}()
+		}
 
 		resp := gin.H{
 			"status":  http.StatusCreated,
@@ -610,6 +642,72 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "update", ID: id})
 
+		// Notify admins/owners when any user re-submits for approval
+		if req.Status == "pending_approval" {
+			go func() {
+				nCtx, nCancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer nCancel()
+				var so models.SalesOrder
+				if e2 := salesOrdersCollection.FindOne(nCtx, bson.M{"_id": objectID}).Decode(&so); e2 == nil {
+					submitterID := fmt.Sprintf("%v", c.MustGet("userId"))
+					orgIDStr2 := fmt.Sprintf("%v", orgID)
+					orgObjID, _ := primitive.ObjectIDFromHex(orgIDStr2)
+					cur, err2 := orgMemberCollection.Find(nCtx, bson.M{
+						"orgId":  orgObjID,
+						"status": "active",
+						"role":   bson.M{"$in": []string{"owner", "admin"}},
+					})
+					if err2 == nil {
+						var admins []models.OrgMember
+						cur.All(nCtx, &admins)
+						cur.Close(nCtx)
+						title := "Sales Order Needs Approval"
+						msg := fmt.Sprintf("Order %s for %s (AED %.2f) re-submitted by %s — awaiting your approval.",
+							so.OrderNumber, so.CustomerName, so.Total, submitterID)
+						meta := map[string]string{
+							"orderId":     id,
+							"orderNumber": so.OrderNumber,
+							"submittedBy": submitterID,
+						}
+						for _, m := range admins {
+							pushNotificationWithMeta(m.UserID, "approval_request", title, msg, orgIDStr2, "", meta)
+						}
+					}
+				}
+			}()
+		}
+
+		// Notify the order creator when admin/owner approves or rejects
+		if req.Status == "approved" || req.Status == "rejected" {
+			go func() {
+				nCtx, nCancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer nCancel()
+				var so models.SalesOrder
+				if e2 := salesOrdersCollection.FindOne(nCtx, bson.M{"_id": objectID}).Decode(&so); e2 == nil && so.CreatedBy != "" {
+					approverID := fmt.Sprintf("%v", c.MustGet("userId"))
+					// Don't notify if the approver and creator are the same person
+					if so.CreatedBy == approverID {
+						return
+					}
+					var title, msg string
+					if req.Status == "approved" {
+						title = "Sales Order Approved"
+						msg = fmt.Sprintf("Your order %s for %s has been approved.", so.OrderNumber, so.CustomerName)
+					} else {
+						title = "Sales Order Rejected"
+						msg = fmt.Sprintf("Your order %s for %s has been rejected.", so.OrderNumber, so.CustomerName)
+					}
+					meta := map[string]string{
+						"orderId":     id,
+						"orderNumber": so.OrderNumber,
+						"approvedBy":  approverID,
+						"decision":    req.Status,
+					}
+					pushNotificationWithMeta(so.CreatedBy, "approval_result", title, msg, fmt.Sprintf("%v", orgID), "", meta)
+				}
+			}()
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "Sales order status updated successfully",
@@ -685,27 +783,30 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			setFields["orderDate"] = *req.OrderDate
 		}
 		if req.LpoNumber != nil || req.LpoDate != nil || req.LpoValue != nil {
-			// Only admin/owner can write LPO fields
-			lpoUserID, _ := c.Get("userId")
-			lpoOrgIDStr := fmt.Sprintf("%v", orgID)
-			lpoPrivileged := false
-			if lpoOrgObjID, err2 := primitive.ObjectIDFromHex(lpoOrgIDStr); err2 == nil {
-				if lpoRole, ok2 := getMemberRole(ctx, lpoOrgObjID, fmt.Sprintf("%v", lpoUserID)); ok2 {
-					lpoPrivileged = isAdminOrOwner(lpoRole)
-				}
-			}
-			if !lpoPrivileged {
-				c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admin or owner can set LPO fields."})
-				return
-			}
-			// LPO is locked once order is confirmed
+			// LPO is locked once order is confirmed — no one can change it after that
 			if existingOrder.Status == "confirmed" {
 				c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "LPO is locked after confirmation."})
 				return
 			}
 			if req.LpoNumber != nil {
+				// Duplicate LPO check on update — exclude rejected and the current order
+				if *req.LpoNumber != "" && *req.LpoNumber != existingOrder.LpoNumber {
+					dupCount, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
+						"orgId":     fmt.Sprintf("%v", orgID),
+						"lpoNumber": *req.LpoNumber,
+						"status":    bson.M{"$ne": "rejected"},
+						"_id":       bson.M{"$ne": objectID},
+					})
+					if dupCount > 0 {
+						c.JSON(http.StatusConflict, gin.H{
+							"status":  http.StatusConflict,
+							"message": fmt.Sprintf("LPO number '%s' is already in use by an active order.", *req.LpoNumber),
+						})
+						return
+					}
+				}
 				setFields["lpoNumber"] = *req.LpoNumber
-				// Auto-confirm when LPO is saved on an approved order
+				// Admin saving LPO on an approved order auto-confirms it
 				if existingOrder.Status == "approved" && *req.LpoNumber != "" {
 					setFields["status"] = "confirmed"
 				}

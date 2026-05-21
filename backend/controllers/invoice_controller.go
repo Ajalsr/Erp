@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -384,7 +385,7 @@ func UpdateInvoiceStatus() gin.HandlerFunc {
 // PATCH /api/invoices/:id/void
 func VoidInvoice() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
 		id := c.Param("id")
@@ -415,6 +416,86 @@ func VoidInvoice() gin.HandlerFunc {
 		}
 		c.ShouldBindJSON(&req)
 
+		// ── 1. Find all payments linked to this invoice ───────────────────────
+		var linkedPayments []models.Payment
+		if payCur, e := paymentCollection.Find(ctx, bson.M{
+			"invoiceId": existing.ID.Hex(),
+			"orgId":     orgID,
+		}); e == nil {
+			_ = payCur.All(ctx, &linkedPayments)
+			payCur.Close(ctx)
+		}
+
+		// ── 2. Unlink each payment → unapplied credit ─────────────────────────
+		for _, pmt := range linkedPayments {
+			note := "[Unapplied — Invoice " + existing.InvoiceNumber + " voided]"
+			if pmt.Notes != "" {
+				note += " " + pmt.Notes
+			}
+			paymentCollection.UpdateOne(ctx,
+				bson.M{"_id": pmt.ID},
+				bson.M{"$set": bson.M{
+					"invoiceId":     "",
+					"invoiceNumber": "",
+					"notes":         note,
+					"updatedAt":     time.Now(),
+				}},
+			)
+		}
+
+		// ── 3. Reverse customer AR impact ─────────────────────────────────────
+		// CreatePayment decremented outstanding_balance by amountPaid.
+		// Voiding reverses that decrement and surfaces the amount as unused credit.
+		// The unpaid balance (balanceDue) is removed from AR by the invoice status
+		// change alone — all AR queries must filter status != "void".
+		if existing.CustomerID != "" && existing.AmountPaid > 0 {
+			if custObjID, e2 := primitive.ObjectIDFromHex(existing.CustomerID); e2 == nil {
+				histEntry := bson.M{
+					"action":    "invoice_voided_payment_unapplied",
+					"timestamp": time.Now(),
+					"details": bson.M{
+						"invoiceId":       existing.ID.Hex(),
+						"invoiceNumber":   existing.InvoiceNumber,
+						"unappliedAmount": existing.AmountPaid,
+						"paymentsCount":   len(linkedPayments),
+						"reason":          req.Reason,
+					},
+				}
+				customersCollection.UpdateOne(ctx,
+					bson.M{"_id": custObjID, "orgId": orgID},
+					bson.M{
+						"$inc":  bson.M{
+							"outstanding_balance": existing.AmountPaid,  // reverse payment decrements
+							"unused_credits":      existing.AmountPaid,  // surface as credit on account
+						},
+						"$push": bson.M{"history": histEntry},
+						"$set":  bson.M{"updated_at": time.Now()},
+					},
+				)
+			}
+		} else if existing.CustomerID != "" {
+			// Fully unpaid void — still log to history so AR aging audit trail is complete
+			if custObjID, e2 := primitive.ObjectIDFromHex(existing.CustomerID); e2 == nil {
+				customersCollection.UpdateOne(ctx,
+					bson.M{"_id": custObjID, "orgId": orgID},
+					bson.M{
+						"$push": bson.M{"history": bson.M{
+							"action":    "invoice_voided",
+							"timestamp": time.Now(),
+							"details": bson.M{
+								"invoiceId":     existing.ID.Hex(),
+								"invoiceNumber": existing.InvoiceNumber,
+								"balanceDue":    existing.Totals.GrandTotal,
+								"reason":        req.Reason,
+							},
+						}},
+						"$set": bson.M{"updated_at": time.Now()},
+					},
+				)
+			}
+		}
+
+		// ── 4. Void the invoice ───────────────────────────────────────────────
 		_, err = invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": bson.M{
 			"status":     "void",
 			"voidReason": req.Reason,
@@ -426,7 +507,16 @@ func VoidInvoice() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Invoice voided"})
+		msg := "Invoice voided"
+		if len(linkedPayments) > 0 {
+			msg = "Invoice voided — " + strconv.Itoa(len(linkedPayments)) + " payment(s) converted to unapplied credits"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":             http.StatusOK,
+			"message":            msg,
+			"unappliedPayments":  len(linkedPayments),
+			"unappliedAmount":    existing.AmountPaid,
+		})
 	}
 }
 
@@ -557,5 +647,230 @@ func GetPublicInvoice() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": inv})
+	}
+}
+
+// FinalizeProforma converts a proforma invoice into a real invoice.
+// POST /api/invoices/:id/finalize
+func FinalizeProforma() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
+			return
+		}
+
+		var inv models.Invoice
+		if err := invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&inv); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+			return
+		}
+		if inv.Type != "proforma" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Only proforma invoices can be finalized"})
+			return
+		}
+		if inv.ProformaConvertedTo != "" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Proforma already finalized"})
+			return
+		}
+
+		invCount, _ := invoiceCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "type": bson.M{"$ne": "proforma"}})
+		newInv := models.Invoice{
+			ID:            primitive.NewObjectID(),
+			InvoiceNumber: fmt.Sprintf("INV-%d-%04d", time.Now().Year(), invCount+1),
+			IssueDate:     time.Now().Format("2006-01-02"),
+			DueDate:       inv.DueDate,
+			Currency:      inv.Currency,
+			PaymentTerms:  inv.PaymentTerms,
+			From:          inv.From,
+			BillTo:        inv.BillTo,
+			CustomerID:    inv.CustomerID,
+			LineItems:     inv.LineItems,
+			Totals:        inv.Totals,
+			Notes:         inv.Notes,
+			Status:        "sent",
+			BalanceDue:    inv.Totals.GrandTotal,
+			Type:          "invoice",
+			PublicToken:   generatePublicToken(),
+			OrgID:         orgID.(string),
+			CreatedBy:     inv.CreatedBy,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+		}
+		for i := range newInv.LineItems {
+			newInv.LineItems[i].ID = primitive.NewObjectID()
+		}
+
+		if _, err := invoiceCollection.InsertOne(ctx, newInv); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create invoice from proforma"})
+			return
+		}
+
+		invoiceCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgID},
+			bson.M{"$set": bson.M{"proformaConvertedTo": newInv.ID.Hex(), "updatedAt": time.Now()}},
+		)
+
+		c.JSON(http.StatusCreated, gin.H{
+			"status":        http.StatusCreated,
+			"message":       "Proforma finalized",
+			"data":          gin.H{"invoiceId": newInv.ID.Hex(), "invoiceNumber": newInv.InvoiceNumber},
+		})
+	}
+}
+
+// GetInvoiceAging returns unpaid invoices grouped into aging buckets.
+// GET /api/invoices/aging
+func GetInvoiceAging() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+
+		today := time.Now().Format("2006-01-02")
+		// Auto-mark overdue first
+		invoiceCollection.UpdateMany(ctx, bson.M{
+			"orgId":   orgID,
+			"status":  bson.M{"$in": []string{"unpaid", "sent"}},
+			"dueDate": bson.M{"$lt": today, "$ne": ""},
+		}, bson.M{"$set": bson.M{"status": "overdue", "updatedAt": time.Now()}})
+
+		filter := bson.M{
+			"orgId":  orgID,
+			"status": bson.M{"$in": []string{"unpaid", "partial", "overdue", "sent"}},
+			"type":   bson.M{"$ne": "proforma"},
+		}
+
+		cursor, err := invoiceCollection.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "dueDate", Value: 1}}))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to fetch invoices"})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var invoices []models.Invoice
+		cursor.All(ctx, &invoices)
+
+		type AgingEntry struct {
+			InvoiceID     string  `json:"invoiceId"`
+			InvoiceNumber string  `json:"invoiceNumber"`
+			CustomerID    string  `json:"customerId"`
+			CustomerName  string  `json:"customerName"`
+			IssueDate     string  `json:"issueDate"`
+			DueDate       string  `json:"dueDate"`
+			GrandTotal    float64 `json:"grandTotal"`
+			AmountPaid    float64 `json:"amountPaid"`
+			BalanceDue    float64 `json:"balanceDue"`
+			DaysOverdue   int     `json:"daysOverdue"`
+			Bucket        string  `json:"bucket"`
+		}
+
+		todayTime := time.Now().Truncate(24 * time.Hour)
+		buckets := map[string][]AgingEntry{
+			"current": {},
+			"1-30":    {},
+			"31-60":   {},
+			"61-90":   {},
+			"90+":     {},
+		}
+		bucketTotals := map[string]float64{"current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0}
+
+		for _, inv := range invoices {
+			balance := inv.Totals.GrandTotal - inv.AmountPaid
+			if balance <= 0 {
+				continue
+			}
+			dueTime, err := time.Parse("2006-01-02", inv.DueDate)
+			if err != nil {
+				dueTime = todayTime
+			}
+			daysOverdue := int(todayTime.Sub(dueTime).Hours() / 24)
+
+			var bucket string
+			switch {
+			case daysOverdue <= 0:
+				bucket = "current"
+			case daysOverdue <= 30:
+				bucket = "1-30"
+			case daysOverdue <= 60:
+				bucket = "31-60"
+			case daysOverdue <= 90:
+				bucket = "61-90"
+			default:
+				bucket = "90+"
+			}
+
+			entry := AgingEntry{
+				InvoiceID:     inv.ID.Hex(),
+				InvoiceNumber: inv.InvoiceNumber,
+				CustomerID:    inv.CustomerID,
+				CustomerName:  inv.BillTo.Name,
+				IssueDate:     inv.IssueDate,
+				DueDate:       inv.DueDate,
+				GrandTotal:    inv.Totals.GrandTotal,
+				AmountPaid:    inv.AmountPaid,
+				BalanceDue:    balance,
+				DaysOverdue:   daysOverdue,
+				Bucket:        bucket,
+			}
+			buckets[bucket] = append(buckets[bucket], entry)
+			bucketTotals[bucket] += balance
+		}
+
+		// Customer summary
+		custMap := map[string]map[string]float64{}
+		custNameMap := map[string]string{}
+		for bucket, entries := range buckets {
+			for _, e := range entries {
+				if _, ok := custMap[e.CustomerID]; !ok {
+					custMap[e.CustomerID] = map[string]float64{}
+				}
+				custMap[e.CustomerID][bucket] += e.BalanceDue
+				if e.CustomerName != "" {
+					custNameMap[e.CustomerID] = e.CustomerName
+				}
+			}
+		}
+
+		type CustSummary struct {
+			CustomerID   string  `json:"customerId"`
+			CustomerName string  `json:"customerName"`
+			Current      float64 `json:"current"`
+			Days1_30     float64 `json:"days1_30"`
+			Days31_60    float64 `json:"days31_60"`
+			Days61_90    float64 `json:"days61_90"`
+			Days90Plus   float64 `json:"days90Plus"`
+			Total        float64 `json:"total"`
+		}
+		var customerSummary []CustSummary
+		for cid, bkts := range custMap {
+			cs := CustSummary{
+				CustomerID:   cid,
+				CustomerName: custNameMap[cid],
+				Current:      bkts["current"],
+				Days1_30:     bkts["1-30"],
+				Days31_60:    bkts["31-60"],
+				Days61_90:    bkts["61-90"],
+				Days90Plus:   bkts["90+"],
+				Total:        bkts["current"] + bkts["1-30"] + bkts["31-60"] + bkts["61-90"] + bkts["90+"],
+			}
+			customerSummary = append(customerSummary, cs)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": http.StatusOK,
+			"data": gin.H{
+				"buckets":         buckets,
+				"bucketTotals":    bucketTotals,
+				"customerSummary": customerSummary,
+				"asOf":            today,
+			},
+		})
 	}
 }

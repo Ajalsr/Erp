@@ -216,8 +216,17 @@ func UpdateDeliveryNoteStatus() gin.HandlerFunc {
 		}
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		// Fetch the DN before updating (need items + salesOrderIds for fulfillment sync)
+		var dn models.DeliveryNote
+		if err := deliveryNotesCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}).Decode(&dn); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Delivery note not found"})
+			return
+		}
+
 		result, err := deliveryNotesCollection.UpdateOne(ctx,
-			bson.M{"_id": objectID, "orgId": fmt.Sprintf("%v", orgID)},
+			bson.M{"_id": objectID, "orgId": orgIDStr},
 			bson.M{"$set": bson.M{"status": body.Status, "updatedAt": time.Now()}},
 		)
 		if err != nil {
@@ -227,6 +236,11 @@ func UpdateDeliveryNoteStatus() gin.HandlerFunc {
 		if result.MatchedCount == 0 {
 			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Delivery note not found"})
 			return
+		}
+
+		// On delivered/dispatched: recompute fulfilled qty per SO item from all DNs
+		if body.Status == "delivered" || body.Status == "dispatched" {
+			go syncSOFulfillment(dn.SalesOrderIDs, orgIDStr)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Status updated successfully", "data": gin.H{"status": body.Status}})
@@ -274,5 +288,91 @@ func MarkDeliveryNoteInvoiced() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Delivery note marked as invoiced", "data": gin.H{"invoiceId": body.InvoiceID, "invoiceNumber": body.InvoiceNumber}})
+	}
+}
+
+// syncSOFulfillment recomputes the fulfilledQty on every SalesOrderItem for the
+// given SO IDs by aggregating outboundQuantity across all delivered/dispatched DNs.
+func syncSOFulfillment(soIDs []string, orgID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	for _, soID := range soIDs {
+		// Sum outboundQuantity per itemId from all DNs that reference this SO
+		// and are in delivered or dispatched status
+		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: bson.M{
+				"orgId":         orgID,
+				"salesOrderIds": soID,
+				"status":        bson.M{"$in": []string{"delivered", "dispatched"}},
+			}}},
+			{{Key: "$unwind", Value: "$items"}},
+			{{Key: "$match", Value: bson.M{"items.salesOrderId": soID}}},
+			{{Key: "$group", Value: bson.M{
+				"_id":   "$items.itemId",
+				"total": bson.M{"$sum": "$items.outboundQuantity"},
+			}}},
+		}
+
+		cursor, err := deliveryNotesCollection.Aggregate(ctx, pipeline)
+		if err != nil {
+			continue
+		}
+		var rows []struct {
+			ItemID string  `bson:"_id"`
+			Total  float64 `bson:"total"`
+		}
+		cursor.All(ctx, &rows)
+		cursor.Close(ctx)
+
+		if len(rows) == 0 {
+			continue
+		}
+
+		// Build fulfilled map: itemId → total fulfilled qty
+		fulfilled := map[string]float64{}
+		for _, r := range rows {
+			fulfilled[r.ItemID] = r.Total
+		}
+
+		// Fetch SO
+		soObjID, err := primitive.ObjectIDFromHex(soID)
+		if err != nil {
+			continue
+		}
+		var so models.SalesOrder
+		if err := salesOrdersCollection.FindOne(ctx, bson.M{"_id": soObjID, "orgId": orgID}).Decode(&so); err != nil {
+			continue
+		}
+
+		// Update each item's fulfilledQty + compute overall fulfillment status
+		allFulfilled := true
+		anyFulfilled := false
+		for i := range so.Items {
+			qty := fulfilled[so.Items[i].ItemID]
+			so.Items[i].FulfilledQty = qty
+			if qty < so.Items[i].Quantity {
+				allFulfilled = false
+			}
+			if qty > 0 {
+				anyFulfilled = true
+			}
+		}
+
+		fulfillmentStatus := "unfulfilled"
+		if allFulfilled {
+			fulfillmentStatus = "fulfilled"
+		} else if anyFulfilled {
+			fulfillmentStatus = "partial"
+		}
+
+		salesOrdersCollection.UpdateOne(ctx,
+			bson.M{"_id": soObjID, "orgId": orgID},
+			bson.M{"$set": bson.M{
+				"items":             so.Items,
+				"fulfillmentStatus": fulfillmentStatus,
+				"updatedAt":         time.Now(),
+			}},
+		)
 	}
 }
