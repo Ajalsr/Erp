@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { IoNotificationsOutline, IoChevronDown } from 'react-icons/io5'
 import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
+import useTourStore from '../../store/useTourStore'
 import useOrganization from '../../helper/useOrganization'
 import useNotifications from '../../helper/useNotifications'
 
@@ -244,6 +245,7 @@ const Navbar = ({ onToggleSidebar }) => {
   const toggleTheme       = useThemeStore((s) => s.toggleTheme)
   const { markAllRead, deleteNotification } = useNotifications()
   const isAdmin           = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase())
+  const startTour         = useTourStore((s) => s.start)
 
   const { title, parent } = getPageInfo(location.pathname)
   const initials = (user?.userId || 'U').charAt(0).toUpperCase()
@@ -360,7 +362,7 @@ const Navbar = ({ onToggleSidebar }) => {
         </div>
 
         {/* ── Center search ── */}
-        <div style={{ flex: 1, maxWidth: '420px', margin: '0 16px', position: 'relative' }}>
+        <div data-tour="navbar-search" style={{ flex: 1, maxWidth: '420px', margin: '0 16px', position: 'relative' }}>
           <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"
             style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: D.textSec, pointerEvents: 'none', flexShrink: 0 }}>
             <circle cx="11" cy="11" r="8" strokeWidth="2"/><path strokeLinecap="round" strokeWidth="2" d="M21 21l-4.35-4.35"/>
@@ -395,17 +397,21 @@ const Navbar = ({ onToggleSidebar }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
 
           {/* Theme toggle */}
-          <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
+          <div data-tour="navbar-theme">
+            <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
+          </div>
 
           <div style={{ width: '1px', height: '20px', background: D.divider, margin: '0 2px' }} />
 
           {/* Org switcher */}
-          <OrgSwitcher isDark={isDark} D={D} />
+          <div data-tour="navbar-org">
+            <OrgSwitcher isDark={isDark} D={D} />
+          </div>
 
           <div style={{ width: '1px', height: '20px', background: D.divider, margin: '0 2px' }} />
 
           {/* Notifications */}
-          <div style={{ position: 'relative' }} ref={notifRef}>
+          <div data-tour="navbar-notif" style={{ position: 'relative' }} ref={notifRef}>
             <button
               onClick={() => setNotifOpen(!notifOpen)}
               className="nx-icon-btn"
@@ -508,8 +514,19 @@ const Navbar = ({ onToggleSidebar }) => {
 
           <div style={{ width: '1px', height: '20px', background: D.divider }} />
 
+          {/* Tour help */}
+          <button
+            data-tour="tour-help"
+            onClick={() => startTour('welcome')}
+            className="nx-icon-btn"
+            title="Start guided tour"
+            style={{ width: '28px', height: '28px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', color: D.textSec, fontFamily: 'inherit' }}
+          >
+            ?
+          </button>
+
           {/* User menu */}
-          <div style={{ position: 'relative' }} ref={dropdownRef}>
+          <div data-tour="navbar-user" style={{ position: 'relative' }} ref={dropdownRef}>
             <button onClick={() => setDropdownOpen(!dropdownOpen)} className="nx-icon-btn"
               style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 8px', width: 'auto', height: 'auto' }}>
               <div className="nx-avatar-btn" style={{ width: '28px', height: '28px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

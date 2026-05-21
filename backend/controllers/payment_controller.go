@@ -210,6 +210,149 @@ func GetPaymentByID() gin.HandlerFunc {
 	}
 }
 
+// ApplyCredit applies a customer's unused credit balance to a specific invoice.
+// POST /api/customers/:id/apply-credit
+// Body: { invoiceId, amount }
+func ApplyCredit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		userID, _ := c.Get("userId")
+		custIDStr := c.Param("id")
+
+		custObjID, err := primitive.ObjectIDFromHex(custIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid customer ID"})
+			return
+		}
+
+		var req struct {
+			InvoiceID string  `json:"invoiceId"`
+			Amount    float64 `json:"amount"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Amount <= 0 || req.InvoiceID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invoiceId and amount > 0 required"})
+			return
+		}
+
+		// ── 1. Fetch customer, verify sufficient credits ──────────────────────
+		var cust models.Customer
+		if err := customersCollection.FindOne(ctx, bson.M{"_id": custObjID, "orgId": orgID}).Decode(&cust); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Customer not found"})
+			return
+		}
+		if cust.UnusedCredits < req.Amount {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"message":        fmt.Sprintf("Insufficient credits — available: %.2f, requested: %.2f", cust.UnusedCredits, req.Amount),
+				"availableCredit": cust.UnusedCredits,
+			})
+			return
+		}
+
+		// ── 2. Fetch invoice, verify it belongs to this customer ──────────────
+		invObjID, err := primitive.ObjectIDFromHex(req.InvoiceID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
+			return
+		}
+		var inv models.Invoice
+		if err := invoiceCollection.FindOne(ctx, bson.M{"_id": invObjID, "orgId": orgID}).Decode(&inv); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+			return
+		}
+		if inv.CustomerID != custIDStr {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invoice does not belong to this customer"})
+			return
+		}
+		if inv.Status == "paid" || inv.Status == "void" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Cannot apply credit to a " + inv.Status + " invoice"})
+			return
+		}
+
+		balanceDue := inv.Totals.GrandTotal - inv.AmountPaid
+		if balanceDue <= 0 {
+			c.JSON(http.StatusConflict, gin.H{"message": "Invoice has no outstanding balance"})
+			return
+		}
+		apply := req.Amount
+		if apply > balanceDue {
+			apply = balanceDue
+		}
+
+		// ── 3. Update invoice ─────────────────────────────────────────────────
+		newPaid := inv.AmountPaid + apply
+		newBalance := inv.Totals.GrandTotal - newPaid
+		if newBalance < 0 {
+			newBalance = 0
+		}
+		newStatus := "partial"
+		if newBalance <= 0 {
+			newStatus = "paid"
+		}
+		invoiceCollection.UpdateOne(ctx, bson.M{"_id": invObjID},
+			bson.M{"$set": bson.M{
+				"amountPaid": newPaid,
+				"balanceDue": newBalance,
+				"status":     newStatus,
+				"updatedAt":  time.Now(),
+			}},
+		)
+
+		// ── 4. Decrement customer unused_credits ──────────────────────────────
+		histEntry := bson.M{
+			"action":    "credit_applied",
+			"timestamp": time.Now(),
+			"user":      fmt.Sprintf("%v", userID),
+			"details": bson.M{
+				"appliedAmount": apply,
+				"invoiceId":     req.InvoiceID,
+				"invoiceNumber": inv.InvoiceNumber,
+			},
+		}
+		customersCollection.UpdateOne(ctx,
+			bson.M{"_id": custObjID, "orgId": orgID},
+			bson.M{
+				"$inc":  bson.M{"unused_credits": -apply},
+				"$push": bson.M{"history": histEntry},
+				"$set":  bson.M{"updated_at": time.Now()},
+			},
+		)
+
+		// ── 5. Create a payment record for audit trail ────────────────────────
+		custName := cust.CustomerDisplayName
+		if custName == "" {
+			custName = cust.CompanyName
+		}
+		pmt := models.Payment{
+			ID:            primitive.NewObjectID(),
+			OrgID:         orgID.(string),
+			CustomerID:    custIDStr,
+			CustomerName:  custName,
+			InvoiceID:     req.InvoiceID,
+			InvoiceNumber: inv.InvoiceNumber,
+			Amount:        apply,
+			PaymentMode:   "Credit Applied",
+			PaymentNumber: generatePaymentNumber(),
+			Date:          time.Now().Format("2006-01-02"),
+			Notes:         "Applied from customer unused credit balance",
+			CreatedBy:     fmt.Sprintf("%v", userID),
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+		}
+		paymentCollection.InsertOne(ctx, pmt)
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":          http.StatusOK,
+			"message":         fmt.Sprintf("AED %.2f credit applied to invoice %s", apply, inv.InvoiceNumber),
+			"appliedAmount":   apply,
+			"invoiceStatus":   newStatus,
+			"remainingCredit": cust.UnusedCredits - apply,
+		})
+	}
+}
+
 // GetPaymentStats returns aggregate totals for the org.
 func GetPaymentStats() gin.HandlerFunc {
 	return func(c *gin.Context) {

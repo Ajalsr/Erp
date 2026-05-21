@@ -35,6 +35,8 @@ import VendorCredits from "./Components/VendorCredits/VendorCredits"
 import SalesReport from "./Components/Reports/SalesReport"
 import PurchaseReport from "./Components/Reports/PurchaseReport"
 import InventoryReport from "./Components/Reports/InventoryReport"
+import AgingReport from "./Components/Reports/AgingReport"
+import CustomerStatement from "./Components/Reports/CustomerStatement"
 import Accounts from "./Components/Accounts/Accounts"
 import NewAccount from "./Components/NewAccount/NewAccount"
 import ItemGroups from "./Components/ItemGroups/ItemGroups"
@@ -122,9 +124,11 @@ function App() {
             <Route path="/Purchase/Bills/New" element={<NewBill />} />
             <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
             <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
-            <Route path="/Reports/sales"     element={<SalesReport />} />
-            <Route path="/Reports/purchases" element={<PurchaseReport />} />
-            <Route path="/Reports/inventory" element={<InventoryReport />} />
+            <Route path="/Reports/sales"              element={<SalesReport />} />
+            <Route path="/Reports/purchases"           element={<PurchaseReport />} />
+            <Route path="/Reports/inventory"           element={<InventoryReport />} />
+            <Route path="/Reports/aging"               element={<AgingReport />} />
+            <Route path="/Reports/customer-statement"  element={<CustomerStatement />} />
             <Route path="/Finance/Accounts"        element={<Accounts />} />
             <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
             <Route path="/Items/item-groups"        element={<ItemGroups />} />

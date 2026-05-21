@@ -108,6 +108,32 @@ func GetItemStockAvailability() gin.HandlerFunc {
 			committed = committedRes[0].Committed
 		}
 
+		// ── 3. Requested qty from pending_approval orders ────────────
+		reqPipeline := []bson.M{
+			{"$match": bson.M{
+				"orgId":        orgIDStr,
+				"status":       "pending_approval",
+				"items.itemId": itemIDStr,
+			}},
+			{"$unwind": "$items"},
+			{"$match": bson.M{"items.itemId": itemIDStr}},
+			{"$group": bson.M{
+				"_id":       nil,
+				"requested": bson.M{"$sum": "$items.quantity"},
+			}},
+		}
+		reqCur, err2 := soCol.Aggregate(ctx, reqPipeline)
+		var requestedRes []struct {
+			Requested float64 `bson:"requested"`
+		}
+		if err2 == nil {
+			_ = reqCur.All(ctx, &requestedRes)
+		}
+		requested := 0.0
+		if len(requestedRes) > 0 {
+			requested = requestedRes[0].Requested
+		}
+
 		available := inHand - committed
 		if available < 0 {
 			available = 0
@@ -122,6 +148,7 @@ func GetItemStockAvailability() gin.HandlerFunc {
 				"unit":      stock.Unit,
 				"inHand":    inHand,
 				"committed": committed,
+				"requested": requested,
 				"available": available,
 			},
 		})

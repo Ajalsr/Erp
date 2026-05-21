@@ -10,18 +10,18 @@ import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
 
 const MENU = [
-  { icon: IoHome,            label: 'Home',      route: '/Home' },
-  { icon: FaBoxOpen,         label: 'Items',      subItems: [
+  { icon: IoHome,            label: 'Home',      route: '/Home', tourKey: 'nav-home' },
+  { icon: FaBoxOpen,         label: 'Items',      tourKey: 'nav-items', subItems: [
     { name: 'Items',         route: '/Items/Items' },
     { name: 'Item Groups',   route: '/Items/item-groups' },
     { name: 'Price Lists',   route: '/Items/price-lists' },
   ]},
-  { icon: MdInventory2,      label: 'Inventory',  subItems: [
+  { icon: MdInventory2,      label: 'Inventory',  tourKey: 'nav-inventory', subItems: [
     { name: 'Stock Summary', route: '/Inventory/stock-summary' },
     { name: 'Warehouses',    route: '/Inventory/warehouses' },
     { name: 'Adjustments',   route: '/Inventory/adjustments' },
   ]},
-  { icon: HiShoppingCart,    label: 'Sales',      subItems: [
+  { icon: HiShoppingCart,    label: 'Sales',      tourKey: 'nav-sales', subItems: [
     { name: 'Customers',          route: '/Sales/Customers' },
     { name: 'Enquiries',          route: '/Sales/Enquiries' },
     { name: 'Quotes',             route: '/Sales/Quotes' },
@@ -31,7 +31,7 @@ const MENU = [
     { name: 'Invoices',           route: '/Sales/Invoices' },
     { name: 'Credit Notes',       route: '/Sales/CreditNotes' },
   ]},
-  { icon: FaCartArrowDown,   label: 'Purchases',  subItems: [
+  { icon: FaCartArrowDown,   label: 'Purchases',  tourKey: 'nav-purchases', subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors' },
     { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders' },
      { name: 'Inbound',          route: '/Purchase/Inbound' },
@@ -41,12 +41,14 @@ const MENU = [
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
     { name: 'Debit Notes',      route: '/Purchase/DebitNotes' },
   ]},
-  { icon: TbReportAnalytics, label: 'Reports',    subItems: [
-    { name: 'Sales Report',     route: '/Reports/sales' },
-    { name: 'Purchase Report',  route: '/Reports/purchases' },
-    { name: 'Inventory Report', route: '/Reports/inventory' },
+  { icon: TbReportAnalytics, label: 'Reports',    tourKey: 'nav-reports', subItems: [
+    { name: 'Sales Report',        route: '/Reports/sales' },
+    { name: 'Purchase Report',     route: '/Reports/purchases' },
+    { name: 'Inventory Report',    route: '/Reports/inventory' },
+    { name: 'AR Aging',            route: '/Reports/aging' },
+    { name: 'Customer Statement',  route: '/Reports/customer-statement' },
   ]},
-  { icon: MdAccountBalance,   label: 'Finance',    subItems: [
+  { icon: MdAccountBalance,   label: 'Finance',   tourKey: 'nav-finance', subItems: [
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
      { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
     { name: 'Chart of Accounts', route: '/Finance/Accounts' },
@@ -131,7 +133,7 @@ const Sidebar = ({ isCollapsed }) => {
     html::-webkit-scrollbar-corner, body::-webkit-scrollbar-corner, *::-webkit-scrollbar-corner { background: transparent; }
       `}</style>
 
-      <div className="nx-sb" style={{
+      <div className="nx-sb" data-tour="sidebar" style={{
         background:  D.bg,
         borderRight: `1px solid ${D.border}`,
         display:     'flex',
@@ -183,6 +185,7 @@ const Sidebar = ({ isCollapsed }) => {
               <div key={item.label}>
                 <button
                   title={isCollapsed ? item.label : ''}
+                  data-tour={item.tourKey}
                   onClick={() => {
                     if (hasSub) { if (!isCollapsed) setOpenMenu(isOpen ? null : item.label) }
                     else navigate(item.route)

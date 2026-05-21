@@ -335,8 +335,9 @@ const CreateInvoice = () => {
   const [fromTrn,       setFromTrn]       = useState("");
   const [custNote,      setCustNote]      = useState("");
   const [internalNote,  setInternalNote]  = useState("");
-  const [status,        setStatus]        = useState("draft");
-  const [items,         setItems]         = useState([]);
+  const [status,          setStatus]          = useState("draft");
+  const [invoiceDocType,  setInvoiceDocType]  = useState("invoice"); // "invoice" | "proforma"
+  const [items,           setItems]           = useState([]);
   const [activeTab,     setActiveTab]     = useState(0);
   const [submitting,    setSubmitting]    = useState(false);
   const [draftId,       setDraftId]       = useState(null);
@@ -474,6 +475,7 @@ const CreateInvoice = () => {
     totals,
     notes:     { customer: custNote, internal: internalNote },
     status:    overrideStatus ?? status,
+    type:      invoiceDocType,
   });
 
   const handleSubmit = async () => {
@@ -542,14 +544,28 @@ const CreateInvoice = () => {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 24px", borderBottom: `1px solid ${T.border}`, background: T.topbar, transition: "background 0.25s, border-color 0.25s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Invoices</button>
-            <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 600, color: T.text }}>Create Invoice</span>
+            <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 600, color: T.text }}>
+              {invoiceDocType === "proforma" ? "Create Proforma" : "Create Invoice"}
+            </span>
             <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.accent, background: `${T.accent}1a`, border: `1px solid ${T.accent}44`, padding: "3px 10px", borderRadius: 4 }}>{invoiceNumber}</span>
+
+            {/* Document type toggle */}
+            <div style={{ display: "flex", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, overflow: "hidden" }}>
+              {[["invoice", "Invoice"], ["proforma", "Proforma"]].map(([val, lbl]) => (
+                <button key={val} onClick={() => setInvoiceDocType(val)} style={{
+                  padding: "4px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  fontFamily: "inherit", border: "none", transition: "all 0.15s",
+                  background: invoiceDocType === val ? (val === "proforma" ? "#7c3aed" : T.accent) : "transparent",
+                  color: invoiceDocType === val ? "#fff" : T.muted,
+                }}>{lbl}</button>
+              ))}
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <Btn v="ghost" onClick={() => navigate(-1)}>Discard</Btn>
             <Btn v="outline" onClick={handleSaveDraft} disabled={submitting}>Save Draft</Btn>
             <Btn v="primary" onClick={handleSubmit} disabled={submitting} style={{ opacity: submitting ? .7 : 1 }}>
-              {submitting ? "Issuing…" : "Issue Invoice →"}
+              {submitting ? "Saving…" : invoiceDocType === "proforma" ? "Save Proforma →" : "Issue Invoice →"}
             </Btn>
           </div>
         </div>

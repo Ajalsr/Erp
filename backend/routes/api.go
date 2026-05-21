@@ -48,6 +48,8 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.GET("/:id/history", controllers.GetCustomerHistory())
 	custRoutes.POST("/:id/history", controllers.AddCustomerHistory())
 	custRoutes.GET("/:id/credit-status", controllers.GetCustomerCreditStatus())
+	custRoutes.GET("/:id/statement", controllers.GetCustomerStatement())
+	custRoutes.POST("/:id/apply-credit", controllers.ApplyCredit())
 	custRoutes.POST("/migrate-codes", controllers.MigrateCustomerOrgAndCodes())
 }
 
@@ -81,6 +83,8 @@ func InvoiceRoutes(router *gin.Engine) {
 		invRoutes.PUT("/:id", controllers.UpdateInvoice())
 		invRoutes.PATCH("/:id/status", controllers.UpdateInvoiceStatus())
 		invRoutes.PATCH("/:id/void", controllers.VoidInvoice())
+		invRoutes.GET("/aging", controllers.GetInvoiceAging())
+		invRoutes.POST("/:id/finalize", controllers.FinalizeProforma())
 		invRoutes.POST("/:id/send", controllers.SendInvoice())
 		invRoutes.POST("/:id/send-reminder", controllers.SendInvoiceReminder())
 	}
@@ -97,6 +101,7 @@ func QuoteRoutes(router *gin.Engine) {
 		qRoutes.PUT("/:id", controllers.UpdateQuote())
 		qRoutes.PATCH("/:id/status", controllers.UpdateQuoteStatus())
 		qRoutes.POST("/:id/convert", controllers.ConvertQuoteToInvoice())
+		qRoutes.POST("/:id/convert-to-so", controllers.ConvertQuoteToSalesOrder())
 		qRoutes.DELETE("/:id", controllers.DeleteQuote())
 	}
 }

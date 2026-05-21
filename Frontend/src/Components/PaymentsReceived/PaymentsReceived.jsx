@@ -420,7 +420,9 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   const [loading,      setLoading]      = useState(false);
   const [custOpen,     setCustOpen]     = useState(false);
   const [custSearch,   setCustSearch]   = useState("");
-  const [selectedInv,  setSelectedInv]  = useState(null); // full invoice object
+  const [selectedInv,  setSelectedInv]  = useState(null);
+  const [unusedCredit, setUnusedCredit] = useState(0);
+  const [applyingCredit, setApplyingCredit] = useState(false);
 
   const [form, setForm] = useState({
     customerId: "", customerName: "", invoiceId: "", invoiceNumber: "",
@@ -462,6 +464,27 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
     setCustSearch(c.customerDisplayName || c.companyName || "");
     setCustOpen(false);
     setSelectedInv(null);
+    setUnusedCredit(c.unused_credits || 0);
+  };
+
+  const handleApplyCredit = async () => {
+    if (!form.customerId || !form.invoiceId || !selectedInv) return;
+    const applyAmt = Math.min(unusedCredit, balanceDue);
+    if (applyAmt <= 0) return;
+    setApplyingCredit(true);
+    try {
+      const res = await axiosInstance.post(`/api/customers/${form.customerId}/apply-credit`, {
+        invoiceId: form.invoiceId,
+        amount: applyAmt,
+      });
+      setUnusedCredit(res.data?.remainingCredit ?? 0);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setErrors({ submit: err.response?.data?.message || "Failed to apply credit" });
+    } finally {
+      setApplyingCredit(false);
+    }
   };
 
   const selectInvoice = (inv) => {
@@ -686,6 +709,40 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
               </div>
             )}
           </div>
+
+          {/* ── Unused credit banner ── */}
+          {unusedCredit > 0 && (
+            <div style={{
+              padding: "13px 16px", borderRadius: 10,
+              background: "rgba(16,185,129,0.08)", border: "1.5px solid rgba(16,185,129,0.3)",
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+            }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#10b981", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 3 }}>
+                  Unused Credit Available
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, fontFamily: "'DM Mono', monospace" }}>
+                  AED {unusedCredit.toFixed(2)}
+                </div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                  {form.invoiceId ? `Will apply AED ${Math.min(unusedCredit, balanceDue).toFixed(2)} to this invoice` : "Select an invoice to apply credit"}
+                </div>
+              </div>
+              {form.invoiceId && balanceDue > 0 && (
+                <button
+                  onClick={handleApplyCredit}
+                  disabled={applyingCredit}
+                  style={{
+                    padding: "8px 16px", borderRadius: 8, border: "none", cursor: applyingCredit ? "not-allowed" : "pointer",
+                    background: applyingCredit ? "rgba(16,185,129,0.4)" : "#10b981",
+                    color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "inherit", flexShrink: 0,
+                    opacity: applyingCredit ? 0.7 : 1,
+                  }}>
+                  {applyingCredit ? "Applying…" : "Apply Credit"}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* ── Amount breakdown card ── */}
           <div>
