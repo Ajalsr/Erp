@@ -993,7 +993,7 @@ func GetCustomerCreditStatus() gin.HandlerFunc {
 			{"$match": bson.M{
 				"orgId":      orgID,
 				"customerId": id,
-				"status":     bson.M{"$in": []string{"unpaid", "partial", "sent", "overdue"}},
+				"status":     bson.M{"$in": []string{"unpaid", "partial", "overdue"}},
 			}},
 			{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$balanceDue"}}},
 		}

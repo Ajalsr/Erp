@@ -329,7 +329,7 @@ const CreateInvoice = () => {
   const [custName,      setCustName]      = useState("");
   const [custAddr,      setCustAddr]      = useState("");
   const [custTrn,       setCustTrn]       = useState("");
-  const [invoiceNumber] = useState(() => `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`);
+  const [invoiceNumber, setInvoiceNumber] = useState(() => `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`);
   const [fromName,      setFromName]      = useState("");
   const [fromAddr,      setFromAddr]      = useState("");
   const [fromTrn,       setFromTrn]       = useState("");
@@ -347,11 +347,29 @@ const CreateInvoice = () => {
     const draft = location.state?.editDraft;
     if (!draft) return;
     setDraftId(draft._id);
-    if (draft.issueDate) setIssueDate(draft.issueDate.split("T")[0]);
-    if (draft.dueDate)   setDueDate(draft.dueDate.split("T")[0]);
-    if (draft.currency)  setCurrency(draft.currency);
-    if (draft.customerId)  setCustomerId(draft.customerId);
-    if (draft.customerName) setCustName(draft.customerName);
+    // toRow normalises: id=invoiceNumber, date=issueDate, due=dueDate, customer=billTo.name
+    if (draft.id)            setInvoiceNumber(draft.id);
+    if (draft.date)          setIssueDate(draft.date.split("T")[0]);
+    if (draft.due)           setDueDate(draft.due.split("T")[0]);
+    if (draft.currency)      setCurrency(draft.currency);
+    if (draft.paymentTerms)  setTerms(draft.paymentTerms);
+    if (draft.docType)       setInvoiceDocType(draft.docType);
+    if (draft.notes?.customer)  setCustNote(draft.notes.customer);
+    if (draft.notes?.internal)  setInternalNote(draft.notes.internal);
+    if (draft.customerId) {
+      setCustomerId(draft.customerId);
+      axiosInstance.get(`/api/customers/${draft.customerId}`)
+        .then(res => {
+          const c = res.data?.data || res.data;
+          if (!c) return;
+          setCustName(c.customerDisplayName || c.companyName || draft.customer || "");
+          setCustAddr(fmtCustAddr(c));
+          setCustTrn(c.custom_fields?.trlNumber || c.customFields?.trlNumber || "");
+        })
+        .catch(() => { if (draft.customer) setCustName(draft.customer); });
+    } else if (draft.customer) {
+      setCustName(draft.customer);
+    }
     if (draft.lineItems?.length) {
       setItems(draft.lineItems.map(li => ({
         id:           uid(),
@@ -466,40 +484,53 @@ const CreateInvoice = () => {
     return Math.min(s, 100);
   }, [issueDate, dueDate, customerId, fromName, items]);
 
-  const buildPayload = (overrideStatus) => ({
-    invoiceNumber, issueDate, dueDate, currency, paymentTerms: terms,
-    from:      { name: fromName, address: fromAddr, trn: fromTrn },
-    billTo:    { name: custName, address: custAddr, trn: custTrn },
-    customerId,
-    lineItems: items.map((item) => { const { id: _, ...rest } = item; return { ...rest, ...calcLine(rest) }; }),
-    totals,
-    notes:     { customer: custNote, internal: internalNote },
-    status:    overrideStatus ?? status,
-    type:      invoiceDocType,
-  });
-
-  const handleSubmit = async () => {
-    setSubmitting(true);
+  const buildPayload = (overrideStatus) => {
     const prefill = location.state?.prefill || {};
     const soIds   = prefill.salesOrderIds || [];
     const dnId    = prefill.dnId;
+    const dnNumber = prefill.dnNumber || "";
+    return {
+      invoiceNumber, issueDate, dueDate, currency, paymentTerms: terms,
+      from:      { name: fromName, address: fromAddr, trn: fromTrn },
+      billTo:    { name: custName, address: custAddr, trn: custTrn },
+      customerId,
+      lineItems:   items.map((item) => { const { id: _, ...rest } = item; return { ...rest, ...calcLine(rest) }; }),
+      totals,
+      amountPaid:  0,
+      balanceDue:  totals.grandTotal,
+      notes:       { customer: custNote, internal: internalNote },
+      status:      overrideStatus ?? status,
+      type:      invoiceDocType,
+      // Store links on proforma so finalize can use them
+      ...(invoiceDocType === "proforma" && soIds.length > 0 && { linkedSalesOrderIds: soIds }),
+      ...(invoiceDocType === "proforma" && dnId && { linkedDnId: dnId, linkedDnNumber: dnNumber }),
+    };
+  };
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    const _prefill = location.state?.prefill || {};
+    const soIds    = _prefill.salesOrderIds || [];
+    const dnId     = _prefill.dnId;
     try {
       // If a draft was saved in this session, update it instead of creating a new record
       const invRes = draftId
-        ? await axiosInstance.put(`/api/invoices/${draftId}`, buildPayload("sent"))
-        : await axiosInstance.post("/api/invoices", buildPayload("sent"));
+        ? await axiosInstance.put(`/api/invoices/${draftId}`, buildPayload("unpaid"))
+        : await axiosInstance.post("/api/invoices", buildPayload("unpaid"));
       const invData = invRes.data?.data || {};
       const resolvedId     = invData.id     || draftId || "";
       const resolvedNumber = invData.invoiceNumber || invoiceNumber;
 
+      const isProforma = invoiceDocType === "proforma";
       await Promise.allSettled([
         customerId && axiosInstance.post(`/api/customers/${customerId}/history`, {
-          action: "Invoice Issued",
+          action: isProforma ? "Proforma Created" : "Invoice Issued",
           timestamp: new Date().toISOString(),
           details: { invoiceNumber: resolvedNumber, amount: totals.grandTotal, currency, status },
         }),
-        ...soIds.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, { status: "invoiced" })),
-        dnId && axiosInstance.patch(`/api/delivery-notes/${dnId}/invoice`, {
+        // Only link SO/DN when creating a real invoice, not a proforma
+        ...(!isProforma ? soIds.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, { status: "invoiced" })) : []),
+        (!isProforma && dnId) && axiosInstance.patch(`/api/delivery-notes/${dnId}/invoice`, {
           invoiceId:     resolvedId,
           invoiceNumber: resolvedNumber,
         }),
@@ -511,9 +542,11 @@ const CreateInvoice = () => {
   const handleSaveDraft = async () => {
     setSubmitting(true);
     try {
-      const res = await axiosInstance.post("/api/invoices", buildPayload("draft"));
+      const res = draftId
+        ? await axiosInstance.put(`/api/invoices/${draftId}`, buildPayload("draft"))
+        : await axiosInstance.post("/api/invoices", buildPayload("draft"));
       const id = res.data?.data?.id;
-      if (id) setDraftId(id);  // remember so Issue Invoice updates this draft
+      if (id && !draftId) setDraftId(id);
       navigate("/Sales/Invoices");
     }
     catch (err) { console.error(err); } finally { setSubmitting(false); }
@@ -552,7 +585,13 @@ const CreateInvoice = () => {
             {/* Document type toggle */}
             <div style={{ display: "flex", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, overflow: "hidden" }}>
               {[["invoice", "Invoice"], ["proforma", "Proforma"]].map(([val, lbl]) => (
-                <button key={val} onClick={() => setInvoiceDocType(val)} style={{
+                <button key={val} onClick={() => {
+                  setInvoiceDocType(val);
+                  setInvoiceNumber(n => {
+                    const base = n.replace(/^(INV|PRO)-/, "");
+                    return `${val === "proforma" ? "PRO" : "INV"}-${base}`;
+                  });
+                }} style={{
                   padding: "4px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer",
                   fontFamily: "inherit", border: "none", transition: "all 0.15s",
                   background: invoiceDocType === val ? (val === "proforma" ? "#7c3aed" : T.accent) : "transparent",

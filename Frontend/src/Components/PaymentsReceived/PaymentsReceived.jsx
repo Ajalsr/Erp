@@ -443,7 +443,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
     axiosInstance.get(`/api/invoices?customerId=${form.customerId}&limit=50`)
       .then(r => {
         const all = r.data?.data?.invoices || [];
-        setInvoices(all.filter(i => i.status !== "paid" && i.status !== "void"));
+        setInvoices(all.filter(i => i.status !== "paid" && i.status !== "void" && i.type !== "proforma"));
       })
       .catch(() => {})
       .finally(() => setInvLoading(false));

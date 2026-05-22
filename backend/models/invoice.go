@@ -7,7 +7,8 @@ import (
 )
 
 type InvoiceLineItem struct {
-	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	ID        primitive.ObjectID `json:"_id,omitempty"     bson:"_id,omitempty"`
+	StockID   string             `json:"stockId,omitempty" bson:"stockId,omitempty"`
 	Desc      string             `json:"desc"      bson:"desc"`
 	Qty       float64            `json:"qty"       bson:"qty"`
 	UnitPrice float64            `json:"unitPrice" bson:"unitPrice"`
@@ -17,6 +18,30 @@ type InvoiceLineItem struct {
 	DiscAmt   float64            `json:"discAmt"   bson:"discAmt"`
 	TaxAmt    float64            `json:"taxAmt"    bson:"taxAmt"`
 	Total     float64            `json:"total"     bson:"total"`
+}
+
+type SalesReturnItem struct {
+	StockID   string  `json:"stockId,omitempty" bson:"stockId,omitempty"`
+	ItemName  string  `json:"itemName"          bson:"itemName"`
+	Qty       float64 `json:"qty"               bson:"qty"`
+	UnitPrice float64 `json:"unitPrice"         bson:"unitPrice"`
+	TaxRate   float64 `json:"taxRate"           bson:"taxRate"`
+	Total     float64 `json:"total"             bson:"total"`
+}
+
+type SalesReturn struct {
+	ID              primitive.ObjectID `json:"_id,omitempty"             bson:"_id,omitempty"`
+	ReturnNumber    string             `json:"returnNumber"              bson:"returnNumber"`
+	Date            string             `json:"date"                      bson:"date"`
+	Mode            string             `json:"mode"                      bson:"mode"` // "credit" | "refund"
+	Items           []SalesReturnItem  `json:"items"                     bson:"items"`
+	CreditNoteID    string             `json:"creditNoteId,omitempty"    bson:"creditNoteId,omitempty"`
+	CreditNoteNum   string             `json:"creditNoteNum,omitempty"   bson:"creditNoteNum,omitempty"`
+	RefundPaymentID string             `json:"refundPaymentId,omitempty" bson:"refundPaymentId,omitempty"`
+	RefundAmount    float64            `json:"refundAmount,omitempty"    bson:"refundAmount,omitempty"`
+	Notes           string             `json:"notes,omitempty"           bson:"notes,omitempty"`
+	CreatedAt       time.Time          `json:"createdAt"                 bson:"createdAt"`
+	CreatedBy       string             `json:"createdBy,omitempty"       bson:"createdBy,omitempty"`
 }
 
 type InvoiceTotals struct {
@@ -54,8 +79,13 @@ type Invoice struct {
 	AmountPaid    float64            `json:"amountPaid"                bson:"amountPaid"`
 	BalanceDue    float64            `json:"balanceDue"                bson:"balanceDue"`
 	PublicToken   string             `json:"publicToken,omitempty"     bson:"publicToken,omitempty"`
-	Type               string    `json:"type,omitempty"              bson:"type,omitempty"` // "invoice" | "proforma"
-	ProformaConvertedTo string   `json:"proformaConvertedTo,omitempty" bson:"proformaConvertedTo,omitempty"`
+	Type                string   `json:"type,omitempty"               bson:"type,omitempty"` // "invoice" | "proforma"
+	ProformaConvertedTo       string `json:"proformaConvertedTo,omitempty"       bson:"proformaConvertedTo,omitempty"`
+	ProformaConvertedToNumber string `json:"proformaConvertedToNumber,omitempty" bson:"proformaConvertedToNumber,omitempty"`
+	LinkedSalesOrderIDs []string `json:"linkedSalesOrderIds,omitempty" bson:"linkedSalesOrderIds,omitempty"`
+	LinkedDNID          string   `json:"linkedDnId,omitempty"          bson:"linkedDnId,omitempty"`
+	LinkedDNNumber      string   `json:"linkedDnNumber,omitempty"      bson:"linkedDnNumber,omitempty"`
+	SalesReturns       []SalesReturn `json:"salesReturns,omitempty"      bson:"salesReturns,omitempty"`
 	VoidReason         string    `json:"voidReason,omitempty"        bson:"voidReason,omitempty"`
 	VoidedAt           time.Time `json:"voidedAt,omitempty"          bson:"voidedAt,omitempty"`
 	OrgID              string    `json:"orgId,omitempty"             bson:"orgId,omitempty"`

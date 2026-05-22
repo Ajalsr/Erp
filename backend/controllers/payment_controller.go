@@ -64,6 +64,10 @@ func CreatePayment() gin.HandlerFunc {
 				var inv models.Invoice
 				err = invoiceCollection.FindOne(ctx, bson.M{"_id": invObjID, "orgId": orgID}).Decode(&inv)
 				if err == nil {
+					if inv.Type == "proforma" {
+						c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "Cannot record payment against a proforma invoice"})
+						return
+					}
 					newPaid := inv.AmountPaid + p.Amount
 					newBalance := inv.Totals.GrandTotal - newPaid
 					if newBalance < 0 {
@@ -417,6 +421,88 @@ func GetPaymentStats() gin.HandlerFunc {
 				"count":         count,
 				"thisMonth":     monthTotal,
 			},
+		})
+	}
+}
+
+// RefundPayment reverses a payment: reduces invoice amountPaid, restores balanceDue.
+// POST /api/payments/:id/refund
+func RefundPayment() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		id := c.Param("id")
+		objID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid payment ID"})
+			return
+		}
+
+		var pmt models.Payment
+		if err = paymentCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgID}).Decode(&pmt); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Payment not found"})
+			return
+		}
+		if pmt.IsRefunded {
+			c.JSON(http.StatusConflict, gin.H{"message": "Payment already refunded"})
+			return
+		}
+
+		var req struct {
+			Amount float64 `json:"amount"`
+			Reason string  `json:"reason"`
+		}
+		c.ShouldBindJSON(&req)
+		if req.Amount <= 0 {
+			req.Amount = pmt.Amount
+		}
+		if req.Amount > pmt.Amount {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Refund amount cannot exceed original payment"})
+			return
+		}
+
+		// ── Reverse effect on linked invoice ─────────────────────────────────
+		if pmt.InvoiceID != "" {
+			invObjID, err := primitive.ObjectIDFromHex(pmt.InvoiceID)
+			if err == nil {
+				var inv models.Invoice
+				if err = invoiceCollection.FindOne(ctx, bson.M{"_id": invObjID, "orgId": orgID}).Decode(&inv); err == nil {
+					newPaid    := inv.AmountPaid - req.Amount
+					if newPaid < 0 { newPaid = 0 }
+					newBalance := inv.Totals.GrandTotal - newPaid
+					if newBalance < 0 { newBalance = 0 }
+
+					newStatus := "unpaid"
+					if newBalance <= 0 {
+						newStatus = "paid"
+					} else if newPaid > 0 {
+						newStatus = "partial"
+					}
+
+					invoiceCollection.UpdateOne(ctx, bson.M{"_id": invObjID, "orgId": orgID}, bson.M{"$set": bson.M{
+						"amountPaid": newPaid,
+						"balanceDue": newBalance,
+						"status":     newStatus,
+						"updatedAt":  time.Now(),
+					}})
+				}
+			}
+		}
+
+		// ── Mark payment as refunded ──────────────────────────────────────────
+		paymentCollection.UpdateOne(ctx, bson.M{"_id": objID, "orgId": orgID}, bson.M{"$set": bson.M{
+			"isRefunded":     true,
+			"refundedAmount": req.Amount,
+			"refundedAt":     time.Now(),
+			"refundReason":   req.Reason,
+			"updatedAt":      time.Now(),
+		}})
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Payment refunded",
+			"data":    gin.H{"refundedAmount": req.Amount},
 		})
 	}
 }

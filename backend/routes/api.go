@@ -87,6 +87,7 @@ func InvoiceRoutes(router *gin.Engine) {
 		invRoutes.POST("/:id/finalize", controllers.FinalizeProforma())
 		invRoutes.POST("/:id/send", controllers.SendInvoice())
 		invRoutes.POST("/:id/send-reminder", controllers.SendInvoiceReminder())
+		invRoutes.POST("/:id/return", controllers.CreateSalesReturn())
 	}
 }
 
@@ -178,6 +179,7 @@ func PaymentRoutes(router *gin.Engine) {
 		pmtRoutes.GET("/", controllers.GetAllPayments())
 		pmtRoutes.GET("/stats", controllers.GetPaymentStats())
 		pmtRoutes.GET("/:id", controllers.GetPaymentByID())
+		pmtRoutes.POST("/:id/refund", controllers.RefundPayment())
 	}
 }
 
