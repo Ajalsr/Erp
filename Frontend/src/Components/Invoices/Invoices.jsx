@@ -28,7 +28,6 @@ const buildTheme = (isDark) => ({
 const STATUS = {
   paid:     { label: "Paid",     bg: "rgba(16,185,129,.12)",  border: "rgba(16,185,129,.3)",  text: "#10b981" },
   unpaid:   { label: "Unpaid",   bg: "rgba(245,158,11,.12)",  border: "rgba(245,158,11,.3)",  text: "#f59e0b" },
-  sent:     { label: "Sent",     bg: "rgba(139,92,246,.12)",  border: "rgba(139,92,246,.3)",  text: "#8b5cf6" },
   overdue:  { label: "Overdue",  bg: "rgba(239,68,68,.12)",   border: "rgba(239,68,68,.3)",   text: "#ef4444" },
   partial:  { label: "Partial",  bg: "rgba(59,130,246,.12)",  border: "rgba(59,130,246,.3)",  text: "#3b82f6" },
   draft:    { label: "Draft",    bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.3)", text: "#94a3b8" },
@@ -110,16 +109,18 @@ const toRow = (inv) => ({
   amount:       inv.totals?.grandTotal ?? 0,
   paid:         inv.amountPaid ?? 0,
   balance:      inv.balanceDue  ?? (inv.totals?.grandTotal ?? 0),
-  status:       inv.type === "proforma" ? "proforma" : (inv.status || "unpaid"),
+  status:       inv.type === "proforma" ? "proforma" : (inv.status === "sent" ? "unpaid" : (inv.status || "unpaid")),
   docType:      inv.type || "invoice",
-  proformaConvertedTo: inv.proformaConvertedTo || "",
+  proformaConvertedTo:       inv.proformaConvertedTo || "",
+  proformaConvertedToNumber: inv.proformaConvertedToNumber || "",
   items:        (inv.lineItems || []).length,
   currency:     inv.currency || "AED",
   paymentTerms: inv.paymentTerms || "",
   lineItems:    inv.lineItems || [],
   notes:        inv.notes || {},
-  publicToken:  inv.publicToken || "",
-  voidReason:   inv.voidReason || "",
+  publicToken:   inv.publicToken || "",
+  voidReason:    inv.voidReason || "",
+  salesReturns:  inv.salesReturns || [],
 });
 
 /* ─── Payment modes ─────────────────────────────────────────────────────── */
@@ -348,6 +349,17 @@ const Invoices = () => {
   const [voidLoading,  setVoidLoading] = useState(false);
   const [issueLoading,       setIssueLoading]       = useState(false);
   const [finalizingProforma, setFinalizingProforma] = useState(false);
+  const [refundModal,   setRefundModal]   = useState(null); // payment object
+  const [refundAmount,  setRefundAmount]  = useState("");
+  const [refundReason,  setRefundReason]  = useState("");
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [returnModal,     setReturnModal]     = useState(false);
+  const [returnItems,     setReturnItems]     = useState([]);
+  const [returnNotes,     setReturnNotes]     = useState("");
+  const [returnMode,      setReturnMode]      = useState("credit"); // "credit" | "refund" | "reduce"
+  const [returnPaymentId, setReturnPaymentId] = useState("");
+  const [returnLoading,   setReturnLoading]   = useState(false);
+  const [stocksList,      setStocksList]      = useState([]);
 
   const loadInvoices = useCallback(() => {
     setLoading(true);
@@ -382,23 +394,20 @@ const Invoices = () => {
   const [voidModal,  setVoidModal]  = useState(false);
   const [voidInput,  setVoidInput]  = useState('');
 
+  // Fetch payments + credits when drawer opens — data ready for all tabs instantly
   useEffect(() => {
-    if (!selected || drawerTab !== "credits") return;
+    if (!selected) { setLinkedCNs([]); setLinkedPayments([]); return; }
     setCnLoading(true);
+    setPmtLoading(true);
     axiosInstance.get(`/api/credit-notes/by-invoice/${selected._id}`)
       .then(res => setLinkedCNs(res.data?.data || []))
       .catch(() => setLinkedCNs([]))
       .finally(() => setCnLoading(false));
-  }, [selected, drawerTab]);
-
-  useEffect(() => {
-    if (!selected || drawerTab !== "payments") return;
-    setPmtLoading(true);
     axiosInstance.get(`/api/payments/?invoiceId=${selected._id}`)
       .then(res => setLinkedPayments(res.data?.data?.payments || []))
       .catch(() => setLinkedPayments([]))
       .finally(() => setPmtLoading(false));
-  }, [selected, drawerTab]);
+  }, [selected]);
 
   /* derived */
   const filtered = useMemo(() => {
@@ -438,6 +447,64 @@ const Invoices = () => {
     } catch (e) {
       nexusToast.error(e.response?.data?.message || (sendModal === 'send' ? "Failed to send invoice" : "Failed to send reminder"));
     } finally { setSendLoading(false); }
+  };
+
+  const handleRefund = async () => {
+    if (!refundModal) return;
+    const amt = parseFloat(refundAmount);
+    if (!amt || amt <= 0) { nexusToast.error("Enter a valid refund amount"); return; }
+    setRefundLoading(true);
+    try {
+      await axiosInstance.post(`/api/payments/${refundModal._id}/refund`, { amount: amt, reason: refundReason });
+      nexusToast.success(`Refund of ${fmt(amt)} recorded`);
+      setRefundModal(null); setRefundAmount(""); setRefundReason("");
+      loadInvoices();
+      if (selected) {
+        const invId = selected._id;
+        axiosInstance.get(`/api/invoices/${invId}`)
+          .then(r => { const fresh = r.data?.data; if (fresh) setSelected(toRow(fresh)); })
+          .catch(() => {});
+        axiosInstance.get(`/api/payments/?invoiceId=${invId}`)
+          .then(r => setLinkedPayments(r.data?.data?.payments || []))
+          .catch(() => {});
+      }
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Refund failed");
+    } finally { setRefundLoading(false); }
+  };
+
+  const handleReturn = async () => {
+    const items = returnItems.filter(i => i.qty > 0);
+    if (items.length === 0) { nexusToast.error("Set qty > 0 for at least one item"); return; }
+    if (returnMode === "refund" && !returnPaymentId) { nexusToast.error("Select a payment to refund against"); return; }
+    setReturnLoading(true);
+    try {
+      const res = await axiosInstance.post(`/api/invoices/${selected._id}/return`, {
+        items: items.map(i => ({ stockId: i.stockId || "", itemName: i.itemName, qty: i.qty, unitPrice: i.unitPrice, taxRate: i.taxRate })),
+        notes: returnNotes,
+        mode: returnMode,
+        refundPaymentId: returnMode === "refund" ? returnPaymentId : undefined,
+      });
+      const msg =
+        returnMode === "refund"  ? `${res.data.returnNumber} processed — AED ${res.data.refundedAmount?.toFixed(2)} refunded` :
+        returnMode === "reduce"  ? `${res.data.returnNumber} processed — balance reduced by AED ${res.data.reducedAmount?.toFixed(2)}` :
+        `${res.data.returnNumber} processed — draft credit note ${res.data.creditNoteNum} created`;
+      nexusToast.success(msg);
+      setReturnModal(false); setReturnItems([]); setReturnNotes("");
+      setReturnMode("credit"); setReturnPaymentId("");
+      loadInvoices();
+      // Re-fetch the open invoice so drawer reflects updated status/salesReturns immediately
+      const invId = selected._id;
+      axiosInstance.get(`/api/invoices/${invId}`)
+        .then(r => { const fresh = r.data?.data; if (fresh) setSelected(toRow(fresh)); })
+        .catch(() => {});
+      axiosInstance.get(`/api/credit-notes/by-invoice/${invId}`)
+        .then(r => setLinkedCNs(r.data?.data || [])).catch(() => {});
+      axiosInstance.get(`/api/payments/?invoiceId=${invId}`)
+        .then(r => setLinkedPayments(r.data?.data?.payments || [])).catch(() => {});
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Return failed");
+    } finally { setReturnLoading(false); }
   };
 
   const handleVoidInvoice = async () => {
@@ -544,7 +611,7 @@ const Invoices = () => {
 
           {/* Status pills */}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {["all", "sent", "paid", "unpaid", "overdue", "partial", "draft", "void"].map(s => {
+            {["all", "unpaid", "paid", "overdue", "partial", "draft", "void"].map(s => {
               const active = statusFilter === s;
               const cfg    = STATUS[s];
               return (
@@ -795,7 +862,8 @@ const Invoices = () => {
                               setFinalizingProforma(true);
                               try {
                                 const res = await axiosInstance.post(`/api/invoices/${selected._id}/finalize`);
-                                nexusToast.success(`Invoice ${res.data?.data?.invoiceNumber} created`);
+                                const invNum = res.data?.data?.invoiceNumber;
+                                nexusToast.success(`${invNum} created — proforma finalized`);
                                 setSelected(null); loadInvoices();
                               } catch (e) {
                                 nexusToast.error(e.response?.data?.message || "Finalize failed");
@@ -807,9 +875,29 @@ const Invoices = () => {
                         </>
                       )}
 
+                      {/* Send Proforma email */}
+                      {selected.docType === "proforma" && !selected.proformaConvertedTo && (
+                        <button
+                          onClick={() => { setSendEmail(selected.customerEmail || ""); setSendModal("send"); }}
+                          style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.3)", color: "#7c3aed", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                          📧 Send Proforma
+                        </button>
+                      )}
+
                       {selected.docType === "proforma" && selected.proformaConvertedTo && (
                         <div style={{ padding: "10px 14px", borderRadius: 7, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)", fontSize: 12, color: "#10b981" }}>
-                          ✓ Proforma finalized — Invoice created.
+                          ✓ Finalized →{" "}
+                          <strong>{selected.proformaConvertedToNumber || "Invoice"}</strong> created.
+                          <span
+                            onClick={() => {
+                              if (selected.proformaConvertedToNumber) setSearch(selected.proformaConvertedToNumber);
+                              setStatusFilter("all");
+                              setPage(1);
+                              setSelected(null);
+                            }}
+                            style={{ marginLeft: 8, cursor: "pointer", textDecoration: "underline", color: "#34d399" }}>
+                            View →
+                          </span>
                         </div>
                       )}
 
@@ -821,9 +909,9 @@ const Invoices = () => {
                             onClick={async () => {
                               setIssueLoading(true);
                               try {
-                                await axiosInstance.patch(`/api/invoices/${selected._id}/status`, { status: "sent" });
+                                await axiosInstance.patch(`/api/invoices/${selected._id}/status`, { status: "unpaid" });
                                 setSelected(null); loadInvoices();
-                                nexusToast.success("Invoice issued and marked as Sent");
+                                nexusToast.success("Invoice issued");
                               } catch (e) {
                                 nexusToast.error(e.response?.data?.message || "Failed to issue invoice");
                               } finally { setIssueLoading(false); }
@@ -840,7 +928,7 @@ const Invoices = () => {
                       )}
 
                       {/* Send Invoice / Send Reminder */}
-                      {["draft", "sent", "unpaid", "overdue", "partial"].includes(selected.status) && (
+                      {["draft", "unpaid", "overdue", "partial"].includes(selected.status) && (
                         <button
                           onClick={() => { setSendEmail(selected.customerEmail || ""); setSendModal("send"); }}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue, fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
@@ -856,8 +944,8 @@ const Invoices = () => {
                         </button>
                       )}
 
-                      {/* Record payment — sent/unpaid/overdue/partial */}
-                      {["sent", "unpaid", "overdue", "partial"].includes(selected.status) && (
+                      {/* Record payment — unpaid/overdue/partial */}
+                      {["unpaid", "overdue", "partial"].includes(selected.status) && (
                         <button
                           onClick={() => setPaymentInvoice(selected)}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
@@ -865,8 +953,8 @@ const Invoices = () => {
                         </button>
                       )}
 
-                      {/* Credit note — paid or partial */}
-                      {(selected.status === "paid" || selected.status === "partial") && (
+                      {/* Credit note — partial with balance remaining */}
+                      {(selected.status === "paid" || selected.status === "partial") && selected.balance > 0 && (
                         <button
                           onClick={() => navigate("/Sales/CreditNotes", {
                             state: {
@@ -882,6 +970,47 @@ const Invoices = () => {
                           📋 Raise Credit Note
                         </button>
                       )}
+
+                      {/* Return Items — any issued invoice (not draft/void/proforma) */}
+                      {["unpaid","overdue","partial","paid"].includes(selected.status) && selected.docType !== "proforma" && (() => {
+                        // Calculate already-returned qty per item name
+                        const alreadyReturned = {};
+                        (selected.salesReturns || []).forEach(r =>
+                          (r.items || []).forEach(item => {
+                            alreadyReturned[item.itemName] = (alreadyReturned[item.itemName] || 0) + item.qty;
+                          })
+                        );
+                        const hasReturnable = (selected.lineItems || []).some(li =>
+                          Math.max(0, (li.qty ?? 0) - (alreadyReturned[li.desc] || 0)) > 0
+                        );
+                        return (
+                          <button
+                            disabled={!hasReturnable}
+                            onClick={() => {
+                              const s = selected.status;
+                              const defaultMode = (s === "unpaid" || s === "overdue") ? "reduce" : s === "partial" ? "reduce" : "credit";
+                              setReturnItems((selected.lineItems || []).map(li => ({
+                                itemName:  li.desc || "",
+                                qty:       0,
+                                maxQty:    Math.max(0, (li.qty ?? 0) - (alreadyReturned[li.desc] || 0)),
+                                unitPrice: li.unitPrice ?? 0,
+                                taxRate:   li.taxRate   ?? 5,
+                                stockId:   li.stockId  || "",
+                              })));
+                              setReturnMode(defaultMode);
+                              setReturnPaymentId("");
+                              setReturnNotes("");
+                              setStocksList([]);
+                              axiosInstance.get("/api/stocks/getitem")
+                                .then(r => setStocksList(r.data?.data || []))
+                                .catch(() => {});
+                              setReturnModal(true);
+                            }}
+                            style={{ padding: "8px 0", borderRadius: 7, fontSize: 12, cursor: hasReturnable ? "pointer" : "not-allowed", background: "rgba(168,85,247,0.07)", border: "1px solid rgba(168,85,247,0.3)", color: hasReturnable ? "#a855f7" : T.muted, fontFamily: "'DM Sans', sans-serif", opacity: hasReturnable ? 1 : 0.5 }}>
+                            ↩ Return Items{!hasReturnable ? " (all returned)" : ""}
+                          </button>
+                        );
+                      })()}
 
                       {/* Clone invoice */}
                       <button
@@ -913,8 +1042,8 @@ const Invoices = () => {
                         </button>
                       )}
 
-                      {/* Void */}
-                      {selected.status !== "void" && selected.status !== "paid" && (
+                      {/* Void — draft only */}
+                      {selected.status === "draft" && selected.docType !== "proforma" && (
                         <button
                           disabled={voidLoading}
                           onClick={() => setVoidModal(true)}
@@ -922,6 +1051,7 @@ const Invoices = () => {
                           {voidLoading ? "Voiding…" : "Void Invoice"}
                         </button>
                       )}
+
                     </div>
                   </div>
                 )}
@@ -988,7 +1118,7 @@ const Invoices = () => {
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <p style={{ fontSize: 13, fontWeight: 600, color: T.text, margin: 0 }}>Payments Recorded</p>
-                      {["sent", "unpaid", "overdue", "partial"].includes(selected.status) && (
+                      {["unpaid", "overdue", "partial"].includes(selected.status) && (
                         <button
                           onClick={() => setPaymentInvoice(selected)}
                           style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none" }}>
@@ -1016,18 +1146,30 @@ const Invoices = () => {
                                     <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: `${modeColor}18`, color: modeColor, border: `1px solid ${modeColor}30` }}>
                                       {p.paymentMode || "Other"}
                                     </span>
+                                    {p.isRefunded && (
+                                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.25)" }}>
+                                        Refunded
+                                      </span>
+                                    )}
                                     {p.reference && (
                                       <span style={{ fontSize: 11, color: T.muted }}>Ref: {p.reference}</span>
                                     )}
                                   </div>
                                 </div>
                                 <div style={{ textAlign: "right" }}>
-                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color: "#10b981", margin: 0 }}>
+                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color: p.isRefunded ? T.muted : "#10b981", margin: 0, textDecoration: p.isRefunded ? "line-through" : "none" }}>
                                     {fmt(p.amount)}
                                   </p>
                                   <p style={{ fontSize: 11, color: T.muted, margin: "3px 0 0" }}>
                                     {p.date ? new Date(p.date).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                                   </p>
+                                  {!p.isRefunded && (
+                                    <button
+                                      onClick={() => { setRefundModal(p); setRefundAmount(String(p.amount)); setRefundReason(""); }}
+                                      style={{ marginTop: 6, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 6, cursor: "pointer", background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif" }}>
+                                      ↩ Refund
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1119,15 +1261,39 @@ const Invoices = () => {
                       label: h.event,
                       sub: `${fmtDate(h.date)} · ${h.user}`,
                     })),
-                    ...linkedPayments.map(p => ({
-                      date: new Date(p.date || p.createdAt || 0),
-                      dot: "#10b981",
-                      label: `Payment received — ${fmt(p.amount)}`,
+                    ...linkedPayments.flatMap(p => {
+                      const entries = [{
+                        date: new Date(p.date || p.createdAt || 0),
+                        dot: "#10b981",
+                        label: `Payment received — ${fmt(p.amount)}`,
+                        sub: [
+                          p.date ? new Date(p.date).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : null,
+                          p.paymentMode || "Other",
+                          p.paymentNumber,
+                          p.reference ? `Ref: ${p.reference}` : null,
+                        ].filter(Boolean).join(" · "),
+                      }];
+                      if (p.isRefunded) {
+                        entries.push({
+                          date: new Date(p.refundedAt || p.updatedAt || p.createdAt || 0),
+                          dot: "#ef4444",
+                          label: `↩ Refund processed — ${fmt(p.refundedAmount || p.amount)}`,
+                          sub: [p.paymentNumber, p.refundReason || "Refunded"].filter(Boolean).join(" · "),
+                        });
+                      }
+                      return entries;
+                    }),
+                    ...(selected.salesReturns || []).map(r => ({
+                      date: new Date(r.createdAt || 0),
+                      dot: "#a855f7",
+                      label: r.mode === "reduce"
+                        ? `Items returned — balance reduced AED ${r.refundAmount?.toFixed(2)} (${r.returnNumber})`
+                        : r.mode === "refund"
+                        ? `Items returned — cash refunded AED ${r.refundAmount?.toFixed(2)} (${r.returnNumber})`
+                        : `Items returned — credit note ${r.creditNoteNum} (${r.returnNumber})`,
                       sub: [
-                        p.date ? new Date(p.date).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : null,
-                        p.paymentMode || "Other",
-                        p.paymentNumber,
-                        p.reference ? `Ref: ${p.reference}` : null,
+                        r.date,
+                        r.items?.length ? `${r.items.length} item${r.items.length > 1 ? "s" : ""}` : null,
                       ].filter(Boolean).join(" · "),
                     })),
                     ...linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).map(cn => ({
@@ -1217,6 +1383,219 @@ const Invoices = () => {
       )}
 
       {/* ── Void modal ── */}
+      {refundModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
+          onClick={e => e.target === e.currentTarget && setRefundModal(null)}>
+          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>↩ Refund Payment</div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>
+              {refundModal.paymentNumber} · Original: {fmt(refundModal.amount)}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>
+                  Refund Amount <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <input
+                  type="number"
+                  value={refundAmount}
+                  min={0.01}
+                  max={refundModal.amount}
+                  step="0.01"
+                  onChange={e => {
+                    const raw = parseFloat(e.target.value);
+                    if (isNaN(raw) || raw < 0) { setRefundAmount(""); return; }
+                    setRefundAmount(String(Math.min(raw, refundModal.amount)));
+                  }}
+                  style={{ width: "100%", padding: "10px 13px", background: T.input, border: `1.5px solid ${parseFloat(refundAmount) > refundModal.amount ? "#ef4444" : T.inputBdr}`, borderRadius: 9, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Mono', monospace" }}
+                />
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>
+                  Max: <span style={{ fontFamily: "'DM Mono', monospace", color: T.text }}>{fmt(refundModal.amount)}</span>
+                </div>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>
+                  Reason <span style={{ color: T.subtle, fontWeight: 400, textTransform: "none" }}>(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={refundReason}
+                  onChange={e => setRefundReason(e.target.value)}
+                  placeholder="e.g. Service cancelled, goods returned…"
+                  style={{ width: "100%", padding: "10px 13px", background: T.input, border: `1.5px solid ${T.inputBdr}`, borderRadius: 9, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif" }}
+                />
+              </div>
+              <div style={{ padding: "10px 13px", borderRadius: 8, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)", fontSize: 12, color: "#f59e0b" }}>
+                ⚠️ This will reduce the invoice paid amount and restore balance due. The original payment record stays for audit trail.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={() => setRefundModal(null)}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.muted, border: `1.5px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif" }}>
+                Cancel
+              </button>
+              <button onClick={handleRefund} disabled={refundLoading}
+                style={{ flex: 2, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: refundLoading ? "not-allowed" : "pointer", opacity: refundLoading ? 0.6 : 1, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", fontFamily: "'DM Sans', sans-serif" }}>
+                {refundLoading ? "Processing…" : "↩ Confirm Refund"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Return Items modal ── */}
+      {returnModal && selected && (() => {
+        const returnTotal = returnItems.reduce((s, i) => {
+          if (i.qty <= 0) return s;
+          const sub = i.qty * i.unitPrice;
+          return s + sub + sub * (i.taxRate / 100);
+        }, 0);
+        const nonRefundedPayments = linkedPayments.filter(p => !p.isRefunded);
+        const invStatus = selected.status;
+
+        // Available modes per invoice status
+        const modeOptions = invStatus === "paid"
+          ? [
+              { key: "credit", label: "📋 Credit Note",     desc: "Customer gets credit for future invoices" },
+              { key: "refund", label: "💵 Cash Refund",      desc: "Reverse payment + restore stock" },
+            ]
+          : invStatus === "partial"
+          ? [
+              { key: "reduce", label: "↓ Reduce Balance",   desc: "Lower what they still owe — no payment reversal" },
+              { key: "refund", label: "💵 Cash Refund",      desc: "Reverse part of payment received so far" },
+            ]
+          : [ // unpaid / overdue
+              { key: "reduce", label: "↓ Reduce Balance",   desc: "Remove returned goods from what they owe" },
+            ];
+
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 9300, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
+            onClick={e => e.target === e.currentTarget && setReturnModal(false)}>
+            <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 520, maxHeight: "82vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+              <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>↩ Return Items</div>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>{selected.id}</div>
+
+              {/* Mode toggle — only show if more than one option */}
+              {modeOptions.length > 1 && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                  {modeOptions.map(opt => (
+                    <div key={opt.key} onClick={() => { setReturnMode(opt.key); setReturnPaymentId(""); }}
+                      style={{ flex: 1, padding: "10px 12px", borderRadius: 9, cursor: "pointer", border: `1.5px solid ${returnMode === opt.key ? "#a855f7" : T.border}`, background: returnMode === opt.key ? "rgba(168,85,247,0.08)" : T.surface2, transition: ".15s" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: returnMode === opt.key ? "#a855f7" : T.text }}>{opt.label}</div>
+                      <div style={{ fontSize: 10, color: T.muted, marginTop: 3 }}>{opt.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {modeOptions.length === 1 && (
+                <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(168,85,247,0.07)", border: "1px solid rgba(168,85,247,0.2)", fontSize: 12, color: "#a855f7", marginBottom: 16 }}>
+                  {modeOptions[0].label} — {modeOptions[0].desc}
+                </div>
+              )}
+
+              {/* Items */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                {returnItems.map((item, i) => (
+                  <div key={i} style={{ background: T.surface2, border: `1px solid ${item.qty > 0 ? "rgba(168,85,247,0.4)" : T.border}`, borderRadius: 8, padding: "10px 13px", transition: ".15s" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ flex: 1, fontSize: 13, color: T.text, fontWeight: 500 }}>{item.itemName || "—"}</div>
+                      <div style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>max {item.maxQty}</div>
+                      <input
+                        type="number" min={0} max={item.maxQty} step={1} value={item.qty}
+                        onChange={e => {
+                          const v = Math.min(item.maxQty, Math.max(0, parseFloat(e.target.value) || 0));
+                          setReturnItems(prev => prev.map((it, idx) => idx === i ? { ...it, qty: v } : it));
+                        }}
+                        style={{ width: 70, padding: "6px 9px", background: T.input, border: `1.5px solid ${item.qty > 0 ? "#a855f7" : T.inputBdr}`, borderRadius: 7, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Mono', monospace", textAlign: "right" }}
+                      />
+                    </div>
+                    {/* Stock linker — only shown when item has no stockId and qty > 0 */}
+                    {item.qty > 0 && !item.stockId && stocksList.length > 0 && (
+                      <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 10, color: "#f59e0b", whiteSpace: "nowrap" }}>⚠ Link stock item to restore inventory:</span>
+                        <select
+                          value={item.linkedStockId || ""}
+                          onChange={e => setReturnItems(prev => prev.map((it, idx) => idx === i ? { ...it, stockId: e.target.value } : it))}
+                          style={{ flex: 1, padding: "4px 8px", background: T.input, border: `1px solid ${T.inputBdr}`, borderRadius: 6, color: T.text, fontSize: 11, outline: "none", fontFamily: "'DM Sans', sans-serif" }}>
+                          <option value="">— skip stock update —</option>
+                          {stocksList.map(s => (
+                            <option key={s._id} value={s._id}>{s.name} ({s.itemCode}) · {s.quantity} in stock</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Return total */}
+              {returnTotal > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 13px", borderRadius: 7, background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.2)", marginBottom: 14 }}>
+                  <span style={{ fontSize: 12, color: T.muted }}>Return total (incl. VAT)</span>
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#a855f7" }}>AED {returnTotal.toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Refund mode: payment picker */}
+              {returnMode === "refund" && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>
+                    Refund against payment <span style={{ color: "#ef4444" }}>*</span>
+                  </label>
+                  {nonRefundedPayments.length === 0 ? (
+                    <div style={{ padding: "10px 13px", borderRadius: 8, background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)", fontSize: 12, color: "#ef4444" }}>
+                      No refundable payments on this invoice.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {nonRefundedPayments.map(p => (
+                        <div key={p._id} onClick={() => setReturnPaymentId(p._id)}
+                          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 13px", borderRadius: 8, cursor: "pointer", border: `1.5px solid ${returnPaymentId === p._id ? "#ef4444" : T.border}`, background: returnPaymentId === p._id ? "rgba(239,68,68,0.07)" : T.surface2, transition: ".15s" }}>
+                          <div>
+                            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: returnPaymentId === p._id ? "#ef4444" : T.blue }}>{p.paymentNumber}</span>
+                            <span style={{ fontSize: 11, color: T.muted, marginLeft: 8 }}>{p.paymentMode}</span>
+                          </div>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: returnPaymentId === p._id ? "#ef4444" : "#10b981" }}>{fmt(p.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Notes */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>
+                  Notes <span style={{ color: T.subtle, fontWeight: 400, textTransform: "none" }}>(optional)</span>
+                </label>
+                <input type="text" value={returnNotes} onChange={e => setReturnNotes(e.target.value)}
+                  placeholder="e.g. Damaged goods, wrong item shipped…"
+                  style={{ width: "100%", padding: "10px 13px", background: T.input, border: `1.5px solid ${T.inputBdr}`, borderRadius: 9, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Sans', sans-serif" }}
+                />
+              </div>
+
+              {/* Info banner */}
+              <div style={{ padding: "10px 13px", borderRadius: 8, background: "rgba(168,85,247,0.07)", border: "1px solid rgba(168,85,247,0.2)", fontSize: 12, color: "#a855f7", marginBottom: 18 }}>
+                {returnMode === "credit"  && "Stock restored. Draft credit note created — approve + apply it to reduce a future invoice."}
+                {returnMode === "refund"  && "Stock restored. Payment reversed. Invoice balance updated. No credit note created."}
+                {returnMode === "reduce"  && "Stock restored. Invoice balance reduced by the return amount. No payment reversal."}
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => { setReturnModal(false); setReturnMode("credit"); setReturnPaymentId(""); }}
+                  style={{ flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.muted, border: `1.5px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif" }}>
+                  Cancel
+                </button>
+                <button onClick={handleReturn} disabled={returnLoading}
+                  style={{ flex: 2, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: returnLoading ? "not-allowed" : "pointer", opacity: returnLoading ? 0.6 : 1, background: "rgba(168,85,247,0.12)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)", fontFamily: "'DM Sans', sans-serif" }}>
+                  {returnLoading ? "Processing…" : "↩ Process Return"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {voidModal && selected && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
           onClick={e => e.target === e.currentTarget && setVoidModal(false)}>

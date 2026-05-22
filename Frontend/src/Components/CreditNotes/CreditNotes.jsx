@@ -382,8 +382,16 @@ export default function CreditNotes() {
             taxAmt: 0, total: 0,
           })).filter(i => i.description);
           if (mapped.length > 0) {
+            const amountPaid  = parseFloat(p.amountPaid  || full.amountPaid  || 0);
+            const balanceDue  = parseFloat(p.balanceDue  || full.balanceDue  || 0);
             setForm(f => ({ ...f, lineItems: mapped }));
-            setPrefillSource({ invNumber: p.invoiceNumber, count: mapped.length });
+            setPrefillSource({
+              invNumber:  p.invoiceNumber,
+              count:      mapped.length,
+              amountPaid,
+              balanceDue,
+              isPartial:  amountPaid > 0 && balanceDue > 0,
+            });
           }
         })
         .catch(() => {})
@@ -408,7 +416,7 @@ export default function CreditNotes() {
         const all = r.data?.data?.invoices || [];
         setApplyInvoices(all.filter(inv =>
           (inv.customerId === selected.customerId) &&
-          ["sent", "overdue", "partial", "unpaid"].includes(inv.status) &&
+          ["unpaid", "overdue", "partial"].includes(inv.status) &&
           (inv.balanceDue ?? inv.totals?.grandTotal ?? 0) > 0
         ));
       })
@@ -423,7 +431,8 @@ export default function CreditNotes() {
         const all = r.data?.data?.invoices || [];
         setCustInvs(all.filter(inv =>
           (inv.customerId === form.customerId || inv.billTo?.name === form.customerName) &&
-          ["sent", "overdue", "partial"].includes(inv.status)
+          ["unpaid", "overdue", "partial"].includes(inv.status) &&
+          inv.type !== "proforma"
         ));
       })
       .catch(() => setCustInvs([]));
@@ -765,9 +774,18 @@ export default function CreditNotes() {
                     <span style={{ fontSize: 11, color: T.textSec }}>Loading invoice items…</span>
                   )}
                   {prefillSource && !prefillLoading && (
-                    <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: isDark ? "rgba(59,130,246,0.12)" : "#eff6ff", color: isDark ? "#60a5fa" : "#1d4ed8", border: `1px solid ${isDark ? "rgba(59,130,246,0.25)" : "#bfdbfe"}` }}>
-                      Pre-filled from {prefillSource.invNumber} · {prefillSource.count} item{prefillSource.count !== 1 ? "s" : ""}
-                    </span>
+                    <>
+                      <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: isDark ? "rgba(59,130,246,0.12)" : "#eff6ff", color: isDark ? "#60a5fa" : "#1d4ed8", border: `1px solid ${isDark ? "rgba(59,130,246,0.25)" : "#bfdbfe"}` }}>
+                        Pre-filled from {prefillSource.invNumber} · {prefillSource.count} item{prefillSource.count !== 1 ? "s" : ""}
+                      </span>
+                      {prefillSource.isPartial && (
+                        <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)", fontSize: 12, color: "#f59e0b", marginTop: 4 }}>
+                          ⚠️ Partial payment of <strong>AED {prefillSource.amountPaid.toLocaleString("en-AE", { minimumFractionDigits: 2 })}</strong> already received.
+                          Credit note total must not exceed balance due of <strong>AED {prefillSource.balanceDue.toLocaleString("en-AE", { minimumFractionDigits: 2 })}</strong>.
+                          Adjust quantities or prices below to match the outstanding balance.
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 {/* Column headers — item mode */}

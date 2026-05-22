@@ -53,11 +53,15 @@ func CreateInvoice() gin.HandlerFunc {
 		inv.UpdatedAt = time.Now()
 
 		if inv.Status == "" {
-			inv.Status = "sent"
+			inv.Status = "unpaid"
 		}
 		if inv.Status != "draft" && inv.PublicToken == "" {
 			inv.PublicToken = generatePublicToken()
 		}
+
+		// Always reset payment fields on creation — never trust client values
+		inv.AmountPaid = 0
+		inv.BalanceDue = inv.Totals.GrandTotal
 
 		// Assign IDs to line items
 		for i := range inv.LineItems {
@@ -95,12 +99,13 @@ func GetAllInvoices() gin.HandlerFunc {
 		}
 		skip := (page - 1) * limit
 
-		// Auto-mark overdue: any sent/unpaid invoice past its due date
+		// Auto-mark overdue: any unpaid invoice past its due date (skip proformas)
 		today := time.Now().Format("2006-01-02")
 		invoiceCollection.UpdateMany(ctx, bson.M{
 			"orgId":   orgID,
-			"status":  bson.M{"$in": []string{"unpaid", "sent"}},
+			"status":  "unpaid",
 			"dueDate": bson.M{"$lt": today, "$ne": ""},
+			"type":    bson.M{"$ne": "proforma"},
 		}, bson.M{"$set": bson.M{"status": "overdue", "updatedAt": time.Now()}})
 
 		filter := bson.M{"orgId": orgID}
@@ -224,7 +229,7 @@ func GetInvoiceStats() gin.HandlerFunc {
 		orgID, _ := c.Get("orgId")
 
 		pipeline := mongo.Pipeline{
-			{{Key: "$match", Value: bson.M{"orgId": orgID}}},
+			{{Key: "$match", Value: bson.M{"orgId": orgID, "type": bson.M{"$ne": "proforma"}}}},
 			{{Key: "$group", Value: bson.M{
 				"_id":   "$status",
 				"count": bson.M{"$sum": 1},
@@ -363,7 +368,7 @@ func UpdateInvoiceStatus() gin.HandlerFunc {
 		}
 
 		var req struct {
-			Status string `json:"status" binding:"required,oneof=draft unpaid sent paid partial overdue void"`
+			Status string `json:"status" binding:"required,oneof=draft unpaid paid partial overdue void"`
 		}
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid status", "error": err.Error()})
@@ -408,6 +413,10 @@ func VoidInvoice() gin.HandlerFunc {
 		}
 		if existing.Status == "paid" {
 			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "Paid invoices cannot be voided. Raise a credit note instead."})
+			return
+		}
+		if existing.Status == "unpaid" || existing.Status == "overdue" || existing.Status == "partial" {
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "Issued invoices cannot be voided. Raise a credit note instead."})
 			return
 		}
 
@@ -565,14 +574,14 @@ func SendInvoice() gin.HandlerFunc {
 			return
 		}
 
-		// Mark as sent if it was a draft
+		// Promote draft to unpaid when email is sent
 		if inv.Status == "draft" {
 			token := inv.PublicToken
 			if token == "" {
 				token = generatePublicToken()
 			}
 			invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{
-				"status": "sent", "publicToken": token, "updatedAt": time.Now(),
+				"status": "unpaid", "publicToken": token, "updatedAt": time.Now(),
 			}})
 		}
 
@@ -681,26 +690,29 @@ func FinalizeProforma() gin.HandlerFunc {
 
 		invCount, _ := invoiceCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "type": bson.M{"$ne": "proforma"}})
 		newInv := models.Invoice{
-			ID:            primitive.NewObjectID(),
-			InvoiceNumber: fmt.Sprintf("INV-%d-%04d", time.Now().Year(), invCount+1),
-			IssueDate:     time.Now().Format("2006-01-02"),
-			DueDate:       inv.DueDate,
-			Currency:      inv.Currency,
-			PaymentTerms:  inv.PaymentTerms,
-			From:          inv.From,
-			BillTo:        inv.BillTo,
-			CustomerID:    inv.CustomerID,
-			LineItems:     inv.LineItems,
-			Totals:        inv.Totals,
-			Notes:         inv.Notes,
-			Status:        "sent",
-			BalanceDue:    inv.Totals.GrandTotal,
-			Type:          "invoice",
-			PublicToken:   generatePublicToken(),
-			OrgID:         orgID.(string),
-			CreatedBy:     inv.CreatedBy,
-			CreatedAt:     time.Now(),
-			UpdatedAt:     time.Now(),
+			ID:                  primitive.NewObjectID(),
+			InvoiceNumber:       fmt.Sprintf("INV-%d-%04d", time.Now().Year(), invCount+1),
+			IssueDate:           time.Now().Format("2006-01-02"),
+			DueDate:             inv.DueDate,
+			Currency:            inv.Currency,
+			PaymentTerms:        inv.PaymentTerms,
+			From:                inv.From,
+			BillTo:              inv.BillTo,
+			CustomerID:          inv.CustomerID,
+			LineItems:           inv.LineItems,
+			Totals:              inv.Totals,
+			Notes:               inv.Notes,
+			Status:              "unpaid",
+			BalanceDue:          inv.Totals.GrandTotal,
+			Type:                "invoice",
+			PublicToken:         generatePublicToken(),
+			LinkedSalesOrderIDs: inv.LinkedSalesOrderIDs,
+			LinkedDNID:          inv.LinkedDNID,
+			LinkedDNNumber:      inv.LinkedDNNumber,
+			OrgID:               orgID.(string),
+			CreatedBy:           inv.CreatedBy,
+			CreatedAt:           time.Now(),
+			UpdatedAt:           time.Now(),
 		}
 		for i := range newInv.LineItems {
 			newInv.LineItems[i].ID = primitive.NewObjectID()
@@ -711,15 +723,47 @@ func FinalizeProforma() gin.HandlerFunc {
 			return
 		}
 
+		// Mark proforma as finalized
 		invoiceCollection.UpdateOne(ctx,
 			bson.M{"_id": objectID, "orgId": orgID},
-			bson.M{"$set": bson.M{"proformaConvertedTo": newInv.ID.Hex(), "updatedAt": time.Now()}},
+			bson.M{"$set": bson.M{
+				"proformaConvertedTo":       newInv.ID.Hex(),
+				"proformaConvertedToNumber": newInv.InvoiceNumber,
+				"updatedAt":                 time.Now(),
+			}},
 		)
 
+		// Link SO(s) and DN to the real invoice
+		orgIDStr := orgID.(string)
+		go func() {
+			bgCtx, bgCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer bgCancel()
+			for _, soIDStr := range inv.LinkedSalesOrderIDs {
+				if soObjID, err := primitive.ObjectIDFromHex(soIDStr); err == nil {
+					salesOrdersCollection.UpdateOne(bgCtx,
+						bson.M{"_id": soObjID, "orgId": orgIDStr},
+						bson.M{"$set": bson.M{"status": "invoiced", "updatedAt": time.Now()}},
+					)
+				}
+			}
+			if inv.LinkedDNID != "" {
+				if dnObjID, err := primitive.ObjectIDFromHex(inv.LinkedDNID); err == nil {
+					deliveryNotesCollection.UpdateOne(bgCtx,
+						bson.M{"_id": dnObjID, "orgId": orgIDStr},
+						bson.M{"$set": bson.M{
+							"invoiceId":     newInv.ID.Hex(),
+							"invoiceNumber": newInv.InvoiceNumber,
+							"updatedAt":     time.Now(),
+						}},
+					)
+				}
+			}
+		}()
+
 		c.JSON(http.StatusCreated, gin.H{
-			"status":        http.StatusCreated,
-			"message":       "Proforma finalized",
-			"data":          gin.H{"invoiceId": newInv.ID.Hex(), "invoiceNumber": newInv.InvoiceNumber},
+			"status":  http.StatusCreated,
+			"message": "Proforma finalized",
+			"data":    gin.H{"invoiceId": newInv.ID.Hex(), "invoiceNumber": newInv.InvoiceNumber},
 		})
 	}
 }
@@ -737,13 +781,13 @@ func GetInvoiceAging() gin.HandlerFunc {
 		// Auto-mark overdue first
 		invoiceCollection.UpdateMany(ctx, bson.M{
 			"orgId":   orgID,
-			"status":  bson.M{"$in": []string{"unpaid", "sent"}},
+			"status":  "unpaid",
 			"dueDate": bson.M{"$lt": today, "$ne": ""},
 		}, bson.M{"$set": bson.M{"status": "overdue", "updatedAt": time.Now()}})
 
 		filter := bson.M{
 			"orgId":  orgID,
-			"status": bson.M{"$in": []string{"unpaid", "partial", "overdue", "sent"}},
+			"status": bson.M{"$in": []string{"unpaid", "partial", "overdue"}},
 			"type":   bson.M{"$ne": "proforma"},
 		}
 
@@ -872,5 +916,274 @@ func GetInvoiceAging() gin.HandlerFunc {
 				"asOf":            today,
 			},
 		})
+	}
+}
+
+// POST /api/invoices/:id/return
+func CreateSalesReturn() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		userID, _ := c.Get("userId")
+
+		invoiceID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
+			return
+		}
+
+		var body struct {
+			Items           []models.SalesReturnItem `json:"items"`
+			Notes           string                   `json:"notes"`
+			Mode            string                   `json:"mode"`            // "credit" | "refund"
+			RefundPaymentID string                   `json:"refundPaymentId"` // required when mode=refund
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid request body", "error": err.Error()})
+			return
+		}
+		if body.Mode == "" {
+			body.Mode = "reduce"
+		}
+
+		activeItems := make([]models.SalesReturnItem, 0)
+		for _, item := range body.Items {
+			if item.Qty > 0 && item.ItemName != "" {
+				subtotal := round2(item.Qty * item.UnitPrice)
+				taxAmt := round2(subtotal * (item.TaxRate / 100))
+				item.Total = round2(subtotal + taxAmt)
+				activeItems = append(activeItems, item)
+			}
+		}
+		if len(activeItems) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "At least one item with qty > 0 required"})
+			return
+		}
+
+		var inv models.Invoice
+		if err := invoiceCollection.FindOne(ctx, bson.M{"_id": invoiceID, "orgId": orgIDStr}).Decode(&inv); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+			return
+		}
+		if inv.Status == "draft" || inv.Status == "void" || inv.Type == "proforma" {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "Cannot create return for draft, void, or proforma invoices"})
+			return
+		}
+
+		createdByStr := ""
+		if userID != nil {
+			createdByStr = userID.(string)
+		}
+
+		// Stock increase for items that have a stockId
+		for _, item := range activeItems {
+			if item.StockID == "" {
+				continue
+			}
+			itemObjID, err := primitive.ObjectIDFromHex(item.StockID)
+			if err != nil {
+				continue
+			}
+			var stock models.Stock
+			if err := stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgIDStr}).Decode(&stock); err != nil {
+				continue
+			}
+			currentQty := 0.0
+			fmt.Sscanf(stock.Quantity, "%f", &currentQty)
+			newQty := currentQty + item.Qty
+			stockCollection.UpdateOne(ctx,
+				bson.M{"_id": itemObjID, "orgId": orgIDStr},
+				bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}},
+			)
+			adj := models.StockAdjustment{
+				ID:          primitive.NewObjectID(),
+				OrgID:       orgIDStr,
+				ItemID:      item.StockID,
+				ItemName:    stock.Name,
+				ItemCode:    stock.ItemCode,
+				Quantity:    item.Qty,
+				Type:        "increase",
+				Reason:      "return",
+				Reference:   inv.InvoiceNumber,
+				PreviousQty: currentQty,
+				NewQty:      newQty,
+				AdjustedAt:  time.Now(),
+				CreatedAt:   time.Now(),
+				CreatedBy:   createdByStr,
+			}
+			adjustmentCollection.InsertOne(ctx, adj)
+		}
+
+		retNum := fmt.Sprintf("RET-%04d", len(inv.SalesReturns)+1)
+		salesReturn := models.SalesReturn{
+			ID:           primitive.NewObjectID(),
+			ReturnNumber: retNum,
+			Date:         time.Now().Format("2006-01-02"),
+			Mode:         body.Mode,
+			Items:        activeItems,
+			Notes:        body.Notes,
+			CreatedAt:    time.Now(),
+			CreatedBy:    createdByStr,
+		}
+
+		responseExtra := gin.H{}
+
+		if body.Mode == "reduce" {
+			// ── Direct balance reduction (unpaid / overdue / partial) ─────────────
+			returnAmt := 0.0
+			for _, item := range activeItems {
+				returnAmt += item.Total
+			}
+			returnAmt = round2(returnAmt)
+			newBalance := round2(inv.BalanceDue - returnAmt)
+			if newBalance < 0 {
+				newBalance = 0
+			}
+
+			var newStatus string
+			invUpdate := bson.M{"balanceDue": newBalance, "updatedAt": time.Now()}
+			if newBalance <= 0 && inv.AmountPaid <= 0 {
+				// All goods returned, customer never paid → void the invoice
+				newStatus = "void"
+				invUpdate["status"] = "void"
+				invUpdate["voidReason"] = "Goods fully returned"
+				invUpdate["voidedAt"] = time.Now()
+			} else if newBalance <= 0 {
+				newStatus = "paid"
+				invUpdate["status"] = "paid"
+			} else if inv.AmountPaid > 0 {
+				newStatus = "partial"
+				invUpdate["status"] = "partial"
+			} else {
+				newStatus = "unpaid"
+				invUpdate["status"] = "unpaid"
+			}
+			invoiceCollection.UpdateOne(ctx, bson.M{"_id": invoiceID, "orgId": orgIDStr}, bson.M{"$set": invUpdate})
+			salesReturn.RefundAmount = returnAmt
+			responseExtra = gin.H{"reducedAmount": returnAmt, "newInvoiceStatus": newStatus, "newBalance": newBalance}
+
+		} else if body.Mode == "refund" {
+			// ── Cash refund path ─────────────────────────────────────────────────
+			if body.RefundPaymentID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "refundPaymentId required for refund mode"})
+				return
+			}
+			pmtObjID, err := primitive.ObjectIDFromHex(body.RefundPaymentID)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid refundPaymentId"})
+				return
+			}
+			var pmt models.Payment
+			if err = paymentCollection.FindOne(ctx, bson.M{"_id": pmtObjID, "orgId": orgIDStr}).Decode(&pmt); err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"message": "Payment not found"})
+				return
+			}
+			if pmt.IsRefunded {
+				c.JSON(http.StatusConflict, gin.H{"message": "Payment already refunded"})
+				return
+			}
+
+			// Refund amount = sum of return items total
+			refundAmt := 0.0
+			for _, item := range activeItems {
+				refundAmt += item.Total
+			}
+			refundAmt = round2(refundAmt)
+			if refundAmt > pmt.Amount {
+				refundAmt = pmt.Amount
+			}
+
+			// Reverse on invoice
+			newPaid := round2(inv.AmountPaid - refundAmt)
+			if newPaid < 0 { newPaid = 0 }
+			newBalance := round2(inv.Totals.GrandTotal - newPaid)
+			if newBalance < 0 { newBalance = 0 }
+			newStatus := "unpaid"
+			if newBalance <= 0 {
+				newStatus = "paid"
+			} else if newPaid > 0 {
+				newStatus = "partial"
+			}
+			invoiceCollection.UpdateOne(ctx, bson.M{"_id": invoiceID, "orgId": orgIDStr}, bson.M{"$set": bson.M{
+				"amountPaid": newPaid,
+				"balanceDue": newBalance,
+				"status":     newStatus,
+				"updatedAt":  time.Now(),
+			}})
+
+			// Mark payment refunded
+			paymentCollection.UpdateOne(ctx, bson.M{"_id": pmtObjID, "orgId": orgIDStr}, bson.M{"$set": bson.M{
+				"isRefunded":     true,
+				"refundedAmount": refundAmt,
+				"refundedAt":     time.Now(),
+				"refundReason":   "Sales return — " + retNum,
+				"updatedAt":      time.Now(),
+			}})
+
+			salesReturn.RefundPaymentID = body.RefundPaymentID
+			salesReturn.RefundAmount = refundAmt
+			responseExtra = gin.H{"refundedAmount": refundAmt, "newInvoiceStatus": newStatus}
+
+		} else {
+			// ── Credit note path (paid invoice) ──────────────────────────────────
+			cnNumber := nextCNNumber(ctx, orgIDStr)
+			cnItems := make([]models.CNLineItem, 0, len(activeItems))
+			for _, item := range activeItems {
+				subtotal := round2(item.Qty * item.UnitPrice)
+				taxAmt := round2(subtotal * (item.TaxRate / 100))
+				cnItems = append(cnItems, models.CNLineItem{
+					ID:          primitive.NewObjectID(),
+					Description: item.ItemName,
+					Qty:         item.Qty,
+					UnitPrice:   item.UnitPrice,
+					TaxRate:     item.TaxRate,
+					TaxAmt:      taxAmt,
+					Total:       round2(subtotal + taxAmt),
+				})
+			}
+			totals := calcCNTotals(cnItems)
+			vatBreakdown := calcVATBreakdown(cnItems)
+			cnOID := primitive.NewObjectID()
+			creditNoteCollection.InsertOne(ctx, bson.M{
+				"_id":              cnOID,
+				"creditNoteNumber": cnNumber,
+				"sourceDocId":      inv.ID.Hex(),
+				"sourceDocType":    "invoice",
+				"sourceDocNumber":  inv.InvoiceNumber,
+				"customerId":       inv.CustomerID,
+				"customerName":     inv.BillTo.Name,
+				"date":             time.Now().Format("2006-01-02"),
+				"reason":           "Sales return",
+				"lineItems":        cnItems,
+				"totals":           totals,
+				"vatBreakdown":     vatBreakdown,
+				"status":           "draft",
+				"notes":            body.Notes,
+				"orgId":            orgIDStr,
+				"createdAt":        time.Now(),
+				"updatedAt":        time.Now(),
+				"createdBy":        createdByStr,
+			})
+			salesReturn.CreditNoteID = cnOID.Hex()
+			salesReturn.CreditNoteNum = cnNumber
+			responseExtra = gin.H{"creditNoteId": cnOID.Hex(), "creditNoteNum": cnNumber}
+		}
+
+		invoiceCollection.UpdateOne(ctx,
+			bson.M{"_id": invoiceID, "orgId": orgIDStr},
+			bson.M{
+				"$push": bson.M{"salesReturns": salesReturn},
+				"$set":  bson.M{"updatedAt": time.Now()},
+			},
+		)
+
+		resp := gin.H{"message": "Return processed", "returnNumber": retNum}
+		for k, v := range responseExtra {
+			resp[k] = v
+		}
+		c.JSON(http.StatusCreated, resp)
 	}
 }
