@@ -123,6 +123,7 @@ function App() {
             <Route path="/Purchase/Bills/New" element={<NewBill />} />
             <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
             <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
+            <Route path="/Purchase/DebitNotes"   element={<DebitNotes />} />
             <Route path="/Reports/sales"                element={<SalesReport />} />
             <Route path="/Reports/purchases"            element={<PurchaseReport />} />
             <Route path="/Reports/inventory"            element={<InventoryReport />} />
@@ -138,6 +139,9 @@ function App() {
             <Route path="/Inventory/warehouses"     element={<Warehouses />} />
             <Route path="/Inventory/adjustments"    element={<Adjustments />} />
             <Route path="/Sales/CreditNotes"        element={<CreditNotes />} />
+            <Route path="/Sales/Quotes"             element={<Quotes />} />
+            <Route path="/Sales/Quotes/new"         element={<CreateQuote />} />
+            <Route path="/Sales/Quotes/:id"         element={<CreateQuote />} />
           </Route>
 
           {/* Public invoice — no layout, no auth */}

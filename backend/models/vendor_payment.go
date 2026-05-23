@@ -24,6 +24,11 @@ type VendorPayment struct {
 	Reference   string  `json:"reference,omitempty"  bson:"reference,omitempty"`
 	Notes       string  `json:"notes,omitempty"      bson:"notes,omitempty"`
 
+	// Reversal
+	IsReversed    bool   `json:"isReversed,omitempty"    bson:"isReversed,omitempty"`
+	ReversedAt    string `json:"reversedAt,omitempty"    bson:"reversedAt,omitempty"`
+	ReversalNotes string `json:"reversalNotes,omitempty" bson:"reversalNotes,omitempty"`
+
 	// Org + Audit
 	OrgID     string    `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt time.Time `json:"createdAt"       bson:"createdAt"`

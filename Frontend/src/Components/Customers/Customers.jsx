@@ -326,7 +326,8 @@ const Customers = () => {
   const handleExport = () => {
     if (!data?.length) { alert("No customers to export"); return; }
     const rows = data.map(i => ({ Code: getCode(i), Name: i.customerDisplayName || "", Company: i.companyName || "", Email: i.customerEmail || "", Phone: i.customerPhone || "", Status: i.status || "active" }));
-    const csv  = Object.keys(rows[0]).join(",") + "\n" + rows.map(r => Object.values(r).join(",")).join("\n");
+    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv  = Object.keys(rows[0]).map(escape).join(",") + "\n" + rows.map(r => Object.values(r).map(escape).join(",")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     a.download = `customers_${new Date().toISOString().split("T")[0]}.csv`;
@@ -377,9 +378,11 @@ const Customers = () => {
     Promise.allSettled([
       axiosInstance.get(`/api/invoices?customerId=${selectedItem._id}&limit=100`),
       axiosInstance.get(`/api/payments/?customerId=${selectedItem._id}&limit=100`),
-    ]).then(([invRes, pmtRes]) => {
+      axiosInstance.get(`/api/credit-notes?customerId=${selectedItem._id}`),
+    ]).then(([invRes, pmtRes, cnRes]) => {
       setCustInvoices(invRes.status === "fulfilled" ? invRes.value.data?.data?.invoices || [] : []);
       setCustPayments(pmtRes.status === "fulfilled" ? pmtRes.value.data?.data?.payments || [] : []);
+      setCustomerCNs(cnRes.status === "fulfilled" ? cnRes.value.data?.data || [] : []);
     }).finally(() => setTxnLoading(false));
   }, [activeTab, selectedItem]);
 
@@ -1174,6 +1177,13 @@ const Customers = () => {
                     draft:   { text: "#94a3b8", bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.25)" },
                     void:    { text: "#6b7280", bg: "rgba(107,114,128,.12)", border: "rgba(107,114,128,.25)" },
                   };
+                  const CN_STATUS = {
+                    draft:            { text: "#94a3b8", bg: "rgba(100,116,139,.12)", border: "rgba(100,116,139,.25)" },
+                    pending_approval: { text: "#f59e0b", bg: "rgba(245,158,11,.12)",  border: "rgba(245,158,11,.25)"  },
+                    approved:         { text: "#8b5cf6", bg: "rgba(139,92,246,.12)",  border: "rgba(139,92,246,.25)"  },
+                    closed:           { text: "#10b981", bg: "rgba(16,185,129,.12)",  border: "rgba(16,185,129,.25)"  },
+                    void:             { text: "#6b7280", bg: "rgba(107,114,128,.12)", border: "rgba(107,114,128,.25)" },
+                  };
                   const fmtAmt = (n) => `AED ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                   const fmtD   = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
@@ -1181,13 +1191,21 @@ const Customers = () => {
                     ...custInvoices.map(inv => ({
                       _type: "invoice", _date: new Date(inv.issueDate || inv.createdAt || 0), _id: inv._id,
                       ref: inv.invoiceNumber, amt: inv.totals?.grandTotal ?? 0,
-                      balDue: Math.max(0, (inv.totals?.grandTotal ?? 0) - (inv.amountPaid ?? 0)),
+                      balDue: Math.max(0, (inv.balanceDue ?? (inv.totals?.grandTotal ?? 0) - (inv.amountPaid ?? 0))),
                       status: inv.status,
                     })),
                     ...custPayments.map(pmt => ({
                       _type: "payment", _date: new Date(pmt.date || pmt.createdAt || 0), _id: pmt._id,
                       ref: pmt.paymentNumber, amt: pmt.amount,
                       mode: pmt.paymentMode, invoiceRef: pmt.invoiceNumber,
+                      isRefunded: pmt.isRefunded, refundedAmount: pmt.refundedAmount,
+                    })),
+                    ...customerCNs.map(cn => ({
+                      _type: "creditnote", _date: new Date(cn.updatedAt || cn.createdAt || 0), _id: cn._id,
+                      ref: cn.creditNoteNumber, amt: cn.totals?.grandTotal ?? 0,
+                      appliedAmount: cn.appliedAmount ?? 0, refundedAmount: cn.refundedAmount ?? 0,
+                      remainingAmount: cn.remainingAmount ?? cn.totals?.grandTotal ?? 0,
+                      status: cn.status, sourceDocNumber: cn.sourceDocNumber, reason: cn.reason,
                     })),
                   ].sort((a, b) => b._date - a._date);
 
@@ -1197,7 +1215,7 @@ const Customers = () => {
                     <div style={{ textAlign: "center", padding: "56px 20px" }}>
                       <div style={{ width: 52, height: 52, borderRadius: 14, background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: T.textMuted, margin: "0 auto 12px" }}>📄</div>
                       <p style={{ color: T.textPri, fontWeight: 700, fontSize: 14, margin: "0 0 4px" }}>No transactions yet</p>
-                      <p style={{ color: T.textMuted, fontSize: 12, margin: 0 }}>Invoices and payments will appear here.</p>
+                      <p style={{ color: T.textMuted, fontSize: 12, margin: 0 }}>Invoices, payments and credit notes will appear here.</p>
                     </div>
                   );
 
@@ -1205,44 +1223,57 @@ const Customers = () => {
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {timeline.map((row, i) => {
                         const isInv = row._type === "invoice";
-                        const sc    = isInv ? (INV_STATUS[row.status] || INV_STATUS.draft) : null;
+                        const isCN  = row._type === "creditnote";
+                        const isPmt = row._type === "payment";
+                        const sc    = isInv ? (INV_STATUS[row.status] || INV_STATUS.draft) : isCN ? (CN_STATUS[row.status] || CN_STATUS.draft) : null;
+                        const iconBg    = isInv ? T.blueDim : isCN ? "rgba(139,92,246,0.1)" : row.isRefunded ? "rgba(239,68,68,0.1)" : "rgba(16,185,129,0.1)";
+                        const iconColor = isInv ? T.blueLight : isCN ? "#8b5cf6" : row.isRefunded ? "#ef4444" : "#10b981";
+                        const icon      = isInv ? "📄" : isCN ? "📋" : row.isRefunded ? "↩" : "💳";
+                        const refColor  = isInv ? T.blueLight : isCN ? "#8b5cf6" : row.isRefunded ? "#ef4444" : "#10b981";
+
                         return (
                           <div key={row._id || i} className="detail-row" style={{
                             background: isDark ? T.surface : "#fff",
-                            border: `1px solid ${T.border}`, borderRadius: 12,
-                            padding: "12px 14px", display: "flex", alignItems: "center", gap: 12,
+                            border: `1px solid ${row.isRefunded ? "rgba(239,68,68,0.2)" : T.border}`,
+                            borderRadius: 12, padding: "12px 14px",
+                            display: "flex", alignItems: "center", gap: 12,
                             boxShadow: isDark ? "none" : "0 1px 3px rgba(0,0,0,0.04)",
+                            opacity: row.isRefunded ? 0.8 : 1,
                           }}>
-                            {/* Icon dot */}
-                            <div style={{
-                              width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                              background: isInv ? T.blueDim : "rgba(16,185,129,0.1)",
-                              color: isInv ? T.blueLight : "#10b981",
-                              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13,
-                            }}>
-                              {isInv ? "📄" : "💳"}
+                            {/* Icon */}
+                            <div style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, background: iconBg, color: iconColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+                              {icon}
                             </div>
 
                             {/* Main info */}
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'DM Mono', monospace", color: isInv ? T.blueLight : "#10b981", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.ref || "—"}</span>
-                                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 999, background: isInv ? T.blueDim : "rgba(16,185,129,0.1)", color: isInv ? T.blueLight : "#10b981", border: `1px solid ${isInv ? "rgba(59,130,246,0.2)" : "rgba(16,185,129,0.2)"}`, flexShrink: 0 }}>
-                                  {isInv ? "Invoice" : "Payment"}
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'DM Mono', monospace", color: refColor, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.ref || "—"}</span>
+                                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 999,
+                                  background: isInv ? T.blueDim : isCN ? "rgba(139,92,246,0.1)" : row.isRefunded ? "rgba(239,68,68,0.1)" : "rgba(16,185,129,0.1)",
+                                  color: refColor,
+                                  border: `1px solid ${isInv ? "rgba(59,130,246,0.2)" : isCN ? "rgba(139,92,246,0.2)" : row.isRefunded ? "rgba(239,68,68,0.25)" : "rgba(16,185,129,0.2)"}`,
+                                  flexShrink: 0 }}>
+                                  {isInv ? "Invoice" : isCN ? "Credit Note" : row.isRefunded ? "Reversed" : "Payment"}
                                 </span>
-                                {!isInv && row.mode && <span style={{ fontSize: 10, color: T.textMuted }}>{row.mode}</span>}
-                              </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <span style={{ fontSize: 11, color: T.textMuted }}>{fmtD(row._date)}</span>
-                                {!isInv && row.invoiceRef && (
-                                  <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>→ {row.invoiceRef}</span>
+                                {isPmt && !row.isRefunded && row.mode && <span style={{ fontSize: 10, color: T.textMuted }}>{row.mode}</span>}
+                                {isCN && sc && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 999, background: sc.bg, border: `1px solid ${sc.border}`, color: sc.text, flexShrink: 0 }}>
+                                    {row.status}
+                                  </span>
                                 )}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 11, color: T.textMuted }}>{fmtD(row._date)}</span>
+                                {isPmt && row.invoiceRef && <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>→ {row.invoiceRef}</span>}
+                                {isCN && row.sourceDocNumber && <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Mono', monospace" }}>→ {row.sourceDocNumber}</span>}
+                                {isCN && row.reason && <span style={{ fontSize: 11, color: T.textMuted }}>{row.reason}</span>}
                               </div>
                             </div>
 
                             {/* Amount + status */}
                             <div style={{ textAlign: "right", flexShrink: 0 }}>
-                              {isInv ? (
+                              {isInv && (
                                 <>
                                   <p style={{ fontSize: 13, fontWeight: 700, color: T.textPri, fontFamily: "'DM Mono', monospace", margin: "0 0 3px" }}>{fmtAmt(row.amt)}</p>
                                   <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4 }}>
@@ -1254,10 +1285,33 @@ const Customers = () => {
                                     </span>
                                   </div>
                                 </>
-                              ) : (
+                              )}
+                              {isPmt && (
                                 <>
-                                  <p style={{ fontSize: 13, fontWeight: 800, color: "#10b981", fontFamily: "'DM Mono', monospace", margin: "0 0 3px" }}>+{fmtAmt(row.amt)}</p>
-                                  <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 999, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)", color: "#10b981" }}>Received</span>
+                                  <p style={{ fontSize: 13, fontWeight: 800, fontFamily: "'DM Mono', monospace", margin: "0 0 3px",
+                                    color: row.isRefunded ? "#ef4444" : "#10b981",
+                                    textDecoration: row.isRefunded ? "line-through" : "none" }}>
+                                    {row.isRefunded ? "" : "+"}{fmtAmt(row.amt)}
+                                  </p>
+                                  {row.isRefunded ? (
+                                    <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 999, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444" }}>Reversed</span>
+                                  ) : (
+                                    <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 999, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)", color: "#10b981" }}>Received</span>
+                                  )}
+                                </>
+                              )}
+                              {isCN && (
+                                <>
+                                  <p style={{ fontSize: 13, fontWeight: 700, color: "#8b5cf6", fontFamily: "'DM Mono', monospace", margin: "0 0 3px" }}>
+                                    − {fmtAmt(row.amt)}
+                                  </p>
+                                  {(row.appliedAmount > 0 || row.refundedAmount > 0) && (
+                                    <div style={{ fontSize: 10, color: T.textMuted, lineHeight: 1.5 }}>
+                                      {row.appliedAmount > 0 && <div>Applied {fmtAmt(row.appliedAmount)}</div>}
+                                      {row.refundedAmount > 0 && <div>Refunded {fmtAmt(row.refundedAmount)}</div>}
+                                      {row.remainingAmount > 0 && <div style={{ color: "#f59e0b" }}>Remaining {fmtAmt(row.remainingAmount)}</div>}
+                                    </div>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -1297,21 +1351,31 @@ const Customers = () => {
                     else                 agingBkts[4].items.push(inv);
                   });
 
-                  const totalOutstanding = outstanding.reduce((s, i) => s + (i.balanceDue || i.total || 0), 0);
-                  const totalPaid        = custPayments.reduce((s, p) => s + (p.amount || 0), 0);
+                  const totalOutstanding = outstanding.reduce((s, i) => s + (i.balanceDue ?? 0), 0);
+                  const totalInvoiced   = custInvoices
+                    .filter(i => !["void","draft"].includes(i.status))
+                    .reduce((s, i) => s + (i.totals?.grandTotal ?? 0), 0);
+                  const totalPaid = custPayments
+                    .filter(p => !p.isRefunded)
+                    .reduce((s, p) => s + (p.amount || 0), 0);
+                  const totalReversed = custPayments
+                    .filter(p => p.isRefunded)
+                    .reduce((s, p) => s + (p.amount || 0), 0);
 
                   return (
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                       {/* Header summary */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                         {[
-                          { label: "Total Invoiced",   value: fmtAmt(custInvoices.reduce((s, i) => s + (i.total || 0), 0)), color: T.blueLight },
-                          { label: "Total Paid",        value: fmtAmt(totalPaid),        color: "#10b981" },
-                          { label: "Balance Outstanding", value: fmtAmt(totalOutstanding), color: totalOutstanding > 0 ? "#ef4444" : "#10b981" },
+                          { label: "Total Invoiced",      value: fmtAmt(totalInvoiced),    color: T.blueLight },
+                          { label: "Total Paid",           value: fmtAmt(totalPaid),         color: "#10b981",
+                            sub: totalReversed > 0 ? `${fmtAmt(totalReversed)} reversed` : null },
+                          { label: "Balance Outstanding",  value: fmtAmt(totalOutstanding),  color: totalOutstanding > 0 ? "#ef4444" : "#10b981" },
                         ].map((kpi, i) => (
                           <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
                             <p style={{ fontSize: 10, color: T.textSec, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>{kpi.label}</p>
                             <p style={{ fontSize: 15, fontWeight: 800, color: kpi.color, margin: 0, fontFamily: "'DM Mono', monospace" }}>{kpi.value}</p>
+                            {kpi.sub && <p style={{ fontSize: 10, color: "#ef4444", margin: "4px 0 0", fontFamily: "'DM Mono', monospace" }}>↩ {kpi.sub}</p>}
                           </div>
                         ))}
                       </div>

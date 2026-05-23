@@ -18,5 +18,8 @@
     "concurrently": "^9.2.0",
     "kill-port": "^2.0.1",
     "wait-on": "^8.0.3"
+  },
+  "dependencies": {
+    "claude": "^0.1.1"
   }
 }

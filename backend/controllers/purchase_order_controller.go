@@ -352,6 +352,18 @@ func UpdatePurchaseOrderStatus() gin.HandlerFunc {
 			return
 		}
 
+		validStatuses := map[string]bool{
+			"pending_approval": true,
+			"issued":           true,
+			"received":         true,
+			"cancelled":        true,
+			"partial":          true,
+		}
+		if !validStatuses[body.Status] {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "invalid status: must be one of pending_approval, issued, received, cancelled, partial"})
+			return
+		}
+
 		orgID, _ := c.Get("orgId")
 		orgIDStr := fmt.Sprintf("%v", orgID)
 
@@ -486,8 +498,8 @@ func GetPurchaseOrderStats() gin.HandlerFunc {
 		orgFilter := bson.M{"orgId": orgIDStr}
 
 		total, _ := purchaseOrderCollection.CountDocuments(ctx, orgFilter)
-		pending, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "pending"}}})
-		ordered, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "ordered"}}})
+		pending, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "pending_approval"}}})
+		ordered, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "issued"}}})
 		received, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"$and": []bson.M{orgFilter, {"status": "received"}}})
 
 		// Total value pipeline

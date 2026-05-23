@@ -6,6 +6,117 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
 
+/* ─── Refund payment mode config ────────────────────────────────────────── */
+const CN_MODES = [
+  "Cash", "Bank Transfer", "Cheque", "PDC",
+  "Credit Card", "Debit Card", "Demand Draft",
+  "Online Transfer", "Letter of Credit", "Other",
+];
+const CN_MODE_ICONS = {
+  "Cash": "💵", "Bank Transfer": "🏦", "Cheque": "📄", "PDC": "📋",
+  "Credit Card": "💳", "Debit Card": "💳", "Demand Draft": "📜",
+  "Online Transfer": "🌐", "Letter of Credit": "📃", "Other": "🔄",
+};
+const CN_ACCENT = ["#2563eb","#9333ea","#16a34a","#ea580c","#94a3b8"];
+const CN_MODE_FIELDS = {
+  "Cash":             [{ key: "receiptNo",    label: "Receipt No.",             placeholder: "e.g. RCP-001" }],
+  "Bank Transfer":    [{ key: "bankName",     label: "Bank Name",               placeholder: "e.g. Emirates NBD" },
+                       { key: "txnRef",       label: "Transaction Ref No.",     placeholder: "e.g. TXN-001234", required: true },
+                       { key: "accountNo",    label: "Account / IBAN",          placeholder: "e.g. AE070331234567890123456" }],
+  "Cheque":           [{ key: "chequeNo",     label: "Cheque No.",              placeholder: "e.g. 001234", required: true },
+                       { key: "bankName",     label: "Bank Name",               placeholder: "e.g. ADIB" },
+                       { key: "branch",       label: "Branch",                  placeholder: "e.g. Dubai Mall Branch" }],
+  "PDC":              [{ key: "chequeNo",     label: "Cheque No.",              placeholder: "e.g. 001234", required: true },
+                       { key: "chequeDate",   label: "Cheque Date",             type: "date", required: true },
+                       { key: "bankName",     label: "Bank Name",               placeholder: "e.g. Mashreq Bank" },
+                       { key: "branch",       label: "Branch",                  placeholder: "e.g. DIFC Branch" }],
+  "Credit Card":      [{ key: "cardNetwork",  label: "Card Network",            type: "select", options: ["Visa","Mastercard","Amex","Other"] },
+                       { key: "last4",        label: "Last 4 Digits",           placeholder: "e.g. 4242" },
+                       { key: "approvalCode", label: "Approval Code",           placeholder: "e.g. 123456" }],
+  "Debit Card":       [{ key: "cardNetwork",  label: "Card Network",            type: "select", options: ["Visa","Mastercard","Other"] },
+                       { key: "last4",        label: "Last 4 Digits",           placeholder: "e.g. 4242" },
+                       { key: "txnRef",       label: "Transaction Ref",         placeholder: "e.g. TXN-001234" }],
+  "Demand Draft":     [{ key: "ddNo",         label: "DD No.",                  placeholder: "e.g. DD-001234", required: true },
+                       { key: "bankName",     label: "Bank Name",               placeholder: "e.g. HDFC Bank" },
+                       { key: "branch",       label: "Branch",                  placeholder: "e.g. Main Branch" }],
+  "Online Transfer":  [{ key: "platform",     label: "Platform",                type: "select", options: ["NEFT","RTGS","IMPS","UPI","Wire Transfer","Other"] },
+                       { key: "txnRef",       label: "Reference / UTR No.",     placeholder: "e.g. UTR12345678", required: true }],
+  "Letter of Credit": [{ key: "lcNo",         label: "LC No.",                  placeholder: "e.g. LC-001234", required: true },
+                       { key: "issuingBank",  label: "Issuing Bank",            placeholder: "e.g. First Abu Dhabi Bank" },
+                       { key: "lcDate",       label: "LC Date",                 type: "date" }],
+  "Other":            [{ key: "txnRef",       label: "Reference / Description", placeholder: "Enter reference or description" }],
+};
+const getCNPrimaryRef = (mode, d = {}) => {
+  if (["Bank Transfer","Online Transfer","Debit Card","Other"].includes(mode)) return d.txnRef || "";
+  if (["Cheque","PDC"].includes(mode)) return d.chequeNo ? `CHQ-${d.chequeNo}` : "";
+  if (mode === "Demand Draft")     return d.ddNo || "";
+  if (mode === "Letter of Credit") return d.lcNo || "";
+  if (mode === "Credit Card")      return d.approvalCode ? `APPR-${d.approvalCode}` : "";
+  if (mode === "Cash")             return d.receiptNo || "";
+  return "";
+};
+
+const CnModeSelect = ({ value, onChange, T }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px", display: "flex", alignItems: "center",
+        justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${open ? "#f59e0b" : value ? "#f59e0b" : T.border}`,
+        borderRadius: 9, background: value ? "rgba(245,158,11,.08)" : T.surface,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? "0 0 0 3px rgba(245,158,11,.12)" : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, background: value ? "rgba(245,158,11,.18)" : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
+            {CN_MODE_ICONS[value] || "💳"}
+          </div>
+          <span style={{ color: value ? T.textPri : T.textSec, fontWeight: value ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {value || "Select payment mode…"}
+          </span>
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? "#f59e0b" : T.textSec }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 9999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 48px rgba(0,0,0,.28)", overflow: "hidden" }}>
+          <div style={{ padding: "8px 13px", borderBottom: `1px solid ${T.border}`, background: T.surface2 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: T.textSec }}>{CN_MODES.length} methods</div>
+          </div>
+          <div style={{ maxHeight: 240, overflowY: "auto" }}>
+            {CN_MODES.map((m, i) => {
+              const active = value === m;
+              const accent = CN_ACCENT[i % CN_ACCENT.length];
+              return (
+                <div key={m} onClick={() => { onChange(m); setOpen(false); }}
+                  style={{ padding: "11px 14px", cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: active ? `${accent}18` : "transparent", display: "flex", alignItems: "center", gap: 11, transition: "background .1s" }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface2; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                  <div style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: active ? `${accent}25` : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, border: `1.5px solid ${active ? accent : T.border}` }}>
+                    {CN_MODE_ICONS[m]}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? accent : T.textPri }}>{m}</div>
+                  {active && <svg style={{ marginLeft: "auto" }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const fmt = (n, cur = "AED") =>
   `${cur} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -321,6 +432,13 @@ export default function CreditNotes() {
   const [allCustomers,   setAllCustomers]  = useState([]);
   const [applyInvoiceId, setApplyInvoiceId] = useState("");
   const [applyInvoices,  setApplyInvoices]  = useState([]);
+  const [applyAmount,    setApplyAmount]    = useState("");
+  const [refundModal,    setRefundModal]    = useState(false);
+  const [refundAmt,      setRefundAmt]      = useState("");
+  const [refundPayMode,  setRefundPayMode]  = useState("Cash");
+  const [refundDetails,  setRefundDetails]  = useState({});
+  const [refundNotesTxt, setRefundNotesTxt] = useState("");
+  const [refunding,      setRefunding]      = useState(false);
 
   const LIMIT = 15;
 
@@ -407,15 +525,16 @@ export default function CreditNotes() {
       .catch(() => {});
   }, [modalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load eligible invoices for manual CN apply (approved + no sourceDocId)
+  // Load eligible invoices whenever a CN is open and approved (any approved CN can apply to any customer invoice)
   useEffect(() => {
-    if (!drawerOpen || !selected) { setApplyInvoices([]); setApplyInvoiceId(""); return; }
-    if (selected.status !== "approved" || selected.sourceDocId) { setApplyInvoices([]); setApplyInvoiceId(""); return; }
+    if (!drawerOpen || !selected || selected.status !== "approved") {
+      setApplyInvoices([]); setApplyInvoiceId(""); setApplyAmount(""); return;
+    }
     axiosInstance.get("/api/invoices")
       .then(r => {
         const all = r.data?.data?.invoices || [];
         setApplyInvoices(all.filter(inv =>
-          (inv.customerId === selected.customerId) &&
+          inv.customerId === selected.customerId &&
           ["unpaid", "overdue", "partial"].includes(inv.status) &&
           (inv.balanceDue ?? inv.totals?.grandTotal ?? 0) > 0
         ));
@@ -456,7 +575,8 @@ export default function CreditNotes() {
   const updateItem = (idx, field, val) => {
     setForm(f => {
       const items = [...f.lineItems];
-      items[idx] = calcItem({ ...items[idx], [field]: field === "description" ? val : (parseFloat(val) || 0) });
+      const numVal = field === "description" ? val : Math.max(0, parseFloat(val) || 0);
+      items[idx] = calcItem({ ...items[idx], [field]: numVal });
       return { ...f, lineItems: items };
     });
   };
@@ -486,6 +606,8 @@ export default function CreditNotes() {
     if (!form.customerId)  { nexusToast.error("Please select a customer"); return; }
     if (!form.reason.trim()) { nexusToast.error("Reason is required"); return; }
     if (form.lineItems.some(i => !i.description.trim())) { nexusToast.error("All line items need a description"); return; }
+    if (form.lineItems.some(i => i.mode !== "manual" && i.qty <= 0)) { nexusToast.error("All items must have qty > 0"); return; }
+    if (form.lineItems.some(i => i.unitPrice <= 0)) { nexusToast.error("All items must have a unit price > 0"); return; }
     setSubmitting(true);
     try {
       await axiosInstance.post("/api/credit-notes", {
@@ -521,12 +643,43 @@ export default function CreditNotes() {
 
   const handleSubmitCN = (id) => cnAction(id, "submit",  "Submitted for approval", "Failed to submit");
   const handleApprove  = (id) => cnAction(id, "approve", "Credit note approved",   "Failed to approve");
-  const handleApply    = (id) => {
-    const body = !selected?.sourceDocId && applyInvoiceId ? { invoiceId: applyInvoiceId } : null;
-    cnAction(id, "apply", "Credit note applied to invoice", "Failed to apply", body);
+  const handleApply = (id) => {
+    if (!applyInvoiceId) { nexusToast.error("Select an invoice to apply credit to"); return; }
+    const amt = parseFloat(applyAmount);
+    const body = { invoiceId: applyInvoiceId, ...(amt > 0 ? { amount: amt } : {}) };
+    cnAction(id, "apply", "Credit applied to invoice", "Failed to apply", body);
   };
   const handleClose    = (id) => cnAction(id, "close",   "Credit note closed",     "Failed to close");
   const handleVoid     = (id) => cnAction(id, "void",    "Credit note voided",     "Failed to void");
+
+  const handleRefundCash = async () => {
+    const max = selected.remainingAmount ?? selected.totals?.grandTotal ?? 0;
+    const amt = parseFloat(refundAmt);
+    if (!amt || amt <= 0) { nexusToast.error("Enter a valid refund amount"); return; }
+    if (amt > max + 0.005) { nexusToast.error(`Amount cannot exceed remaining credit (${fmt(max)})`); return; }
+    if (!refundPayMode) { nexusToast.error("Select a payment mode"); return; }
+    const required = (CN_MODE_FIELDS[refundPayMode] || []).filter(f => f.required);
+    for (const f of required) {
+      if (!refundDetails[f.key]) { nexusToast.error(`${f.label} is required`); return; }
+    }
+    setRefunding(true);
+    try {
+      await axiosInstance.patch(`/api/credit-notes/${selected._id}/refund`, {
+        amount: amt,
+        paymentMode: refundPayMode,
+        reference: getCNPrimaryRef(refundPayMode, refundDetails),
+        details: refundDetails,
+        notes: refundNotesTxt,
+      });
+      nexusToast.success(`AED ${amt.toFixed(2)} refunded to customer`);
+      setRefundModal(false);
+      setDrawerOpen(false);
+      setSelected(null);
+      load();
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Refund failed");
+    } finally { setRefunding(false); }
+  };
 
   // ── Styles ────────────────────────────────────────────────────────────────
   const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14 };
@@ -580,7 +733,7 @@ export default function CreditNotes() {
             {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 0 }}><FaTimes size={11} /></button>}
           </div>
           <div style={{ display: "flex", gap: 4 }}>
-            {["all", "draft", "pending_approval", "approved", "applied", "closed", "void"].map(s => (
+            {["all", "draft", "pending_approval", "approved", "closed", "void"].map(s => (
               <button key={s} onClick={() => { setFilterSt(s); setPage(1); }}
                 className={`cn-pill${filterSt === s ? " cn-pill-active" : ""}`}
                 style={{ padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 500, background: "transparent", color: T.textSec, border: `1px solid ${T.border}`, fontFamily: "inherit", cursor: "pointer" }}>
@@ -977,38 +1130,53 @@ export default function CreditNotes() {
                   </div>
                 )}
 
-                {/* Totals */}
+                {/* Totals + balance breakdown */}
                 <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
                   {[
                     { label: "Subtotal",    value: fmt(cn.totals?.subtotal) },
                     { label: "Tax (VAT)",   value: fmt(cn.totals?.vatTotal ?? cn.totals?.taxTotal) },
                     { label: "Grand Total", value: fmt(cn.totals?.grandTotal), bold: true },
-                  ].map(({ label, value, bold }, i, arr) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "11px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none", background: bold ? (isDark ? "rgba(16,185,129,0.06)" : "#f0fdf4") : "transparent" }}>
-                      <span style={{ fontSize: 12, color: T.textSec, fontWeight: bold ? 700 : 400 }}>{label}</span>
-                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: bold ? 800 : 600, color: bold ? T.green : T.textPri }}>{value}</span>
+                    ...(cn.appliedAmount  > 0 ? [{ label: "Applied to Invoices", value: `− ${fmt(cn.appliedAmount)}`,  dim: true }] : []),
+                    ...(cn.refundedAmount > 0 ? [{ label: "Refunded as Cash",    value: `− ${fmt(cn.refundedAmount)}`, dim: true }] : []),
+                    ...((cn.appliedAmount > 0 || cn.refundedAmount > 0) ? [{
+                      label: "Remaining Credit",
+                      value: fmt(cn.remainingAmount ?? (cn.totals?.grandTotal - (cn.appliedAmount || 0) - (cn.refundedAmount || 0))),
+                      accent: true,
+                    }] : []),
+                  ].map(({ label, value, bold, dim, accent }, i, arr) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "11px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none", background: bold ? (isDark ? "rgba(16,185,129,0.06)" : "#f0fdf4") : accent ? (isDark ? "rgba(59,130,246,0.07)" : "#eff6ff") : "transparent" }}>
+                      <span style={{ fontSize: 12, color: dim ? T.textSec : T.textSec, fontWeight: bold || accent ? 700 : 400 }}>{label}</span>
+                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: bold || accent ? 800 : 600, color: bold ? T.green : accent ? (isDark ? "#60a5fa" : "#1d4ed8") : dim ? T.textSec : T.textPri }}>{value}</span>
                     </div>
                   ))}
                 </div>
 
-                {/* Invoice selector for approved manual CNs (no sourceDocId) */}
-                {cn.status === "approved" && !cn.sourceDocId && (
+                {/* Apply to Invoice panel — shown for all approved CNs with remaining credit */}
+                {cn.status === "approved" && (cn.remainingAmount ?? cn.totals?.grandTotal ?? 0) > 0 && (
                   <div style={{ background: isDark ? "rgba(59,130,246,0.07)" : "#eff6ff", border: "1px solid rgba(59,130,246,0.25)", borderRadius: 12, padding: "14px" }}>
-                    <p style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#60a5fa" : "#1d4ed8", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.07em" }}>Apply to Invoice</p>
-                    <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>This credit note has no linked invoice. Select one below to apply the credit:</p>
-                    <select
-                      value={applyInvoiceId}
-                      onChange={e => setApplyInvoiceId(e.target.value)}
-                      style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#60a5fa" : "#1d4ed8", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.07em" }}>Apply to Invoice</p>
+                    <p style={{ fontSize: 11, color: T.textSec, margin: "0 0 10px" }}>
+                      Available credit: <strong style={{ fontFamily: "'DM Mono', monospace" }}>
+                        {fmt(cn.remainingAmount ?? cn.totals?.grandTotal)}
+                      </strong>
+                    </p>
+                    <select value={applyInvoiceId} onChange={e => setApplyInvoiceId(e.target.value)}
+                      style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit", cursor: "pointer", marginBottom: 8 }}>
                       <option value="">— Select Invoice —</option>
                       {applyInvoices.map(inv => (
                         <option key={inv._id} value={inv._id}>
-                          {inv.invoiceNumber} · Balance: AED {parseFloat(inv.balanceDue ?? inv.totals?.grandTotal ?? 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })} ({inv.status})
+                          {inv.invoiceNumber} · Due: AED {parseFloat(inv.balanceDue ?? 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })} ({inv.status})
                         </option>
                       ))}
                     </select>
+                    <input type="number" min={0.01} step={0.01}
+                      value={applyAmount}
+                      onChange={e => setApplyAmount(e.target.value)}
+                      placeholder={`Amount (max ${fmt(cn.remainingAmount ?? cn.totals?.grandTotal)})`}
+                      style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono', monospace", boxSizing: "border-box" }}
+                    />
                     {applyInvoices.length === 0 && (
-                      <p style={{ fontSize: 11, color: T.textSec, marginTop: 6, margin: "6px 0 0" }}>No eligible invoices found for this customer.</p>
+                      <p style={{ fontSize: 11, color: T.textSec, margin: "8px 0 0" }}>No eligible invoices for this customer.</p>
                     )}
                   </div>
                 )}
@@ -1028,16 +1196,25 @@ export default function CreditNotes() {
                     <FaCheck size={11} /> {actioning ? "Approving…" : "Approve"}
                   </button>
                 )}
-                {cn.status === "approved" && (() => {
-                  const canApply = !!cn.sourceDocId || !!applyInvoiceId;
-                  return (
-                    <button className="cn-btn" disabled={actioning || !canApply} onClick={() => handleApply(cn._id)}
-                      title={!canApply ? "Select an invoice to apply this credit note to" : "Apply credit to invoice"}
-                      style={{ flex: 1, padding: 10, background: T.surface2, color: canApply ? T.green : T.textMuted, border: `1px solid ${canApply ? T.greenDim : T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: (actioning || !canApply) ? "not-allowed" : "pointer", opacity: (actioning || !canApply) ? 0.6 : 1, fontFamily: "inherit" }}>
+                {cn.status === "approved" && (
+                  <>
+                    <button className="cn-btn" disabled={actioning || !applyInvoiceId} onClick={() => handleApply(cn._id)}
+                      title={!applyInvoiceId ? "Select an invoice above" : "Apply credit to invoice"}
+                      style={{ flex: 1, padding: 10, background: T.surface2, color: applyInvoiceId ? T.green : T.textMuted, border: `1px solid ${applyInvoiceId ? T.greenDim : T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: (actioning || !applyInvoiceId) ? "not-allowed" : "pointer", opacity: (actioning || !applyInvoiceId) ? 0.6 : 1, fontFamily: "inherit" }}>
                       {actioning ? "Applying…" : "Apply to Invoice"}
                     </button>
-                  );
-                })()}
+                    <button className="cn-btn" disabled={actioning} onClick={() => {
+                      setRefundAmt(String(cn.remainingAmount ?? cn.totals?.grandTotal ?? ""));
+                      setRefundPayMode("Cash");
+                      setRefundDetails({});
+                      setRefundNotesTxt("");
+                      setRefundModal(true);
+                    }}
+                      style={{ flex: 1, padding: 10, background: "rgba(16,185,129,0.1)", color: "#10b981", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: actioning ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+                      ↩ Refund as Cash
+                    </button>
+                  </>
+                )}
                 {cn.status === "applied" && (
                   <button className="cn-btn" disabled={actioning} onClick={() => handleClose(cn._id)}
                     style={{ flex: 1, padding: 10, background: T.surface2, color: "#8b5cf6", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: actioning ? "not-allowed" : "pointer", opacity: actioning ? 0.6 : 1, fontFamily: "inherit" }}>
@@ -1057,6 +1234,96 @@ export default function CreditNotes() {
               </div>
             </div>
           </>
+        );
+      })()}
+
+      {/* ── Refund as Cash Modal ──────────────────────────────────────────── */}
+      {refundModal && selected && (() => {
+        const maxAmt = selected.remainingAmount ?? selected.totals?.grandTotal ?? 0;
+        const modeFields = CN_MODE_FIELDS[refundPayMode] || [];
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 9400, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={e => e.target === e.currentTarget && setRefundModal(false)}>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: 24, width: 440, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,0.4)" }}>
+              <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, marginBottom: 4 }}>↩ Refund as Cash</div>
+              <div style={{ fontSize: 12, color: T.textSec, marginBottom: 18 }}>
+                {selected.creditNoteNumber} · Remaining credit: <strong style={{ fontFamily: "'DM Mono', monospace" }}>{fmt(maxAmt)}</strong>
+              </div>
+
+              {/* Amount */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, marginBottom: 6 }}>
+                  Refund Amount <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <input type="number" min={0.01} max={maxAmt} step={0.01} value={refundAmt}
+                  onChange={e => {
+                    const raw = parseFloat(e.target.value) || 0;
+                    setRefundAmt(raw > maxAmt ? String(maxAmt) : e.target.value);
+                  }}
+                  style={{ ...inputSt, fontFamily: "'DM Mono', monospace",
+                    border: `1.5px solid ${parseFloat(refundAmt) > maxAmt + 0.005 ? "#ef4444" : T.border}` }} />
+                <div style={{ fontSize: 11, color: T.textSec, marginTop: 4 }}>
+                  Max: <span style={{ fontFamily: "'DM Mono', monospace" }}>{fmt(maxAmt)}</span>
+                </div>
+              </div>
+
+              {/* Payment mode */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, marginBottom: 6 }}>
+                  Payment Mode <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <CnModeSelect value={refundPayMode} T={T}
+                  onChange={m => { setRefundPayMode(m); setRefundDetails({}); }} />
+              </div>
+
+              {/* Dynamic mode-specific fields */}
+              {modeFields.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14, padding: "14px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+                  {modeFields.map(f => (
+                    <div key={f.key}>
+                      <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, marginBottom: 6 }}>
+                        {f.label}{f.required && <span style={{ color: "#ef4444", marginLeft: 3 }}>*</span>}
+                      </label>
+                      {f.type === "select" ? (
+                        <select value={refundDetails[f.key] || ""} onChange={e => setRefundDetails(d => ({ ...d, [f.key]: e.target.value }))}
+                          style={{ ...inputSt, cursor: "pointer" }}>
+                          <option value="">— Select —</option>
+                          {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : (
+                        <input type={f.type || "text"} value={refundDetails[f.key] || ""} placeholder={f.placeholder || ""}
+                          onChange={e => setRefundDetails(d => ({ ...d, [f.key]: e.target.value }))}
+                          style={{ ...inputSt, fontFamily: f.type === "date" ? "inherit" : "'DM Mono', monospace" }} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Notes */}
+              <div style={{ marginBottom: 18 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, marginBottom: 6 }}>Notes</label>
+                <input type="text" value={refundNotesTxt} onChange={e => setRefundNotesTxt(e.target.value)}
+                  placeholder="Optional reason or memo"
+                  style={inputSt} />
+              </div>
+
+              <div style={{ padding: "10px 13px", borderRadius: 8, background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.2)", fontSize: 12, color: "#10b981", marginBottom: 18 }}>
+                Cash returned to customer directly. CN marked as used — no invoice affected.
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setRefundModal(false)}
+                  style={{ flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, fontFamily: "'DM Sans', sans-serif" }}>
+                  Cancel
+                </button>
+                <button onClick={handleRefundCash} disabled={refunding}
+                  style={{ flex: 2, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: refunding ? "not-allowed" : "pointer", opacity: refunding ? 0.6 : 1, background: "rgba(16,185,129,0.12)", color: "#10b981", border: "1px solid rgba(16,185,129,0.3)", fontFamily: "'DM Sans', sans-serif" }}>
+                  {refunding ? "Processing…" : "↩ Confirm Refund"}
+                </button>
+              </div>
+            </div>
+          </div>
         );
       })()}
     </>
