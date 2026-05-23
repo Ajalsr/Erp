@@ -165,6 +165,9 @@ func CreateCreditNote() gin.HandlerFunc {
 			"totals":           body.Totals,
 			"vatBreakdown":     body.VATBreakdown,
 			"status":           body.Status,
+			"remainingAmount":  body.Totals.GrandTotal,
+			"appliedAmount":    0.0,
+			"refundedAmount":   0.0,
 			"notes":            body.Notes,
 			"orgId":            body.OrgID,
 			"createdAt":        body.CreatedAt,
@@ -275,8 +278,9 @@ func cnTransition(from, to, errMsg string) gin.HandlerFunc {
 	}
 }
 
-// PATCH /api/credit-notes/:id/apply — approved → applied, reduces invoice balance.
-// Body (optional): {"invoiceId": "<hex>"} — required only when CN has no linked sourceDocId.
+// PATCH /api/credit-notes/:id/apply — approved → partial use or closed.
+// Body: {"invoiceId": "<hex>", "amount": 50.00}
+// amount defaults to full remaining balance. invoiceId overrides sourceDocId.
 func ApplyCreditNote() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -299,17 +303,19 @@ func ApplyCreditNote() gin.HandlerFunc {
 			return
 		}
 
-		// Resolve invoice ID: prefer sourceDocId on CN; fall back to body param.
+		var body struct {
+			InvoiceID string  `json:"invoiceId"`
+			Amount    float64 `json:"amount"`
+		}
+		_ = c.ShouldBindJSON(&body)
+
+		// Resolve invoice: body param takes priority, then sourceDocId on CN
 		sourceDocID, _ := cn["sourceDocId"].(string)
-		if sourceDocID == "" {
-			var body struct {
-				InvoiceID string `json:"invoiceId"`
-			}
-			_ = c.ShouldBindJSON(&body)
+		if body.InvoiceID != "" {
 			sourceDocID = body.InvoiceID
 		}
 		if sourceDocID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "no invoice linked — pass invoiceId in request body"})
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invoiceId required"})
 			return
 		}
 
@@ -318,61 +324,82 @@ func ApplyCreditNote() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid invoiceId"})
 			return
 		}
-
 		var inv models.Invoice
 		if err = invoiceCollection.FindOne(ctx, bson.M{"_id": invID, "orgId": orgID}).Decode(&inv); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"message": "invoice not found"})
 			return
 		}
-
-		// Customer must match when CN was created without a linked invoice.
 		cnCustomerID, _ := cn["customerId"].(string)
 		if cnCustomerID != "" && inv.CustomerID != "" && cnCustomerID != inv.CustomerID {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "invoice does not belong to the same customer as the credit note"})
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invoice does not belong to the same customer"})
 			return
 		}
 
-		totals, _ := cn["totals"].(bson.M)
-		creditAmount := 0.0
-		if totals != nil {
-			creditAmount, _ = totals["grandTotal"].(float64)
+		// Resolve remaining balance (fallback for old CNs without the field)
+		remaining := 0.0
+		if r, ok := cn["remainingAmount"].(float64); ok && r > 0 {
+			remaining = r
+		} else {
+			if t, ok := cn["totals"].(bson.M); ok {
+				remaining, _ = t["grandTotal"].(float64)
+			}
 		}
 
+		creditAmount := round2(body.Amount)
+		if creditAmount <= 0 {
+			creditAmount = remaining
+		}
+		if creditAmount > remaining+0.005 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("amount (%.2f) exceeds remaining credit (%.2f)", creditAmount, remaining),
+			})
+			return
+		}
 		if creditAmount > inv.BalanceDue+0.005 {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("credit note total (%.2f) exceeds invoice balance due (%.2f)", creditAmount, inv.BalanceDue),
+				"message": fmt.Sprintf("amount (%.2f) exceeds invoice balance due (%.2f)", creditAmount, inv.BalanceDue),
 			})
 			return
 		}
 
-		newBalance := round2(inv.BalanceDue - creditAmount)
-		newPaid := round2(inv.AmountPaid + creditAmount)
-		newStatus := inv.Status
-		if newBalance <= 0 {
-			newBalance = 0
-			newStatus = "paid"
-		} else {
-			newStatus = "partial"
+		newInvBalance := round2(inv.BalanceDue - creditAmount)
+		newInvPaid   := round2(inv.AmountPaid + creditAmount)
+		newInvStatus := "partial"
+		if newInvBalance <= 0 {
+			newInvBalance = 0
+			newInvStatus  = "paid"
 		}
-
 		invoiceCollection.UpdateOne(ctx, bson.M{"_id": invID}, bson.M{"$set": bson.M{
-			"balanceDue": newBalance,
-			"amountPaid": newPaid,
-			"status":     newStatus,
+			"balanceDue": newInvBalance,
+			"amountPaid": newInvPaid,
+			"status":     newInvStatus,
 			"updatedAt":  time.Now(),
 		}})
 
-		// Record which invoice was ultimately applied to (for manual CNs).
-		cnUpdate := bson.M{"status": "applied", "updatedAt": time.Now()}
+		newRemaining  := round2(remaining - creditAmount)
+		oldApplied, _ := cn["appliedAmount"].(float64)
+		cnUpdate := bson.M{
+			"remainingAmount": newRemaining,
+			"appliedAmount":   round2(oldApplied + creditAmount),
+			"updatedAt":       time.Now(),
+		}
+		if newRemaining <= 0 {
+			cnUpdate["status"] = "closed"
+		}
 		if cn["sourceDocId"] == nil || cn["sourceDocId"] == "" {
-			cnUpdate["sourceDocId"] = sourceDocID
+			cnUpdate["sourceDocId"]     = sourceDocID
 			cnUpdate["sourceDocNumber"] = inv.InvoiceNumber
 		}
 		creditNoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": cnUpdate})
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "credit note applied",
-			"data":    gin.H{"newInvoiceBalance": newBalance, "invoiceStatus": newStatus},
+			"data": gin.H{
+				"appliedAmount":     creditAmount,
+				"remainingAmount":   newRemaining,
+				"newInvoiceBalance": newInvBalance,
+				"invoiceStatus":     newInvStatus,
+			},
 		})
 	}
 }
@@ -458,6 +485,83 @@ func GetCreditNotesByInvoice() gin.HandlerFunc {
 			notes = []bson.M{}
 		}
 		c.JSON(http.StatusOK, gin.H{"data": notes})
+	}
+}
+
+// PATCH /api/credit-notes/:id/refund — approved → refunded (cash goes back to customer, no invoice touched)
+// Body: { amount, paymentMode, reference, notes }
+func RefundCreditNote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid id"})
+			return
+		}
+
+		var cn bson.M
+		if err = creditNoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&cn); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "credit note not found"})
+			return
+		}
+		if cn["status"] != "approved" {
+			c.JSON(http.StatusConflict, gin.H{"message": "only approved credit notes can be refunded as cash"})
+			return
+		}
+
+		var body struct {
+			Amount      float64                `json:"amount"`
+			PaymentMode string                 `json:"paymentMode"`
+			Reference   string                 `json:"reference"`
+			Details     map[string]interface{} `json:"details"`
+			Notes       string                 `json:"notes"`
+		}
+		_ = c.ShouldBindJSON(&body)
+
+		// Resolve remaining balance (fallback for old CNs without the field)
+		remaining := 0.0
+		if r, ok := cn["remainingAmount"].(float64); ok && r > 0 {
+			remaining = r
+		} else {
+			if totals, ok := cn["totals"].(bson.M); ok {
+				remaining, _ = totals["grandTotal"].(float64)
+			}
+		}
+		if body.Amount <= 0 {
+			body.Amount = remaining
+		}
+		body.Amount = round2(body.Amount)
+		if body.Amount > remaining+0.005 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("refund amount (%.2f) cannot exceed remaining credit (%.2f)", body.Amount, remaining),
+			})
+			return
+		}
+
+		newRemaining    := round2(remaining - body.Amount)
+		oldRefunded, _  := cn["refundedAmount"].(float64)
+		cnUpdate := bson.M{
+			"remainingAmount": newRemaining,
+			"refundedAmount":  round2(oldRefunded + body.Amount),
+			"refundedAt":      time.Now(),
+			"refundMethod":    body.PaymentMode,
+			"refundRef":       body.Reference,
+			"refundDetails":   body.Details,
+			"refundNotes":     body.Notes,
+			"updatedAt":       time.Now(),
+		}
+		if newRemaining <= 0 {
+			cnUpdate["status"] = "closed"
+		}
+		creditNoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": cnUpdate})
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "credit note refunded as cash",
+			"data":    gin.H{"refundedAmount": body.Amount, "remainingAmount": newRemaining},
+		})
 	}
 }
 

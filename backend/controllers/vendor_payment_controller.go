@@ -197,6 +197,89 @@ func GetVendorPaymentByID() gin.HandlerFunc {
 	}
 }
 
+// POST /api/vendor-payments/:id/reverse
+func ReverseVendorPayment() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid payment id"})
+			return
+		}
+
+		var body struct {
+			Notes string `json:"notes"`
+		}
+		c.ShouldBindJSON(&body)
+
+		var p models.VendorPayment
+		if err = vendorPaymentCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgID}).Decode(&p); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "payment not found"})
+			return
+		}
+		if p.IsReversed {
+			c.JSON(http.StatusConflict, gin.H{"message": "payment already reversed"})
+			return
+		}
+
+		// Mark payment as reversed
+		vendorPaymentCollection.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{
+			"isReversed":    true,
+			"reversedAt":    time.Now().Format(time.RFC3339),
+			"reversalNotes": body.Notes,
+			"updatedAt":     time.Now(),
+		}})
+
+		// Restore bill balance if linked
+		if p.BillID != "" {
+			billObjID, err := primitive.ObjectIDFromHex(p.BillID)
+			if err == nil {
+				var b models.Bill
+				if billCollection.FindOne(ctx, bson.M{"_id": billObjID, "orgId": orgID}).Decode(&b) == nil {
+					newPaid := round2(b.AmountPaid - p.Amount)
+					if newPaid < 0 {
+						newPaid = 0
+					}
+					newBalance := round2(b.Totals.GrandTotal - newPaid)
+					newStatus := "open"
+					if newPaid > 0 {
+						newStatus = "partial"
+					}
+					billCollection.UpdateOne(ctx, bson.M{"_id": billObjID}, bson.M{"$set": bson.M{
+						"amountPaid": newPaid,
+						"balanceDue": newBalance,
+						"status":     newStatus,
+						"updatedAt":  time.Now(),
+					}})
+				}
+			}
+		}
+
+		// Restore vendor outstanding payable
+		if p.VendorID != "" {
+			vendorFilter := bson.M{"orgId": orgID}
+			if vObjID, err := primitive.ObjectIDFromHex(p.VendorID); err == nil {
+				vendorFilter["_id"] = vObjID
+			}
+			histEntry := bson.M{
+				"action":    "payment_reversed",
+				"timestamp": time.Now(),
+				"details":   fmt.Sprintf("Payment %s of AED %.2f reversed. Bill: %s", p.PaymentNumber, p.Amount, p.BillNumber),
+			}
+			vendorCollection.UpdateOne(ctx, vendorFilter, bson.M{
+				"$inc":  bson.M{"outstandingPayable": p.Amount},
+				"$push": bson.M{"history": histEntry},
+				"$set":  bson.M{"updatedAt": time.Now()},
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "payment reversed successfully"})
+	}
+}
+
 func GetVendorPaymentStats() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -11,15 +11,14 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import axiosInstance from '../../helper/axiosInstance';
 
 const STATUS_CFG = {
-  draft:     { label: 'Draft',     color: '#64748b', dimKey: 'surface2'  },
-  pending:   { label: 'Pending',   color: '#f59e0b', dimKey: 'amberDim'  },
-  approved:  { label: 'Approved',  color: '#3b82f6', dimKey: 'blueDim'   },
-  ordered:   { label: 'Ordered',   color: '#8b5cf6', dimKey: 'purpleDim' },
-  received:  { label: 'Received',  color: '#10b981', dimKey: 'greenDim'  },
-  cancelled: { label: 'Cancelled', color: '#ef4444', dimKey: 'redDim'    },
-  partial:   { label: 'Partial',   color: '#06b6d4', dimKey: 'cyanDim'   },
+  draft:            { label: 'Draft',            color: '#64748b', dimKey: 'surface2'  },
+  pending_approval: { label: 'Pending Approval', color: '#f59e0b', dimKey: 'amberDim'  },
+  issued:           { label: 'Issued',           color: '#8b5cf6', dimKey: 'purpleDim' },
+  received:         { label: 'Received',         color: '#10b981', dimKey: 'greenDim'  },
+  cancelled:        { label: 'Cancelled',        color: '#ef4444', dimKey: 'redDim'    },
+  partial:          { label: 'Partial',          color: '#06b6d4', dimKey: 'cyanDim'   },
 };
-const STATUS_TABS = ['all','draft','pending','approved','ordered','received','partial','cancelled'];
+const STATUS_TABS = ['all','draft','pending_approval','issued','received','partial','cancelled'];
 
 const StatCard = ({ label, value, accent, dimBg, icon, T }) => (
   <div style={{ background:T.surface, border:`1.5px solid ${T.border}`, borderRadius:14, padding:'16px 18px', display:'flex', alignItems:'center', gap:14, boxShadow:T.isDark?'0 2px 10px rgba(0,0,0,.25)':'0 2px 6px rgba(0,0,0,.04)' }}>
@@ -77,6 +76,9 @@ export default function Purchaseorders() {
   const [selected,       setSelected]       = useState(null);
   const [activeTab,      setActiveTab]      = useState('overview');
   const [markingReceived,setMarkingReceived]= useState(false);
+  const [cancelling,     setCancelling]     = useState(false);
+  const [linkedGRNs,     setLinkedGRNs]     = useState([]);
+  const [grnsLoading,    setGrnsLoading]    = useState(false);
   const PER_PAGE = 15;
 
   const fetchOrders = useCallback(async () => {
@@ -103,8 +105,17 @@ export default function Purchaseorders() {
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
   useEffect(() => { fetchStats();  }, [fetchStats]);
 
-  const openDrawer  = (o) => { setSelected(o); setDrawer(true); setActiveTab('overview'); };
+  const openDrawer  = (o) => { setSelected(o); setDrawer(true); setActiveTab('overview'); setLinkedGRNs([]); };
   const closeDrawer = ()  => { setDrawer(false); setSelected(null); };
+
+  useEffect(() => {
+    if (!selected?._id) return;
+    setGrnsLoading(true);
+    axiosInstance.get(`/api/grns/?purchaseOrderId=${selected._id}`)
+      .then(r => setLinkedGRNs(r.data?.data?.grns || []))
+      .catch(() => setLinkedGRNs([]))
+      .finally(() => setGrnsLoading(false));
+  }, [selected?._id]);
   const handleSort  = (f) => { if (sortField===f) setSortDir(d => d==='asc'?'desc':'asc'); else { setSortField(f); setSortDir('desc'); } };
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AE',{day:'numeric',month:'short',year:'numeric'}) : '—';
@@ -300,10 +311,10 @@ export default function Purchaseorders() {
 
             {/* Tabs */}
             <div style={{ display:'flex', borderBottom:`1px solid ${border}`, padding:'0 20px', flexShrink:0 }}>
-              {['overview','items','history'].map(tab => (
+              {[['overview','Overview'],['items','Items'],['grns',`GRNs (${linkedGRNs.length})`],['history','History']].map(([tab,label]) => (
                 <button key={tab} className={`po-tab${activeTab===tab?' po-tab-active':''}`} onClick={()=>setActiveTab(tab)}
-                  style={{ padding:'11px 14px', background:'none', border:'none', fontSize:12, fontWeight:600, color:T.textSec, cursor:'pointer', fontFamily:'inherit', textTransform:'capitalize' }}>
-                  {tab}
+                  style={{ padding:'11px 14px', background:'none', border:'none', fontSize:12, fontWeight:600, color:T.textSec, cursor:'pointer', fontFamily:'inherit' }}>
+                  {label}
                 </button>
               ))}
             </div>
@@ -381,6 +392,54 @@ export default function Purchaseorders() {
                 </div>
               )}
 
+              {activeTab==='grns' && (
+                <div>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+                    <p style={{ fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, color:T.textPri, margin:0 }}>Linked GRNs</p>
+                    {selected.status === 'issued' && (
+                      <button onClick={() => navigate(`/Purchase/GRN/new?poId=${selected._id}&poNumber=${selected.orderNumber}&vendorId=${selected.vendorId}&vendorName=${encodeURIComponent(selected.vendorName||'')}`)}
+                        style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'linear-gradient(135deg,#10b981,#059669)', color:'#fff', border:'none', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                        <FaTruck size={11}/> Create GRN
+                      </button>
+                    )}
+                  </div>
+                  {grnsLoading ? (
+                    <div style={{ textAlign:'center', padding:'32px 0', color:T.textSec }}>
+                      <FaSpinner size={16} style={{ animation:'spin 1s linear infinite' }}/>
+                    </div>
+                  ) : linkedGRNs.length === 0 ? (
+                    <div style={{ textAlign:'center', padding:'48px 0' }}>
+                      <FaBoxOpen size={28} style={{ color:T.textSec, opacity:0.4, marginBottom:10 }}/>
+                      <p style={{ fontSize:13, color:T.textSec, margin:0 }}>No GRNs yet for this PO</p>
+                      {selected.status === 'issued' && (
+                        <button onClick={() => navigate(`/Purchase/GRN/new?poId=${selected._id}&poNumber=${selected.orderNumber}&vendorId=${selected.vendorId}&vendorName=${encodeURIComponent(selected.vendorName||'')}`)}
+                          style={{ marginTop:12, display:'inline-flex', alignItems:'center', gap:6, padding:'8px 16px', background:'#10b981', color:'#fff', border:'none', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                          <FaTruck size={11}/> Create First GRN
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                      {linkedGRNs.map((g,i) => (
+                        <div key={g._id||i} style={{ border:`1.5px solid ${border}`, borderRadius:12, padding:'13px 15px', background:T.surface2 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                            <div>
+                              <p style={{ margin:0, fontSize:12, fontFamily:"'DM Mono',monospace", fontWeight:700, color:T.blue }}>{g.grnNumber}</p>
+                              <p style={{ margin:'3px 0 0', fontSize:11, color:T.textSec }}>{fmtDate(g.receiptDate)} · {g.items?.length||0} item(s)</p>
+                            </div>
+                            <div style={{ textAlign:'right' }}>
+                              <p style={{ margin:0, fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color:T.textPri }}>{fmtAmt(g.total)}</p>
+                              <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:999, background:g.status==='confirmed'?T.greenDim:T.surface2, color:g.status==='confirmed'?T.green:T.textSec, border:`1px solid ${g.status==='confirmed'?T.green+'44':border}` }}>{g.status||'draft'}</span>
+                            </div>
+                          </div>
+                          {g.notes && <p style={{ margin:'8px 0 0', fontSize:11, color:T.textSec, fontStyle:'italic' }}>{g.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {activeTab==='history' && (() => {
                 const fmtTs = (d) => {
                   if (!d) return '—';
@@ -403,13 +462,12 @@ export default function Purchaseorders() {
                   events.push({ type:'created', label:'Purchase Order Created', sub:`Order ${selected.orderNumber} raised for ${selected.vendorName||'vendor'}`, ts:selected.createdAt, by:selected.createdBy, color:'#3b82f6', dot:'#3b82f6', bg:T.blueDim });
                 }
                 const statusHistory = [
-                  { key:'draft',     label:'Marked as Draft',     color:'#64748b' },
-                  { key:'pending',   label:'Submitted for Approval', color:'#f59e0b' },
-                  { key:'approved',  label:'Order Approved',       color:'#3b82f6' },
-                  { key:'ordered',   label:'Order Placed with Vendor', color:'#8b5cf6' },
-                  { key:'partial',   label:'Partial Receipt Recorded', color:'#06b6d4' },
-                  { key:'received',  label:'Goods Fully Received',  color:'#10b981' },
-                  { key:'cancelled', label:'Order Cancelled',       color:'#ef4444' },
+                  { key:'draft',            label:'Marked as Draft',         color:'#64748b' },
+                  { key:'pending_approval', label:'Submitted for Approval',  color:'#f59e0b' },
+                  { key:'issued',           label:'PO Issued / Approved',    color:'#8b5cf6' },
+                  { key:'partial',          label:'Partial Receipt Recorded', color:'#06b6d4' },
+                  { key:'received',         label:'Goods Fully Received',    color:'#10b981' },
+                  { key:'cancelled',        label:'Order Cancelled',          color:'#ef4444' },
                 ];
                 const curSt = (selected.status||'draft').toLowerCase();
                 const stCfg = statusHistory.find(s => s.key === curSt);
@@ -496,7 +554,13 @@ export default function Purchaseorders() {
             </div>
 
             {/* Footer */}
-            <div style={{ padding:'14px 20px', borderTop:`1px solid ${border}`, flexShrink:0, display:'flex', gap:8 }}>
+            <div style={{ padding:'14px 20px', borderTop:`1px solid ${border}`, flexShrink:0, display:'flex', gap:8, flexWrap:'wrap' }}>
+              {selected.status === 'issued' && (
+                <button onClick={() => navigate(`/Purchase/GRN/new?poId=${selected._id}&poNumber=${selected.orderNumber}&vendorId=${selected.vendorId}&vendorName=${encodeURIComponent(selected.vendorName||'')}`)}
+                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:'linear-gradient(135deg,#10b981,#059669)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                  <FaTruck size={11}/> Create GRN
+                </button>
+              )}
               {selected.status!=='received' && selected.status!=='cancelled' && (
                 <button
                   disabled={markingReceived}
@@ -504,15 +568,28 @@ export default function Purchaseorders() {
                     setMarkingReceived(true);
                     try {
                       await axiosInstance.patch(`/api/purchase-orders/${selected._id}/status`, { status: 'received' });
-                      closeDrawer();
-                      fetchOrders();
-                      fetchStats();
-                    } catch (e) {
-                      console.error('Mark received failed', e);
-                    } finally { setMarkingReceived(false); }
+                      closeDrawer(); fetchOrders(); fetchStats();
+                    } catch (e) { console.error('Mark received failed', e); }
+                    finally { setMarkingReceived(false); }
                   }}
-                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:T.surface2, color:T.green, border:`1.5px solid ${T.greenDim}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:markingReceived?'not-allowed':'pointer', opacity:markingReceived?0.6:1, fontFamily:'inherit' }}>
+                  style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:T.surface2, color:T.green, border:`1.5px solid ${T.greenDim}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:markingReceived?'not-allowed':'pointer', opacity:markingReceived?0.6:1, fontFamily:'inherit' }}>
                   <FaCheckCircle size={11}/> {markingReceived ? 'Updating…' : 'Mark Received'}
+                </button>
+              )}
+              {selected.status!=='cancelled' && selected.status!=='received' && (
+                <button
+                  disabled={cancelling}
+                  onClick={async () => {
+                    if (!window.confirm(`Cancel PO ${selected.orderNumber}?`)) return;
+                    setCancelling(true);
+                    try {
+                      await axiosInstance.patch(`/api/purchase-orders/${selected._id}/status`, { status: 'cancelled' });
+                      closeDrawer(); fetchOrders(); fetchStats();
+                    } catch (e) { console.error('Cancel PO failed', e); }
+                    finally { setCancelling(false); }
+                  }}
+                  style={{ display:'flex', alignItems:'center', gap:6, padding:'10px 14px', background:'transparent', color:'#ef4444', border:'1px solid rgba(239,68,68,0.3)', borderRadius:11, fontSize:13, fontWeight:600, cursor:cancelling?'not-allowed':'pointer', fontFamily:'inherit' }}>
+                  <FaBan size={11}/> {cancelling ? 'Cancelling…' : 'Cancel PO'}
                 </button>
               )}
               <button onClick={closeDrawer} style={{ padding:'10px 16px', background:T.surface2, color:T.textSec, border:`1.5px solid ${border}`, borderRadius:11, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Close</button>

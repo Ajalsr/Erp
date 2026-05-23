@@ -253,6 +253,34 @@ const Salesorders = () => {
 
   const allOrders = data ? transformOrders(data) : [];
 
+  const exportOrdersCSV = (orders) => {
+    if (!orders.length) return;
+    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = ["Order #","Customer","LPO #","Status","Order Date","Total (AED)","VAT (AED)"];
+    const rows = orders.map(o => [
+      o.saleOrderNumber, o.customer, o.lpoNumber, o.rawStatus,
+      o.orderDate ? o.orderDate.slice(0, 10) : "",
+      o.total.toFixed(2), o.vat.toFixed(2),
+    ]);
+    const csv = [header, ...rows].map(r => r.map(escape).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `sales_orders_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+  };
+
+  const bulkUpdateStatus = async (status) => {
+    if (!selectedRows.size) return;
+    const ids = [...selectedRows];
+    try {
+      await Promise.all(ids.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, { status })));
+      await handleGetSalesorder();
+      setSelectedRows(new Set());
+    } catch (e) {
+      alert(e.response?.data?.message || `Failed to bulk ${status}`);
+    }
+  };
+
   const filtered = allOrders
     .filter(o => statusFilter === "all" || o.rawStatus === statusFilter)
     .filter(o => {
@@ -461,8 +489,9 @@ const Salesorders = () => {
             {/* Actions */}
             <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
               <button className="so-ghost-btn so-icon-btn"
+                onClick={() => exportOrdersCSV(filtered)}
                 style={{ height: "32px", padding: "0 12px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit", background: "transparent", color: C.textSec, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "5px" }}>
-                <FaDownload size={11} /> Export
+                <FaDownload size={11} /> Export CSV
               </button>
               <button className="so-primary-btn" onClick={() => navigate("/Sales/Salesorders/Newsalesorders")}
                 style={{ height: "32px", padding: "0 14px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", background: C.blue, color: "white", border: "none", display: "flex", alignItems: "center", gap: "5px" }}>
@@ -609,13 +638,13 @@ const Salesorders = () => {
               <span style={{ fontSize: "12px", fontWeight: "600", color: C.blueLight }}>{selectedRows.size} selected</span>
               <button onClick={() => setSelectedRows(new Set())} style={{ fontSize: "11px", color: C.textSec, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
               <div style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
-                <button className="so-tbl-btn" style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.green, background: "rgba(16,185,129,0.1)", cursor: "pointer", fontFamily: "inherit" }}>
+                <button className="so-tbl-btn" onClick={() => bulkUpdateStatus("approved")} style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.green, background: "rgba(16,185,129,0.1)", cursor: "pointer", fontFamily: "inherit" }}>
                   Bulk Approve
                 </button>
-                <button className="so-tbl-btn" style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.red, background: "rgba(239,68,68,0.1)", cursor: "pointer", fontFamily: "inherit" }}>
+                <button className="so-tbl-btn" onClick={() => bulkUpdateStatus("cancelled")} style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.red, background: "rgba(239,68,68,0.1)", cursor: "pointer", fontFamily: "inherit" }}>
                   Bulk Cancel
                 </button>
-                <button className="so-tbl-btn" style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.textSec, background: C.surface3, cursor: "pointer", fontFamily: "inherit" }}>
+                <button className="so-tbl-btn" onClick={() => exportOrdersCSV(currentItems.filter(i => selectedRows.has(i.id)))} style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.textSec, background: C.surface3, cursor: "pointer", fontFamily: "inherit" }}>
                   Export Selected
                 </button>
               </div>

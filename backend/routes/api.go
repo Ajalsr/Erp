@@ -49,7 +49,6 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.GET("/:id/statement", controllers.GetStatementOfAccount())
 	custRoutes.POST("/:id/history", controllers.AddCustomerHistory())
 	custRoutes.GET("/:id/credit-status", controllers.GetCustomerCreditStatus())
-	custRoutes.GET("/:id/statement", controllers.GetCustomerStatement())
 	custRoutes.POST("/:id/apply-credit", controllers.ApplyCredit())
 	custRoutes.POST("/migrate-codes", controllers.MigrateCustomerOrgAndCodes())
 }
@@ -120,6 +119,7 @@ func CreditNoteRoutes(router *gin.Engine) {
 		cnRoutes.PATCH("/:id/submit", controllers.SubmitCreditNote())
 		cnRoutes.PATCH("/:id/approve", controllers.ApproveCreditNote())
 		cnRoutes.PATCH("/:id/apply", controllers.ApplyCreditNote())
+		cnRoutes.PATCH("/:id/refund", controllers.RefundCreditNote())
 		cnRoutes.PATCH("/:id/close", controllers.CloseCreditNote())
 		cnRoutes.PATCH("/:id/void", controllers.VoidCreditNote())
 	}
@@ -220,6 +220,7 @@ func VendorPaymentRoutes(router *gin.Engine) {
 		vpRoutes.GET("/", controllers.GetAllVendorPayments())
 		vpRoutes.GET("/stats", controllers.GetVendorPaymentStats())
 		vpRoutes.GET("/:id", controllers.GetVendorPaymentByID())
+		vpRoutes.POST("/:id/reverse", controllers.ReverseVendorPayment())
 	}
 }
 

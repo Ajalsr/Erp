@@ -62,7 +62,18 @@ const useWebSocket = (onEvent) => {
     return () => {
       mountedRef.current = false
       clearTimeout(reconnectTimerRef.current)
-      if (wsRef.current) wsRef.current.close()
+      const ws = wsRef.current
+      wsRef.current = null
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) return
+      ws.onmessage = null
+      ws.onerror = null
+      ws.onclose = null
+      if (ws.readyState === WebSocket.CONNECTING) {
+        // close as soon as it connects — avoids "closed before established" error
+        ws.onopen = () => ws.close()
+      } else {
+        ws.close()
+      }
     }
   }, [connect])
 }

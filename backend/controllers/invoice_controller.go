@@ -1099,20 +1099,26 @@ func CreateSalesReturn() gin.HandlerFunc {
 			// Reverse on invoice
 			newPaid := round2(inv.AmountPaid - refundAmt)
 			if newPaid < 0 { newPaid = 0 }
-			newBalance := round2(inv.Totals.GrandTotal - newPaid)
-			if newBalance < 0 { newBalance = 0 }
-			newStatus := "unpaid"
-			if newBalance <= 0 {
-				newStatus = "paid"
-			} else if newPaid > 0 {
+
+			var newStatus string
+			invUpdate := bson.M{"updatedAt": time.Now()}
+			if newPaid <= 0 {
+				// Payment fully reversed + goods returned → void
+				newStatus = "void"
+				invUpdate["amountPaid"] = 0.0
+				invUpdate["balanceDue"] = 0.0
+				invUpdate["status"]     = "void"
+				invUpdate["voidReason"] = "Goods returned, payment fully refunded"
+				invUpdate["voidedAt"]   = time.Now()
+			} else {
+				newBalance := round2(inv.Totals.GrandTotal - newPaid)
+				if newBalance < 0 { newBalance = 0 }
 				newStatus = "partial"
+				invUpdate["amountPaid"] = newPaid
+				invUpdate["balanceDue"] = newBalance
+				invUpdate["status"]     = newStatus
 			}
-			invoiceCollection.UpdateOne(ctx, bson.M{"_id": invoiceID, "orgId": orgIDStr}, bson.M{"$set": bson.M{
-				"amountPaid": newPaid,
-				"balanceDue": newBalance,
-				"status":     newStatus,
-				"updatedAt":  time.Now(),
-			}})
+			invoiceCollection.UpdateOne(ctx, bson.M{"_id": invoiceID, "orgId": orgIDStr}, bson.M{"$set": invUpdate})
 
 			// Mark payment refunded
 			paymentCollection.UpdateOne(ctx, bson.M{"_id": pmtObjID, "orgId": orgIDStr}, bson.M{"$set": bson.M{
@@ -1161,6 +1167,9 @@ func CreateSalesReturn() gin.HandlerFunc {
 				"totals":           totals,
 				"vatBreakdown":     vatBreakdown,
 				"status":           "draft",
+				"remainingAmount":  totals.GrandTotal,
+				"appliedAmount":    0.0,
+				"refundedAmount":   0.0,
 				"notes":            body.Notes,
 				"orgId":            orgIDStr,
 				"createdAt":        time.Now(),

@@ -24,8 +24,13 @@ type CreditNote struct {
 	Totals       CNTotals     `json:"totals"       bson:"totals"`
 	VATBreakdown []VATLine    `json:"vatBreakdown" bson:"vatBreakdown"`
 
-	// Status: draft | pending_approval | approved | applied | closed | void
+	// Status: draft | pending_approval | approved | closed | void
 	Status string `json:"status" bson:"status"`
+
+	// Balance tracking (set on approval, decremented on each partial apply/refund)
+	RemainingAmount float64 `json:"remainingAmount" bson:"remainingAmount"`
+	AppliedAmount   float64 `json:"appliedAmount"   bson:"appliedAmount"`
+	RefundedAmount  float64 `json:"refundedAmount"  bson:"refundedAmount"`
 
 	Notes     string    `json:"notes,omitempty" bson:"notes,omitempty"`
 	OrgID     string    `json:"orgId,omitempty" bson:"orgId,omitempty"`

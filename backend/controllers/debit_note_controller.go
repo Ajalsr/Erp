@@ -124,6 +124,8 @@ func CreateDebitNote() gin.HandlerFunc {
 			"createdAt":       body.CreatedAt,
 			"updatedAt":       body.UpdatedAt,
 			"createdBy":       body.CreatedBy,
+			"remainingAmount": body.Totals.GrandTotal,
+			"appliedAmount":   0.0,
 		}
 
 		if _, err := debitNoteCollection.InsertOne(ctx, doc); err != nil {
@@ -201,9 +203,9 @@ func ApproveDebitNote() gin.HandlerFunc {
 	return dnTransition("pending_approval", "approved", "only pending_approval debit notes can be approved")
 }
 
-// PATCH /api/debit-notes/:id/close — applied → closed
+// PATCH /api/debit-notes/:id/close — approved → closed
 func CloseDebitNote() gin.HandlerFunc {
-	return dnTransition("applied", "closed", "only applied debit notes can be closed")
+	return dnTransition("approved", "closed", "only approved debit notes can be closed")
 }
 
 func dnTransition(from, to, errMsg string) gin.HandlerFunc {
@@ -229,7 +231,8 @@ func dnTransition(from, to, errMsg string) gin.HandlerFunc {
 	}
 }
 
-// PATCH /api/debit-notes/:id/apply — approved → applied, reduces bill AP balance
+// PATCH /api/debit-notes/:id/apply — approved → partial or closed, reduces bill AP balance
+// Body: { "billId": "...", "amount": 100.00 }  (billId overrides sourceDocId; amount allows partial)
 func ApplyDebitNote() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -242,6 +245,12 @@ func ApplyDebitNote() gin.HandlerFunc {
 			return
 		}
 
+		var body struct {
+			BillID string  `json:"billId"`
+			Amount float64 `json:"amount"`
+		}
+		c.ShouldBindJSON(&body)
+
 		var dn bson.M
 		if err = debitNoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&dn); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"message": "debit note not found"})
@@ -252,55 +261,113 @@ func ApplyDebitNote() gin.HandlerFunc {
 			return
 		}
 
-		sourceDocID, _ := dn["sourceDocId"].(string)
-		if sourceDocID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "no source bill linked — cannot apply"})
+		// Resolve bill ID: body overrides sourceDocId
+		billIDStr := body.BillID
+		if billIDStr == "" {
+			billIDStr, _ = dn["sourceDocId"].(string)
+		}
+		if billIDStr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "no bill linked — provide billId in request body"})
 			return
 		}
-
-		billID, err := primitive.ObjectIDFromHex(sourceDocID)
+		billObjID, err := primitive.ObjectIDFromHex(billIDStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid sourceDocId"})
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid billId"})
 			return
 		}
 
 		var bill models.Bill
-		if err = billCollection.FindOne(ctx, bson.M{"_id": billID, "orgId": orgID}).Decode(&bill); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"message": "source bill not found"})
+		if err = billCollection.FindOne(ctx, bson.M{"_id": billObjID, "orgId": orgID}).Decode(&bill); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "bill not found"})
 			return
 		}
 
+		// Determine remaining on debit note
 		totals, _ := dn["totals"].(bson.M)
-		creditAmount := 0.0
+		grandTotal := 0.0
 		if totals != nil {
-			creditAmount, _ = totals["grandTotal"].(float64)
+			grandTotal, _ = totals["grandTotal"].(float64)
+		}
+		remaining, _ := dn["remainingAmount"].(float64)
+		if remaining == 0 && grandTotal > 0 {
+			remaining = grandTotal // backward-compat for old records
 		}
 
-		newBalance := round2(bill.BalanceDue - creditAmount)
-		newPaid := round2(bill.AmountPaid + creditAmount)
-		newStatus := bill.Status
-		if newBalance <= 0 {
+		applyAmt := body.Amount
+		if applyAmt <= 0 {
+			applyAmt = remaining // default: apply all remaining
+		}
+		applyAmt = round2(applyAmt)
+		if applyAmt > remaining+0.005 {
+			c.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("amount %.2f exceeds remaining debit note balance %.2f", applyAmt, remaining)})
+			return
+		}
+		if applyAmt > bill.BalanceDue+0.005 {
+			c.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("amount %.2f exceeds bill balance due %.2f", applyAmt, bill.BalanceDue)})
+			return
+		}
+
+		// Update bill
+		newPaid := round2(bill.AmountPaid + applyAmt)
+		newBalance := round2(bill.BalanceDue - applyAmt)
+		if newBalance < 0 {
 			newBalance = 0
-			newStatus = "paid"
-		} else {
-			newStatus = "partial"
 		}
-
-		billCollection.UpdateOne(ctx, bson.M{"_id": billID}, bson.M{"$set": bson.M{
+		newBillStatus := "partial"
+		if newBalance <= 0 {
+			newBillStatus = "paid"
+		}
+		billCollection.UpdateOne(ctx, bson.M{"_id": billObjID}, bson.M{"$set": bson.M{
 			"balanceDue": newBalance,
 			"amountPaid": newPaid,
-			"status":     newStatus,
+			"status":     newBillStatus,
 			"updatedAt":  time.Now(),
 		}})
 
+		// Update debit note remaining
+		newRemaining := round2(remaining - applyAmt)
+		applied, _ := dn["appliedAmount"].(float64)
+		newApplied := round2(applied + applyAmt)
+		dnStatus := "approved"
+		if newRemaining <= 0 {
+			dnStatus = "closed"
+		}
 		debitNoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{
-			"status":    "applied",
-			"updatedAt": time.Now(),
+			"status":          dnStatus,
+			"remainingAmount": newRemaining,
+			"appliedAmount":   newApplied,
+			"updatedAt":       time.Now(),
 		}})
+
+		// Decrement vendor outstanding payable
+		vendorID, _ := dn["vendorId"].(string)
+		dnNumber, _ := dn["debitNoteNumber"].(string)
+		if vendorID != "" {
+			vendorFilter := bson.M{"orgId": orgID}
+			if vObjID, err := primitive.ObjectIDFromHex(vendorID); err == nil {
+				vendorFilter["_id"] = vObjID
+			}
+			histEntry := bson.M{
+				"action":    "debit_note_applied",
+				"timestamp": time.Now(),
+				"details":   fmt.Sprintf("Debit note %s applied to bill %s. Amount: AED %.2f", dnNumber, bill.BillNumber, applyAmt),
+			}
+			vendorCollection.UpdateOne(ctx, vendorFilter, bson.M{
+				"$inc":  bson.M{"outstandingPayable": -applyAmt},
+				"$push": bson.M{"history": histEntry},
+				"$set":  bson.M{"updatedAt": time.Now()},
+			})
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "debit note applied",
-			"data":    gin.H{"newBillBalance": newBalance, "billStatus": newStatus},
+			"data": gin.H{
+				"appliedAmount":  applyAmt,
+				"remaining":      newRemaining,
+				"newBillBalance": newBalance,
+				"billStatus":     newBillStatus,
+				"dnStatus":       dnStatus,
+			},
 		})
 	}
 }
@@ -324,8 +391,8 @@ func VoidDebitNote() gin.HandlerFunc {
 			return
 		}
 		switch dn["status"] {
-		case "applied", "closed":
-			c.JSON(http.StatusConflict, gin.H{"message": "applied or closed debit notes cannot be voided"})
+		case "closed":
+			c.JSON(http.StatusConflict, gin.H{"message": "closed debit notes cannot be voided"})
 			return
 		}
 

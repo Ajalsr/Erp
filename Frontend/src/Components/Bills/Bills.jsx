@@ -44,6 +44,9 @@ export default function Bills() {
   const [payForm,         setPayForm]         = useState({});
   const [paySubmitting,   setPaySubmitting]   = useState(false);
   const [voidLoading,     setVoidLoading]     = useState(false);
+  const [debitNotes,      setDebitNotes]      = useState([]);
+  const [dnLoading,       setDnLoading]       = useState(false);
+  const [reversing,       setReversing]       = useState(null);
 
   /* ── Load list ── */
   const load = useCallback(async () => {
@@ -61,7 +64,7 @@ export default function Bills() {
 
   useEffect(() => { load(); }, [load]);
 
-  /* ── Load payments when drawer opens ── */
+  /* ── Load payments + debit notes when drawer opens ── */
   useEffect(() => {
     if (!selected?._id) return;
     setPmtLoading(true);
@@ -69,7 +72,29 @@ export default function Bills() {
       .then(r => setBillPayments(r.data?.data?.payments || []))
       .catch(() => setBillPayments([]))
       .finally(() => setPmtLoading(false));
+    setDnLoading(true);
+    axiosInstance.get(`/api/debit-notes?sourceDocId=${selected._id}`)
+      .then(r => setDebitNotes(r.data?.data || []))
+      .catch(() => setDebitNotes([]))
+      .finally(() => setDnLoading(false));
   }, [selected?._id]);
+
+  /* ── Reverse vendor payment ── */
+  const handleReversePayment = async (pmt) => {
+    if (!window.confirm(`Reverse payment ${pmt.paymentNumber} of ${fmtAED(pmt.amount)}? This will restore the bill balance.`)) return;
+    setReversing(pmt._id);
+    try {
+      await axiosInstance.post(`/api/vendor-payments/${pmt._id}/reverse`, { notes: 'Reversed by user' });
+      nexusToast.success('Payment reversed');
+      await load();
+      const refreshed = await axiosInstance.get(`/api/bills/${selected._id}`);
+      if (refreshed.data?.data) setSelected(refreshed.data.data);
+      const pmtRes = await axiosInstance.get(`/api/vendor-payments/?billId=${selected._id}`);
+      setBillPayments(pmtRes.data?.data?.payments || []);
+    } catch (err) {
+      nexusToast.error(err?.response?.data?.message || 'Failed to reverse payment');
+    } finally { setReversing(null); }
+  };
 
   /* ── Drawer helpers ── */
   const openDrawer = (b) => {
@@ -340,10 +365,14 @@ export default function Bills() {
 
                 {/* Tabs */}
                 <div style={{ display: "flex" }}>
-                  {["overview", "payments"].map(tab => (
+                  {[
+                    ["overview",  "Overview"],
+                    ["payments",  `Payments (${billPayments.filter(p => !p.isReversed).length})`],
+                    ["debitnotes",`Debit Notes (${debitNotes.length})`],
+                  ].map(([tab, label]) => (
                     <button key={tab} className="bl-tab" onClick={() => setActiveTab(tab)}
-                      style={{ padding: "9px 16px", border: "none", background: "transparent", fontSize: 13, fontWeight: activeTab === tab ? 700 : 500, color: activeTab === tab ? (isDark ? "#60a5fa" : "#2563eb") : T.textSec, borderBottom: activeTab === tab ? `2px solid ${isDark ? "#60a5fa" : "#2563eb"}` : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1 }}>
-                      {tab === "payments" ? `Payments (${billPayments.length})` : "Overview"}
+                      style={{ padding: "9px 14px", border: "none", background: "transparent", fontSize: 12, fontWeight: activeTab === tab ? 700 : 500, color: activeTab === tab ? (isDark ? "#60a5fa" : "#2563eb") : T.textSec, borderBottom: activeTab === tab ? `2px solid ${isDark ? "#60a5fa" : "#2563eb"}` : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1, whiteSpace: "nowrap" }}>
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -434,18 +463,69 @@ export default function Bills() {
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {billPayments.map((p, i) => (
-                        <div key={p._id || i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 14px" }}>
+                        <div key={p._id || i} style={{ background: T.surface2, border: `1px solid ${p.isReversed ? "rgba(239,68,68,0.2)" : T.border}`, borderRadius: 12, padding: "13px 14px", opacity: p.isReversed ? 0.75 : 1 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
                             <div>
-                              <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700, color: T.blueLight, margin: 0 }}>{p.paymentNumber}</p>
+                              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700, color: p.isReversed ? T.textSec : T.blueLight, margin: 0, textDecoration: p.isReversed ? "line-through" : "none" }}>{p.paymentNumber}</p>
+                                {p.isReversed && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 999, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)" }}>REVERSED</span>}
+                              </div>
                               <p style={{ fontSize: 12, color: T.textSec, margin: "3px 0 0" }}>{p.paymentMode} · {fmtDate(p.date)}</p>
                             </div>
-                            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 800, color: "#10b981" }}>{fmtAED(p.amount)}</span>
+                            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 800, color: p.isReversed ? T.textSec : "#10b981", textDecoration: p.isReversed ? "line-through" : "none" }}>{fmtAED(p.amount)}</span>
                           </div>
                           {p.reference && <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>Ref: {p.reference}</p>}
                           {p.notes     && <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0", fontStyle: "italic" }}>{p.notes}</p>}
+                          {!p.isReversed && (
+                            <button onClick={() => handleReversePayment(p)} disabled={reversing === p._id}
+                              style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: reversing === p._id ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+                              <FaReceipt size={9} /> {reversing === p._id ? "Reversing…" : "↩ Reverse Payment"}
+                            </button>
+                          )}
                         </div>
                       ))}
+                    </div>
+                  )}
+                </>)}
+
+                {/* ── DEBIT NOTES ── */}
+                {activeTab === "debitnotes" && (<>
+                  {dnLoading ? (
+                    <div style={{ textAlign: "center", padding: "40px 20px", color: T.textSec }}>
+                      <FaSpinner className="bl-spin" style={{ fontSize: 18, display: "block", margin: "0 auto 10px" }} />Loading…
+                    </div>
+                  ) : debitNotes.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: T.textSec, margin: "0 auto 12px" }}><FaFileInvoiceDollar /></div>
+                      <p style={{ fontFamily: "Sora, sans-serif", fontWeight: 700, color: T.textPri, fontSize: 14, margin: 0 }}>No debit notes</p>
+                      <p style={{ color: T.textSec, fontSize: 12, margin: "6px 0 0" }}>Debit notes applied to this bill appear here</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {debitNotes.map((dn, i) => {
+                        const dnTotals = dn.totals || {};
+                        const statusColor = dn.status === "closed" ? "#10b981" : dn.status === "approved" ? "#8b5cf6" : dn.status === "void" ? "#6b7280" : "#f59e0b";
+                        return (
+                          <div key={dn._id || i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 14px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                              <div>
+                                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700, color: "#8b5cf6", margin: 0 }}>{dn.debitNoteNumber}</p>
+                                <p style={{ fontSize: 11, color: T.textSec, margin: "3px 0 0" }}>{dn.reason || "—"} · {dn.date}</p>
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 800, color: "#8b5cf6", margin: 0 }}>− {fmtAED(dnTotals.grandTotal)}</p>
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 999, background: `${statusColor}15`, color: statusColor, border: `1px solid ${statusColor}30`, textTransform: "capitalize" }}>{dn.status}</span>
+                              </div>
+                            </div>
+                            {(dn.appliedAmount > 0 || dn.remainingAmount > 0) && (
+                              <div style={{ fontSize: 11, color: T.textSec, display: "flex", gap: 12, paddingTop: 6, borderTop: `1px solid ${T.border}` }}>
+                                <span>Applied: <strong style={{ color: T.textPri }}>{fmtAED(dn.appliedAmount || 0)}</strong></span>
+                                <span>Remaining: <strong style={{ color: (dn.remainingAmount || 0) > 0 ? "#8b5cf6" : T.textSec }}>{fmtAED(dn.remainingAmount || 0)}</strong></span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </>)}

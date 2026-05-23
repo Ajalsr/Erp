@@ -1,8 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import ReactDOM from "react-dom";
+import DatePicker from "react-datepicker";
+import { format, addDays, addMonths, isSameDay } from "date-fns";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
+import "react-datepicker/dist/react-datepicker.css";
 
 /* ─── Theme builder ──────────────────────────────────────────────────────── */
 const buildTheme = (isDark) => ({
@@ -124,8 +128,273 @@ const toRow = (inv) => ({
 });
 
 /* ─── Payment modes ─────────────────────────────────────────────────────── */
-const PAYMENT_MODES = ["Cash", "Bank Transfer", "Cheque", "Card", "Other"];
-const MODE_ICONS    = { Cash: "💵", "Bank Transfer": "🏦", Cheque: "📄", Card: "💳", Other: "🔄" };
+const PAYMENT_MODES = [
+  "Cash", "Bank Transfer", "Cheque", "PDC",
+  "Credit Card", "Debit Card", "Demand Draft",
+  "Online Transfer", "Letter of Credit", "Other",
+];
+const MODE_ICONS = {
+  "Cash": "💵", "Bank Transfer": "🏦", "Cheque": "📄", "PDC": "📋",
+  "Credit Card": "💳", "Debit Card": "💳", "Demand Draft": "📜",
+  "Online Transfer": "🌐", "Letter of Credit": "📃", "Other": "🔄",
+};
+const MODE_ACCENT = ["#2563eb","#9333ea","#16a34a","#ea580c","#94a3b8"];
+const MODE_FIELDS = {
+  "Cash":             [{ key: "receiptNo",    label: "Receipt No.",          placeholder: "e.g. RCP-001" }],
+  "Bank Transfer":    [{ key: "bankName",     label: "Bank Name",            placeholder: "e.g. Emirates NBD" },
+                       { key: "txnRef",       label: "Transaction Ref No.",  placeholder: "e.g. TXN-001234", required: true },
+                       { key: "accountNo",    label: "Account / IBAN",       placeholder: "e.g. AE070331234567890123456" }],
+  "Cheque":           [{ key: "chequeNo",     label: "Cheque No.",           placeholder: "e.g. 001234", required: true },
+                       { key: "bankName",     label: "Bank Name",            placeholder: "e.g. ADIB" },
+                       { key: "branch",       label: "Branch",               placeholder: "e.g. Dubai Mall Branch" }],
+  "PDC":              [{ key: "chequeNo",     label: "Cheque No.",           placeholder: "e.g. 001234", required: true },
+                       { key: "chequeDate",   label: "Cheque Date",          placeholder: "", type: "date", required: true },
+                       { key: "bankName",     label: "Bank Name",            placeholder: "e.g. Mashreq Bank" },
+                       { key: "branch",       label: "Branch",               placeholder: "e.g. DIFC Branch" }],
+  "Credit Card":      [{ key: "cardNetwork",  label: "Card Network",         type: "select", options: ["Visa", "Mastercard", "Amex", "Other"] },
+                       { key: "last4",        label: "Last 4 Digits",        placeholder: "e.g. 4242" },
+                       { key: "approvalCode", label: "Approval Code",        placeholder: "e.g. 123456" }],
+  "Debit Card":       [{ key: "cardNetwork",  label: "Card Network",         type: "select", options: ["Visa", "Mastercard", "Other"] },
+                       { key: "last4",        label: "Last 4 Digits",        placeholder: "e.g. 4242" },
+                       { key: "txnRef",       label: "Transaction Ref",      placeholder: "e.g. TXN-001234" }],
+  "Demand Draft":     [{ key: "ddNo",         label: "DD No.",               placeholder: "e.g. DD-001234", required: true },
+                       { key: "bankName",     label: "Bank Name",            placeholder: "e.g. HDFC Bank" },
+                       { key: "branch",       label: "Branch",               placeholder: "e.g. Main Branch" }],
+  "Online Transfer":  [{ key: "platform",     label: "Platform",             type: "select", options: ["NEFT", "RTGS", "IMPS", "UPI", "Wire Transfer", "Other"] },
+                       { key: "txnRef",       label: "Reference / UTR No.",  placeholder: "e.g. UTR12345678", required: true }],
+  "Letter of Credit": [{ key: "lcNo",         label: "LC No.",               placeholder: "e.g. LC-001234", required: true },
+                       { key: "issuingBank",  label: "Issuing Bank",         placeholder: "e.g. First Abu Dhabi Bank" },
+                       { key: "lcDate",       label: "LC Date",              placeholder: "", type: "date" }],
+  "Other":            [{ key: "txnRef",       label: "Reference / Description", placeholder: "Enter reference or description" }],
+};
+const getPrimaryRef = (mode, d = {}) => {
+  if (["Bank Transfer", "Online Transfer", "Debit Card", "Other"].includes(mode)) return d.txnRef || "";
+  if (["Cheque", "PDC"].includes(mode)) return d.chequeNo ? `CHQ-${d.chequeNo}` : "";
+  if (mode === "Demand Draft")     return d.ddNo || "";
+  if (mode === "Letter of Credit") return d.lcNo || "";
+  if (mode === "Credit Card")      return d.approvalCode ? `APPR-${d.approvalCode}` : "";
+  if (mode === "Cash")             return d.receiptNo || "";
+  return "";
+};
+
+/* ─── PaymentDatePicker ─────────────────────────────────────────────────── */
+const PMT_PRESETS = [
+  { label: "Today",     fn: () => new Date() },
+  { label: "Yesterday", fn: () => addDays(new Date(), -1) },
+  { label: "Last Week", fn: () => addDays(new Date(), -7) },
+  { label: "Last Month",fn: () => addMonths(new Date(), -1) },
+];
+
+const PaymentDatePicker = ({ value, onChange, T }) => {
+  const [open,    setOpen]  = useState(false);
+  const [dpMode,  setDpMode] = useState("calendar");
+  const triggerRef = useRef(null);
+  const portalRef  = useRef(null);
+  const [pos,     setPos]   = useState({ top: 0, left: 0, width: 0, above: false });
+  const PANEL_H = 360;
+  const sel = value ? new Date(value) : null;
+
+  const updatePos = () => {
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - r.bottom;
+      const above = spaceBelow < PANEL_H + 16 && r.top > PANEL_H + 16;
+      setPos({ top: above ? r.top : r.bottom, left: r.left, width: r.width, above });
+    }
+  };
+
+  useEffect(() => { if (open) updatePos(); }, [open]);
+  useEffect(() => {
+    const h = e => {
+      if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    const onScroll = e => { if (open && !portalRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    window.addEventListener("scroll", onScroll, true);
+    return () => { document.removeEventListener("mousedown", h); window.removeEventListener("scroll", onScroll, true); };
+  }, [open]);
+
+  const handlePick = (d) => { onChange(d.toISOString().split("T")[0]); setOpen(false); setDpMode("calendar"); };
+
+  const panel = open ? ReactDOM.createPortal(
+    <div ref={portalRef} style={{
+      position: "fixed", zIndex: 20000,
+      ...(pos.above ? { bottom: window.innerHeight - pos.top + 6 } : { top: pos.top + 6 }),
+      left: pos.left, width: Math.max(pos.width, 320),
+      background: T.surface, borderRadius: 16, border: `1.5px solid ${T.border}`,
+      boxShadow: "0 24px 60px rgba(0,0,0,.3)", overflow: "hidden",
+      animation: "pmtDpIn .15s ease both",
+    }}>
+      <style>{`
+        @keyframes pmtDpIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+        .inv-dp .react-datepicker{font-family:'DM Sans',sans-serif!important;border:none!important;border-radius:0!important;box-shadow:none!important;background:${T.surface}!important;width:100%!important;}
+        .inv-dp .react-datepicker__header{background:${T.surface2}!important;border-bottom:1.5px solid ${T.border}!important;border-radius:0!important;padding-top:12px!important;}
+        .inv-dp .react-datepicker__current-month{font-size:14px!important;font-weight:700!important;color:${T.text}!important;}
+        .inv-dp .react-datepicker__day-name{color:${T.muted}!important;font-size:11px!important;font-weight:600!important;}
+        .inv-dp .react-datepicker__day{border-radius:8px!important;font-size:12px!important;color:${T.text}!important;transition:all .1s!important;}
+        .inv-dp .react-datepicker__day:hover{background:rgba(245,158,11,.15)!important;color:#f59e0b!important;}
+        .inv-dp .react-datepicker__day--selected{background:#f59e0b!important;color:#0a0e1a!important;font-weight:700!important;}
+        .inv-dp .react-datepicker__day--today{background:rgba(245,158,11,.12)!important;color:#f59e0b!important;font-weight:700!important;}
+        .inv-dp .react-datepicker__day--outside-month{color:${T.muted}!important;opacity:.4!important;}
+        .inv-dp .react-datepicker__month-container{width:100%!important;}
+        .inv-dp .react-datepicker__navigation{top:14px!important;}
+      `}</style>
+      <div style={{ display: "flex", borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
+        {[["calendar","📅","Calendar"],["presets","⚡","Quick"]].map(([v, icon, lbl]) => (
+          <button key={v} onClick={() => setDpMode(v)} style={{
+            flex: 1, padding: "11px 8px", fontSize: 12, fontWeight: 700, border: "none",
+            cursor: "pointer", background: "transparent", color: dpMode === v ? T.accent : T.muted,
+            borderBottom: dpMode === v ? `2px solid ${T.accent}` : "2px solid transparent",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            fontFamily: "'DM Sans', sans-serif", transition: "all .15s",
+          }}><span>{icon}</span>{lbl}</button>
+        ))}
+      </div>
+      <div style={{ padding: "14px 14px 10px" }} className="inv-dp">
+        {dpMode === "calendar" ? (
+          <DatePicker selected={sel} onChange={handlePick} inline
+            renderCustomHeader={({ date, decreaseMonth, increaseMonth, prevMonthButtonDisabled, nextMonthButtonDisabled }) => (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, padding: "0 4px" }}>
+                <button onClick={decreaseMonth} disabled={prevMonthButtonDisabled} style={{ width: 28, height: 28, borderRadius: 8, border: `1.5px solid ${T.border}`, background: T.surface2, cursor: "pointer", color: T.muted, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.muted; }}>‹</button>
+                <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 14, color: T.text }}>{format(date, "MMMM yyyy")}</span>
+                <button onClick={increaseMonth} disabled={nextMonthButtonDisabled} style={{ width: 28, height: 28, borderRadius: 8, border: `1.5px solid ${T.border}`, background: T.surface2, cursor: "pointer", color: T.muted, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.muted; }}>›</button>
+              </div>
+            )}
+          />
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {PMT_PRESETS.map(p => {
+              const d = p.fn();
+              const active = sel && isSameDay(sel, d);
+              return (
+                <button key={p.label} onClick={() => handlePick(d)} style={{
+                  padding: "10px 12px", borderRadius: 10, textAlign: "left", cursor: "pointer",
+                  border: `1.5px solid ${active ? T.accent : T.border}`,
+                  background: active ? "rgba(245,158,11,.1)" : T.surface2,
+                  transition: "all .15s", fontFamily: "'DM Sans', sans-serif",
+                }}
+                  onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "rgba(245,158,11,.06)"; }}}
+                  onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface2; }}}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: active ? T.accent : T.text }}>{p.label}</div>
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "'DM Mono', monospace" }}>{format(d, "MMM dd, yyyy")}</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {sel && (
+          <div style={{ marginTop: 10, padding: "9px 12px", background: "rgba(16,185,129,.1)", borderRadius: 10, border: "1.5px solid rgba(16,185,129,.3)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontSize: 9, color: "#10b981", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".08em" }}>Selected</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginTop: 1 }}>{format(sel, "EEE, MMM dd, yyyy")}</div>
+            </div>
+            <div style={{ width: 24, height: 24, borderRadius: 8, background: "#dcfce7", color: "#10b981", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>✓</div>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button ref={triggerRef} type="button" onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${open ? T.accent : sel ? T.accent : T.inputBdr}`,
+        borderRadius: 9, background: sel ? "rgba(245,158,11,.08)" : T.input,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? "0 0 0 3px rgba(245,158,11,.12)" : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, background: sel ? "rgba(245,158,11,.18)" : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>📅</div>
+          <span style={{ color: sel ? T.text : T.muted, fontWeight: sel ? 600 : 400 }}>
+            {sel ? format(sel, "EEE, MMM dd, yyyy") : "Select date…"}
+          </span>
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? T.accent : T.muted }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+      {panel}
+    </div>
+  );
+};
+
+/* ─── ModeSelect ────────────────────────────────────────────────────────── */
+const ModeSelect = ({ value, onChange, T }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${open ? T.accent : value ? T.accent : T.inputBdr}`,
+        borderRadius: 9, background: value ? "rgba(245,158,11,.08)" : T.input,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? "0 0 0 3px rgba(245,158,11,.12)" : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, background: value ? "rgba(245,158,11,.18)" : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>{MODE_ICONS[value] || "💳"}</div>
+          <span style={{ color: value ? T.text : T.muted, fontWeight: value ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {value || "Select payment mode…"}
+          </span>
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? T.accent : T.muted }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
+          background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12,
+          boxShadow: "0 20px 48px rgba(0,0,0,.22)", overflow: "hidden",
+        }}>
+          <div style={{ padding: "8px 13px", borderBottom: `1px solid ${T.border}`, background: T.surface2 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: T.muted }}>{PAYMENT_MODES.length} methods</div>
+          </div>
+          <div style={{ maxHeight: 260, overflowY: "auto" }}>
+            {PAYMENT_MODES.map((m, i) => {
+              const active = value === m;
+              const accent = MODE_ACCENT[i % MODE_ACCENT.length];
+              return (
+                <div key={m} onClick={() => { onChange(m); setOpen(false); }}
+                  style={{ padding: "11px 14px", cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: active ? `${accent}18` : "transparent", display: "flex", alignItems: "center", gap: 11, transition: "background .1s" }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface2; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: active ? `${accent}25` : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, border: `1.5px solid ${active ? accent : T.border}` }}>{MODE_ICONS[m]}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? accent : T.text }}>{m}</div>
+                  </div>
+                  {active && (
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /* ─── RecordPaymentModal ────────────────────────────────────────────────── */
 const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
@@ -137,19 +406,11 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
     amount:       invoice.balance > 0 ? invoice.balance.toFixed(2) : "",
     date:         new Date().toISOString().split("T")[0],
     paymentMode:  "Bank Transfer",
-    reference:    "",
+    details:      {},
     notes:        "",
   });
   const [loading, setLoading] = useState(false);
   const [errors,  setErrors]  = useState({});
-  const [modeOpen, setModeOpen] = useState(false);
-  const modeRef = useRef(null);
-
-  useEffect(() => {
-    const h = e => { if (modeRef.current && !modeRef.current.contains(e.target)) setModeOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
 
   const enteredAmt = parseFloat(form.amount) || 0;
   const balanceDue = invoice.balance;
@@ -163,7 +424,12 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
     if (Object.keys(e).length) { setErrors(e); return; }
     setLoading(true);
     try {
-      await axiosInstance.post("/api/payments/", { ...form, amount: Number(form.amount) });
+      await axiosInstance.post("/api/payments/", {
+        ...form,
+        amount:         Number(form.amount),
+        reference:      getPrimaryRef(form.paymentMode, form.details),
+        paymentDetails: form.details,
+      });
       nexusToast.success(`Payment of ${fmt(Number(form.amount))} recorded`);
       onSaved();
       onClose();
@@ -253,53 +519,50 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
               <label style={lbl}>Payment Date <span style={{ color: "#ef4444" }}>*</span></label>
-              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                style={{ ...inp, borderColor: errors.date ? "#ef4444" : T.inputBdr }} />
+              <PaymentDatePicker T={T} value={form.date} onChange={d => setForm(f => ({ ...f, date: d }))} />
               {errors.date && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 3 }}>{errors.date}</div>}
             </div>
-            <div ref={modeRef} style={{ position: "relative" }}>
+            <div>
               <label style={lbl}>Payment Mode</label>
-              <button type="button" onClick={() => setModeOpen(o => !o)} style={{
-                ...inp, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer",
-                borderColor: modeOpen ? T.accent : T.inputBdr,
-              }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>{MODE_ICONS[form.paymentMode] || "💳"}</span>
-                  <span style={{ fontWeight: 500 }}>{form.paymentMode}</span>
-                </span>
-                <span style={{ fontSize: 10, color: T.muted, transition: "transform .15s", transform: modeOpen ? "rotate(180deg)" : "none" }}>▼</span>
-              </button>
-              {modeOpen && (
-                <div style={{
-                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
-                  background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10,
-                  boxShadow: "0 16px 40px rgba(0,0,0,.2)", overflow: "hidden",
-                }}>
-                  {PAYMENT_MODES.map(m => (
-                    <div key={m} onClick={() => { setForm(f => ({ ...f, paymentMode: m })); setModeOpen(false); }}
-                      style={{
-                        padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500,
-                        borderBottom: `1px solid ${T.border}`,
-                        background: form.paymentMode === m ? "rgba(245,158,11,.08)" : "transparent",
-                        display: "flex", alignItems: "center", gap: 10,
-                        color: form.paymentMode === m ? T.accent : T.text, transition: "background .1s",
-                      }}
-                      onMouseEnter={e => { if (form.paymentMode !== m) e.currentTarget.style.background = T.surface2; }}
-                      onMouseLeave={e => { if (form.paymentMode !== m) e.currentTarget.style.background = "transparent"; }}>
-                      <span>{MODE_ICONS[m]}</span>{m}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <ModeSelect T={T} value={form.paymentMode} onChange={m => setForm(f => ({ ...f, paymentMode: m, details: {} }))} />
             </div>
           </div>
 
-          {/* Reference */}
-          <div>
-            <label style={lbl}>Reference / Cheque No.</label>
-            <input style={inp} placeholder="e.g. TXN-001234 or Cheque #456"
-              value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} />
-          </div>
+          {/* Mode-specific fields */}
+          {(MODE_FIELDS[form.paymentMode] || []).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "14px 16px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.inputBdr}` }}>
+              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, margin: 0 }}>{form.paymentMode} Details</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {(MODE_FIELDS[form.paymentMode] || []).map(f => (
+                  <div key={f.key}>
+                    <label style={{ ...lbl, marginBottom: 4 }}>{f.label}{f.required && <span style={{ color: "#ef4444" }}> *</span>}</label>
+                    {f.type === "date" ? (
+                      <PaymentDatePicker
+                        value={form.details[f.key] || ""}
+                        onChange={val => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: val } }))}
+                        T={T}
+                      />
+                    ) : f.type === "select" ? (
+                      <select
+                        value={form.details[f.key] || ""}
+                        onChange={e => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: e.target.value } }))}
+                        style={{ ...inp, cursor: "pointer" }}>
+                        <option value="">Select…</option>
+                        {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        style={inp}
+                        placeholder={f.placeholder}
+                        value={form.details[f.key] || ""}
+                        onChange={e => setForm(prev => ({ ...prev, details: { ...prev.details, [f.key]: e.target.value } }))}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Notes */}
           <div>
@@ -385,6 +648,7 @@ const Invoices = () => {
   const [cnLoading,      setCnLoading]     = useState(false);
   const [linkedPayments, setLinkedPayments] = useState([]);
   const [pmtLoading,     setPmtLoading]    = useState(false);
+  const [linkedDNs,      setLinkedDNs]     = useState([]);
   const [paymentInvoice, setPaymentInvoice] = useState(null);
 
   /* inline modals (replaces window.prompt) */
@@ -394,9 +658,9 @@ const Invoices = () => {
   const [voidModal,  setVoidModal]  = useState(false);
   const [voidInput,  setVoidInput]  = useState('');
 
-  // Fetch payments + credits when drawer opens — data ready for all tabs instantly
+  // Fetch payments + credits + delivery notes when drawer opens
   useEffect(() => {
-    if (!selected) { setLinkedCNs([]); setLinkedPayments([]); return; }
+    if (!selected) { setLinkedCNs([]); setLinkedPayments([]); setLinkedDNs([]); return; }
     setCnLoading(true);
     setPmtLoading(true);
     axiosInstance.get(`/api/credit-notes/by-invoice/${selected._id}`)
@@ -407,6 +671,9 @@ const Invoices = () => {
       .then(res => setLinkedPayments(res.data?.data?.payments || []))
       .catch(() => setLinkedPayments([]))
       .finally(() => setPmtLoading(false));
+    axiosInstance.get(`/api/delivery-notes/?invoiceId=${selected._id}`)
+      .then(res => setLinkedDNs(res.data?.data?.deliveryNotes || res.data?.data || []))
+      .catch(() => setLinkedDNs([]));
   }, [selected]);
 
   /* derived */
@@ -476,19 +743,17 @@ const Invoices = () => {
   const handleReturn = async () => {
     const items = returnItems.filter(i => i.qty > 0);
     if (items.length === 0) { nexusToast.error("Set qty > 0 for at least one item"); return; }
-    if (returnMode === "refund" && !returnPaymentId) { nexusToast.error("Select a payment to refund against"); return; }
     setReturnLoading(true);
     try {
       const res = await axiosInstance.post(`/api/invoices/${selected._id}/return`, {
         items: items.map(i => ({ stockId: i.stockId || "", itemName: i.itemName, qty: i.qty, unitPrice: i.unitPrice, taxRate: i.taxRate })),
         notes: returnNotes,
         mode: returnMode,
-        refundPaymentId: returnMode === "refund" ? returnPaymentId : undefined,
       });
       const msg =
-        returnMode === "refund"  ? `${res.data.returnNumber} processed — AED ${res.data.refundedAmount?.toFixed(2)} refunded` :
-        returnMode === "reduce"  ? `${res.data.returnNumber} processed — balance reduced by AED ${res.data.reducedAmount?.toFixed(2)}` :
-        `${res.data.returnNumber} processed — draft credit note ${res.data.creditNoteNum} created`;
+        returnMode === "reduce"
+          ? `${res.data.returnNumber} processed — balance reduced by AED ${res.data.reducedAmount?.toFixed(2)}`
+          : `${res.data.returnNumber} processed — draft credit note ${res.data.creditNoteNum} created`;
       nexusToast.success(msg);
       setReturnModal(false); setReturnItems([]); setReturnNotes("");
       setReturnMode("credit"); setReturnPaymentId("");
@@ -517,6 +782,22 @@ const Invoices = () => {
     } catch (e) {
       nexusToast.error(e.response?.data?.message || "Failed to void invoice");
     } finally { setVoidLoading(false); }
+  };
+
+  /* CSV export */
+  const exportInvoicesCSV = () => {
+    const rows = invoices.map(i => [
+      i.id, i.customer, i.date, i.due,
+      i.amount.toFixed(2), i.paid.toFixed(2), (i.amount - i.paid).toFixed(2),
+      i.status,
+    ]);
+    const header = ["Invoice #","Customer","Issue Date","Due Date","Amount","Paid","Balance","Status"];
+    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [header, ...rows].map(r => r.map(escape).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `invoices_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
   };
 
   /* stats */
@@ -647,10 +928,10 @@ const Invoices = () => {
 
           {/* Actions */}
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-            <button style={{ ...inputStyle, padding: "7px 14px", cursor: "pointer", fontSize: 13, transition: ".15s" }}
+            <button onClick={exportInvoicesCSV} style={{ ...inputStyle, padding: "7px 14px", cursor: "pointer", fontSize: 13, transition: ".15s" }}
               onMouseEnter={e => e.currentTarget.style.borderColor = T.subtle}
               onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
-            >Export</button>
+            >Export CSV</button>
             <button
               onClick={() => navigate("/Sales/Createinvoices")}
               style={{ padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none", transition: ".15s" }}
@@ -862,7 +1143,7 @@ const Invoices = () => {
                               setFinalizingProforma(true);
                               try {
                                 const res = await axiosInstance.post(`/api/invoices/${selected._id}/finalize`);
-                                const invNum = res.data?.data?.invoiceNumber;
+                                const invNum = res.data?.data?.invoiceNumber || "Invoice";
                                 nexusToast.success(`${invNum} created — proforma finalized`);
                                 setSelected(null); loadInvoices();
                               } catch (e) {
@@ -944,8 +1225,8 @@ const Invoices = () => {
                         </button>
                       )}
 
-                      {/* Record payment — unpaid/overdue/partial */}
-                      {["unpaid", "overdue", "partial"].includes(selected.status) && (
+                      {/* Record payment — unpaid/overdue/partial with remaining balance */}
+                      {["unpaid", "overdue", "partial"].includes(selected.status) && (selected.balance ?? 0) > 0 && (
                         <button
                           onClick={() => setPaymentInvoice(selected)}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
@@ -971,8 +1252,8 @@ const Invoices = () => {
                         </button>
                       )}
 
-                      {/* Return Items — any issued invoice (not draft/void/proforma) */}
-                      {["unpaid","overdue","partial","paid"].includes(selected.status) && selected.docType !== "proforma" && (() => {
+                      {/* Return Items — only when a linked delivery note is delivered */}
+                      {["unpaid","overdue","partial","paid"].includes(selected.status) && selected.docType !== "proforma" && linkedDNs.some(dn => dn.status === "delivered") && (() => {
                         // Calculate already-returned qty per item name
                         const alreadyReturned = {};
                         (selected.salesReturns || []).forEach(r =>
@@ -1167,7 +1448,7 @@ const Invoices = () => {
                                     <button
                                       onClick={() => { setRefundModal(p); setRefundAmount(String(p.amount)); setRefundReason(""); }}
                                       style={{ marginTop: 6, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 6, cursor: "pointer", background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif" }}>
-                                      ↩ Refund
+                                      ↩ Reverse Payment
                                     </button>
                                   )}
                                 </div>
@@ -1221,6 +1502,9 @@ const Invoices = () => {
                             draft: "#94a3b8", pending_approval: "#f59e0b", approved: "#8b5cf6",
                             applied: "#10b981", closed: "#64748b", void: "#ef4444",
                           }[cn.status] || "#64748b";
+                          const appliedAmt   = cn.appliedAmount  ?? cn.totals?.grandTotal ?? 0;
+                          const refundedAmt  = cn.refundedAmount ?? 0;
+                          const isSplit      = refundedAmt > 0 && appliedAmt > 0;
                           return (
                             <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, padding: "12px 14px" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1233,8 +1517,13 @@ const Invoices = () => {
                                     {cn.status}
                                   </span>
                                   <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: T.text, margin: "5px 0 0" }}>
-                                    AED {Number(cn.totals?.grandTotal || 0).toFixed(2)}
+                                    AED {Number(appliedAmt).toFixed(2)}
                                   </p>
+                                  {isSplit && (
+                                    <p style={{ fontSize: 10, color: T.muted, margin: "2px 0 0" }}>
+                                      + AED {Number(refundedAmt).toFixed(2)} refunded as cash
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1243,7 +1532,7 @@ const Invoices = () => {
                         <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
                           <span style={{ fontSize: 12, color: T.muted }}>Total credits applied</span>
                           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#10b981" }}>
-                            AED {linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).reduce((s, cn) => s + (cn.totals?.grandTotal || 0), 0).toFixed(2)}
+                            AED {linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).reduce((s, cn) => s + (cn.appliedAmount ?? cn.totals?.grandTotal ?? 0), 0).toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -1296,15 +1585,24 @@ const Invoices = () => {
                         r.items?.length ? `${r.items.length} item${r.items.length > 1 ? "s" : ""}` : null,
                       ].filter(Boolean).join(" · "),
                     })),
-                    ...linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).map(cn => ({
-                      date: new Date(cn.updatedAt || cn.createdAt || 0),
-                      dot: "#3b82f6",
-                      label: `Credit note applied — ${fmt(cn.totals?.grandTotal || 0)}`,
-                      sub: [
-                        cn.creditNoteNumber,
-                        cn.updatedAt ? new Date(cn.updatedAt).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : null,
-                      ].filter(Boolean).join(" · "),
-                    })),
+                    ...linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).map(cn => {
+                      const appliedAmt  = cn.appliedAmount  ?? cn.totals?.grandTotal ?? 0;
+                      const refundedAmt = cn.refundedAmount ?? 0;
+                      const label = refundedAmt > 0 && appliedAmt > 0
+                        ? `Credit note applied — ${fmt(appliedAmt)} to invoice + ${fmt(refundedAmt)} refunded`
+                        : refundedAmt > 0
+                        ? `Credit note refunded as cash — ${fmt(refundedAmt)}`
+                        : `Credit note applied — ${fmt(appliedAmt)}`;
+                      return {
+                        date: new Date(cn.updatedAt || cn.createdAt || 0),
+                        dot: "#3b82f6",
+                        label,
+                        sub: [
+                          cn.creditNoteNumber,
+                          cn.updatedAt ? new Date(cn.updatedAt).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : null,
+                        ].filter(Boolean).join(" · "),
+                      };
+                    }),
                   ].sort((a, b) => a.date - b.date);
 
                   if (timelineEntries.length === 0) return (
@@ -1387,7 +1685,7 @@ const Invoices = () => {
         <div style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
           onClick={e => e.target === e.currentTarget && setRefundModal(null)}>
           <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
-            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>↩ Refund Payment</div>
+            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>↩ Reverse Payment</div>
             <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>
               {refundModal.paymentNumber} · Original: {fmt(refundModal.amount)}
             </div>
@@ -1436,7 +1734,7 @@ const Invoices = () => {
               </button>
               <button onClick={handleRefund} disabled={refundLoading}
                 style={{ flex: 2, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: refundLoading ? "not-allowed" : "pointer", opacity: refundLoading ? 0.6 : 1, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", fontFamily: "'DM Sans', sans-serif" }}>
-                {refundLoading ? "Processing…" : "↩ Confirm Refund"}
+                {refundLoading ? "Processing…" : "↩ Confirm Reversal"}
               </button>
             </div>
           </div>
@@ -1456,16 +1754,15 @@ const Invoices = () => {
         // Available modes per invoice status
         const modeOptions = invStatus === "paid"
           ? [
-              { key: "credit", label: "📋 Credit Note",     desc: "Customer gets credit for future invoices" },
-              { key: "refund", label: "💵 Cash Refund",      desc: "Reverse payment + restore stock" },
+              { key: "credit", label: "📋 Credit Note", desc: "Customer gets credit for future invoices" },
             ]
           : invStatus === "partial"
           ? [
-              { key: "reduce", label: "↓ Reduce Balance",   desc: "Lower what they still owe — no payment reversal" },
-              { key: "refund", label: "💵 Cash Refund",      desc: "Reverse part of payment received so far" },
+              { key: "reduce", label: "↓ Reduce Balance", desc: "Lower what they still owe" },
+              { key: "credit", label: "📋 Credit Note",   desc: "Create credit for returned goods" },
             ]
           : [ // unpaid / overdue
-              { key: "reduce", label: "↓ Reduce Balance",   desc: "Remove returned goods from what they owe" },
+              { key: "reduce", label: "↓ Reduce Balance", desc: "Remove returned goods from what they owe" },
             ];
 
         return (
@@ -1536,32 +1833,6 @@ const Invoices = () => {
                 </div>
               )}
 
-              {/* Refund mode: payment picker */}
-              {returnMode === "refund" && (
-                <div style={{ marginBottom: 14 }}>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>
-                    Refund against payment <span style={{ color: "#ef4444" }}>*</span>
-                  </label>
-                  {nonRefundedPayments.length === 0 ? (
-                    <div style={{ padding: "10px 13px", borderRadius: 8, background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)", fontSize: 12, color: "#ef4444" }}>
-                      No refundable payments on this invoice.
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {nonRefundedPayments.map(p => (
-                        <div key={p._id} onClick={() => setReturnPaymentId(p._id)}
-                          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 13px", borderRadius: 8, cursor: "pointer", border: `1.5px solid ${returnPaymentId === p._id ? "#ef4444" : T.border}`, background: returnPaymentId === p._id ? "rgba(239,68,68,0.07)" : T.surface2, transition: ".15s" }}>
-                          <div>
-                            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: returnPaymentId === p._id ? "#ef4444" : T.blue }}>{p.paymentNumber}</span>
-                            <span style={{ fontSize: 11, color: T.muted, marginLeft: 8 }}>{p.paymentMode}</span>
-                          </div>
-                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: returnPaymentId === p._id ? "#ef4444" : "#10b981" }}>{fmt(p.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* Notes */}
               <div style={{ marginBottom: 14 }}>
@@ -1576,9 +1847,8 @@ const Invoices = () => {
 
               {/* Info banner */}
               <div style={{ padding: "10px 13px", borderRadius: 8, background: "rgba(168,85,247,0.07)", border: "1px solid rgba(168,85,247,0.2)", fontSize: 12, color: "#a855f7", marginBottom: 18 }}>
-                {returnMode === "credit"  && "Stock restored. Draft credit note created — approve + apply it to reduce a future invoice."}
-                {returnMode === "refund"  && "Stock restored. Payment reversed. Invoice balance updated. No credit note created."}
-                {returnMode === "reduce"  && "Stock restored. Invoice balance reduced by the return amount. No payment reversal."}
+                {returnMode === "credit" && "Stock restored. Draft credit note created — approve + apply it to reduce a future invoice."}
+                {returnMode === "reduce" && "Stock restored. Invoice balance reduced by the return amount."}
               </div>
 
               <div style={{ display: "flex", gap: 10 }}>

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/backend/config"
@@ -16,6 +18,21 @@ import (
 )
 
 var grnCollection *mongo.Collection = config.GetCollection(config.DB, "grns")
+
+func generateGRNNumber(ctx context.Context) string {
+	opts := options.FindOne().SetSort(bson.D{{Key: "grnNumber", Value: -1}})
+	var last bson.M
+	next := 1
+	if err := grnCollection.FindOne(ctx, bson.M{"grnNumber": bson.M{"$regex": "^GRN-"}}, opts).Decode(&last); err == nil {
+		if num, ok := last["grnNumber"].(string); ok {
+			seqStr := strings.TrimPrefix(num, "GRN-")
+			if seq, err := strconv.Atoi(seqStr); err == nil {
+				next = seq + 1
+			}
+		}
+	}
+	return fmt.Sprintf("GRN-%04d", next)
+}
 
 func CreateGRN() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -47,7 +64,7 @@ func CreateGRN() gin.HandlerFunc {
 			g.Status = "confirmed"
 		}
 		if g.GRNNumber == "" {
-			g.GRNNumber = fmt.Sprintf("GRN-%06d", time.Now().UnixNano()%1000000)
+			g.GRNNumber = generateGRNNumber(ctx)
 		}
 		if g.ReceiptDate.IsZero() {
 			g.ReceiptDate = time.Now()
@@ -221,16 +238,16 @@ func GetGRNStats() gin.HandlerFunc {
 			n, _ := grnCollection.CountDocuments(ctx, f)
 			return n
 		}
-		total, _     := grnCollection.CountDocuments(ctx, base)
-		pending      := count(bson.M{"status": "pending"})
-		confirmed    := count(bson.M{"status": "confirmed"})
-		invoiced     := count(bson.M{"status": "invoiced"})
+		total, _ := grnCollection.CountDocuments(ctx, base)
+		draft     := count(bson.M{"status": "draft"})
+		confirmed := count(bson.M{"status": "confirmed"})
+		billed    := count(bson.M{"status": "billed"})
 
 		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "GRN stats", "data": gin.H{
 			"total":     total,
-			"pending":   pending,
+			"draft":     draft,
 			"confirmed": confirmed,
-			"invoiced":  invoiced,
+			"billed":    billed,
 		}})
 	}
 }

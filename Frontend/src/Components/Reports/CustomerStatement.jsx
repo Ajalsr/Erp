@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
@@ -14,43 +14,57 @@ const threeMonthsAgo = () => {
   d.setMonth(d.getMonth() - 3);
   return toISO(d);
 };
+const fmtDate = (d) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return isNaN(dt) ? d : dt.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" });
+};
 
 export default function CustomerStatement() {
   const navigate = useNavigate();
   const isDark   = useThemeStore((s) => s.isDark);
   const T        = getTheme(isDark);
 
-  const [customerId,   setCustomerId]   = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [customers,    setCustomers]    = useState([]);
-  const [custSearch,   setCustSearch]   = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [fromDate,     setFromDate]     = useState(threeMonthsAgo());
-  const [toDate,       setToDate]       = useState(today());
-  const [statement,    setStatement]    = useState(null);
-  const [loading,      setLoading]      = useState(false);
+  const [customerId,    setCustomerId]    = useState("");
+  const [customerLabel, setCustomerLabel] = useState("");
+  const [customers,     setCustomers]     = useState([]);
+  const [ddOpen,        setDdOpen]        = useState(false);
+  const [search,        setSearch]        = useState("");
+  const [fromDate,      setFromDate]      = useState(threeMonthsAgo());
+  const [toDate,        setToDate]        = useState(today());
+  const [statement,     setStatement]     = useState(null);
+  const [loading,       setLoading]       = useState(false);
+  const ddRef = useRef(null);
 
-  const searchCustomers = useCallback(async (q) => {
-    if (!q || q.length < 2) { setCustomers([]); return; }
-    try {
-      const res = await axiosInstance.get(`/api/customers/search?q=${encodeURIComponent(q)}&limit=10`);
-      setCustomers(res.data?.data?.customers || res.data?.customers || []);
-    } catch { setCustomers([]); }
+  useEffect(() => {
+    axiosInstance.get("/api/customers/getcustomers")
+      .then(res => {
+        const list = Array.isArray(res.data?.data) ? res.data.data : (res.data?.data?.customers || []);
+        setCustomers(Array.isArray(list) ? list : []);
+      })
+      .catch(() => setCustomers([]));
   }, []);
 
-  const handleCustInput = (e) => {
-    const val = e.target.value;
-    setCustSearch(val);
-    setShowDropdown(true);
-    searchCustomers(val);
-  };
+  useEffect(() => {
+    const onClickOutside = (e) => {
+      if (ddRef.current && !ddRef.current.contains(e.target)) setDdOpen(false);
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  const filteredCustomers = customers.filter((c) => {
+    const name = (c.customerDisplayName || c.companyName || "").toLowerCase();
+    const code = (c.customerCode || "").toLowerCase();
+    const q = search.toLowerCase();
+    return name.includes(q) || code.includes(q);
+  });
 
   const selectCustomer = (c) => {
     setCustomerId(c._id);
-    setCustomerName(c.customerDisplayName || c.companyName || "");
-    setCustSearch(c.customerDisplayName || c.companyName || "");
-    setShowDropdown(false);
-    setCustomers([]);
+    setCustomerLabel(c.customerDisplayName || c.companyName || "");
+    setSearch("");
+    setDdOpen(false);
   };
 
   const load = async () => {
@@ -58,21 +72,27 @@ export default function CustomerStatement() {
     setLoading(true);
     try {
       const res = await axiosInstance.get(
-        `/api/customers/${customerId}/statement?from=${fromDate}&to=${toDate}`
+        `/api/customers/${customerId}/statement?startDate=${fromDate}&endDate=${toDate}`
       );
       setStatement(res.data?.data);
     } catch (e) {
-      nexusToast.error(e.response?.data?.message || "Failed to load statement");
+      nexusToast.error(e.response?.data?.message || e.response?.data?.error || "Failed to load statement");
     } finally { setLoading(false); }
   };
 
   const handlePrint = () => window.print();
+
+  const inputStyle = {
+    padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.border}`,
+    background: T.surface2, color: T.text, fontSize: 13, fontFamily: "inherit", outline: "none",
+  };
 
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap');
     .cs-root * { box-sizing: border-box; }
     .cs-root { font-family: 'DM Sans', sans-serif; }
     .cs-row:hover td { background: ${isDark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.016)"} !important; }
+    .cs-dd-item:hover { background: ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"} !important; }
     ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 99px; }
     @media print {
@@ -103,26 +123,76 @@ export default function CustomerStatement() {
 
         {/* Filter bar */}
         <div className="cs-no-print" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "18px 20px", marginBottom: 24, display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
-          {/* Customer picker */}
-          <div style={{ flex: "1 1 240px", minWidth: 200 }}>
+
+          {/* Custom customer dropdown */}
+          <div style={{ flex: "1 1 240px", minWidth: 220 }} ref={ddRef}>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, display: "block", marginBottom: 6 }}>Customer</label>
             <div style={{ position: "relative" }}>
-              <input
-                value={custSearch}
-                onChange={handleCustInput}
-                onFocus={() => { if (custSearch.length >= 2) setShowDropdown(true); }}
-                onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-                placeholder="Search customer…"
-                style={{ width: "100%", padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, fontFamily: "inherit", outline: "none" }}
-              />
-              {showDropdown && customers.length > 0 && (
-                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 7, marginTop: 4, maxHeight: 200, overflowY: "auto" }}>
-                  {customers.map((c) => (
-                    <div key={c._id} onMouseDown={() => selectCustomer(c)} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${T.border}` }}>
-                      <span style={{ fontWeight: 600 }}>{c.customerDisplayName || c.companyName}</span>
-                      {c.customerCode && <span style={{ color: T.muted, fontSize: 11, marginLeft: 8 }}>{c.customerCode}</span>}
-                    </div>
-                  ))}
+              {/* Trigger button */}
+              <button
+                onClick={() => setDdOpen((o) => !o)}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "8px 12px", borderRadius: 7, border: `1px solid ${ddOpen ? (T.accent || "#f59e0b") : T.border}`,
+                  background: T.surface2, color: customerId ? T.text : T.muted,
+                  fontSize: 13, fontFamily: "inherit", cursor: "pointer", outline: "none",
+                  transition: "border-color 0.15s",
+                }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {customerLabel || "— Select customer —"}
+                </span>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, marginLeft: 8, transform: ddOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s", opacity: 0.5 }}>
+                  <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+
+              {/* Dropdown panel */}
+              {ddOpen && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 100,
+                  background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+                  boxShadow: `0 8px 24px rgba(0,0,0,${isDark ? 0.4 : 0.12})`,
+                  overflow: "hidden",
+                }}>
+                  {/* Search inside dropdown */}
+                  <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
+                    <input
+                      autoFocus
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search…"
+                      style={{ ...inputStyle, width: "100%", padding: "6px 10px", fontSize: 12 }}
+                    />
+                  </div>
+
+                  {/* List */}
+                  <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                    {filteredCustomers.length === 0 ? (
+                      <div style={{ padding: "14px 14px", fontSize: 12, color: T.muted, textAlign: "center" }}>No customers found</div>
+                    ) : filteredCustomers.map((c) => (
+                      <div
+                        key={c._id}
+                        className="cs-dd-item"
+                        onClick={() => selectCustomer(c)}
+                        style={{
+                          padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center",
+                          justifyContent: "space-between", gap: 8,
+                          background: c._id === customerId ? (isDark ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.08)") : "transparent",
+                          borderLeft: c._id === customerId ? `3px solid ${T.accent || "#f59e0b"}` : "3px solid transparent",
+                        }}
+                      >
+                        <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {c.customerDisplayName || c.companyName}
+                        </span>
+                        {c.customerCode && (
+                          <span style={{ fontSize: 10, color: T.muted, background: T.surface2, padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>
+                            {c.customerCode}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -131,13 +201,11 @@ export default function CustomerStatement() {
           {/* Date range */}
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, display: "block", marginBottom: 6 }}>From</label>
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-              style={{ padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={inputStyle} />
           </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, display: "block", marginBottom: 6 }}>To</label>
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-              style={{ padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={inputStyle} />
           </div>
 
           <button onClick={load} disabled={loading} style={{ padding: "8px 22px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", background: T.accent || "#f59e0b", color: "#0a0e1a", border: "none", fontFamily: "inherit", opacity: loading ? 0.7 : 1 }}>
@@ -154,12 +222,13 @@ export default function CustomerStatement() {
                 <div>
                   <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: 20, fontWeight: 800, margin: 0 }}>Account Statement</h2>
                   <p style={{ color: T.muted, fontSize: 13, margin: "4px 0 0" }}>
-                    {statement.from} — {statement.to}
+                    {statement.period?.startDate} — {statement.period?.endDate}
                   </p>
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, margin: "0 0 4px" }}>Customer</p>
-                  <p style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>{statement.customerName}</p>
+                  <p style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>{statement.customer?.name || statement.customer?.companyName}</p>
+                  {statement.customer?.code && <p style={{ fontSize: 11, color: T.muted, margin: "2px 0 0" }}>{statement.customer.code}</p>}
                 </div>
               </div>
 
@@ -168,7 +237,7 @@ export default function CustomerStatement() {
                 {[
                   { label: "Opening Balance", value: fmt(statement.openingBalance), color: T.muted },
                   { label: "Closing Balance", value: fmt(statement.closingBalance), color: statement.closingBalance > 0 ? "#ef4444" : "#10b981" },
-                  { label: "Transactions",    value: statement.lines?.length || 0,  color: T.textPri || T.text },
+                  { label: "Transactions",    value: statement.transactions?.length || 0, color: T.textPri || T.text },
                 ].map(chip => (
                   <div key={chip.label} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 16px" }}>
                     <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, margin: "0 0 4px" }}>{chip.label}</p>
@@ -190,11 +259,11 @@ export default function CustomerStatement() {
                     </tr>
                   </thead>
                   <tbody>
-                    {statement.lines.length === 0 ? (
+                    {!statement.transactions?.length ? (
                       <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: T.muted, fontSize: 13 }}>No transactions in this period</td></tr>
-                    ) : statement.lines.map((line, idx) => (
+                    ) : statement.transactions.map((line, idx) => (
                       <tr key={idx} className="cs-row">
-                        <td style={{ padding: "9px 16px", fontSize: 12, color: T.muted, borderBottom: `1px solid ${T.border}` }}>{line.date}</td>
+                        <td style={{ padding: "9px 16px", fontSize: 12, color: T.muted, borderBottom: `1px solid ${T.border}` }}>{fmtDate(line.date)}</td>
                         <td style={{ padding: "9px 16px", borderBottom: `1px solid ${T.border}` }}>
                           <span style={{
                             display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
