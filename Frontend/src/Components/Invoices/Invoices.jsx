@@ -701,6 +701,18 @@ const Invoices = () => {
   const handleSearch       = (e) => { setSearch(e.target.value); setPage(1); };
   const handleStatusFilter = (s) => { setStatusFilter(s); setPage(1); };
 
+  const openSendModal = async (mode) => {
+    let email = selected?.customerEmail || "";
+    if (!email && selected?.customerId) {
+      try {
+        const res = await axiosInstance.get(`/api/customers/${selected.customerId}`);
+        email = res.data?.data?.customerEmail || res.data?.customerEmail || "";
+      } catch { /* fall through with empty */ }
+    }
+    setSendEmail(email);
+    setSendModal(mode);
+  };
+
   const handleSendInvoice = async () => {
     setSendLoading(true);
     try {
@@ -753,7 +765,7 @@ const Invoices = () => {
       const msg =
         returnMode === "reduce"
           ? `${res.data.returnNumber} processed — balance reduced by AED ${res.data.reducedAmount?.toFixed(2)}`
-          : `${res.data.returnNumber} processed — draft credit note ${res.data.creditNoteNum} created`;
+          : `${res.data.returnNumber} processed — credit note ${res.data.creditNoteNum} applied`;
       nexusToast.success(msg);
       setReturnModal(false); setReturnItems([]); setReturnNotes("");
       setReturnMode("credit"); setReturnPaymentId("");
@@ -821,7 +833,11 @@ const Invoices = () => {
         discount:     li.discount ?? 0,
       }))
     : [];
-  const drawerHistory = [];
+  const drawerHistory = selected ? [
+    { date: selected.createdAt || selected.issueDate, event: `Invoice ${selected.invoiceNumber} created`, user: selected.createdBy || "System" },
+    ...(selected.status === "paid" ? [{ date: selected.updatedAt, event: "Invoice marked paid", user: "" }] : []),
+    ...(selected.status === "overdue" ? [{ date: selected.dueDate, event: "Invoice became overdue", user: "" }] : []),
+  ].filter(h => h.date) : [];
 
   /* ── Styles shared ── */
   const inputStyle = {
@@ -1159,7 +1175,7 @@ const Invoices = () => {
                       {/* Send Proforma email */}
                       {selected.docType === "proforma" && !selected.proformaConvertedTo && (
                         <button
-                          onClick={() => { setSendEmail(selected.customerEmail || ""); setSendModal("send"); }}
+                          onClick={() => openSendModal("send")}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.3)", color: "#7c3aed", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           📧 Send Proforma
                         </button>
@@ -1211,7 +1227,7 @@ const Invoices = () => {
                       {/* Send Invoice / Send Reminder */}
                       {["draft", "unpaid", "overdue", "partial"].includes(selected.status) && (
                         <button
-                          onClick={() => { setSendEmail(selected.customerEmail || ""); setSendModal("send"); }}
+                          onClick={() => openSendModal("send")}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue, fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           📧 Send Invoice
                         </button>
@@ -1219,7 +1235,7 @@ const Invoices = () => {
 
                       {selected.status === "overdue" && (
                         <button
-                          onClick={() => { setSendEmail(selected.customerEmail || ""); setSendModal("reminder"); }}
+                          onClick={() => openSendModal("reminder")}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           🔔 Send Reminder
                         </button>
@@ -1234,8 +1250,8 @@ const Invoices = () => {
                         </button>
                       )}
 
-                      {/* Credit note — partial with balance remaining */}
-                      {(selected.status === "paid" || selected.status === "partial") && selected.balance > 0 && (
+                      {/* Credit note — paid invoices (refund) or partial with balance remaining */}
+                      {(selected.status === "paid" || selected.status === "partial") && (
                         <button
                           onClick={() => navigate("/Sales/CreditNotes", {
                             state: {
@@ -1502,9 +1518,11 @@ const Invoices = () => {
                             draft: "#94a3b8", pending_approval: "#f59e0b", approved: "#8b5cf6",
                             applied: "#10b981", closed: "#64748b", void: "#ef4444",
                           }[cn.status] || "#64748b";
-                          const appliedAmt   = cn.appliedAmount  ?? cn.totals?.grandTotal ?? 0;
-                          const refundedAmt  = cn.refundedAmount ?? 0;
-                          const isSplit      = refundedAmt > 0 && appliedAmt > 0;
+                          const isSettled   = ["applied","closed"].includes(cn.status);
+                          const displayAmt  = isSettled
+                            ? (cn.appliedToInvoiceAmount ?? cn.appliedAmount ?? 0)
+                            : (cn.totals?.grandTotal ?? cn.remainingAmount ?? 0);
+                          const refundedAmt = cn.refundedAmount ?? 0;
                           return (
                             <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, padding: "12px 14px" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1516,10 +1534,10 @@ const Invoices = () => {
                                   <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: `${statusColor}18`, color: statusColor, border: `1px solid ${statusColor}30` }}>
                                     {cn.status}
                                   </span>
-                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: T.text, margin: "5px 0 0" }}>
-                                    AED {Number(appliedAmt).toFixed(2)}
+                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: isSettled ? "#10b981" : T.text, margin: "5px 0 0" }}>
+                                    AED {Number(displayAmt).toFixed(2)}
                                   </p>
-                                  {isSplit && (
+                                  {refundedAmt > 0 && (
                                     <p style={{ fontSize: 10, color: T.muted, margin: "2px 0 0" }}>
                                       + AED {Number(refundedAmt).toFixed(2)} refunded as cash
                                     </p>
@@ -1532,7 +1550,7 @@ const Invoices = () => {
                         <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
                           <span style={{ fontSize: 12, color: T.muted }}>Total credits applied</span>
                           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#10b981" }}>
-                            AED {linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).reduce((s, cn) => s + (cn.appliedAmount ?? cn.totals?.grandTotal ?? 0), 0).toFixed(2)}
+                            AED {linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).reduce((s, cn) => s + (cn.appliedToInvoiceAmount ?? cn.appliedAmount ?? 0), 0).toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -1585,18 +1603,27 @@ const Invoices = () => {
                         r.items?.length ? `${r.items.length} item${r.items.length > 1 ? "s" : ""}` : null,
                       ].filter(Boolean).join(" · "),
                     })),
-                    ...linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).map(cn => {
-                      const appliedAmt  = cn.appliedAmount  ?? cn.totals?.grandTotal ?? 0;
+                    ...linkedCNs.map(cn => {
+                      const invoiceAmt  = cn.appliedToInvoiceAmount ?? cn.appliedAmount ?? 0;
                       const refundedAmt = cn.refundedAmount ?? 0;
-                      const label = refundedAmt > 0 && appliedAmt > 0
-                        ? `Credit note applied — ${fmt(appliedAmt)} to invoice + ${fmt(refundedAmt)} refunded`
-                        : refundedAmt > 0
-                        ? `Credit note refunded as cash — ${fmt(refundedAmt)}`
-                        : `Credit note applied — ${fmt(appliedAmt)}`;
+                      const grandTotal  = cn.totals?.grandTotal ?? cn.grandTotal ?? 0;
+                      const statusLabel = {
+                        draft:            `Credit note created (draft) — ${fmt(grandTotal)}`,
+                        pending_approval: `Credit note submitted for approval — ${fmt(grandTotal)}`,
+                        approved:         `Credit note approved — ${fmt(grandTotal)} available`,
+                        applied:          refundedAmt > 0 && invoiceAmt > 0
+                                            ? `Credit note applied — ${fmt(invoiceAmt)} to invoice + ${fmt(refundedAmt)} refunded`
+                                            : refundedAmt > 0
+                                            ? `Credit note refunded as cash — ${fmt(refundedAmt)}`
+                                            : `Credit note applied — ${fmt(invoiceAmt)}`,
+                        closed:           `Credit note fully applied — ${fmt(invoiceAmt || grandTotal)}`,
+                        void:             `Credit note voided`,
+                      }[cn.status] || `Credit note (${cn.status}) — ${fmt(grandTotal)}`;
+                      const dotColor = { draft:"#94a3b8", pending_approval:"#f59e0b", approved:"#8b5cf6", applied:"#3b82f6", closed:"#10b981", void:"#ef4444" }[cn.status] || "#64748b";
                       return {
                         date: new Date(cn.updatedAt || cn.createdAt || 0),
-                        dot: "#3b82f6",
-                        label,
+                        dot: dotColor,
+                        label: statusLabel,
                         sub: [
                           cn.creditNoteNumber,
                           cn.updatedAt ? new Date(cn.updatedAt).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : null,
@@ -1847,7 +1874,7 @@ const Invoices = () => {
 
               {/* Info banner */}
               <div style={{ padding: "10px 13px", borderRadius: 8, background: "rgba(168,85,247,0.07)", border: "1px solid rgba(168,85,247,0.2)", fontSize: 12, color: "#a855f7", marginBottom: 18 }}>
-                {returnMode === "credit" && "Stock restored. Draft credit note created — approve + apply it to reduce a future invoice."}
+                {returnMode === "credit" && "Stock restored. Credit note created and applied to invoice automatically."}
                 {returnMode === "reduce" && "Stock restored. Invoice balance reduced by the return amount."}
               </div>
 

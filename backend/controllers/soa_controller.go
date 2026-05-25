@@ -130,10 +130,11 @@ func GetStatementOfAccount() gin.HandlerFunc {
 		// Credit notes reduce the customer's balance but don't create payment
 		// records, so they must be included separately as credit entries.
 		cnCursor, err := creditNoteCol.Find(ctx, bson.M{
-			"orgId":      orgID,
-			"customerId": customerIDStr,
-			"date":       bson.M{"$gte": startStr, "$lte": endStr},
-			"status":     bson.M{"$in": []string{"applied", "closed"}},
+			"orgId":        orgID,
+			"customerId":   customerIDStr,
+			"date":         bson.M{"$gte": startStr, "$lte": endStr},
+			"status":       bson.M{"$in": []string{"applied", "closed"}},
+			"appliedAmount": bson.M{"$gt": 0},
 		})
 		if err == nil {
 			defer cnCursor.Close(ctx)
@@ -191,10 +192,11 @@ func GetStatementOfAccount() gin.HandlerFunc {
 		}
 
 		cnBeforeCursor, _ := creditNoteCol.Find(ctx, bson.M{
-			"orgId":      orgID,
-			"customerId": customerIDStr,
-			"date":       bson.M{"$lt": startStr},
-			"status":     bson.M{"$in": []string{"applied", "closed"}},
+			"orgId":        orgID,
+			"customerId":   customerIDStr,
+			"date":         bson.M{"$lt": startStr},
+			"status":       bson.M{"$in": []string{"applied", "closed"}},
+			"appliedAmount": bson.M{"$gt": 0},
 		})
 		if cnBeforeCursor != nil {
 			defer cnBeforeCursor.Close(ctx)
@@ -247,8 +249,13 @@ func GetStatementOfAccount() gin.HandlerFunc {
 	}
 }
 
-// soaCNTotal reads grandTotal from credit_notes.totals.grandTotal
+// soaCNTotal returns the amount actually applied from a credit note.
+// Uses appliedAmount (total applied across invoices) rather than grandTotal.
 func soaCNTotal(cn bson.M) float64 {
+	if v, ok := cn["appliedAmount"].(float64); ok && v > 0 {
+		return v
+	}
+	// fallback: full grand total for legacy records without appliedAmount
 	if totals, ok := cn["totals"].(bson.M); ok {
 		if gt, ok := totals["grandTotal"].(float64); ok {
 			return gt

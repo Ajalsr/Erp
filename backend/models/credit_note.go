@@ -18,6 +18,7 @@ type CreditNote struct {
 	CustomerID   string `json:"customerId"   bson:"customerId"`
 	CustomerName string `json:"customerName" bson:"customerName"`
 
+	CnType       string       `json:"cnType,omitempty" bson:"cnType,omitempty"` // return_of_goods | price_adjustment | billing_error | service_not_delivered | courtesy_credit | other
 	Date         string       `json:"date"         bson:"date"`
 	Reason       string       `json:"reason"       bson:"reason"`
 	LineItems    []CNLineItem `json:"lineItems"    bson:"lineItems"`

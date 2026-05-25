@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   FaPrint, FaFileDownload, FaTruck, FaBoxOpen,
@@ -158,6 +159,8 @@ export default function DeliveryNote() {
   const [botPadPx,         setBotPadPx]         = useState(0);
   const [sendLoading,      setSendLoading]      = useState(false);
   const [confirmLoading,   setConfirmLoading]   = useState(false);
+  const [deliverLoading,   setDeliverLoading]   = useState(false);
+  const [deliverConfirm,   setDeliverConfirm]   = useState(false);
   const [toast,            setToast]            = useState(null);
   const [printPreview,     setPrintPreview]     = useState(false);
   const [mounted,          setMounted]          = useState(false);
@@ -247,12 +250,9 @@ export default function DeliveryNote() {
   const handleConfirmDispatch = async () => {
     setConfirmLoading(true);
     try {
-      await Promise.allSettled(
-        items.filter((i) => i.itemId && i.outboundQuantity > 0)
-          .map((i) => api.patch(`/api/stocks/${i.itemId}/reduce`, { reduceBy: i.outboundQuantity }))
-      );
-      const soIds = [...new Set(items.map((i) => i.salesOrderId).filter(Boolean))];
-      await Promise.allSettled(soIds.map((sid) => api.patch(`/api/sales-orders/${sid}/status`, { status: 'completed' })));
+      if (note.status === 'draft') {
+        await api.patch(`/api/delivery-notes/${note._id}/status`, { status: 'confirmed' });
+      }
       await api.patch(`/api/delivery-notes/${note._id}/status`, { status: 'dispatched' });
       setNote((p) => ({ ...p, status: 'dispatched' }));
       showToast('Dispatch confirmed — stock updated!', '✅');
@@ -261,11 +261,14 @@ export default function DeliveryNote() {
   };
 
   const handleMarkDelivered = async () => {
+    setDeliverConfirm(false);
+    setDeliverLoading(true);
     try {
       await api.patch(`/api/delivery-notes/${note._id}/status`, { status: 'delivered' });
-      setNote((p) => ({ ...p, status: 'delivered' }));
+      setNote((p) => ({ ...p, status: 'delivered', deliveredAt: new Date().toISOString() }));
       showToast('Marked as delivered!', '✅');
     } catch { showToast('Failed to update status.', '❌'); }
+    finally { setDeliverLoading(false); }
   };
 
   const handleCreateInvoice = () => {
@@ -310,9 +313,9 @@ export default function DeliveryNote() {
         </button>
       )}
       {isDispatched && !isDelivered && (
-        <button className="dn-btn" onClick={handleMarkDelivered}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>
-          <FaCheckCircle size={11} /> Mark Delivered
+        <button className="dn-btn" onClick={() => setDeliverConfirm(true)} disabled={deliverLoading}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', cursor: deliverLoading ? 'not-allowed' : 'pointer' }}>
+          {deliverLoading ? <><FaSpinner size={11} className="dn-spin" /> Updating…</> : <><FaCheckCircle size={11} /> Mark Delivered</>}
         </button>
       )}
       {note.invoiceId ? (
@@ -494,6 +497,34 @@ export default function DeliveryNote() {
     <>
       <style>{pageCss(isDark)}</style>
       {toast && <div className="dn-toast"><span>{toast.icon}</span><span>{toast.msg}</span></div>}
+
+      {deliverConfirm && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif" }}>
+          <div style={{ background: isDark ? '#1e2433' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)'}`, borderRadius: 16, padding: '32px 28px', width: 380, boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <FaCheckCircle size={16} color="#10b981" />
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: isDark ? '#f1f5f9' : '#0f172a' }}>Confirm Delivery</div>
+            </div>
+            <div style={{ fontSize: 13, color: isDark ? '#94a3b8' : '#64748b', marginBottom: 24, lineHeight: 1.7, paddingLeft: 46 }}>
+              Mark <strong style={{ color: isDark ? '#e2e8f0' : '#1e293b' }}>{note.dnNumber}</strong> as delivered?<br />
+              This cannot be undone and will finalize the delivery.
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeliverConfirm(false)}
+                style={{ padding: '9px 20px', borderRadius: 9, border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'}`, background: 'transparent', color: isDark ? '#cbd5e1' : '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleMarkDelivered}
+                style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.35)' }}>
+                Yes, Mark Delivered
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       <div className={`dn-root${mounted ? ' dn-mounted' : ''}`}
         style={{ minHeight: 'calc(100vh - 56px)', background: T.bg, color: T.textPri }}>

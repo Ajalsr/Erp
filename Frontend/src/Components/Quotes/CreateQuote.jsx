@@ -99,7 +99,7 @@ const Btn = ({ v = "ghost", style, children, ...r }) => {
 };
 
 /* ─── Customer Select ───────────────────────────────────────────────────── */
-const CustomerSelect = ({ value, onChange, options, name }) => {
+const CustomerSelect = ({ value, onChange, options, name, disabled }) => {
   const T = useT();
   const [open, setOpen]       = useState(false);
   const [ready, setReady]     = useState(false);
@@ -120,6 +120,7 @@ const CustomerSelect = ({ value, onChange, options, name }) => {
   }, [options.length]);
 
   const handleOpen = () => {
+    if (disabled) return;
     if (open) { setOpen(false); setReady(false); return; }
     setReady(false); setOpen(true);
     rafRef.current = requestAnimationFrame(() => rafRef.current = requestAnimationFrame(measure));
@@ -149,12 +150,13 @@ const CustomerSelect = ({ value, onChange, options, name }) => {
   return (
     <>
       <div ref={trigRef} onClick={handleOpen} style={{
-        background: T.input, border: `1px solid ${T.border}`, borderRadius: 7,
-        padding: "8px 12px", cursor: "pointer", fontSize: 13, color: selected ? T.text : T.muted,
+        background: disabled ? T.surface : T.input, border: `1px solid ${T.border}`, borderRadius: 7,
+        padding: "8px 12px", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13,
+        color: selected ? T.text : T.muted, opacity: disabled ? 0.7 : 1,
         display: "flex", justifyContent: "space-between", alignItems: "center",
       }}>
         <span>{selected?.label || "Select customer…"}</span>
-        <span style={{ color: T.muted, fontSize: 10 }}>▾</span>
+        {!disabled && <span style={{ color: T.muted, fontSize: 10 }}>▾</span>}
       </div>
       {open && createPortal(
         <div ref={dropRef} style={{
@@ -554,7 +556,7 @@ export default function CreateQuote() {
           <Section title="Quote Details">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Customer *">
-                <CustomerSelect value={customerId} onChange={handleCustomer} options={customerOpts} name="customerId" />
+                <CustomerSelect value={customerId} onChange={handleCustomer} options={customerOpts} name="customerId" disabled={!!fromEnquiry} />
               </Field>
               <Field label="Customer Email">
                 <Inp value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" type="email" />

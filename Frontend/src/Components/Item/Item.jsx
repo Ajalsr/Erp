@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   FaPlus, FaTimes, FaSearch, FaBox, FaTag, FaLayerGroup,
-  FaExclamationTriangle, FaCheckCircle, FaBarcode, FaCubes, FaIndustry, FaRuler,
-  FaEdit, FaSlidersH, FaArrowDown, FaArrowUp, FaMagic, FaCopy, FaPrint, FaFileInvoice,
+  FaExclamationTriangle, FaCheckCircle, FaBarcode, FaCubes, FaIndustry,
+  FaEdit, FaArrowDown, FaArrowUp, FaMagic, FaCopy, FaPrint, FaFileInvoice,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
@@ -70,8 +70,11 @@ export default function Item() {
       .catch(() => setAvailability({}));
   }, [selectedItem?._id]);
 
+  const [itemAdjustments,    setItemAdjustments]    = useState([]);
+  const [adjLoading,         setAdjLoading]         = useState(false);
+
   useEffect(() => {
-    if (!selectedItem?._id || (activeTab !== "transactions" && activeTab !== "history")) return;
+    if (!selectedItem?._id || (activeTab !== "transactions" && activeTab !== "history" && activeTab !== "overview")) return;
     setOrdersLoading(true);
     Promise.allSettled([
       axiosInstance.get("/api/sales-orders/getsaleorder?limit=500"),
@@ -89,6 +92,18 @@ export default function Item() {
       });
       setItemOrders([...sales,...purchases].sort((a,b)=>new Date(a.date)-new Date(b.date)));
     }).finally(()=>setOrdersLoading(false));
+  }, [activeTab, selectedItem]);
+
+  useEffect(() => {
+    if (!selectedItem?._id || activeTab !== "history") return;
+    setAdjLoading(true);
+    axiosInstance.get(`/api/inventory/adjustments/?itemId=${selectedItem._id}&limit=500`)
+      .then(res => {
+        const adjs = res.data?.data || res.data?.adjustments || [];
+        setItemAdjustments(adjs.map(a => ({ ...a, _source: "adj" })));
+      })
+      .catch(() => setItemAdjustments([]))
+      .finally(() => setAdjLoading(false));
   }, [activeTab, selectedItem]);
 
   const allItems = Array.isArray(data) ? data : [];
@@ -386,6 +401,7 @@ export default function Item() {
               text={text} muted={muted} bg={bg}
               activeTab={activeTab} setActiveTab={setActiveTab}
               itemOrders={itemOrders} ordersLoading={ordersLoading}
+              itemAdjustments={itemAdjustments} adjLoading={adjLoading}
               requested={availability.requested ?? 0}
               onClose={closePanel}
               onAdjust={(item)=>{setAdjustItem(item);setAdjustQty(String(item.quantity??0));}}
@@ -453,7 +469,7 @@ function MiniSparkline({ vals, color }) {
 }
 
 /* ─── Detail panel ────────────────────────────────────────────────────── */
-function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, requested, onClose, onAdjust, onEdit }) {
+function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, itemAdjustments, adjLoading, requested, onClose, onAdjust, onEdit }) {
   const state = stockState(item.quantity, item.reorder_point);
   const qty   = parseFloat(item.quantity || 0);
   const reo   = parseFloat(item.reorder_point || 0);
@@ -616,7 +632,7 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
           <OverviewTab item={item} T={T} isDark={isDark} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders}/>
         )}
         {(activeTab==="transactions"||activeTab==="history")&&(
-          <TxnHistoryTab activeTab={activeTab} item={item} T={T} isDark={isDark} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} ordersLoading={ordersLoading}/>
+          <TxnHistoryTab activeTab={activeTab} item={item} T={T} isDark={isDark} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} ordersLoading={ordersLoading} itemAdjustments={itemAdjustments} adjLoading={adjLoading}/>
         )}
       </div>
     </div>
@@ -775,7 +791,7 @@ function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, i
 }
 
 /* ─── Transactions / History tab ─────────────────────────────────────── */
-function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, text, muted, itemOrders, ordersLoading }) {
+function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, text, muted, itemOrders, ordersLoading, itemAdjustments, adjLoading }) {
   void surface2;
   const fmtA=(n)=>fmtAED(n);
   const fmtD=(d)=>d?new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}):"—";
@@ -785,24 +801,42 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
   };
   const sc=(s)=>SC[s]||SC.draft;
 
-  if(ordersLoading) return <div style={{textAlign:"center",padding:"48px 0",color:muted,fontSize:13}}>Loading…</div>;
-
   if(activeTab==="history"){
-    const timeline=[...itemOrders].sort((a,b)=>new Date(a.date)-new Date(b.date));
-    if(itemOrders.length===0) return <Empty text icon={<FaBarcode size={22}/>} title="No History" sub="Stock movements appear once orders are placed." T={T} muted={muted}/>;
+    if(ordersLoading||adjLoading) return <div style={{textAlign:"center",padding:"48px 0",color:muted,fontSize:13}}>Loading…</div>;
+    const REASON_LABEL = { sale:"Sale (Dispatched)", return:"Sales Return", purchase:"Purchase", damaged:"Damaged", expired:"Expired", found:"Found", correction:"Correction", transfer:"Transfer", other:"Other" };
+    // Map SO/PO orders to timeline entries
+    const orderEntries = itemOrders.map(o=>({
+      _id:`order-${o.id}`,
+      type: o.type==="purchase"?"increase":"decrease",
+      quantity: o.qty,
+      reason: o.type==="purchase"?"purchase":"sale",
+      reference: o.orderNumber,
+      partyName: o.partyName,
+      adjustedAt: o.date||o.createdAt,
+    }));
+    // Merge with real manual adjustment records
+    const histEntries = [...orderEntries, ...itemAdjustments]
+      .sort((a,b)=>new Date(a.adjustedAt||a.createdAt)-new Date(b.adjustedAt||b.createdAt));
+    if(!histEntries.length) return <Empty text icon={<FaBarcode size={22}/>} title="No History" sub="Stock movements appear here after dispatches and adjustments." T={T} muted={muted}/>;
     return (
       <div style={{padding:"20px 24px",display:"flex",flexDirection:"column",gap:0}}>
         <TLine dotColor={T.green} text={text} muted={muted} border={border} label="Opening Stock" sub={`${item.opening_stock||0} units · Initial inventory`}/>
-        {timeline.map((o,i)=>{
-          const isP=o.type==="purchase", isR=o.type==="sale"&&o.status==="cancelled";
-          return <TLine key={o.id||i} dotColor={isP?T.green:isR?T.blue:T.amber} text={text} muted={muted} border={border}
-            label={<>{isP?"Stock Received":isR?"Stock Returned":"Stock Reduced"} — <span style={{fontFamily:"monospace",color:isP||isR?T.green:T.red}}>{isP||isR?"+":"−"}{o.qty} units</span></>}
-            sub={`${fmtD(o.date)} · ${o.orderNumber} · ${o.partyName}`}/>;
+        {histEntries.map((a,i)=>{
+          const isInc = a.type==="increase";
+          const dotColor = isInc ? T.green : T.red;
+          const label = REASON_LABEL[a.reason] || a.reason || "Adjustment";
+          const qty = a.quantity ?? 0;
+          const partyPart = a.partyName ? ` · ${a.partyName}` : "";
+          return <TLine key={a._id||i} dotColor={dotColor} text={text} muted={muted} border={border}
+            label={<>{label} — <span style={{fontFamily:"monospace",color:dotColor}}>{isInc?"+":"−"}{qty} units</span></>}
+            sub={`${fmtD(a.adjustedAt||a.createdAt)}${a.reference?" · "+a.reference:""}${partyPart}`}/>;
         })}
         <TLine dotColor={T.blue} text={text} muted={muted} border={border} label="Current Stock" sub={`${item.quantity||0} units remaining`} isLast/>
       </div>
     );
   }
+
+  if(ordersLoading) return <div style={{textAlign:"center",padding:"48px 0",color:muted,fontSize:13}}>Loading…</div>;
 
   const sales=itemOrders.filter(o=>o.type==="sale"), purchases=itemOrders.filter(o=>o.type==="purchase");
   if(itemOrders.length===0) return <Empty icon={<FaBox size={22}/>} title="No Transactions" sub="Sales and purchase orders appear here." T={T} muted={muted}/>;

@@ -116,7 +116,7 @@ func CreateCreditNote() gin.HandlerFunc {
 		body.Totals = calcCNTotals(body.LineItems)
 		body.VATBreakdown = calcVATBreakdown(body.LineItems)
 
-		// Validate against source document balance
+		// Validate source document exists (no balance cap — paid invoices can still be credited as refunds)
 		if body.SourceDocID != "" {
 			srcID, err := primitive.ObjectIDFromHex(body.SourceDocID)
 			if err != nil {
@@ -128,9 +128,10 @@ func CreateCreditNote() gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{"message": "source invoice not found"})
 				return
 			}
-			if body.Totals.GrandTotal > inv.BalanceDue+0.005 {
+			// CN total must not exceed the invoice grand total (not balance due — paid invoices are valid returns)
+			if body.Totals.GrandTotal > inv.Totals.GrandTotal+0.005 {
 				c.JSON(http.StatusBadRequest, gin.H{
-					"message": fmt.Sprintf("credit note total (%.2f) exceeds invoice balance due (%.2f)", body.Totals.GrandTotal, inv.BalanceDue),
+					"message": fmt.Sprintf("credit note total (%.2f) exceeds invoice total (%.2f)", body.Totals.GrandTotal, inv.Totals.GrandTotal),
 				})
 				return
 			}
@@ -138,7 +139,6 @@ func CreateCreditNote() gin.HandlerFunc {
 
 		body.CreditNoteNumber = nextCNNumber(ctx, orgID.(string))
 		body.OrgID = orgID.(string)
-		body.Status = "draft"
 		body.CreatedAt = time.Now()
 		body.UpdatedAt = time.Now()
 		if userID != nil {
@@ -151,6 +151,54 @@ func CreateCreditNote() gin.HandlerFunc {
 		oid := primitive.NewObjectID()
 		body.ID = oid.Hex()
 
+		// When raised directly from an invoice, auto-apply immediately.
+		// CN is created as "approved" then applied in the same request.
+		cnTotal := body.Totals.GrandTotal
+		appliedAmt := 0.0
+		remainingAmt := cnTotal
+		cnStatus := "draft"
+
+		var newInvBalance, newInvPaid float64
+		var newInvStatus string
+		var invOID primitive.ObjectID
+
+		if body.SourceDocID != "" {
+			invOID, _ = primitive.ObjectIDFromHex(body.SourceDocID)
+			var inv models.Invoice
+			if err := invoiceCollection.FindOne(ctx, bson.M{"_id": invOID, "orgId": orgID}).Decode(&inv); err == nil {
+				if inv.BalanceDue > 0.005 {
+					// Unpaid/partial invoice — reduce balance
+					applyAmt := cnTotal
+					if applyAmt > inv.BalanceDue {
+						applyAmt = inv.BalanceDue
+					}
+					appliedAmt = round2(applyAmt)
+					remainingAmt = round2(cnTotal - appliedAmt)
+					newInvBalance = round2(inv.BalanceDue - appliedAmt)
+					newInvPaid = round2(inv.AmountPaid + appliedAmt)
+					newInvStatus = "partial"
+					if newInvBalance <= 0 {
+						newInvBalance = 0
+						newInvStatus = "paid"
+					}
+					if remainingAmt <= 0 {
+						cnStatus = "closed"
+					} else {
+						cnStatus = "approved"
+					}
+				} else {
+					// Paid invoice — CN becomes a pure refund credit, no balance to reduce
+					appliedAmt = 0
+					remainingAmt = cnTotal
+					cnStatus = "approved"
+				}
+			} else {
+				cnStatus = "draft"
+			}
+		} else {
+			cnStatus = "draft"
+		}
+
 		doc := bson.M{
 			"_id":              oid,
 			"creditNoteNumber": body.CreditNoteNumber,
@@ -159,14 +207,15 @@ func CreateCreditNote() gin.HandlerFunc {
 			"sourceDocNumber":  body.SourceDocNumber,
 			"customerId":       body.CustomerID,
 			"customerName":     body.CustomerName,
+			"cnType":           body.CnType,
 			"date":             body.Date,
 			"reason":           body.Reason,
 			"lineItems":        body.LineItems,
 			"totals":           body.Totals,
 			"vatBreakdown":     body.VATBreakdown,
-			"status":           body.Status,
-			"remainingAmount":  body.Totals.GrandTotal,
-			"appliedAmount":    0.0,
+			"status":           cnStatus,
+			"remainingAmount":  remainingAmt,
+			"appliedAmount":    appliedAmt,
 			"refundedAmount":   0.0,
 			"notes":            body.Notes,
 			"orgId":            body.OrgID,
@@ -180,9 +229,25 @@ func CreateCreditNote() gin.HandlerFunc {
 			return
 		}
 
+		// Apply to invoice if raised from one
+		if body.SourceDocID != "" && appliedAmt > 0 {
+			invoiceCollection.UpdateOne(ctx, bson.M{"_id": invOID}, bson.M{"$set": bson.M{
+				"balanceDue": newInvBalance,
+				"amountPaid": newInvPaid,
+				"status":     newInvStatus,
+				"updatedAt":  time.Now(),
+			}})
+		}
+
 		c.JSON(http.StatusCreated, gin.H{
 			"message": "credit note created",
-			"data":    gin.H{"id": oid.Hex(), "creditNoteNumber": body.CreditNoteNumber},
+			"data": gin.H{
+				"id":               oid.Hex(),
+				"creditNoteNumber": body.CreditNoteNumber,
+				"appliedAmount":    appliedAmt,
+				"newInvoiceBalance": newInvBalance,
+				"invoiceStatus":    newInvStatus,
+			},
 		})
 	}
 }
@@ -378,13 +443,25 @@ func ApplyCreditNote() gin.HandlerFunc {
 
 		newRemaining  := round2(remaining - creditAmount)
 		oldApplied, _ := cn["appliedAmount"].(float64)
+		// Accumulate per-invoice applied amount (reset when invoice changes)
+		prevInvID, _ := cn["appliedToInvoiceId"].(string)
+		prevPerInvoice, _ := cn["appliedToInvoiceAmount"].(float64)
+		perInvoiceAmt := creditAmount
+		if prevInvID == sourceDocID {
+			perInvoiceAmt = round2(prevPerInvoice + creditAmount)
+		}
+
 		cnUpdate := bson.M{
-			"remainingAmount": newRemaining,
-			"appliedAmount":   round2(oldApplied + creditAmount),
-			"updatedAt":       time.Now(),
+			"remainingAmount":        newRemaining,
+			"appliedAmount":          round2(oldApplied + creditAmount),
+			"appliedToInvoiceId":     sourceDocID,
+			"appliedToInvoiceAmount": perInvoiceAmt,
+			"updatedAt":              time.Now(),
 		}
 		if newRemaining <= 0 {
 			cnUpdate["status"] = "closed"
+		} else {
+			cnUpdate["status"] = "applied"
 		}
 		if cn["sourceDocId"] == nil || cn["sourceDocId"] == "" {
 			cnUpdate["sourceDocId"]     = sourceDocID
@@ -472,7 +549,13 @@ func GetCreditNotesByInvoice() gin.HandlerFunc {
 		invoiceID := c.Param("invoiceId")
 
 		opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})
-		cursor, err := creditNoteCollection.Find(ctx, bson.M{"orgId": orgID, "sourceDocId": invoiceID}, opts)
+		cursor, err := creditNoteCollection.Find(ctx, bson.M{
+			"orgId": orgID,
+			"$or":   []bson.M{
+				{"sourceDocId":         invoiceID},
+				{"appliedToInvoiceId":  invoiceID},
+			},
+		}, opts)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "failed to fetch credit notes"})
 			return

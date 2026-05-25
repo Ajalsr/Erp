@@ -28,6 +28,7 @@ type DeliveryNote struct {
 	InvoiceNumber    string             `json:"invoiceNumber,omitempty" bson:"invoiceNumber,omitempty"`
 	// draft → confirmed → dispatched → delivered
 	Status           string             `json:"status"                  bson:"status"`
+	DeliveredAt      *time.Time         `json:"deliveredAt,omitempty"   bson:"deliveredAt,omitempty"`
 	SubTotal         float64            `json:"subTotal"                bson:"subTotal"`
 	TotalDiscount    float64            `json:"totalDiscount"           bson:"totalDiscount"`
 	TotalTax         float64            `json:"totalTax"                bson:"totalTax"`

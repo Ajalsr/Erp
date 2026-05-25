@@ -46,6 +46,23 @@ const VAT_RATE = 5;
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 const today = () => new Date().toISOString().split("T")[0];
 const net30  = () => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().split("T")[0]; };
+const TERMS_DAYS = { "Due on Receipt": 0, "Net 7": 7, "Net 15": 15, "Net 30": 30, "Net 45": 45, "Net 60": 60, "Net 90": 90 };
+const SO_TO_INV_TERMS = {
+  due_on_receipt: "Due on Receipt", net_7: "Net 7", net_10: "Net 7", net_15: "Net 15",
+  net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", net_90: "Net 90",
+  prepaid: "100% Advance", cod: "Due on Receipt", eom: "Net 30",
+  "2_10_net_30": "Net 30", "15_eom": "Net 30", "30_eom": "Net 30", letter_of_credit: "Net 30",
+};
+const calcDueDate = (issueDateStr, terms, customDays) => {
+  let days = TERMS_DAYS[terms];
+  if (days === undefined) {
+    if (terms === "Custom" && customDays > 0) days = customDays;
+    else return null; // unknown terms, no custom days — don't override
+  }
+  const d = new Date(issueDateStr || today());
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+};
 const p      = (v)  => parseFloat(v) || 0;
 let _id = 0;
 const uid = () => ++_id;
@@ -128,7 +145,7 @@ const Btn = ({ v = "ghost", style, children, ...r }) => {
 };
 
 /* ─── Customer Select ───────────────────────────────────────────────────── */
-const CustomerSelect = ({ value, onChange, options, name }) => {
+const CustomerSelect = ({ value, onChange, options, name, disabled }) => {
   const T = useT();
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
@@ -150,6 +167,7 @@ const CustomerSelect = ({ value, onChange, options, name }) => {
   }, [options.length]);
 
   const handleOpen = () => {
+    if (disabled) return;
     if (open) { setOpen(false); setReady(false); return; }
     setReady(false); setOpen(true);
     rafRef.current = requestAnimationFrame(() => {
@@ -220,7 +238,9 @@ const CustomerSelect = ({ value, onChange, options, name }) => {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         height: 36, padding: '0 12px', width: '100%', boxSizing: 'border-box',
         border: `1.5px solid ${open ? `${T.accent}88` : T.border}`,
-        borderRadius: 7, background: T.input, cursor: 'pointer', userSelect: 'none',
+        borderRadius: 7, background: disabled ? `${T.surface2}` : T.input,
+        cursor: disabled ? 'not-allowed' : 'pointer', userSelect: 'none',
+        opacity: disabled ? 0.7 : 1,
         boxShadow: open ? `0 0 0 3px ${T.accent}14` : 'none',
         transition: 'border-color 0.15s, box-shadow 0.15s',
       }}>
@@ -422,33 +442,66 @@ const CreateInvoice = () => {
     if (!state?.fromDeliveryNote) return;
     const { prefill } = state;
     const cid = prefill?.customerId;
+
+    const applyFields = (c) => {
+      setCustomerId(c._id);
+      setCustName(c.customerDisplayName || c.companyName || "");
+      setCustAddr(fmtCustAddr(c));
+      setCustTrn(c.custom_fields?.trlNumber || c.customFields?.trlNumber || "");
+      const custTerms = c.payment_terms || c.paymentTerms;
+      if (custTerms) setTerms(custTerms);
+    };
+
     if (!cid) {
-      // fallback: name match from loaded customers list
       const targetName = (prefill?.customer || "").toLowerCase();
       if (!targetName || !customersData.length) return;
       const match = customersData.find(c => (c.customerDisplayName || c.companyName || "").toLowerCase() === targetName);
-      if (match) { setCustomerId(match._id); setCustName(match.customerDisplayName || match.companyName || ""); setCustAddr(fmtCustAddr(match)); setCustTrn(match.custom_fields?.trlNumber || ""); }
-      else { setCustName(prefill?.customer || ""); }
+      if (match) applyFields(match);
+      else setCustName(prefill?.customer || "");
       return;
     }
-    // Fetch customer by ID directly
     axiosInstance.get(`/api/customers/${cid}`)
-      .then(res => {
-        const c = res.data?.data || res.data;
-        if (!c) return;
-        setCustomerId(c._id);
-        setCustName(c.customerDisplayName || c.companyName || "");
-        setCustAddr(fmtCustAddr(c));
-        setCustTrn(c.custom_fields?.trlNumber || c.customFields?.trlNumber || "");
-      })
+      .then(res => { const c = res.data?.data || res.data; if (c) applyFields(c); })
       .catch(() => { setCustName(prefill?.customer || ""); });
   }, [location.state, customersData]);
 
-  const applyCustomer = (c) => {
+  const isFromDN = !!location.state?.fromDeliveryNote;
+
+  // When creating invoice from DN: fetch first linked SO and apply its payment terms
+  useEffect(() => {
+    if (!isFromDN) return;
+    const soIds = location.state?.prefill?.salesOrderIds || [];
+    if (!soIds.length) return;
+    axiosInstance.get(`/api/sales-orders/${soIds[0]}`)
+      .then(res => {
+        const so = res.data?.data || res.data;
+        const soTerms = so?.paymentTerms || so?.payment_terms;
+        if (!soTerms) return;
+        const invTerms = SO_TO_INV_TERMS[soTerms] || SO_TO_INV_TERMS[soTerms?.toLowerCase().replace(/ /g,'_')] || "Net 30";
+        setTerms(invTerms);
+      })
+      .catch(() => {});
+  }, [isFromDN]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-recalc due date when terms or issue date changes (skip "Custom")
+  useEffect(() => {
+    const due = calcDueDate(issueDate, terms);
+    if (due) setDueDate(due);
+  }, [terms, issueDate]);
+
+  const applyCustomer = (c, skipTerms = false) => {
     if (!c) return;
     setCustName(c.customerDisplayName || c.companyName || "");
     setCustAddr(fmtCustAddr(c));
     setCustTrn(c.custom_fields?.trlNumber || c.customFields?.trlNumber || "");
+    if (skipTerms) return;
+    const custTerms = c.payment_terms || c.paymentTerms;
+    if (custTerms) {
+      setTerms(custTerms);
+      const customDays = parseFloat(c.no_of_days) || 0;
+      const due = calcDueDate(issueDate, custTerms, customDays);
+      if (due) setDueDate(due);
+    }
   };
 
   const handleCustomerChange = async (e) => {
@@ -618,7 +671,7 @@ const CreateInvoice = () => {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <Field label="Invoice #"><Inp value={invoiceNumber} readOnly style={{ color: T.muted }} /></Field>
                 <Field label="Issue Date"><Inp type="date" value={issueDate} onChange={e => setIssueDate(e.target.value)} /></Field>
-                <Field label="Due Date"><Inp type="date" value={dueDate}   onChange={e => setDueDate(e.target.value)} /></Field>
+                <Field label="Due Date"><Inp type="date" value={dueDate} onChange={e => { if (!isFromDN) setDueDate(e.target.value); }} readOnly={isFromDN} style={isFromDN ? { color: T.muted, cursor: "not-allowed", opacity: 0.7 } : {}} /></Field>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Field label="Currency">
@@ -627,8 +680,8 @@ const CreateInvoice = () => {
                   </Sel>
                 </Field>
                 <Field label="Payment Terms">
-                  <Sel value={terms} onChange={e => setTerms(e.target.value)}>
-                    {["Net 30","Net 15","Net 60","Due on Receipt","Custom"].map(t => <option key={t}>{t}</option>)}
+                  <Sel value={terms} onChange={e => { if (!isFromDN) setTerms(e.target.value); }} disabled={isFromDN} style={isFromDN ? { opacity: 0.7, cursor: "not-allowed" } : {}}>
+                    {["Due on Receipt","Net 7","Net 15","Net 30","Net 45","Net 60","Net 90","50% Advance","100% Advance","Custom"].map(t => <option key={t}>{t}</option>)}
                   </Sel>
                 </Field>
               </div>
@@ -654,6 +707,7 @@ const CreateInvoice = () => {
                         name="customerId"
                         value={customerId}
                         onChange={handleCustomerChange}
+                        disabled={isFromDN}
                         options={[
                           { value: "", label: "— Select customer —", customer: null },
                           ...customersData.map(c => ({ value: c._id, label: c.customerDisplayName || c.companyName, customer: c })),

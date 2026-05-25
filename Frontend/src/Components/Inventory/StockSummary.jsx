@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FaSearch, FaBoxOpen, FaExclamationTriangle } from 'react-icons/fa';
+import { FaSearch, FaBoxOpen, FaExclamationTriangle, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import { IoClose } from 'react-icons/io5';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -25,7 +25,10 @@ export default function StockSummary() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
-  const [drawer, setDrawer] = useState(null);
+  const [drawer, setDrawer]       = useState(null);
+  const [drawerTab, setDrawerTab] = useState('details');
+  const [history, setHistory]     = useState([]);
+  const [histLoading, setHistLoading] = useState(false);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -40,6 +43,22 @@ export default function StockSummary() {
   }, []);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  // Reset tab + fetch history when drawer item changes
+  useEffect(() => {
+    if (!drawer) { setHistory([]); setDrawerTab('details'); return; }
+    setDrawerTab('details');
+    setHistory([]);
+  }, [drawer?._id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadHistory = useCallback(async (itemId) => {
+    setHistLoading(true);
+    try {
+      const res = await axiosInstance.get(`/api/inventory/adjustments/?itemId=${itemId}`);
+      setHistory(res.data?.data?.adjustments || []);
+    } catch { setHistory([]); }
+    finally { setHistLoading(false); }
+  }, []);
 
   const enriched = items.map(item => {
     const qty     = parseFloat(item.quantity || 0);
@@ -59,7 +78,7 @@ export default function StockSummary() {
   const lowStock    = enriched.filter(i => i.status === 'low_stock').length;
   const outOfStock  = enriched.filter(i => i.status === 'out').length;
 
-  const s = (key, shade) => isDark ? STATUS[key].bg : STATUS[key].bgL;
+  const s = (key) => isDark ? STATUS[key].bg : STATUS[key].bgL;
 
   return (
     <div style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px', fontFamily: "'DM Sans',sans-serif" }}>
@@ -156,36 +175,100 @@ export default function StockSummary() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', justifyContent: 'flex-end' }} onClick={() => setDrawer(null)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
           <div onClick={e => e.stopPropagation()}
-            style={{ position: 'relative', width: 360, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri, margin: 0 }}>Stock Detail</h2>
-              <button onClick={() => setDrawer(null)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}><IoClose size={14} /></button>
+            style={{ position: 'relative', width: 400, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, display: 'flex', flexDirection: 'column', zIndex: 1 }}>
+
+            {/* Header */}
+            <div style={{ padding: '18px 22px 0', borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri, margin: 0 }}>{drawer.name}</h2>
+                <button onClick={() => setDrawer(null)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}><IoClose size={14} /></button>
+              </div>
+              {/* Tabs */}
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[['details','Details'],['history','History']].map(([tab, label]) => (
+                  <button key={tab} onClick={() => { setDrawerTab(tab); if (tab === 'history' && history.length === 0) loadHistory(drawer._id); }}
+                    style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, border: 'none', background: 'transparent', cursor: 'pointer', color: drawerTab === tab ? '#3b82f6' : T.textSec, borderBottom: `2px solid ${drawerTab === tab ? '#3b82f6' : 'transparent'}`, fontFamily: 'inherit', marginBottom: -1, transition: 'all .15s' }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-            {/* Stock bar */}
-            <div style={{ padding: 16, background: isDark ? STATUS[drawer.status].bg : STATUS[drawer.status].bgL, borderRadius: 12, marginBottom: 18 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <p style={{ fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>{drawer.name}</p>
-                <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: STATUS[drawer.status].color }}>{drawer.qty} {drawer.unit}</span>
-              </div>
-              <div style={{ height: 6, background: isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 999, background: STATUS[drawer.status].color, width: drawer.reorder > 0 ? `${Math.min((drawer.qty / (drawer.reorder * 2)) * 100, 100)}%` : drawer.qty > 0 ? '60%' : '0%', transition: 'width .4s' }} />
-              </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
+              {drawerTab === 'details' && (
+                <>
+                  {/* Stock bar */}
+                  <div style={{ padding: 16, background: isDark ? STATUS[drawer.status].bg : STATUS[drawer.status].bgL, borderRadius: 12, marginBottom: 18 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: STATUS[drawer.status].color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{STATUS[drawer.status].label}</span>
+                      <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: STATUS[drawer.status].color }}>{drawer.qty} {drawer.unit}</span>
+                    </div>
+                    <div style={{ height: 6, background: isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', borderRadius: 999, background: STATUS[drawer.status].color, width: drawer.reorder > 0 ? `${Math.min((drawer.qty / (drawer.reorder * 2)) * 100, 100)}%` : drawer.qty > 0 ? '60%' : '0%', transition: 'width .4s' }} />
+                    </div>
+                  </div>
+                  {[
+                    ['Item Code',    drawer.item_code || '—'],
+                    ['Category',     drawer.category  || '—'],
+                    ['Unit',         drawer.unit       || '—'],
+                    ['Qty on Hand',  drawer.qty],
+                    ['Reorder Point',drawer.reorder || '—'],
+                    ['Cost Price',   drawer.cost ? `AED ${drawer.cost.toFixed(2)}` : '—'],
+                    ['Stock Value',  `AED ${drawer.stockValue.toFixed(2)}`],
+                    ['Selling Price',drawer.selling_price ? `AED ${parseFloat(drawer.selling_price).toFixed(2)}` : '—'],
+                  ].map(([l, v]) => (
+                    <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: `1px solid ${T.border}` }}>
+                      <span style={{ fontSize: 12, color: T.textSec }}>{l}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: T.textPri, textAlign: 'right', maxWidth: '55%' }}>{v}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {drawerTab === 'history' && (
+                histLoading ? (
+                  <div style={{ textAlign: 'center', padding: '48px 0', fontSize: 13, color: T.textSec }}>Loading history…</div>
+                ) : history.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '48px 0' }}>
+                    <FaBoxOpen size={26} color={T.border} style={{ marginBottom: 10 }} />
+                    <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: '0 0 4px' }}>No history yet</p>
+                    <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Adjustments and returns will appear here.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {history.map((h, i) => {
+                      const isInc = h.type === 'increase';
+                      const color = isInc ? '#10b981' : '#ef4444';
+                      const reasonLabel = { damaged:'Damaged', expired:'Expired', found:'Found', correction:'Correction', return:'Sales Return', transfer:'Transfer', other:'Other', sale:'Sale', purchase:'Purchase' }[h.reason] || h.reason || '—';
+                      const date = h.adjustedAt || h.createdAt;
+                      return (
+                        <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 9, background: isInc ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            {isInc ? <FaArrowUp size={12} color={color} /> : <FaArrowDown size={12} color={color} />}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: T.textPri }}>{reasonLabel}</span>
+                              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color }}>{isInc ? '+' : '-'}{h.quantity}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+                              <span style={{ fontSize: 11, color: T.textSec }}>{h.reference || '—'}</span>
+                              <span style={{ fontSize: 11, color: T.textSec }}>{date ? new Date(date).toLocaleDateString('en-AE', { day:'2-digit', month:'short', year:'numeric' }) : '—'}</span>
+                            </div>
+                            {(h.previousQty !== undefined && h.newQty !== undefined) && (
+                              <div style={{ marginTop: 4, fontSize: 10, color: T.textSec }}>
+                                {h.previousQty} → <strong style={{ color: T.textPri }}>{h.newQty}</strong> {drawer.unit}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
             </div>
-            {[
-              ['Item Code', drawer.item_code || '—'],
-              ['Category',  drawer.category  || '—'],
-              ['Unit',      drawer.unit       || '—'],
-              ['Qty on Hand',    drawer.qty],
-              ['Reorder Point',  drawer.reorder || '—'],
-              ['Cost Price', drawer.cost ? `AED ${drawer.cost.toFixed(2)}` : '—'],
-              ['Stock Value', `AED ${drawer.stockValue.toFixed(2)}`],
-              ['Selling Price', drawer.selling_price ? `AED ${parseFloat(drawer.selling_price).toFixed(2)}` : '—'],
-            ].map(([l, v]) => (
-              <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: `1px solid ${T.border}` }}>
-                <span style={{ fontSize: 12, color: T.textSec }}>{l}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: T.textPri, textAlign: 'right', maxWidth: '55%' }}>{v}</span>
-              </div>
-            ))}
           </div>
         </div>
       )}

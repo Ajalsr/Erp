@@ -117,8 +117,157 @@ const CnModeSelect = ({ value, onChange, T }) => {
   );
 };
 
+const CN_TYPE_ICONS = {
+  "return_of_goods":       "📦",
+  "price_adjustment":      "🏷️",
+  "billing_error":         "🔧",
+  "service_not_delivered": "🚫",
+  "courtesy_credit":       "🎁",
+  "other":                 "📝",
+};
+const CN_TYPE_ACCENT = "#2563eb";
+
+const CnTypeSelect = ({ value, onChange, T }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const selected = CN_TYPES.find(t => t.value === value);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px", display: "flex", alignItems: "center",
+        justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${open ? CN_TYPE_ACCENT : value ? CN_TYPE_ACCENT : T.border}`,
+        borderRadius: 9, background: value ? `rgba(37,99,235,.06)` : T.surface,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? `0 0 0 3px rgba(37,99,235,.12)` : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, background: value ? "rgba(37,99,235,.15)" : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
+            {CN_TYPE_ICONS[value] || "📝"}
+          </div>
+          <span style={{ color: value ? T.textPri : T.textSec, fontWeight: value ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {selected?.label || "Select type…"}
+          </span>
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? CN_TYPE_ACCENT : T.textSec }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 9999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 48px rgba(0,0,0,.28)", overflow: "hidden" }}>
+          <div style={{ maxHeight: 260, overflowY: "auto" }}>
+            {CN_TYPES.map(t => {
+              const active = value === t.value;
+              return (
+                <div key={t.value} onClick={() => { onChange(t.value); setOpen(false); }}
+                  style={{ padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: active ? `rgba(37,99,235,.1)` : "transparent", display: "flex", alignItems: "center", gap: 10, transition: "background .1s" }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface2; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: active ? "rgba(37,99,235,.18)" : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, border: `1.5px solid ${active ? CN_TYPE_ACCENT : T.border}` }}>
+                    {CN_TYPE_ICONS[t.value]}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? CN_TYPE_ACCENT : T.textPri }}>{t.label}</div>
+                  {active && <svg style={{ marginLeft: "auto" }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={CN_TYPE_ACCENT} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const fmt = (n, cur = "AED") =>
   `${cur} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const INV_STATUS_COLOR = { unpaid: "#f59e0b", partial: "#3b82f6", overdue: "#ef4444" };
+
+const CnInvoiceSelect = ({ value, onChange, invoices, T }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const selected = invoices.find(i => i._id === value);
+  const accent = "#2563eb";
+  return (
+    <div ref={ref} style={{ position: "relative", marginBottom: 8 }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px", display: "flex", alignItems: "center",
+        justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${open ? accent : value ? accent : T.border}`,
+        borderRadius: 9, background: value ? "rgba(37,99,235,.06)" : T.surface,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? "0 0 0 3px rgba(37,99,235,.1)" : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0, flex: 1, overflow: "hidden" }}>
+          <div style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, background: value ? "rgba(37,99,235,.15)" : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
+            🧾
+          </div>
+          {selected ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", flex: 1 }}>
+              <span style={{ fontWeight: 700, color: accent, fontFamily: "'DM Mono', monospace", fontSize: 12, whiteSpace: "nowrap" }}>{selected.invoiceNumber}</span>
+              <span style={{ color: T.textSec, fontSize: 11, whiteSpace: "nowrap" }}>Due: {fmt(selected.balanceDue ?? 0)}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: `${INV_STATUS_COLOR[selected.status] ?? "#64748b"}22`, color: INV_STATUS_COLOR[selected.status] ?? "#64748b", textTransform: "capitalize", whiteSpace: "nowrap" }}>{selected.status}</span>
+            </div>
+          ) : (
+            <span style={{ color: T.textSec }}>— Select Invoice —</span>
+          )}
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? accent : T.textSec }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 9999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12, boxShadow: "0 20px 48px rgba(0,0,0,.28)", overflow: "hidden" }}>
+          <div style={{ padding: "7px 13px", borderBottom: `1px solid ${T.border}`, background: T.surface2 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: T.textSec }}>{invoices.length} eligible invoice{invoices.length !== 1 ? "s" : ""}</div>
+          </div>
+          {invoices.length === 0 ? (
+            <div style={{ padding: "16px 14px", fontSize: 12, color: T.textSec, textAlign: "center" }}>No eligible invoices for this customer.</div>
+          ) : (
+            <div style={{ maxHeight: 220, overflowY: "auto" }}>
+              {invoices.map(inv => {
+                const active = value === inv._id;
+                const sc = INV_STATUS_COLOR[inv.status] ?? "#64748b";
+                return (
+                  <div key={inv._id} onClick={() => { onChange(inv._id); setOpen(false); }}
+                    style={{ padding: "11px 14px", cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: active ? `${accent}14` : "transparent", display: "flex", alignItems: "center", gap: 11, transition: "background .1s" }}
+                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface2; }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: active ? `${accent}20` : T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, border: `1.5px solid ${active ? accent : T.border}` }}>
+                      🧾
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 2 }}>
+                        <span style={{ fontWeight: 700, color: active ? accent : T.textPri, fontFamily: "'DM Mono', monospace", fontSize: 12 }}>{inv.invoiceNumber}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: `${sc}22`, color: sc, textTransform: "capitalize" }}>{inv.status}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textSec }}>Balance due: <strong style={{ color: T.textPri, fontFamily: "'DM Mono', monospace" }}>{fmt(inv.balanceDue ?? 0)}</strong></div>
+                    </div>
+                    {active && <svg style={{ flexShrink: 0 }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -383,9 +532,19 @@ const ItemSearch = ({ value, onSelect, onType, T, allItems }) => {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const EMPTY_ITEM   = { mode: "item",   description: "", qty: 1, unitPrice: 0, taxRate: 0, taxAmt: 0, total: 0 };
 const EMPTY_MANUAL = { mode: "manual", description: "", qty: 1, unitPrice: 0, taxRate: 0, taxAmt: 0, total: 0 };
+const CN_TYPES = [
+  { value: "return_of_goods",      label: "Return of Goods" },
+  { value: "price_adjustment",     label: "Price Adjustment" },
+  { value: "billing_error",        label: "Billing Error" },
+  { value: "service_not_delivered",label: "Service Not Delivered" },
+  { value: "courtesy_credit",      label: "Courtesy Credit" },
+  { value: "other",                label: "Other" },
+];
+
 const DEFAULT_FORM = {
   customerId: "", customerName: "",
   sourceDocId: "", sourceDocType: "invoice", sourceDocNumber: "",
+  cnType: "return_of_goods",
   reason: "",
   date: new Date().toISOString().split("T")[0],
   lineItems: [{ ...EMPTY_ITEM }],
@@ -533,11 +692,22 @@ export default function CreditNotes() {
     axiosInstance.get("/api/invoices")
       .then(r => {
         const all = r.data?.data?.invoices || [];
-        setApplyInvoices(all.filter(inv =>
+        const eligible = all.filter(inv =>
           inv.customerId === selected.customerId &&
           ["unpaid", "overdue", "partial"].includes(inv.status) &&
           (inv.balanceDue ?? inv.totals?.grandTotal ?? 0) > 0
-        ));
+        );
+        setApplyInvoices(eligible);
+        // Auto-select the linked source invoice and pre-fill amount
+        if (selected.sourceDocId) {
+          const linked = eligible.find(inv => inv._id === selected.sourceDocId);
+          if (linked) {
+            setApplyInvoiceId(selected.sourceDocId);
+            const remaining = selected.remainingAmount ?? selected.totals?.grandTotal ?? 0;
+            const cap = linked.balanceDue ?? 0;
+            setApplyAmount(String(Math.min(remaining, cap)));
+          }
+        }
       })
       .catch(() => setApplyInvoices([]));
   }, [drawerOpen, selected]);
@@ -550,7 +720,7 @@ export default function CreditNotes() {
         const all = r.data?.data?.invoices || [];
         setCustInvs(all.filter(inv =>
           (inv.customerId === form.customerId || inv.billTo?.name === form.customerName) &&
-          ["unpaid", "overdue", "partial"].includes(inv.status) &&
+          ["unpaid", "overdue", "partial", "paid"].includes(inv.status) &&
           inv.type !== "proforma"
         ));
       })
@@ -616,6 +786,7 @@ export default function CreditNotes() {
         sourceDocId:     form.sourceDocId     || undefined,
         sourceDocType:   form.sourceDocId     ? "invoice" : undefined,
         sourceDocNumber: form.sourceDocNumber || undefined,
+        cnType:          form.cnType,
         reason:          form.reason,
         date:            form.date,
         lineItems:       form.lineItems,
@@ -842,6 +1013,14 @@ export default function CreditNotes() {
             </div>
 
             <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* CN number notice */}
+              <div style={{ padding: "10px 14px", borderRadius: 8, background: isDark ? "rgba(59,130,246,0.08)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.25)" : "#bfdbfe"}`, display: "flex", alignItems: "center", gap: 8 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={isDark ? "#60a5fa" : "#2563eb"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span style={{ fontSize: 12, color: isDark ? "#60a5fa" : "#2563eb" }}>
+                  Credit note number will be auto-generated on save (e.g. <strong>CN-0001</strong>).
+                </span>
+              </div>
+
               {/* Customer + Date */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <F label="Customer" req T={T}>
@@ -860,6 +1039,11 @@ export default function CreditNotes() {
                     style={{ ...inputSt, colorScheme: isDark ? "dark" : "light" }} />
                 </F>
               </div>
+
+              {/* Credit Note Type */}
+              <F label="Credit Note Type" req T={T}>
+                <CnTypeSelect value={form.cnType} onChange={v => setForm(f => ({ ...f, cnType: v }))} T={T} />
+              </F>
 
               {/* Link to source invoice (optional) */}
               <F label="Link to Invoice (optional)" T={T}>
@@ -900,12 +1084,23 @@ export default function CreditNotes() {
                 )}
                 {form.sourceDocId && (() => {
                   const inv = custInvs.find(i => i._id === form.sourceDocId);
-                  const bal = parseFloat(inv?.balanceDue ?? inv?.totals?.grandTotal ?? 0);
-                  return (
+                  if (!inv) return null;
+                  const isPaid = inv.status === "paid";
+                  const cap = isPaid
+                    ? parseFloat(inv?.totals?.grandTotal ?? inv?.balanceDue ?? 0)
+                    : parseFloat(inv?.balanceDue ?? inv?.totals?.grandTotal ?? 0);
+                  return isPaid ? (
+                    <div style={{ marginTop: 6, padding: "8px 12px", borderRadius: 8, background: isDark ? "rgba(16,185,129,0.08)" : "#f0fdf4", border: "1px solid rgba(16,185,129,0.3)", display: "flex", alignItems: "center", gap: 8 }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <span style={{ fontSize: 12, color: "#10b981" }}>
+                        Invoice fully paid. CN will become a <strong>refund credit</strong> — max AED {cap.toLocaleString("en-AE", { minimumFractionDigits: 2 })}.
+                      </span>
+                    </div>
+                  ) : (
                     <div style={{ marginTop: 6, padding: "8px 12px", borderRadius: 8, background: isDark ? "rgba(245,158,11,0.1)" : "#fffbeb", border: "1px solid rgba(245,158,11,0.3)", display: "flex", alignItems: "center", gap: 8 }}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <span style={{ fontSize: 12, color: "#f59e0b" }}>
-                        Credit limit: <strong>AED {bal.toLocaleString("en-AE", { minimumFractionDigits: 2 })}</strong> — your credit note total cannot exceed this amount.
+                        Credit limit: <strong>AED {cap.toLocaleString("en-AE", { minimumFractionDigits: 2 })}</strong> — your credit note total cannot exceed this amount.
                       </span>
                     </div>
                   );
@@ -1016,7 +1211,7 @@ export default function CreditNotes() {
                     <FaPlus size={10} /> Add Item
                   </button>
                   <button onClick={addManualItem} style={{ padding: "7px 14px", border: `1px dashed ${isDark ? "rgba(139,92,246,0.4)" : "#c4b5fd"}`, borderRadius: 8, background: "transparent", color: isDark ? "#a78bfa" : "#7c3aed", cursor: "pointer", fontSize: 12, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6 }}>
-                    <FaPlus size={10} /> Add Manual Amount
+                    <FaPlus size={10} /> Add Adjustment
                   </button>
                 </div>
               </div>
@@ -1038,12 +1233,16 @@ export default function CreditNotes() {
               {/* Over-limit warning */}
               {form.sourceDocId && (() => {
                 const inv = custInvs.find(i => i._id === form.sourceDocId);
-                const bal = parseFloat(inv?.balanceDue ?? inv?.totals?.grandTotal ?? 0);
-                if (totals.grandTotal > bal + 0.005) return (
+                if (!inv) return null;
+                const isPaid = inv.status === "paid";
+                const cap = isPaid
+                  ? parseFloat(inv?.totals?.grandTotal ?? 0)
+                  : parseFloat(inv?.balanceDue ?? inv?.totals?.grandTotal ?? 0);
+                if (totals.grandTotal > cap + 0.005) return (
                   <div style={{ padding: "10px 14px", borderRadius: 10, background: isDark ? "rgba(239,68,68,0.1)" : "#fef2f2", border: "1px solid rgba(239,68,68,0.3)", display: "flex", alignItems: "center", gap: 8 }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                     <span style={{ fontSize: 12, color: "#ef4444" }}>
-                      Total <strong>AED {totals.grandTotal.toLocaleString("en-AE", { minimumFractionDigits: 2 })}</strong> exceeds invoice balance due of <strong>AED {bal.toLocaleString("en-AE", { minimumFractionDigits: 2 })}</strong>. Reduce quantities or amounts.
+                      Total <strong>AED {totals.grandTotal.toLocaleString("en-AE", { minimumFractionDigits: 2 })}</strong> exceeds invoice {isPaid ? "total" : "balance due"} of <strong>AED {cap.toLocaleString("en-AE", { minimumFractionDigits: 2 })}</strong>. Reduce quantities or amounts.
                     </span>
                   </div>
                 );
@@ -1160,24 +1359,18 @@ export default function CreditNotes() {
                         {fmt(cn.remainingAmount ?? cn.totals?.grandTotal)}
                       </strong>
                     </p>
-                    <select value={applyInvoiceId} onChange={e => setApplyInvoiceId(e.target.value)}
-                      style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit", cursor: "pointer", marginBottom: 8 }}>
-                      <option value="">— Select Invoice —</option>
-                      {applyInvoices.map(inv => (
-                        <option key={inv._id} value={inv._id}>
-                          {inv.invoiceNumber} · Due: AED {parseFloat(inv.balanceDue ?? 0).toLocaleString("en-AE", { minimumFractionDigits: 2 })} ({inv.status})
-                        </option>
-                      ))}
-                    </select>
+                    <CnInvoiceSelect
+                      value={applyInvoiceId}
+                      onChange={setApplyInvoiceId}
+                      invoices={applyInvoices}
+                      T={T}
+                    />
                     <input type="number" min={0.01} step={0.01}
                       value={applyAmount}
                       onChange={e => setApplyAmount(e.target.value)}
                       placeholder={`Amount (max ${fmt(cn.remainingAmount ?? cn.totals?.grandTotal)})`}
                       style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono', monospace", boxSizing: "border-box" }}
                     />
-                    {applyInvoices.length === 0 && (
-                      <p style={{ fontSize: 11, color: T.textSec, margin: "8px 0 0" }}>No eligible invoices for this customer.</p>
-                    )}
                   </div>
                 )}
               </div>
