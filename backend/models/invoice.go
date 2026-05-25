@@ -86,6 +86,9 @@ type Invoice struct {
 	LinkedDNID          string   `json:"linkedDnId,omitempty"          bson:"linkedDnId,omitempty"`
 	LinkedDNNumber      string   `json:"linkedDnNumber,omitempty"      bson:"linkedDnNumber,omitempty"`
 	SalesReturns       []SalesReturn `json:"salesReturns,omitempty"      bson:"salesReturns,omitempty"`
+	DueSoonAlertSent      bool       `json:"dueSoonAlertSent,omitempty"      bson:"dueSoonAlertSent,omitempty"`
+	OverdueAlertSent      bool       `json:"overdueAlertSent,omitempty"      bson:"overdueAlertSent,omitempty"`
+	LastOverdueReminderAt *time.Time `json:"lastOverdueReminderAt,omitempty" bson:"lastOverdueReminderAt,omitempty"`
 	VoidReason         string    `json:"voidReason,omitempty"        bson:"voidReason,omitempty"`
 	VoidedAt           time.Time `json:"voidedAt,omitempty"          bson:"voidedAt,omitempty"`
 	OrgID              string    `json:"orgId,omitempty"             bson:"orgId,omitempty"`

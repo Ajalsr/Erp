@@ -8,16 +8,14 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 
 const STATUSES = [
-  { key: "all",        label: "All",        color: "#64748b", dim: "rgba(100,116,139,.12)" },
-  { key: "draft",      label: "Draft",      color: "#f59e0b", dim: "rgba(245,158,11,.12)"  },
-  { key: "confirmed",  label: "Confirmed",  color: "#3b82f6", dim: "rgba(59,130,246,.12)"  },
-  { key: "dispatched", label: "Dispatched", color: "#8b5cf6", dim: "rgba(139,92,246,.12)"  },
-  { key: "delivered",  label: "Delivered",  color: "#10b981", dim: "rgba(16,185,129,.12)"  },
+  { key: "all",        label: "All",         color: "#64748b", dim: "rgba(100,116,139,.12)" },
+  { key: "draft",      label: "Draft",       color: "#f59e0b", dim: "rgba(245,158,11,.12)"  },
+  { key: "confirmed",  label: "Confirmed",   color: "#3b82f6", dim: "rgba(59,130,246,.12)"  },
+  { key: "dispatched", label: "Dispatched",  color: "#8b5cf6", dim: "rgba(139,92,246,.12)"  },
+  { key: "delivered",  label: "Delivered",   color: "#10b981", dim: "rgba(16,185,129,.12)"  },
+  { key: "backorder",  label: "Back-orders", color: "#d97706", dim: "rgba(217,119,6,.12)"   },
 ];
 const SM = Object.fromEntries(STATUSES.map(s => [s.key, s]));
-
-const fmtAED = (n) =>
-  `AED ${parseFloat(n||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}) : "—";
 
@@ -49,7 +47,8 @@ export default function DeliveryNoteList() {
     setLoading(true);
     try {
       const params = { page, limit: LIMIT };
-      if (statusFilter !== "all") params.status = statusFilter;
+      if (statusFilter === "backorder") params.backorder = "true";
+      else if (statusFilter !== "all") params.status = statusFilter;
       if (search.trim()) params.search = search.trim();
       const r = await axiosInstance.get("/api/delivery-notes/", { params });
       const d = r.data?.data || {};
@@ -82,7 +81,8 @@ export default function DeliveryNoteList() {
     .dnl-mounted .dnl-s2{animation:fadeUp .28s .08s ease both}
     .dnl-mounted .dnl-s3{animation:fadeUp .28s .12s ease both}
     .dnl-mounted .dnl-s4{animation:fadeUp .28s .16s ease both}
-    .dnl-mounted .dnl-tbl{animation:fadeUp .3s .22s ease both}
+    .dnl-mounted .dnl-s5{animation:fadeUp .28s .20s ease both}
+    .dnl-mounted .dnl-tbl{animation:fadeUp .3s .26s ease both}
     .sora{font-family:'Sora',sans-serif}
     .mono{font-family:'DM Mono',monospace}
   `;
@@ -94,11 +94,12 @@ export default function DeliveryNoteList() {
   const muted    = T.textSec;
 
   const STAT_CARDS = [
-    { label:"Total",      val:stats.total      ||0, color:"#64748b", dim:"rgba(100,116,139,.1)"  },
-    { label:"Draft",      val:stats.draft      ||0, color:"#f59e0b", dim:"rgba(245,158,11,.12)"  },
-    { label:"Confirmed",  val:stats.confirmed  ||0, color:"#3b82f6", dim:"rgba(59,130,246,.12)"  },
-    { label:"Dispatched", val:stats.dispatched ||0, color:"#8b5cf6", dim:"rgba(139,92,246,.12)"  },
-    { label:"Delivered",  val:stats.delivered  ||0, color:"#10b981", dim:"rgba(16,185,129,.12)"  },
+    { key:"all",       label:"Total",       val:stats.total      ||0, color:"#64748b", dim:"rgba(100,116,139,.1)"  },
+    { key:"draft",     label:"Draft",       val:stats.draft      ||0, color:"#f59e0b", dim:"rgba(245,158,11,.12)"  },
+    { key:"confirmed", label:"Confirmed",   val:stats.confirmed  ||0, color:"#3b82f6", dim:"rgba(59,130,246,.12)"  },
+    { key:"dispatched",label:"Dispatched",  val:stats.dispatched ||0, color:"#8b5cf6", dim:"rgba(139,92,246,.12)"  },
+    { key:"delivered", label:"Delivered",   val:stats.delivered  ||0, color:"#10b981", dim:"rgba(16,185,129,.12)"  },
+    { key:"backorder", label:"Back-orders", val:stats.backorders ||0, color:"#d97706", dim:"rgba(217,119,6,.12)"   },
   ];
 
   return (
@@ -124,11 +125,11 @@ export default function DeliveryNoteList() {
       </div>
 
       {/* Stat cards */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:22}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:12,marginBottom:22}}>
         {STAT_CARDS.map((s,i)=>(
           <div key={s.label} className={`dnl-stat dnl-s${i}`}
-            onClick={()=>{setStatusFilter(s.label.toLowerCase());setPage(1);}}
-            style={{background:surface,border:`1px solid ${border}`,borderRadius:13,padding:"16px 18px",position:"relative",overflow:"hidden",cursor:"pointer",outline:statusFilter===s.label.toLowerCase()?`2px solid ${s.color}`:"2px solid transparent",outlineOffset:2}}>
+            onClick={()=>{setStatusFilter(s.key);setPage(1);}}
+            style={{background:surface,border:`1px solid ${border}`,borderRadius:13,padding:"16px 18px",position:"relative",overflow:"hidden",cursor:"pointer",outline:statusFilter===s.key?`2px solid ${s.color}`:"2px solid transparent",outlineOffset:2}}>
             <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${s.color},transparent)`,opacity:isDark?.5:.7}}/>
             <p className="sora" style={{fontSize:26,fontWeight:800,color:s.color,margin:"0 0 3px",letterSpacing:"-0.03em",lineHeight:1}}>{s.val}</p>
             <p style={{fontSize:10.5,fontWeight:600,color:muted,margin:0,textTransform:"uppercase",letterSpacing:".06em"}}>{s.label}</p>
@@ -188,9 +189,16 @@ export default function DeliveryNoteList() {
                     onClick={()=>navigate(`/Sales/Deliverynote/${note._id}`)}
                     style={{borderBottom:`1px solid ${T.border2||border}`,animation:`fadeUp .22s ${idx*.02}s ease both`}}>
                     <td style={{padding:"13px 16px"}}>
-                      <span className="mono" style={{fontSize:12,fontWeight:700,color:T.blue,background:"rgba(59,130,246,.08)",padding:"3px 9px",borderRadius:6,border:"1px solid rgba(59,130,246,.15)"}}>
-                        {note.dnNumber}
-                      </span>
+                      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                        <span className="mono" style={{fontSize:12,fontWeight:700,color:T.blue,background:"rgba(59,130,246,.08)",padding:"3px 9px",borderRadius:6,border:"1px solid rgba(59,130,246,.15)"}}>
+                          {note.dnNumber}
+                        </span>
+                        {note.dnNumber?.startsWith("BO-")&&(
+                          <span style={{fontSize:10,fontWeight:700,color:"#d97706",background:"rgba(217,119,6,.12)",padding:"2px 7px",borderRadius:20,border:"1px solid rgba(217,119,6,.25)",whiteSpace:"nowrap"}}>
+                            Back-order
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td style={{padding:"13px 16px",color:muted,fontSize:12}}>{fmtDate(note.date)}</td>
                     <td style={{padding:"13px 16px"}}>

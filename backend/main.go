@@ -13,6 +13,7 @@ import (
 
 	_ "github.com/backend/loader"
 	"github.com/backend/config"
+	"github.com/backend/controllers"
 	"github.com/backend/routes"
 	"github.com/backend/ws"
 )
@@ -63,6 +64,9 @@ func main() {
 
 	// Start the WebSocket hub
 	go ws.GlobalHub.Run()
+
+	// Start invoice due-date scheduler (checks daily: due-soon alerts + overdue status)
+	controllers.StartInvoiceScheduler()
 
 	// Create MongoDB indexes on startup (idempotent — safe to run every restart)
 	config.EnsureIndexes(config.DB)

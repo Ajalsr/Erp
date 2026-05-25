@@ -106,7 +106,7 @@ const buildCSS = (isDark) => {
   .react-datepicker__header{background:${surface2}!important;border-bottom:1.5px solid ${border}!important;border-radius:14px 14px 0 0!important;padding-top:14px!important;}
   .react-datepicker__current-month{font-size:14px!important;font-weight:700!important;color:${text}!important;font-family:'Sora',sans-serif!important;}
   .react-datepicker__day-name{color:${textMuted}!important;font-weight:600!important;font-size:11px!important;}
-  .react-datepicker__day{width:2.2rem!important;height:2.2rem!important;line-height:2.2rem!important;border-radius:8px!important;font-size:13px!important;transition:all .12s!important;color:${text}!important;}
+  .react-datepicker__day{width:1.8rem!important;height:1.8rem!important;line-height:1.8rem!important;border-radius:6px!important;font-size:12px!important;transition:all .12s!important;color:${text}!important;margin:1px!important;}
   .react-datepicker__day:hover{background:${isDark?'rgba(59,130,246,0.2)':'#eff6ff'}!important;color:#3b82f6!important;}
   .react-datepicker__day--selected{background:#3b82f6!important;color:#fff!important;font-weight:700!important;box-shadow:0 2px 8px rgba(59,130,246,.3)!important;}
   .react-datepicker__day--today{background:${isDark?'rgba(59,130,246,0.15)':'#dbeafe'}!important;color:#2563eb!important;font-weight:700!important;}
@@ -358,7 +358,7 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
     <div ref={portalRef} className="nso-dd" style={{
       position:'fixed',zIndex:9998,top:pos.top+6,left:pos.left,
       background:T.surface,borderRadius:16,border:`1.5px solid ${T.border}`,
-      boxShadow:'0 24px 60px rgba(0,0,0,.14)',width:Math.max(pos.width,340),
+      boxShadow:'0 24px 60px rgba(0,0,0,.14)',width:280,
       overflow:'hidden',
     }}>
       {/* Tab header */}
@@ -381,7 +381,7 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
         ))}
       </div>
 
-      <div style={{padding:'14px 14px 10px'}}>
+      <div style={{padding:'10px 10px 8px'}}>
         {mode==='calendar' ? (
           <DatePicker selected={sel} onChange={d=>{onChange(d.toISOString().split('T')[0]);setOpen(false);setMode('calendar');}} inline
             renderCustomHeader={({date,decreaseMonth,increaseMonth,prevMonthButtonDisabled,nextMonthButtonDisabled})=>(
@@ -520,6 +520,17 @@ const Newsalesorders = () => {
   const fromQuoteLock = !isEditMode && !!location.state?.fromQuote;
 
   const salesTypeOptions=[{value:'SO',label:'SO — Standard Sale Order'},{value:'MOA',label:'MOA — Material on Approval'},{value:'MOA_COLLECT',label:'MOA Collect — Material on Approval Collect'},{value:'FREE_DELIVERY',label:'Free Delivery'}];
+  const CUST_TO_SO_TERMS = {
+    'Due on Receipt':  'due_on_receipt',
+    'Net 7':           'net_7',
+    'Net 15':          'net_15',
+    'Net 30':          'net_30',
+    'Net 45':          'net_45',
+    'Net 60':          'net_60',
+    'Net 90':          'net_90',
+    '50% Advance':     'prepaid',
+    '100% Advance':    'prepaid',
+  };
   const paymentTermsOptions=[
     {value:'due_on_receipt',   label:'Due on Receipt'},
     {value:'prepaid',          label:'Prepaid / Advance'},
@@ -734,7 +745,16 @@ const Newsalesorders = () => {
   },[showCustomerDropdown]);
 
 
-  const handleCustomerSelect=c=>{setSelectedCustomer(c);setCustomerSearch(`${c.customerCode} - ${c.customerDisplayName}${c.companyName?` (${c.companyName})`:''}`);setShowCustomerDropdown(false);};
+  const handleCustomerSelect=c=>{
+    setSelectedCustomer(c);
+    setCustomerSearch(`${c.customerCode} - ${c.customerDisplayName}${c.companyName?` (${c.companyName})`:''}`);
+    setShowCustomerDropdown(false);
+    const custTerms = c.payment_terms || c.paymentTerms;
+    if (custTerms) {
+      const soTerms = CUST_TO_SO_TERMS[custTerms] || custTerms.toLowerCase().replace(/ /g,'_');
+      setPaymentTerms(soTerms);
+    }
+  };
 
   useEffect(()=>{
     if(!selectedCustomer?._id){setCreditStatus(null);return;}

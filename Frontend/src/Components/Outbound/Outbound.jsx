@@ -79,6 +79,7 @@ export default function Outbound() {
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvedItems,    setApprovedItems]    = useState(new Set());
   const [approvingCancel,  setApprovingCancel]  = useState(false);
+  const [activeDnSoIds,    setActiveDnSoIds]    = useState(new Set());
   const [showPrintModal,   setShowPrintModal]   = useState(false);
   const [page,             setPage]             = useState(1);
   const perPage = 8;
@@ -91,7 +92,10 @@ export default function Outbound() {
     if (!salesOrdersData?.salesOrders) return [];
     const result = [];
     salesOrdersData.salesOrders
-      .filter(so => !["invoiced", "cancelled", "completed"].includes((so.status || "").toLowerCase()))
+      .filter(so =>
+        !["invoiced", "cancelled", "completed", "shipped"].includes((so.status || "").toLowerCase()) &&
+        !activeDnSoIds.has(so.id)
+      )
       .forEach(so => {
         const isCancelRequested = (so.status || "").toLowerCase() === "cancel_requested";
         (so.items || []).forEach(oi => {
@@ -130,7 +134,25 @@ export default function Outbound() {
     return result;
   };
 
-  useEffect(() => { handleGetItem(); handleGetSalesorder({ limit: 500 }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    handleGetItem();
+    handleGetSalesorder({ limit: 500 });
+    // Fetch draft + confirmed DNs so we can exclude SOs already in the dispatch flow
+    Promise.allSettled([
+      axiosInstance.get("/api/delivery-notes/?status=draft&limit=200"),
+      axiosInstance.get("/api/delivery-notes/?status=confirmed&limit=200"),
+    ]).then(([draftRes, confirmedRes]) => {
+      const ids = new Set();
+      [draftRes, confirmedRes].forEach(r => {
+        if (r.status === "fulfilled") {
+          (r.value.data?.data?.deliveryNotes || []).forEach(dn =>
+            (dn.salesOrderIds || []).forEach(id => ids.add(id))
+          );
+        }
+      });
+      setActiveDnSoIds(ids);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (salesOrdersData === null) return;
@@ -138,7 +160,7 @@ export default function Outbound() {
     const ids = new Set(items.map(i => i._id));
     setSelectedIds(ids);
     setOutboundItems(items.map(i => ({ ...i, isSelected: true })));
-  }, [itemsData, salesOrdersData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [itemsData, salesOrdersData, activeDnSoIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -172,8 +194,8 @@ export default function Outbound() {
     const item = outboundItems.find(i => i._id === id);
     if (!item) return;
     const qty = Math.min(
-      Math.max(item.orderedQuantity, parseInt(val) || item.orderedQuantity),
-      item.availableQuantity > 0 ? item.availableQuantity : item.orderedQuantity
+      Math.max(1, parseInt(val) || 1),
+      item.orderedQuantity
     );
     setOutboundItems(p => p.map(i => i._id === id ? { ...i, outboundQuantity: qty } : i));
   };
@@ -251,11 +273,7 @@ export default function Outbound() {
     setSavingDN(true);
     try {
       await axiosInstance.post("/api/delivery-notes/", payload);
-      // Mark included SOs as invoiced so they disappear from outbound on next load
-      await Promise.allSettled(
-        soIds.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, { status: "invoiced" }))
-      );
-      // Remove dispatched items from local state immediately
+      // Remove dispatched items from local state immediately (persist via activeDnSoIds on next load)
       const dispatchedSoIds = new Set(soIds);
       setOutboundItems(prev => prev.filter(i => !dispatchedSoIds.has(i.salesOrderId)));
       setSelectedIds(prev => {
@@ -666,18 +684,18 @@ export default function Outbound() {
                     {/* Dispatch qty — custom stepper */}
                     <td style={{ padding: "12px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || item.orderedQuantity) - 1)}
-                          disabled={item.outboundQuantity <= item.orderedQuantity}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.outboundQuantity <= item.orderedQuantity ? T.textMuted : T.textSec, cursor: item.outboundQuantity <= item.orderedQuantity ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || 1) - 1)}
+                          disabled={item.outboundQuantity <= 1}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.outboundQuantity <= 1 ? T.textMuted : T.textSec, cursor: item.outboundQuantity <= 1 ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           −
                         </button>
-                        <input type="number" min={item.orderedQuantity} max={item.availableQuantity} value={item.outboundQuantity}
-                          onChange={e => updateQty(item._id, parseInt(e.target.value) || item.orderedQuantity)}
+                        <input type="number" min={1} max={item.orderedQuantity} value={item.outboundQuantity}
+                          onChange={e => updateQty(item._id, parseInt(e.target.value) || 1)}
                           className="ob-qty-input"
                           style={{ width: "44px", height: "24px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface2, color: T.textPri, fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }} />
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || item.orderedQuantity) + 1)}
-                          disabled={item.outboundQuantity >= item.availableQuantity}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.outboundQuantity >= item.availableQuantity ? T.textMuted : T.textSec, cursor: item.outboundQuantity >= item.availableQuantity ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.outboundQuantity || 1) + 1)}
+                          disabled={item.outboundQuantity >= item.orderedQuantity}
+                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.outboundQuantity >= item.orderedQuantity ? T.textMuted : T.textSec, cursor: item.outboundQuantity >= item.orderedQuantity ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                           +
                         </button>
                       </div>

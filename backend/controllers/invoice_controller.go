@@ -1153,6 +1153,33 @@ func CreateSalesReturn() gin.HandlerFunc {
 			totals := calcCNTotals(cnItems)
 			vatBreakdown := calcVATBreakdown(cnItems)
 			cnOID := primitive.NewObjectID()
+			// Auto-apply CN to invoice if balance remaining; for paid invoices CN stays approved for cash refund
+			cnAppliedAmt := 0.0
+			cnRemainingAmt := totals.GrandTotal
+			cnStatus := "approved"
+			if inv.BalanceDue > 0.005 {
+				applyAmt := totals.GrandTotal
+				if applyAmt > inv.BalanceDue {
+					applyAmt = inv.BalanceDue
+				}
+				cnAppliedAmt = round2(applyAmt)
+				cnRemainingAmt = round2(totals.GrandTotal - cnAppliedAmt)
+				if cnRemainingAmt <= 0 {
+					cnStatus = "closed"
+				}
+				// Update invoice balance
+				newBal := round2(inv.BalanceDue - cnAppliedAmt)
+				newPaid := round2(inv.AmountPaid + cnAppliedAmt)
+				newStatus := "partial"
+				if newBal <= 0 {
+					newBal = 0
+					newStatus = "paid"
+				}
+				invoiceCollection.UpdateOne(ctx,
+					bson.M{"_id": invoiceID, "orgId": orgIDStr},
+					bson.M{"$set": bson.M{"balanceDue": newBal, "amountPaid": newPaid, "status": newStatus, "updatedAt": time.Now()}},
+				)
+			}
 			creditNoteCollection.InsertOne(ctx, bson.M{
 				"_id":              cnOID,
 				"creditNoteNumber": cnNumber,
@@ -1161,14 +1188,15 @@ func CreateSalesReturn() gin.HandlerFunc {
 				"sourceDocNumber":  inv.InvoiceNumber,
 				"customerId":       inv.CustomerID,
 				"customerName":     inv.BillTo.Name,
+				"cnType":           "return_of_goods",
 				"date":             time.Now().Format("2006-01-02"),
 				"reason":           "Sales return",
 				"lineItems":        cnItems,
 				"totals":           totals,
 				"vatBreakdown":     vatBreakdown,
-				"status":           "draft",
-				"remainingAmount":  totals.GrandTotal,
-				"appliedAmount":    0.0,
+				"status":           cnStatus,
+				"remainingAmount":  cnRemainingAmt,
+				"appliedAmount":    cnAppliedAmt,
 				"refundedAmount":   0.0,
 				"notes":            body.Notes,
 				"orgId":            orgIDStr,

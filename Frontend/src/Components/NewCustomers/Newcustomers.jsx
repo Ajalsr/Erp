@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
+import useUpdateCustomer from '../../helper/useUpdateCustomer';
 import axiosInstance from '../../helper/axiosInstance';
 import toast from "../../helper/nexusToast";
 import PhoneInput, { getCountryCallingCode } from 'react-phone-number-input';
@@ -32,6 +33,7 @@ const PAYMENT_TERMS_OPTIONS = [
   { value: 'Net 90',         label: 'Net 90 — due in 90 days' },
   { value: '50% Advance',    label: '50% Advance — balance on delivery' },
   { value: '100% Advance',   label: '100% Advance — full payment upfront' },
+  { value: 'Custom',         label: 'Custom — specify No. of Days' },
 ];
 
 // ── Dynamic CSS (theme-aware) ──────────────────────────────────────
@@ -154,16 +156,19 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
   <div>
     <SectionHeader icon={<FaWallet />} title="Finance Details" subtitle="Set credit limits and payment terms" T={T} isDark={isDark} />
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-      {[
-        { label: 'Credit Limit', name: 'credit_limit', placeholder: 'e.g. 50,000' },
-        { label: 'No. of Days',  name: 'no_of_days',   placeholder: 'e.g. 30'     },
-      ].map(f => (
-        <div key={f.name}>
-          <Label T={T}>{f.label}</Label>
-          <input className="nc-input" name={f.name} value={formData[f.name] || ''}
-            onChange={handleChange} placeholder={f.placeholder} />
-        </div>
-      ))}
+      <div>
+        <Label T={T}>Credit Limit</Label>
+        <input className="nc-input" name="credit_limit" value={formData.credit_limit || ''} onChange={handleChange} placeholder="e.g. 50,000" />
+      </div>
+      <div>
+        <Label T={T} style={{ opacity: formData.paymentTerms === 'Custom' ? 1 : 0.4 }}>
+          No. of Days {formData.paymentTerms !== 'Custom' && <span style={{ fontSize: 10, fontWeight: 400 }}>(only for Custom terms)</span>}
+        </Label>
+        <input className="nc-input" name="no_of_days" value={formData.no_of_days || ''}
+          onChange={handleChange} placeholder="e.g. 45"
+          disabled={formData.paymentTerms !== 'Custom'}
+          style={{ opacity: formData.paymentTerms === 'Custom' ? 1 : 0.35, cursor: formData.paymentTerms !== 'Custom' ? 'not-allowed' : 'text' }} />
+      </div>
       <div>
         <Label T={T}>Payment Terms</Label>
         <CustomSelect
@@ -786,7 +791,7 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
       style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, zIndex: 99999,
                background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: '14px',
                boxShadow: isDark ? '0 20px 60px rgba(0,0,0,0.5)' : '0 20px 60px rgba(0,0,0,0.15)',
-               padding: '16px', width: Math.max(dropPos.width, 280) + 'px',
+               padding: '12px', width: '260px',
                fontFamily: "'DM Sans', sans-serif", boxSizing: 'border-box',
                visibility: ready ? 'visible' : 'hidden',
                opacity: ready ? 1 : 0, transition: 'opacity 0.12s ease' }}>
@@ -836,7 +841,7 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
                          border: isToday(d) && !isSelected(d) ? `1.5px solid ${blueBrd}` : 'none',
                          cursor: 'pointer', background: isSelected(d) ? blueC : 'transparent',
                          color: isSelected(d) ? 'white' : isToday(d) ? blueC : T.textPri,
-                         display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '32px' }}
+                         display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '26px' }}
                 onMouseEnter={e => { if (!isSelected(d)) e.currentTarget.style.background = blueDim; }}
                 onMouseLeave={e => { if (!isSelected(d)) e.currentTarget.style.background = 'transparent'; }}>
                 {d}
@@ -1163,18 +1168,23 @@ const Newcustomers = () => {
     if (!formData.trnNumber.trim()) { toast.error("TRN Number is required"); return; }
     setIsSubmitting(true);
     try {
-      await handleAddcustomer({ ...formData, contactPersons });
-      setFormData({
-        customerType: 'business', customerCode: '', salutation: '', firstName: '', lastName: '',
-        companyName: '', customerDisplayName: '', trnNumber: '', legalForm: '',
-        customerEmail: '', customerPhone: '',
-        workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
-        customFields: {}, reportingTags: [], remarks: '', documents: [],
-        currency: 'AED', paymentTerms: 'Due on Receipt',
-        credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
-      });
-      setContactPersons([]);
-      toast.success("Customer created successfully!");
+      if (isEditMode) {
+        await handleUpdateCustomer(editId, { ...formData, contactPersons });
+        toast.success("Customer updated successfully!");
+      } else {
+        await handleAddcustomer({ ...formData, contactPersons });
+        setFormData({
+          customerType: 'business', customerCode: '', salutation: '', firstName: '', lastName: '',
+          companyName: '', customerDisplayName: '', trnNumber: '', legalForm: '',
+          customerEmail: '', customerPhone: '',
+          workPhone: '', mobile: '', streetAddress: '', city: '', postalCode: '', country: '',
+          customFields: {}, reportingTags: [], remarks: '', documents: [],
+          currency: 'AED', paymentTerms: 'Due on Receipt',
+          credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
+        });
+        setContactPersons([]);
+        toast.success("Customer created successfully!");
+      }
       setTimeout(() => navigate("/Sales/Customers"), 1800);
     } catch {
       // toast already shown by helper
