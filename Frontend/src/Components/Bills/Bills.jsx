@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import {
   FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft,
   FaChevronRight, FaClock, FaExclamationCircle, FaMoneyBillWave,
-  FaCheckCircle, FaSpinner, FaReceipt,
+  FaCheckCircle, FaSpinner, FaReceipt, FaEdit, FaPrint, FaPaperPlane,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
@@ -46,7 +46,12 @@ export default function Bills() {
   const [voidLoading,     setVoidLoading]     = useState(false);
   const [debitNotes,      setDebitNotes]      = useState([]);
   const [dnLoading,       setDnLoading]       = useState(false);
+  const [appliedCredits,  setAppliedCredits]  = useState([]);
   const [reversing,       setReversing]       = useState(null);
+  const [openCredits,     setOpenCredits]     = useState([]);   // open vendor credits to apply
+  const [creditPicker,    setCreditPicker]    = useState(false);
+  const [applyingCr,      setApplyingCr]      = useState(null);
+  const [emailing,        setEmailing]        = useState(false);
 
   /* ── Load list ── */
   const load = useCallback(async () => {
@@ -73,10 +78,16 @@ export default function Bills() {
       .catch(() => setBillPayments([]))
       .finally(() => setPmtLoading(false));
     setDnLoading(true);
-    axiosInstance.get(`/api/debit-notes?sourceDocId=${selected._id}`)
-      .then(r => setDebitNotes(r.data?.data || []))
-      .catch(() => setDebitNotes([]))
-      .finally(() => setDnLoading(false));
+    Promise.allSettled([
+      axiosInstance.get(`/api/debit-notes?sourceDocId=${selected._id}`),
+      axiosInstance.get(`/api/vendor-credits/?billId=${selected._id}`),
+      axiosInstance.get(`/api/vendor-credits/?vendorId=${selected.vendorId}&status=open`),
+    ]).then(([dnRes, vcRes, openRes]) => {
+      setDebitNotes(dnRes.status === "fulfilled" ? (dnRes.value.data?.data || []) : []);
+      const credits = vcRes.status === "fulfilled" ? (vcRes.value.data?.data?.credits || []) : [];
+      setAppliedCredits(credits.filter(c => c.status === "applied"));
+      setOpenCredits(openRes.status === "fulfilled" ? (openRes.value.data?.data?.credits || []) : []);
+    }).finally(() => setDnLoading(false));
   }, [selected?._id]);
 
   /* ── Reverse vendor payment ── */
@@ -102,6 +113,10 @@ export default function Bills() {
     setDrawerOpen(true);
     setActiveTab("overview");
     setBillPayments([]);
+    setDebitNotes([]);
+    setAppliedCredits([]);
+    setOpenCredits([]);
+    setCreditPicker(false);
     setPayModal(false);
     setPayForm({ amount: String(b.balanceDue || ""), paymentMode: "Bank Transfer", reference: "", date: new Date().toISOString().split("T")[0], notes: "" });
   };
@@ -147,6 +162,69 @@ export default function Bills() {
       closeDrawer();
     } catch { nexusToast.error("Failed to void bill"); }
     finally { setVoidLoading(false); }
+  };
+
+  /* ── Apply vendor credit to this bill ── */
+  const handleApplyCreditToBill = async (cr) => {
+    setApplyingCr(cr._id);
+    try {
+      await axiosInstance.post(`/api/vendor-credits/${cr._id}/apply`, { billId: selected._id });
+      nexusToast.success(`Credit ${cr.creditNumber} applied`);
+      setCreditPicker(false);
+      await load();
+      // Refresh bill + credit lists (same _id, so drawer effect won't re-run)
+      const [billRes, vcRes, openRes] = await Promise.allSettled([
+        axiosInstance.get(`/api/bills/${selected._id}`),
+        axiosInstance.get(`/api/vendor-credits/?billId=${selected._id}`),
+        axiosInstance.get(`/api/vendor-credits/?vendorId=${selected.vendorId}&status=open`),
+      ]);
+      if (billRes.status === "fulfilled" && billRes.value.data?.data) setSelected(billRes.value.data.data);
+      const credits = vcRes.status === "fulfilled" ? (vcRes.value.data?.data?.credits || []) : [];
+      setAppliedCredits(credits.filter(c => c.status === "applied"));
+      setOpenCredits(openRes.status === "fulfilled" ? (openRes.value.data?.data?.credits || []) : []);
+    } catch (e) {
+      nexusToast.error(e?.response?.data?.message || "Failed to apply credit");
+    } finally { setApplyingCr(null); }
+  };
+
+  /* ── Print bill ── */
+  const handlePrintBill = () => {
+    const b = selected;
+    const rows = (b.lineItems || []).map(li =>
+      `<tr><td>${li.description || ""}</td><td style="text-align:right">${li.qty || 0}</td><td style="text-align:right">${fmtAED(li.unitPrice)}</td><td style="text-align:right">${li.taxRate || 0}%</td><td style="text-align:right">${fmtAED(li.total)}</td></tr>`
+    ).join("");
+    const w = window.open("", "_blank", "width=800,height=900");
+    if (!w) { nexusToast.error("Popup blocked — allow popups to print"); return; }
+    w.document.write(`<!doctype html><html><head><title>${b.billNumber}</title>
+      <style>body{font-family:Arial,sans-serif;padding:32px;color:#0f172a}h1{font-size:20px;margin:0}
+      .muted{color:#64748b;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}
+      th,td{padding:8px 10px;border-bottom:1px solid #e2e8f0}th{text-align:left;background:#f8fafc;font-size:11px;text-transform:uppercase}
+      .tot{display:flex;justify-content:flex-end;margin-top:16px}.tot table{width:280px}</style></head><body>
+      <div style="display:flex;justify-content:space-between">
+        <div><h1>VENDOR BILL</h1><p class="muted">${b.billNumber}</p></div>
+        <div style="text-align:right"><p class="muted">Bill Date: ${fmtDate(b.billDate)}<br>Due: ${fmtDate(b.dueDate)}</p></div>
+      </div>
+      <div style="margin-top:16px"><strong>Vendor:</strong> ${b.vendorName || "—"}${b.vendorTrn ? `<br><span class="muted">TRN: ${b.vendorTrn}</span>` : ""}</div>
+      <table><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit Price</th><th style="text-align:right">VAT</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="tot"><table>
+        <tr><td>Subtotal</td><td style="text-align:right">${fmtAED(b.totals?.subtotal)}</td></tr>
+        <tr><td>VAT</td><td style="text-align:right">${fmtAED(b.totals?.taxTotal)}</td></tr>
+        <tr><td><strong>Grand Total</strong></td><td style="text-align:right"><strong>${fmtAED(b.totals?.grandTotal)}</strong></td></tr>
+        <tr><td>Paid</td><td style="text-align:right">${fmtAED(b.amountPaid)}</td></tr>
+        <tr><td><strong>Balance Due</strong></td><td style="text-align:right"><strong>${fmtAED(b.balanceDue)}</strong></td></tr>
+      </table></div></body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 350);
+  };
+
+  /* ── Email bill to vendor (stub) ── */
+  const handleEmailBill = async () => {
+    setEmailing(true);
+    try {
+      await new Promise(r => setTimeout(r, 1200));
+      nexusToast.success(`Bill ${selected.billNumber} sent to ${selected.vendorName || "vendor"}`);
+    } catch { nexusToast.error("Failed to send"); }
+    finally { setEmailing(false); }
   };
 
   /* ── Filtering ── */
@@ -368,7 +446,7 @@ export default function Bills() {
                   {[
                     ["overview",  "Overview"],
                     ["payments",  `Payments (${billPayments.filter(p => !p.isReversed).length})`],
-                    ["debitnotes",`Debit Notes (${debitNotes.length})`],
+                    ["debitnotes",`Credits & Debit Notes (${debitNotes.length + appliedCredits.length})`],
                   ].map(([tab, label]) => (
                     <button key={tab} className="bl-tab" onClick={() => setActiveTab(tab)}
                       style={{ padding: "9px 14px", border: "none", background: "transparent", fontSize: 12, fontWeight: activeTab === tab ? 700 : 500, color: activeTab === tab ? (isDark ? "#60a5fa" : "#2563eb") : T.textSec, borderBottom: activeTab === tab ? `2px solid ${isDark ? "#60a5fa" : "#2563eb"}` : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1, whiteSpace: "nowrap" }}>
@@ -488,20 +566,41 @@ export default function Bills() {
                   )}
                 </>)}
 
-                {/* ── DEBIT NOTES ── */}
+                {/* ── CREDITS & DEBIT NOTES ── */}
                 {activeTab === "debitnotes" && (<>
                   {dnLoading ? (
                     <div style={{ textAlign: "center", padding: "40px 20px", color: T.textSec }}>
                       <FaSpinner className="bl-spin" style={{ fontSize: 18, display: "block", margin: "0 auto 10px" }} />Loading…
                     </div>
-                  ) : debitNotes.length === 0 ? (
+                  ) : (debitNotes.length === 0 && appliedCredits.length === 0) ? (
                     <div style={{ textAlign: "center", padding: "40px 20px" }}>
                       <div style={{ width: 44, height: 44, borderRadius: 12, background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: T.textSec, margin: "0 auto 12px" }}><FaFileInvoiceDollar /></div>
-                      <p style={{ fontFamily: "Sora, sans-serif", fontWeight: 700, color: T.textPri, fontSize: 14, margin: 0 }}>No debit notes</p>
-                      <p style={{ color: T.textSec, fontSize: 12, margin: "6px 0 0" }}>Debit notes applied to this bill appear here</p>
+                      <p style={{ fontFamily: "Sora, sans-serif", fontWeight: 700, color: T.textPri, fontSize: 14, margin: 0 }}>No credits or debit notes</p>
+                      <p style={{ color: T.textSec, fontSize: 12, margin: "6px 0 0" }}>Vendor credits and debit notes applied to this bill appear here</p>
                     </div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {/* Applied vendor credits */}
+                      {appliedCredits.map((cr, i) => (
+                        <div key={cr._id || `cr-${i}`} style={{ background: T.surface2, border: `1px solid ${isDark ? "rgba(16,185,129,0.2)" : "#bbf7d0"}`, borderRadius: 12, padding: "13px 14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                            <div>
+                              <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700, color: "#10b981", margin: 0 }}>{cr.creditNumber}</p>
+                              <p style={{ fontSize: 11, color: T.textSec, margin: "3px 0 0" }}>{cr.reason || "—"} · {cr.date}</p>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 800, color: "#10b981", margin: 0 }}>− {fmtAED(cr.totals?.grandTotal)}</p>
+                              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 999, background: "rgba(16,185,129,0.12)", color: "#10b981", border: "1px solid rgba(16,185,129,0.25)" }}>VENDOR CREDIT</span>
+                            </div>
+                          </div>
+                          {(cr.totals?.taxTotal > 0) && (
+                            <div style={{ fontSize: 11, color: T.textSec, paddingTop: 6, borderTop: `1px solid ${T.border}` }}>
+                              VAT reversed: <strong style={{ color: T.textPri }}>{fmtAED(cr.totals.taxTotal)}</strong>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {/* Debit notes */}
                       {debitNotes.map((dn, i) => {
                         const dnTotals = dn.totals || {};
                         const statusColor = dn.status === "closed" ? "#10b981" : dn.status === "approved" ? "#8b5cf6" : dn.status === "void" ? "#6b7280" : "#f59e0b";
@@ -573,8 +672,58 @@ export default function Bills() {
                 )}
               </div>
 
-              {/* Footer */}
-              <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8 }}>
+              {/* Credit picker panel — pick an open vendor credit to apply */}
+              {creditPicker && (
+                <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: isDark ? "rgba(16,185,129,0.04)" : "#f0fdf4" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0 }}>Apply a vendor credit</p>
+                    <button onClick={() => setCreditPicker(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 2 }}><FaTimes size={11} /></button>
+                  </div>
+                  {openCredits.length === 0 ? (
+                    <p style={{ fontSize: 12, color: T.textSec, margin: "4px 0 0" }}>No open credits for this vendor.</p>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+                      {openCredits.map(cr => (
+                        <button key={cr._id} onClick={() => handleApplyCreditToBill(cr)} disabled={applyingCr === cr._id}
+                          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, cursor: applyingCr === cr._id ? "wait" : "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                          <span>
+                            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: "#10b981" }}>{cr.creditNumber}</span>
+                            <span style={{ fontSize: 11, color: T.textSec, marginLeft: 8 }}>{cr.reason || "—"}</span>
+                          </span>
+                          <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 800, color: "#10b981" }}>{applyingCr === cr._id ? "…" : fmtAED(cr.totals?.grandTotal)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Secondary actions */}
+              <div style={{ padding: "10px 20px 0", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {canPay && (
+                  <button className="bl-btn" onClick={() => navigate(`/Purchase/Bills/Edit/${b._id}`)}
+                    style={{ flex: 1, minWidth: 90, padding: "8px 10px", background: T.surface2, color: T.textPri, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    <FaEdit size={11} /> Edit
+                  </button>
+                )}
+                {canPay && b.balanceDue > 0 && (
+                  <button className="bl-btn" onClick={() => setCreditPicker(v => !v)}
+                    style={{ flex: 1, minWidth: 110, padding: "8px 10px", background: isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4", color: "#10b981", border: `1px solid ${isDark ? "rgba(16,185,129,0.25)" : "#bbf7d0"}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    <FaFileInvoiceDollar size={11} /> Apply Credit
+                  </button>
+                )}
+                <button className="bl-btn" onClick={handlePrintBill}
+                  style={{ flex: 1, minWidth: 80, padding: "8px 10px", background: T.surface2, color: T.textPri, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <FaPrint size={11} /> Print
+                </button>
+                <button className="bl-btn" onClick={handleEmailBill} disabled={emailing}
+                  style={{ flex: 1, minWidth: 90, padding: "8px 10px", background: T.surface2, color: T.textPri, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: emailing ? "wait" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <FaPaperPlane size={11} /> {emailing ? "Sending…" : "Email"}
+                </button>
+              </div>
+
+              {/* Primary footer */}
+              <div style={{ padding: "10px 20px 12px", borderTop: "none", display: "flex", gap: 8 }}>
                 {canPay && !payModal && (
                   <button className="bl-btn" onClick={() => { setPayModal(true); setActiveTab("payments"); }}
                     style={{ flex: 1, padding: 10, background: "#3b82f6", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>

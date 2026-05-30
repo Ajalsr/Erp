@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/backend/config"
@@ -45,6 +46,19 @@ func generateLPONumber(ctx context.Context) string {
 }
 
 var purchaseOrderCollection *mongo.Collection = config.GetCollection(config.DB, "purchase_orders")
+
+// normaliseOrigin maps any stored variant to the canonical form used for VAT logic.
+// e.g. "Free Zone", "freezone", "free zone" → "free_zone"
+func normaliseOrigin(o string) string {
+	s := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(o, "-", "_"), " ", "_"))
+	if strings.Contains(s, "free") || s == "free_zone" || s == "freezone" {
+		return "free_zone"
+	}
+	if s == "overseas" {
+		return "overseas"
+	}
+	return "mainland"
+}
 
 // round2 rounds to 2 decimal places
 func round2(v float64) float64 {
@@ -89,10 +103,18 @@ func buildTaxGroups(items []models.PurchaseOrderItem) []models.TaxGroup {
 	for _, rate := range order {
 		g := groups[rate]
 		base := round2(g.base)
-		tax := round2(base * 0.05)
+		// use TaxRate stored on item (0 or 5)
+		itemTaxRate := 0.0
+		for _, item := range items {
+			if item.Rate == rate {
+				itemTaxRate = item.TaxRate
+				break
+			}
+		}
+		tax := round2(base * itemTaxRate / 100)
 		result = append(result, models.TaxGroup{
 			Rate:       rate,
-			TaxRate:    5,
+			TaxRate:    itemTaxRate,
 			BaseAmount: base,
 			TaxAmount:  tax,
 		})
@@ -115,13 +137,31 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
+		// ── Determine VAT rate based on vendor origin ─────────────────────
+		// mainland → 5% | free_zone / overseas → 0%
+		appliedTaxRate := 0.05
+		vendorOrigin := ""
+		if req.VendorID != "" {
+			if vObjID, err2 := primitive.ObjectIDFromHex(req.VendorID); err2 == nil {
+				orgID, _ := c.Get("orgId")
+				var vendor struct {
+					Origin string `bson:"origin"`
+				}
+				vendorCollection.FindOne(ctx, bson.M{"_id": vObjID, "orgId": fmt.Sprintf("%v", orgID)}).Decode(&vendor)
+				vendorOrigin = normaliseOrigin(vendor.Origin)
+				if vendorOrigin == "free_zone" || vendorOrigin == "overseas" {
+					appliedTaxRate = 0.0
+				}
+			}
+		}
+
 		// ── Process each line item ────────────────────────────────────────
 		var processedItems []models.PurchaseOrderItem
 		var subTotal float64
 
 		for _, item := range req.Items {
 			base := calcLineBase(item.Quantity, item.Rate, item.Discount, item.DiscountType)
-			tax := round2(base * 0.05) // 5% VAT per line
+			tax := round2(base * appliedTaxRate)
 			amount := round2(base + tax)
 
 			processedItems = append(processedItems, models.PurchaseOrderItem{
@@ -133,7 +173,7 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 				Discount:     item.Discount,
 				DiscountType: item.DiscountType,
 				BaseAmount:   base,
-				TaxRate:      5,
+				TaxRate:      appliedTaxRate * 100,
 				TaxAmount:    tax,
 				Amount:       amount,
 				Unit:         item.Unit,
@@ -183,11 +223,18 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			lpoNumber = generateLPONumber(ctx)
 		}
 
+		poTypeVal := req.POType
+		if poTypeVal == "" {
+			poTypeVal = "goods"
+		}
+
 		po := models.PurchaseOrder{
 			ID:                   primitive.NewObjectID(),
 			OrderNumber:          req.OrderNumber,
 			VendorID:             req.VendorID,
 			VendorName:           req.VendorName,
+			VendorOrigin:         vendorOrigin,
+			POType:               poTypeVal,
 			OrderDate:            req.OrderDate,
 			ExpectedDeliveryDate: req.ExpectedDeliveryDate,
 			PaymentTerms:         req.PaymentTerms,
@@ -227,15 +274,17 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
-		// ── Increment quantity_ordered in stock for each line item ────────
-		stockCol := config.GetCollection(config.DB, "stocks")
-		for _, item := range processedItems {
-			if item.ItemID != "" {
-				if itemObjID, err := primitive.ObjectIDFromHex(item.ItemID); err == nil {
-					stockCol.UpdateOne(ctx,
-						bson.M{"_id": itemObjID, "orgId": orgIDStr},
-						bson.M{"$inc": bson.M{"quantity_ordered": item.Quantity}},
-					)
+		// ── Increment quantity_ordered in stock for goods POs only ───────
+		if poTypeVal == "goods" {
+			stockCol := config.GetCollection(config.DB, "stocks")
+			for _, item := range processedItems {
+				if item.ItemID != "" {
+					if itemObjID, err := primitive.ObjectIDFromHex(item.ItemID); err == nil {
+						stockCol.UpdateOne(ctx,
+							bson.M{"_id": itemObjID, "orgId": orgIDStr},
+							bson.M{"$inc": bson.M{"quantity_ordered": item.Quantity}},
+						)
+					}
 				}
 			}
 		}
@@ -485,6 +534,42 @@ func GetAllPurchaseOrders() gin.HandlerFunc {
 				"totalPages":     int(math.Ceil(float64(total) / float64(limit))),
 			},
 		})
+	}
+}
+
+// CancelPurchaseOrder cancels a PO in draft/pending_approval/issued status
+func CancelPurchaseOrder() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		objID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid purchase order ID"})
+			return
+		}
+
+		result, err := purchaseOrderCollection.UpdateOne(ctx,
+			bson.M{
+				"_id":    objID,
+				"orgId":  orgIDStr,
+				"status": bson.M{"$in": []string{"draft", "pending_approval", "issued"}},
+			},
+			bson.M{"$set": bson.M{"status": "cancelled", "updatedAt": time.Now()}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to cancel purchase order"})
+			return
+		}
+		if result.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Purchase order not found or cannot be cancelled"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Purchase order cancelled"})
 	}
 }
 

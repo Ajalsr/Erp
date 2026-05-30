@@ -7,16 +7,19 @@ import (
 )
 
 type QuoteLineItem struct {
-	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	Desc      string             `json:"desc"      bson:"desc"`
-	Qty       float64            `json:"qty"       bson:"qty"`
-	UnitPrice float64            `json:"unitPrice" bson:"unitPrice"`
-	Discount  float64            `json:"discount"  bson:"discount"`
-	TaxRate   float64            `json:"taxRate"   bson:"taxRate"`
-	Subtotal  float64            `json:"subtotal"  bson:"subtotal"`
-	DiscAmt   float64            `json:"discAmt"   bson:"discAmt"`
-	TaxAmt    float64            `json:"taxAmt"    bson:"taxAmt"`
-	Total     float64            `json:"total"     bson:"total"`
+	ID          primitive.ObjectID `json:"_id,omitempty"   bson:"_id,omitempty"`
+	PartNumber  string             `json:"partNumber"      bson:"partNumber"`
+	Desc        string             `json:"desc"            bson:"desc"`
+	Qty         float64            `json:"qty"             bson:"qty"`
+	Unit        string             `json:"unit"            bson:"unit"`
+	UnitPrice   float64            `json:"unitPrice"       bson:"unitPrice"`
+	Discount    float64            `json:"discount"        bson:"discount"`
+	DiscountType string            `json:"discountType"    bson:"discountType"`
+	TaxRate     float64            `json:"taxRate"         bson:"taxRate"`
+	Subtotal    float64            `json:"subtotal"        bson:"subtotal"`
+	DiscAmt     float64            `json:"discAmt"         bson:"discAmt"`
+	TaxAmt      float64            `json:"taxAmt"          bson:"taxAmt"`
+	Total       float64            `json:"total"           bson:"total"`
 }
 
 type QuoteTotals struct {
@@ -30,6 +33,20 @@ type QuoteParty struct {
 	Name    string `json:"name"    bson:"name"`
 	Address string `json:"address" bson:"address"`
 	TRN     string `json:"trn"     bson:"trn"`
+}
+
+type QuoteCompany struct {
+	Name    string `json:"name"    bson:"name"`
+	Address string `json:"address" bson:"address"`
+	TRN     string `json:"trn"     bson:"trn"`
+	Phone   string `json:"phone"   bson:"phone"`
+	Email   string `json:"email"   bson:"email"`
+	Website string `json:"website" bson:"website"`
+}
+
+type QuoteSignatory struct {
+	Name  string `json:"name"  bson:"name"`
+	Title string `json:"title" bson:"title"`
 }
 
 type QuoteNotes struct {
@@ -48,18 +65,34 @@ type Quote struct {
 	CustomerName  string             `json:"customerName"     bson:"customerName"`
 	CustomerEmail string             `json:"customerEmail"    bson:"customerEmail"`
 	BillTo        QuoteParty         `json:"billTo"           bson:"billTo"`
-	LineItems     []QuoteLineItem    `json:"lineItems"        bson:"lineItems"`
-	Totals        QuoteTotals        `json:"totals"           bson:"totals"`
-	Notes         QuoteNotes         `json:"notes"            bson:"notes"`
-	// draft | sent | accepted | declined | expired | converted
-	Status      string    `json:"status"                 bson:"status"`
+
+	// Reference / document fields
+	AttentionTo string `json:"attentionTo"  bson:"attentionTo"`
+	Subject     string `json:"subject"      bson:"subject"`
+	ProjectName string `json:"projectName"  bson:"projectName"`
+	IntroText   string `json:"introText"    bson:"introText"`
+
+	// Sender company details (for PDF header)
+	Company   QuoteCompany   `json:"company"   bson:"company"`
+	Signatory QuoteSignatory `json:"signatory" bson:"signatory"`
+
+	// Terms & Conditions list
+	TermsAndConditions []string `json:"termsAndConditions" bson:"termsAndConditions"`
+
+	LineItems []QuoteLineItem `json:"lineItems" bson:"lineItems"`
+	Totals    QuoteTotals     `json:"totals"    bson:"totals"`
+	Notes     QuoteNotes      `json:"notes"     bson:"notes"`
+
+	// Status: draft | sent | accepted | declined | expired | converted
+	Status              string `json:"status"                        bson:"status"`
 	ConvertedTo         string `json:"convertedTo,omitempty"         bson:"convertedTo,omitempty"`
 	ConvertedToSO       string `json:"convertedToSO,omitempty"       bson:"convertedToSO,omitempty"`
 	ConvertedToSONumber string `json:"convertedToSONumber,omitempty" bson:"convertedToSONumber,omitempty"`
 	SourceEnquiryId     string `json:"sourceEnquiryId,omitempty"     bson:"sourceEnquiryId,omitempty"`
 	SourceEnquiryNumber string `json:"sourceEnquiryNumber,omitempty" bson:"sourceEnquiryNumber,omitempty"`
-	OrgID       string    `json:"orgId,omitempty"        bson:"orgId,omitempty"`
-	CreatedBy   string    `json:"createdBy"              bson:"createdBy"`
-	CreatedAt   time.Time `json:"createdAt"              bson:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"              bson:"updatedAt"`
+
+	OrgID     string    `json:"orgId,omitempty" bson:"orgId,omitempty"`
+	CreatedBy string    `json:"createdBy"       bson:"createdBy"`
+	CreatedAt time.Time `json:"createdAt"       bson:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"       bson:"updatedAt"`
 }

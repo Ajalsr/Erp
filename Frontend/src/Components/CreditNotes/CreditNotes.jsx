@@ -598,6 +598,7 @@ export default function CreditNotes() {
   const [refundDetails,  setRefundDetails]  = useState({});
   const [refundNotesTxt, setRefundNotesTxt] = useState("");
   const [refunding,      setRefunding]      = useState(false);
+  const [drawerTab,      setDrawerTab]      = useState("details");
 
   const LIMIT = 15;
 
@@ -686,7 +687,7 @@ export default function CreditNotes() {
 
   // Load eligible invoices whenever a CN is open and approved (any approved CN can apply to any customer invoice)
   useEffect(() => {
-    if (!drawerOpen || !selected || selected.status !== "approved") {
+    if (!drawerOpen || !selected || !["approved","applied"].includes(selected.status)) {
       setApplyInvoices([]); setApplyInvoiceId(""); setApplyAmount(""); return;
     }
     axiosInstance.get("/api/invoices")
@@ -933,7 +934,7 @@ export default function CreditNotes() {
                 return (
                   <tr key={cn._id || i} className="cn-row" style={{ borderBottom: `1px solid ${T.border}` }}>
                     <td style={{ padding: "12px 16px" }}>
-                      <span onClick={() => { setSelected(cn); setDrawerOpen(true); }}
+                      <span onClick={() => { setSelected(cn); setDrawerTab("details"); setDrawerOpen(true); }}
                         style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: T.blueLight, cursor: "pointer" }}>
                         {cn.creditNoteNumber}
                       </span>
@@ -948,7 +949,7 @@ export default function CreditNotes() {
                     </td>
                     <td style={{ padding: "12px 10px" }}>
                       <div style={{ display: "flex", gap: 4 }}>
-                        <button onClick={() => { setSelected(cn); setDrawerOpen(true); }}
+                        <button onClick={() => { setSelected(cn); setDrawerTab("details"); setDrawerOpen(true); }}
                           style={{ padding: "4px 10px", border: `1px solid ${T.border}`, borderRadius: 7, background: "transparent", fontSize: 11, color: T.textSec, cursor: "pointer", fontFamily: "inherit" }}>
                           View
                         </button>
@@ -1281,22 +1282,69 @@ export default function CreditNotes() {
             <div className="cn-drawer" style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: 440, maxWidth: "100vw", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
 
               {/* Drawer header */}
-              <div style={{ padding: "20px 20px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                    <h3 style={{ fontFamily: "Sora, sans-serif", fontSize: 16, fontWeight: 800, color: T.textPri, margin: 0 }}>Credit Note</h3>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: sc.bg, color: sc.color }}>{sc.label}</span>
+              <div style={{ borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ padding: "20px 20px 14px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                      <h3 style={{ fontFamily: "Sora, sans-serif", fontSize: 16, fontWeight: 800, color: T.textPri, margin: 0 }}>Credit Note</h3>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: sc.bg, color: sc.color }}>{sc.label}</span>
+                    </div>
+                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.blueLight }}>{cn.creditNoteNumber}</span>
                   </div>
-                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.blueLight }}>{cn.creditNoteNumber}</span>
+                  <button onClick={() => { setDrawerOpen(false); setSelected(null); }}
+                    style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 6, cursor: "pointer", color: T.textSec, display: "flex" }}>
+                    <FaTimes size={11} />
+                  </button>
                 </div>
-                <button onClick={() => { setDrawerOpen(false); setSelected(null); }}
-                  style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 6, cursor: "pointer", color: T.textSec, display: "flex" }}>
-                  <FaTimes size={11} />
-                </button>
+                {/* Tabs */}
+                <div style={{ display: "flex", padding: "0 20px" }}>
+                  {["details", "history"].map(tab => (
+                    <button key={tab} onClick={() => setDrawerTab(tab)}
+                      style={{ padding: "8px 16px", border: "none", borderBottom: `2px solid ${drawerTab === tab ? T.blue : "transparent"}`, background: "transparent", color: drawerTab === tab ? T.blue : T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textTransform: "capitalize", transition: "all .15s" }}>
+                      {tab === "history" ? "History" : "Details"}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Drawer body */}
               <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+                {/* ── History tab ── */}
+                {drawerTab === "history" && (() => {
+                  const apps = cn.applications || [];
+                  if (apps.length === 0) return (
+                    <div style={{ textAlign: "center", padding: "40px 20px", color: T.textSec }}>
+                      <p style={{ fontSize: 13 }}>No application history yet.</p>
+                    </div>
+                  );
+                  return (
+                    <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+                      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em" }}>Invoice</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em" }}>Applied</span>
+                      </div>
+                      {apps.map((a, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 14px", borderBottom: i < apps.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                          <div>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0, fontFamily: "'DM Mono', monospace" }}>{a.invoiceNumber || a.invoiceId}</p>
+                            <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>{a.date || "—"}</p>
+                          </div>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: T.green }}>AED {(a.amount ?? 0).toFixed(2)}</span>
+                        </div>
+                      ))}
+                      <div style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", background: isDark ? "rgba(16,185,129,0.06)" : "#f0fdf4" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec }}>Total Applied</span>
+                        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 800, color: T.green }}>
+                          AED {apps.reduce((s, a) => s + (a.amount ?? 0), 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ── Details tab ── */}
+                {drawerTab === "details" && <>
                 {/* Meta */}
                 <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
                   {[
@@ -1350,8 +1398,8 @@ export default function CreditNotes() {
                   ))}
                 </div>
 
-                {/* Apply to Invoice panel — shown for all approved CNs with remaining credit */}
-                {cn.status === "approved" && (cn.remainingAmount ?? cn.totals?.grandTotal ?? 0) > 0 && (
+                {/* Apply to Invoice panel — shown for approved/applied CNs with remaining credit */}
+                {["approved","applied"].includes(cn.status) && (cn.remainingAmount ?? cn.totals?.grandTotal ?? 0) > 0 && (
                   <div style={{ background: isDark ? "rgba(59,130,246,0.07)" : "#eff6ff", border: "1px solid rgba(59,130,246,0.25)", borderRadius: 12, padding: "14px" }}>
                     <p style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#60a5fa" : "#1d4ed8", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.07em" }}>Apply to Invoice</p>
                     <p style={{ fontSize: 11, color: T.textSec, margin: "0 0 10px" }}>
@@ -1373,6 +1421,7 @@ export default function CreditNotes() {
                     />
                   </div>
                 )}
+                </>}
               </div>
 
               {/* Drawer actions — follow status flow */}
@@ -1389,7 +1438,7 @@ export default function CreditNotes() {
                     <FaCheck size={11} /> {actioning ? "Approving…" : "Approve"}
                   </button>
                 )}
-                {cn.status === "approved" && (
+                {["approved","applied"].includes(cn.status) && (cn.remainingAmount ?? cn.totals?.grandTotal ?? 0) > 0 && (
                   <>
                     <button className="cn-btn" disabled={actioning || !applyInvoiceId} onClick={() => handleApply(cn._id)}
                       title={!applyInvoiceId ? "Select an invoice above" : "Apply credit to invoice"}

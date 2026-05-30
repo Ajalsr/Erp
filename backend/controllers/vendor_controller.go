@@ -137,8 +137,8 @@ func GetVendorByID() gin.HandlerFunc {
 			return
 		}
 
-		var v models.Vendor
-		err = vendorCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgID}).Decode(&v)
+		var raw bson.M
+		err = vendorCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgID}).Decode(&raw)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Vendor not found"})
@@ -147,8 +147,12 @@ func GetVendorByID() gin.HandlerFunc {
 			}
 			return
 		}
+		// Convert ObjectID to string so JSON serialises cleanly
+		if oid, ok := raw["_id"].(primitive.ObjectID); ok {
+			raw["_id"] = oid.Hex()
+		}
 
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Vendor retrieved", "data": v})
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Vendor retrieved", "data": raw})
 	}
 }
 

@@ -36,6 +36,11 @@ const handleExpiredSession = (message = 'Your session has expired. Please log in
 
 // ── Request interceptor: attach token + check expiry proactively ──
 api.interceptors.request.use((config) => {
+  // FormData must NOT have Content-Type set manually — browser adds boundary automatically
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type']
+  }
+
   const token = useAuthStore.getState().token
 
   if (token) {

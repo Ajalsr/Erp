@@ -29,6 +29,7 @@ func CreateVendorCredit() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 		userID, _ := c.Get("userId")
 
 		var cr models.VendorCredit
@@ -42,11 +43,11 @@ func CreateVendorCredit() gin.HandlerFunc {
 		}
 
 		cr.ID = primitive.NewObjectID()
-		cr.OrgID = orgID.(string)
+		cr.OrgID = orgIDStr
 		cr.CreatedAt = time.Now()
 		cr.UpdatedAt = time.Now()
 		if userID != nil {
-			cr.CreatedBy = userID.(string)
+			cr.CreatedBy = fmt.Sprintf("%v", userID)
 		}
 		if cr.CreditNumber == "" {
 			cr.CreditNumber = generateCreditNumber()
@@ -61,6 +62,26 @@ func CreateVendorCredit() gin.HandlerFunc {
 		if _, err := vendorCreditCollection.InsertOne(ctx, cr); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create vendor credit", "error": err.Error()})
 			return
+		}
+
+		// Push history + increment creditAvailable on vendor
+		if cr.VendorID != "" {
+			if vObjID, err := primitive.ObjectIDFromHex(cr.VendorID); err == nil {
+				histEntry := bson.M{
+					"action":    "credit_received",
+					"timestamp": time.Now(),
+					"user":      cr.CreatedBy,
+					"details":   fmt.Sprintf("Vendor credit %s received. Amount: AED %.2f (incl. VAT: AED %.2f)", cr.CreditNumber, cr.Totals.GrandTotal, cr.Totals.TaxTotal),
+				}
+				vendorCollection.UpdateOne(ctx,
+					bson.M{"_id": vObjID, "orgId": orgIDStr},
+					bson.M{
+						"$inc":  bson.M{"creditAvailable": cr.Totals.GrandTotal},
+						"$push": bson.M{"history": histEntry},
+						"$set":  bson.M{"updatedAt": time.Now()},
+					},
+				)
+			}
 		}
 
 		c.JSON(http.StatusCreated, gin.H{
@@ -84,6 +105,9 @@ func GetAllVendorCredits() gin.HandlerFunc {
 		}
 		if vid := c.Query("vendorId"); vid != "" {
 			filter["vendorId"] = vid
+		}
+		if bid := c.Query("billId"); bid != "" {
+			filter["billId"] = bid
 		}
 
 		total, _ := vendorCreditCollection.CountDocuments(ctx, filter)
@@ -148,6 +172,10 @@ func ApplyVendorCredit() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		userID, _ := c.Get("userId")
+		userIDStr := fmt.Sprintf("%v", userID)
+
 		id := c.Param("id")
 		crObjID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
@@ -158,45 +186,57 @@ func ApplyVendorCredit() gin.HandlerFunc {
 		var body struct {
 			BillID string `json:"billId"`
 		}
-		if err := c.ShouldBindJSON(&body); err != nil || body.BillID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "billId is required"})
-			return
-		}
+		c.ShouldBindJSON(&body)
 
 		// Fetch credit
 		var cr models.VendorCredit
-		err = vendorCreditCollection.FindOne(ctx, bson.M{"_id": crObjID, "orgId": orgID}).Decode(&cr)
+		err = vendorCreditCollection.FindOne(ctx, bson.M{"_id": crObjID, "orgId": orgIDStr}).Decode(&cr)
 		if err != nil || cr.Status != "open" {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Credit not found or already applied/void"})
 			return
 		}
 
-		// Fetch bill
+		if body.BillID == "" {
+			body.BillID = cr.BillID
+		}
+		if body.BillID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "No bill linked to this credit. Please link a bill before applying."})
+			return
+		}
+
 		billObjID, err := primitive.ObjectIDFromHex(body.BillID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid bill ID"})
 			return
 		}
 		var b models.Bill
-		err = billCollection.FindOne(ctx, bson.M{"_id": billObjID, "orgId": orgID}).Decode(&b)
+		err = billCollection.FindOne(ctx, bson.M{"_id": billObjID, "orgId": orgIDStr}).Decode(&b)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Bill not found"})
 			return
 		}
 
-		creditAmt := cr.Totals.GrandTotal
-		newPaid := b.AmountPaid + creditAmt
-		newBalance := b.Totals.GrandTotal - newPaid
-		if newBalance < 0 {
-			newBalance = 0
-		}
-		newBillStatus := "partial"
-		if newBalance <= 0 {
-			newBillStatus = "paid"
+		// Block applying credit to a paid bill — credit should apply to an open/partial bill
+		if b.Status == "paid" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  http.StatusBadRequest,
+				"message": "This bill is already paid. The credit is available against this vendor — apply it to an open bill instead.",
+				"code":    "BILL_ALREADY_PAID",
+			})
+			return
 		}
 
-		// Update bill
-		billCollection.UpdateOne(ctx, bson.M{"_id": billObjID, "orgId": orgID}, bson.M{
+		creditAmt  := cr.Totals.GrandTotal
+		vatReversed := cr.Totals.TaxTotal
+
+		// Update bill balance
+		newPaid    := b.AmountPaid + creditAmt
+		newBalance := b.Totals.GrandTotal - newPaid
+		if newBalance < 0 { newBalance = 0 }
+		newBillStatus := "partial"
+		if newBalance <= 0 { newBillStatus = "paid" }
+
+		billCollection.UpdateOne(ctx, bson.M{"_id": billObjID, "orgId": orgIDStr}, bson.M{
 			"$set": bson.M{
 				"amountPaid": newPaid,
 				"balanceDue": newBalance,
@@ -206,7 +246,7 @@ func ApplyVendorCredit() gin.HandlerFunc {
 		})
 
 		// Mark credit as applied
-		vendorCreditCollection.UpdateOne(ctx, bson.M{"_id": crObjID, "orgId": orgID}, bson.M{
+		vendorCreditCollection.UpdateOne(ctx, bson.M{"_id": crObjID, "orgId": orgIDStr}, bson.M{
 			"$set": bson.M{
 				"status":     "applied",
 				"billId":     body.BillID,
@@ -215,29 +255,36 @@ func ApplyVendorCredit() gin.HandlerFunc {
 			},
 		})
 
-		// Reduce vendor outstanding payable + push history
+		// Update vendor: decrement outstandingPayable, decrement creditAvailable, push history
 		if cr.VendorID != "" {
-			vendorFilter := bson.M{"orgId": orgID}
-			if vObjID, err := primitive.ObjectIDFromHex(cr.VendorID); err == nil {
-				vendorFilter["_id"] = vObjID
+			if vObjID, err2 := primitive.ObjectIDFromHex(cr.VendorID); err2 == nil {
+				vatNote := ""
+				if vatReversed > 0 {
+					vatNote = fmt.Sprintf(" (VAT reversed: AED %.2f)", vatReversed)
+				}
+				histEntry := bson.M{
+					"action":    "credit_applied",
+					"timestamp": time.Now(),
+					"user":      userIDStr,
+					"details":   fmt.Sprintf("Credit %s applied to Bill %s. Amount: AED %.2f%s. Bill status: %s.", cr.CreditNumber, b.BillNumber, creditAmt, vatNote, newBillStatus),
+				}
+				vendorCollection.UpdateOne(ctx,
+					bson.M{"_id": vObjID, "orgId": orgIDStr},
+					bson.M{
+						"$inc":  bson.M{"outstandingPayable": -creditAmt, "creditAvailable": -creditAmt},
+						"$push": bson.M{"history": histEntry},
+						"$set":  bson.M{"updatedAt": time.Now()},
+					},
+				)
 			}
-			histEntry := bson.M{
-				"action":    "credit_applied",
-				"timestamp": time.Now(),
-				"details":   fmt.Sprintf("Credit %s applied to Bill %s. Amount: AED %.2f", cr.CreditNumber, b.BillNumber, creditAmt),
-			}
-			vendorCollection.UpdateOne(ctx, vendorFilter, bson.M{
-				"$inc":  bson.M{"outstandingPayable": -creditAmt},
-				"$push": bson.M{"history": histEntry},
-				"$set":  bson.M{"updatedAt": time.Now()},
-			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  http.StatusOK,
 			"message": "Vendor credit applied successfully",
 			"data": gin.H{
-				"creditApplied": creditAmt,
+				"creditApplied":  creditAmt,
+				"vatReversed":    vatReversed,
 				"billBalanceDue": newBalance,
 				"billStatus":     newBillStatus,
 			},
@@ -251,6 +298,7 @@ func VoidVendorCredit() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 		id := c.Param("id")
 		objID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
@@ -258,13 +306,34 @@ func VoidVendorCredit() gin.HandlerFunc {
 			return
 		}
 
-		result, err := vendorCreditCollection.UpdateOne(ctx,
-			bson.M{"_id": objID, "orgId": orgID, "status": "open"},
-			bson.M{"$set": bson.M{"status": "void", "updatedAt": time.Now()}},
-		)
-		if err != nil || result.MatchedCount == 0 {
+		var cr models.VendorCredit
+		if err2 := vendorCreditCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr, "status": "open"}).Decode(&cr); err2 != nil {
 			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Credit not found or cannot be voided"})
 			return
+		}
+
+		vendorCreditCollection.UpdateOne(ctx,
+			bson.M{"_id": objID, "orgId": orgIDStr},
+			bson.M{"$set": bson.M{"status": "void", "updatedAt": time.Now()}},
+		)
+
+		// Reverse the creditAvailable on vendor + push history
+		if cr.VendorID != "" {
+			if vObjID, err2 := primitive.ObjectIDFromHex(cr.VendorID); err2 == nil {
+				histEntry := bson.M{
+					"action":    "credit_voided",
+					"timestamp": time.Now(),
+					"details":   fmt.Sprintf("Credit %s voided. Amount reversed: AED %.2f", cr.CreditNumber, cr.Totals.GrandTotal),
+				}
+				vendorCollection.UpdateOne(ctx,
+					bson.M{"_id": vObjID, "orgId": orgIDStr},
+					bson.M{
+						"$inc":  bson.M{"creditAvailable": -cr.Totals.GrandTotal},
+						"$push": bson.M{"history": histEntry},
+						"$set":  bson.M{"updatedAt": time.Now()},
+					},
+				)
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Vendor credit voided"})

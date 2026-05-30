@@ -345,18 +345,30 @@ const DocumentsTab = ({ documents, handleFileUpload, removeDocument, getFileIcon
             {docs.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {docs.map(doc => (
-                  <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: T.surface, borderRadius: '9px', border: `1px solid ${T.border}` }}>
+                  <div key={doc._id || doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: T.surface, borderRadius: '9px', border: `1px solid ${doc.status==='uploading'?(isDark?'rgba(59,130,246,0.3)':'#93c5fd'):T.border}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ fontSize: '18px' }}>{getFileIcon(doc.name)}</div>
+                      <div style={{ fontSize: '18px', opacity: doc.status==='uploading'?0.5:1 }}>{getFileIcon(doc.name)}</div>
                       <div>
                         <p style={{ fontSize: '12px', fontWeight: '600', color: T.textPri, margin: 0 }}>{doc.name}</p>
-                        <p style={{ fontSize: '11px', color: T.textSec, margin: '2px 0 0' }}>{formatFileSize(doc.size)} · {new Date(doc.uploadDate).toLocaleDateString()}</p>
+                        <p style={{ fontSize: '11px', color: doc.status==='uploading'?(isDark?'#60a5fa':'#2563eb'):T.textSec, margin: '2px 0 0' }}>
+                          {doc.status==='uploading' ? '⏳ Uploading…' : `${formatFileSize(doc.size)} · ${new Date(doc.uploadDate).toLocaleDateString()}`}
+                        </p>
                       </div>
                     </div>
-                    <button type="button" onClick={() => removeDocument(doc.id)}
-                      style={{ background: 'rgba(239,68,68,0.1)', border: 'none', borderRadius: '7px', padding: '5px 8px', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center' }}>
-                      <AiOutlineDelete size={15} />
-                    </button>
+                    {doc.status !== 'uploading' && (
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        {doc.url && (
+                          <a href={doc.url} target="_blank" rel="noreferrer"
+                            style={{ fontSize:11, color:isDark?'#60a5fa':'#2563eb', textDecoration:'none', padding:'4px 8px', border:`1px solid ${isDark?'rgba(59,130,246,0.3)':'#bfdbfe'}`, borderRadius:6 }}>
+                            View
+                          </a>
+                        )}
+                        <button type="button" onClick={() => removeDocument(doc._id || doc.id)}
+                          style={{ background:'rgba(239,68,68,0.1)', border:'none', borderRadius:'7px', padding:'5px 8px', cursor:'pointer', color:'#ef4444', display:'flex', alignItems:'center' }}>
+                          <AiOutlineDelete size={15} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1072,7 +1084,7 @@ const Newcustomers = () => {
   const [formData, setFormData] = useState({
     customerType: 'business', customerCode: '', salutation: '',
     firstName: '', lastName: '', companyName: '', customerDisplayName: '',
-    trnNumber: '', legalForm: '',
+    trnNumber: '', legalForm: '', origin: 'mainland',
     customerEmail: '', customerPhone: '', workPhone: '', mobile: '',
     streetAddress: '', city: '', postalCode: '', country: '',
     customFields: {}, reportingTags: [], remarks: '', documents: [],
@@ -1096,6 +1108,7 @@ const Newcustomers = () => {
           customerDisplayName: c.customerDisplayName || '',
           trnNumber:           c.trnNumber           || '',
           legalForm:           c.legalForm           || '',
+          origin:              c.origin              || 'mainland',
           customerEmail:       c.customerEmail       || '',
           customerPhone:       c.customerPhone       || '',
           workPhone:           c.workPhone           || '',
@@ -1128,22 +1141,86 @@ const Newcustomers = () => {
     setFormData(prev => ({ ...prev, [fieldName]: value || '' }));
   }, []);
 
-  const handleFileUpload = useCallback((documentType, e) => {
+  const handleFileUpload = useCallback(async (documentType, e) => {
     const files = Array.from(e.target.files);
-    if (files.length > 0) {
-      const newDocs = files.map(file => ({
-        id: Date.now() + Math.random(), type: documentType, name: file.name, file,
-        size: file.size, uploadDate: new Date().toISOString(), status: 'uploaded'
-      }));
-      setFormData(prev => ({ ...prev, documents: [...prev.documents, ...newDocs] }));
-      toast.success(`${files.length} file(s) uploaded`);
-    }
     e.target.value = '';
+    if (!files.length) return;
+
+    for (const file of files) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error(`${file.name} exceeds 10 MB limit`);
+        continue;
+      }
+      const localId = Date.now() + Math.random();
+      // placeholder while uploading
+      setFormData(prev => ({
+        ...prev,
+        documents: [...prev.documents, {
+          id: localId, type: documentType, name: file.name,
+          size: file.size, uploadDate: new Date().toISOString(),
+          status: 'uploading', url: null,
+        }],
+      }));
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('folder', 'erp/customers');
+        fd.append('docType', documentType);
+        const res = await axiosInstance.post('/api/documents/upload', fd);
+        const { url, size } = res.data;
+        console.log('[handleFileUpload] upload result:', { url, size, fullData: res.data });
+
+        // In edit mode, immediately persist the document to MongoDB so it
+        // survives even if the user navigates away without clicking Update Customer.
+        // After persisting, reload the customer so we have the real server-side _id
+        // and avoid duplicates when the user later clicks "Update Customer".
+        if (isEditMode && editId && url) {
+          try {
+            const persistRes = await axiosInstance.post(`/api/customers/${editId}/documents`, {
+              name: file.name,
+              type: documentType,
+              url,
+              size,
+              description: '',
+            });
+            // Replace the optimistic local doc with the real server doc
+            const savedDoc = persistRes.data?.data;
+            if (savedDoc?._id) {
+              setFormData(prev => ({
+                ...prev,
+                documents: prev.documents.map(d =>
+                  d.id === localId ? { ...savedDoc, status: 'uploaded' } : d
+                ),
+              }));
+              return; // skip the setFormData below — already done
+            }
+          } catch (persistErr) {
+            console.warn('[handleFileUpload] immediate persist failed:', persistErr);
+          }
+        }
+
+        setFormData(prev => ({
+          ...prev,
+          documents: prev.documents.map(d =>
+            d.id === localId ? { ...d, url, size, status: 'uploaded' } : d
+          ),
+        }));
+        toast.success(`${file.name} uploaded`);
+      } catch (err) {
+        setFormData(prev => ({
+          ...prev,
+          documents: prev.documents.filter(d => d.id !== localId),
+        }));
+        toast.error(`Failed to upload ${file.name}`);
+      }
+    }
   }, []);
 
   const removeDocument = useCallback((docId) => {
-    setFormData(prev => ({ ...prev, documents: prev.documents.filter(d => d.id !== docId) }));
-    toast.success('Document removed');
+    setFormData(prev => ({
+      ...prev,
+      documents: prev.documents.filter(d => d._id !== docId && d.id !== docId),
+    }));
   }, []);
 
   const getFileIcon = useCallback((fileName) => {
@@ -1167,10 +1244,10 @@ const Newcustomers = () => {
     if (!formData.customerDisplayName.trim()) { toast.error("Customer display name is required"); return; }
     if (!formData.trnNumber.trim()) { toast.error("TRN Number is required"); return; }
     setIsSubmitting(true);
+    console.log('[handleSubmit] formData.documents at submit:', JSON.stringify(formData.documents, null, 2));
     try {
       if (isEditMode) {
         await handleUpdateCustomer(editId, { ...formData, contactPersons });
-        toast.success("Customer updated successfully!");
       } else {
         await handleAddcustomer({ ...formData, contactPersons });
         setFormData({
@@ -1323,6 +1400,14 @@ const Newcustomers = () => {
                       <Label T={T}>Legal Form</Label>
                       <input className="nc-input" name="legalForm" value={formData.legalForm}
                         onChange={handleChange} placeholder="e.g. LLC, FZCO, Sole Proprietorship" />
+                    </div>
+                    <div>
+                      <Label T={T}>Customer Origin</Label>
+                      <select className="nc-input" name="origin" value={formData.origin || 'mainland'} onChange={handleChange}>
+                        <option value="mainland">Mainland (5% VAT)</option>
+                        <option value="free_zone">Free Zone (0% VAT)</option>
+                        <option value="overseas">Overseas (0% VAT)</option>
+                      </select>
                     </div>
                   </div>
                 )}

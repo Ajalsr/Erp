@@ -29,6 +29,7 @@ func CreateVendorPayment() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr  := fmt.Sprintf("%v", orgID)
 		userID, _ := c.Get("userId")
 
 		var p models.VendorPayment
@@ -46,11 +47,11 @@ func CreateVendorPayment() gin.HandlerFunc {
 		}
 
 		p.ID = primitive.NewObjectID()
-		p.OrgID = orgID.(string)
+		p.OrgID = orgIDStr
 		p.CreatedAt = time.Now()
 		p.UpdatedAt = time.Now()
 		if userID != nil {
-			p.CreatedBy = userID.(string)
+			p.CreatedBy = fmt.Sprintf("%v", userID)
 		}
 		if p.PaymentNumber == "" {
 			p.PaymentNumber = generateVendorPaymentNumber()
@@ -60,22 +61,25 @@ func CreateVendorPayment() gin.HandlerFunc {
 		}
 
 		// ── 1. Apply to linked bill ──────────────────────────────────────────
+		overpayment := 0.0
 		if p.BillID != "" {
 			billObjID, err := primitive.ObjectIDFromHex(p.BillID)
 			if err == nil {
 				var b models.Bill
-				err = billCollection.FindOne(ctx, bson.M{"_id": billObjID, "orgId": orgID}).Decode(&b)
+				err = billCollection.FindOne(ctx, bson.M{"_id": billObjID, "orgId": orgIDStr}).Decode(&b)
 				if err == nil {
-					newPaid := b.AmountPaid + p.Amount
+					newPaid    := b.AmountPaid + p.Amount
 					newBalance := b.Totals.GrandTotal - newPaid
 					if newBalance < 0 {
-						newBalance = 0
+						// Overpayment — excess goes to creditAvailable on vendor
+						overpayment = -newBalance
+						newBalance  = 0
 					}
 					newStatus := "partial"
 					if newBalance <= 0 {
 						newStatus = "paid"
 					}
-					billCollection.UpdateOne(ctx, bson.M{"_id": billObjID, "orgId": orgID}, bson.M{
+					billCollection.UpdateOne(ctx, bson.M{"_id": billObjID, "orgId": orgIDStr}, bson.M{
 						"$set": bson.M{
 							"amountPaid": newPaid,
 							"balanceDue": newBalance,
@@ -83,34 +87,38 @@ func CreateVendorPayment() gin.HandlerFunc {
 							"updatedAt":  time.Now(),
 						},
 					})
-					if p.BillNumber == "" {
-						p.BillNumber = b.BillNumber
-					}
-					if p.VendorName == "" {
-						p.VendorName = b.VendorName
-					}
+					if p.BillNumber == "" { p.BillNumber = b.BillNumber }
+					if p.VendorName == "" { p.VendorName = b.VendorName }
 				}
 			}
 		}
 
-		// ── 2. Reduce vendor outstanding payable + push history ──────────────
+		// ── 2. Update vendor: reduce payable, add overpayment to creditAvailable, push history ──
 		if p.VendorID != "" {
-			vendorFilter := bson.M{"orgId": orgID}
 			if vObjID, err := primitive.ObjectIDFromHex(p.VendorID); err == nil {
-				vendorFilter["_id"] = vObjID
+				incFields := bson.M{"outstandingPayable": -p.Amount}
+				if overpayment > 0 {
+					incFields["creditAvailable"] = overpayment
+				}
+				histNote := fmt.Sprintf("Payment AED %.2f recorded (%s). Bill: %s. Ref: %s", p.Amount, p.PaymentMode, p.BillNumber, p.Reference)
+				if overpayment > 0 {
+					histNote += fmt.Sprintf(" Overpayment AED %.2f added to credit available.", overpayment)
+				}
+				histEntry := bson.M{
+					"action":    "payment_made",
+					"timestamp": time.Now(),
+					"user":      p.CreatedBy,
+					"details":   histNote,
+				}
+				vendorCollection.UpdateOne(ctx,
+					bson.M{"_id": vObjID, "orgId": orgIDStr},
+					bson.M{
+						"$inc":  incFields,
+						"$push": bson.M{"history": histEntry},
+						"$set":  bson.M{"updatedAt": time.Now()},
+					},
+				)
 			}
-			histEntry := bson.M{
-				"action":    "payment_made",
-				"timestamp": time.Now(),
-				"user":      p.CreatedBy,
-				"details": fmt.Sprintf("Payment of %.2f recorded (%s). Bill: %s. Ref: %s",
-					p.Amount, p.PaymentMode, p.BillNumber, p.Reference),
-			}
-			vendorCollection.UpdateOne(ctx, vendorFilter, bson.M{
-				"$inc":  bson.M{"outstandingPayable": -p.Amount},
-				"$push": bson.M{"history": histEntry},
-				"$set":  bson.M{"updatedAt": time.Now()},
-			})
 		}
 
 		// ── 3. Insert payment record ─────────────────────────────────────────
@@ -133,8 +141,9 @@ func GetAllVendorPayments() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr  := fmt.Sprintf("%v", orgID)
 
-		filter := bson.M{"orgId": orgID}
+		filter := bson.M{"orgId": orgIDStr}
 		if vid := c.Query("vendorId"); vid != "" {
 			filter["vendorId"] = vid
 		}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axiosInstance from "../../helper/axiosInstance";
 import {
   FaTimes, FaSearch, FaBoxOpen, FaChevronLeft, FaChevronRight,
@@ -15,9 +15,18 @@ import useGetItem from "../../helper/useGetItem";
 const fmtAED  = (n) =>
   `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const round2  = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-const TAX_RATE = 0.05;
 
-const buildInboundTaxGroups = (selItems) => {
+const normaliseOrigin = (origin) => {
+  if (!origin) return 'mainland';
+  const o = origin.toLowerCase().replace(/\s+/g, '_');
+  if (o === 'free_zone' || o === 'freezone') return 'free_zone';
+  if (o === 'overseas') return 'overseas';
+  return 'mainland';
+};
+const vendorTaxRate = (origin) =>
+  (normaliseOrigin(origin) === 'mainland') ? 0.05 : 0;
+
+const buildInboundTaxGroups = (selItems, taxRate) => {
   const order = [], groups = {};
   selItems.forEach(item => {
     const price = parseFloat(item.costPrice || 0);
@@ -30,7 +39,7 @@ const buildInboundTaxGroups = (selItems) => {
   return order.map(key => ({
     rate:       groups[key].rate,
     baseAmount: round2(groups[key].base),
-    taxAmount:  round2(groups[key].base * TAX_RATE),
+    taxAmount:  round2(groups[key].base * taxRate),
   }));
 };
 
@@ -59,27 +68,36 @@ const transformPOsToItems = (poData, stockData) => {
   }
   const result = [];
   poData.purchaseOrders
-    .filter(po => po.status !== "received")
+    .filter(po => po.status === "issued" || po.status === "partial")
     .forEach(po => {
       (po.items || []).forEach(oi => {
-        const stock = stockMap[oi.itemId];
+        const stock       = stockMap[oi.itemId];
+        const orderedQty  = parseQty(oi.quantity);
+        const receivedQty = parseQty(oi.receivedQty || 0);
+        const remainingQty = Math.max(0, orderedQty - receivedQty);
+        // Skip items fully received
+        if (remainingQty <= 0) return;
         result.push({
           _id:          String(oi._id || `${po._id}-${oi.itemId}`),
           itemId:       oi.itemId,
           poId:         String(po._id),
           vendorId:     po.vendorId || '',
+          vendorOrigin: po.vendorOrigin || 'mainland',
           name:         oi.details || stock?.name || `Item ${oi.itemId}`,
           item_code:    stock?.item_code || "-",
           unit:         oi.unit || stock?.Unit || "Pcs",
           vendor:       po.vendorName,
           poNumber:     po.orderNumber,
-          orderedQty:   parseQty(oi.quantity),
+          orderedQty,
+          receivedQty,
+          remainingQty,
           stockOnHand:  parseFloat(stock?.quantity || "0"),
           costPrice:    oi.rate,
-          receiveQty:   parseQty(oi.quantity),
+          receiveQty:   remainingQty,   // default = remaining, not full ordered
           discount:     oi.discount || 0,
           discountType: oi.discountType || 'fixed',
-          status:       "pending",
+          status:       receivedQty > 0 ? "partial" : "pending",
+          poStatus:     po.status,
         });
       });
     });
@@ -87,9 +105,11 @@ const transformPOsToItems = (poData, stockData) => {
 };
 
 export default function Inbound() {
-  const isDark   = useThemeStore((s) => s.isDark);
-  const T        = getTheme(isDark);
-  const navigate = useNavigate();
+  const isDark    = useThemeStore((s) => s.isDark);
+  const T         = getTheme(isDark);
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const filterPoId = new URLSearchParams(location.search).get('poId') || '';
 
   const { handleGetPurchaseOrders, data: poData, loading: poLoading } = useGetAllPurchaseOrders();
   const { handleGetItem, data: stockData, loading: stockLoading }     = useGetItem();
@@ -108,6 +128,7 @@ export default function Inbound() {
   const [itemToCancel,     setItemToCancel]     = useState(null);
   const [cancelReason,     setCancelReason]     = useState("");
   const [page,             setPage]             = useState(1);
+  const [draftGRNs,        setDraftGRNs]        = useState({}); // poId → { id, grnNumber }
   const perPage   = 8;
   const searchRef = useRef(null);
 
@@ -115,14 +136,31 @@ export default function Inbound() {
   useEffect(() => {
     handleGetItem();
     handleGetPurchaseOrders();
+    // Fetch all draft + pending GRNs so we can show "resume" indicators
+    Promise.all([
+      axiosInstance.get('/api/grns/?status=draft&limit=200'),
+      axiosInstance.get('/api/grns/?status=pending&limit=200'),
+    ]).then(([r1, r2]) => {
+      const map = {};
+      [...(r1.data?.data?.grns || []), ...(r2.data?.data?.grns || [])].forEach(g => {
+        if (g.purchaseOrderId && !map[g.purchaseOrderId]) {
+          map[g.purchaseOrderId] = { id: g._id || g.id, grnNumber: g.grnNumber };
+        }
+      });
+      setDraftGRNs(map);
+    }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Transform API data into flat item list ───────────────────────
   useEffect(() => {
     const transformed = transformPOsToItems(poData, stockData);
     setItems(transformed);
-    setSelectedIds(new Set(transformed.map(i => i._id)));
-  }, [poData, stockData]);
+    // If navigated from a specific PO, pre-select only that PO's items
+    const toSelect = filterPoId
+      ? transformed.filter(i => i.poId === filterPoId)
+      : transformed;
+    setSelectedIds(new Set(toSelect.map(i => i._id)));
+  }, [poData, stockData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Search filter ────────────────────────────────────────────────
   useEffect(() => {
@@ -155,12 +193,12 @@ export default function Inbound() {
   const updateQty = (id, val) => {
     setItems(p => p.map(i => {
       if (i._id !== id) return i;
-      const qty = Math.max(i.orderedQty, parseInt(val) || i.orderedQty);
+      const qty = Math.min(Math.max(0, parseFloat(val) || 0), i.remainingQty ?? i.orderedQty);
       return { ...i, receiveQty: qty };
     }));
     if (selected?._id === id) {
       setSelected(prev => {
-        const qty = Math.max(prev.orderedQty, parseInt(val) || prev.orderedQty);
+        const qty = Math.min(Math.max(0, parseFloat(val) || 0), prev.remainingQty ?? prev.orderedQty);
         return { ...prev, receiveQty: qty };
       });
     }
@@ -169,21 +207,30 @@ export default function Inbound() {
   const [receiveLoading, setReceiveLoading] = useState(false);
 
   const handleReceive = async () => {
-    const sel = items.filter(i => selectedIds.has(i._id));
-    if (!sel.length) return;
+    const sel = items.filter(i => selectedIds.has(i._id) && (i.receiveQty || 0) > 0);
+    if (!sel.length) { alert('Set receive quantity > 0 for at least one item.'); return; }
+
+    // If a draft GRN already exists for this PO, resume it instead of creating a new one
+    const poId = sel[0]?.poId || '';
+    if (poId && draftGRNs[poId]) {
+      navigate(`/Purchase/GRN/${draftGRNs[poId].id}`);
+      return;
+    }
+
     setReceiveLoading(true);
     try {
       const grnNumber = `GRN-${Date.now().toString().slice(-6).padStart(6, "0")}`;
       const payload = {
         grnNumber,
-        purchaseOrderId:  sel[0]?.poId     || '',
-        poNumber:         sel[0]?.poNumber || '',
-        vendorId:         sel[0]?.vendorId || '',
-        vendorName:       sel[0]?.vendor   || '',
+        purchaseOrderId:  sel[0]?.poId          || '',
+        poNumber:         sel[0]?.poNumber       || '',
+        vendorId:         sel[0]?.vendorId       || '',
+        vendorName:       sel[0]?.vendor         || '',
+        vendorOrigin:     sel[0]?.vendorOrigin   || 'mainland',
         receiptDate:      new Date().toISOString(),
         notes:            inboundNote,
         requiresApproval,
-        status:           'pending',
+        status:           'draft',
         items: sel.map(i => ({
           itemId:      i.itemId     || '',
           details:     i.name       || '',
@@ -194,9 +241,15 @@ export default function Inbound() {
           rate:        parseFloat(i.costPrice || 0),
         })),
       };
-      await axiosInstance.post('/api/grns/', payload);
-      navigate('/Purchase/GRN');
+      const res = await axiosInstance.post('/api/grns/', payload);
+      const grnId = res.data?.data?.id;
+      navigate(grnId ? `/Purchase/GRN/${grnId}` : '/Purchase/GRN');
     } catch (err) {
+      // If a draft already exists (409), navigate to it instead of showing error
+      if (err?.response?.status === 409 && err.response?.data?.code === 'DRAFT_EXISTS') {
+        const existingId = err.response.data?.data?.id;
+        if (existingId) { navigate(`/Purchase/GRN/${existingId}`); return; }
+      }
       console.error('GRN create error:', err);
       alert('Failed to create GRN. Please try again.');
     } finally {
@@ -221,8 +274,10 @@ export default function Inbound() {
   const selItems       = items.filter(i => selectedIds.has(i._id));
   const totalQty       = selItems.reduce((s, i) => s + (i.receiveQty || 0), 0);
   const subTotal       = round2(selItems.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0));
-  const inboundTaxGroups = buildInboundTaxGroups(selItems);
-  const totalTax       = round2(inboundTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
+  const selTaxRate       = vendorTaxRate(selItems[0]?.vendorOrigin);
+  const selVatPct        = Math.round(selTaxRate * 100);
+  const inboundTaxGroups = buildInboundTaxGroups(selItems, selTaxRate);
+  const totalTax         = round2(inboundTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const totalValue     = round2(subTotal + totalTax);
   const zeroStock   = items.filter(i => i.stockOnHand === 0).length;
 
@@ -345,13 +400,23 @@ export default function Inbound() {
               )}
             </div>
 
-            {/* Receive button */}
-            <button className="ob-btn" onClick={handleReceive} disabled={selectedIds.size === 0 || receiveLoading}
-              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 18px", background: selectedIds.size === 0 ? T.surface2 : T.blue, color: selectedIds.size === 0 ? T.textMuted : "white", border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: (selectedIds.size === 0 || receiveLoading) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: receiveLoading ? 0.7 : 1 }}>
-              <MdMoveToInbox size={14} />
-              {receiveLoading ? 'Saving…' : 'Receive Goods'}
-              {!receiveLoading && selectedIds.size > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px" }}>{selectedIds.size}</span>}
-            </button>
+            {/* Receive button — shows "Resume Draft" if draft GRN exists for selected PO */}
+            {(() => {
+              const selItems  = items.filter(i => selectedIds.has(i._id));
+              const selPoId   = selItems[0]?.poId || '';
+              const hasDraft  = selPoId && !!draftGRNs[selPoId];
+              const btnBg     = selectedIds.size === 0 ? T.surface2 : hasDraft ? '#d97706' : T.blue;
+              const btnColor  = selectedIds.size === 0 ? T.textMuted : 'white';
+              const label     = receiveLoading ? 'Loading…' : hasDraft ? 'Resume Draft GRN' : 'Receive Goods';
+              return (
+                <button className="ob-btn" onClick={handleReceive} disabled={selectedIds.size === 0 || receiveLoading}
+                  style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 18px", background: btnBg, color: btnColor, border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: (selectedIds.size === 0 || receiveLoading) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: receiveLoading ? 0.7 : 1 }}>
+                  <MdMoveToInbox size={14} />
+                  {label}
+                  {!receiveLoading && selectedIds.size > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px" }}>{selectedIds.size}</span>}
+                </button>
+              );
+            })()}
           </div>
         </div>
 
@@ -415,17 +480,28 @@ export default function Inbound() {
         </div>
 
         {/* ── TABLE ───────────────────────────────────────────────── */}
-        <div style={{ ...card, overflow: "hidden", marginBottom: "12px" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+        <div style={{ ...card, overflowX: "auto", marginBottom: "12px" }}>
+          <table style={{ width: "100%", minWidth: "900px", borderCollapse: "collapse", fontSize: "13px" }}>
             <thead>
               <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
-                <th style={{ padding: "11px 14px", width: "32px" }}>
+                <th style={{ padding: "11px 10px", width: "32px" }}>
                   <input type="checkbox" style={{ accentColor: T.blue }}
                     checked={selectedIds.size === items.length && items.length > 0}
                     onChange={e => e.target.checked ? selectAll() : deselectAll()} />
                 </th>
-                {["Item", "On Hand", "Ordered", "Receive Qty", "Status", "Purchase Order", "Cost / Unit", "VAT (5%)", "Line Total", "Actions"].map((h, i) => (
-                  <th key={i} style={{ padding: "11px 14px", textAlign: i >= 6 ? "right" : "left", fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{h}</th>
+                {[
+                  { label: "Item",          align: "left",  w: "22%" },
+                  { label: "On Hand",       align: "left",  w: "7%"  },
+                  { label: "Ordered",       align: "left",  w: "7%"  },
+                  { label: "Receive Qty",   align: "left",  w: "10%" },
+                  { label: "Status",        align: "left",  w: "9%"  },
+                  { label: "PO",            align: "left",  w: "10%" },
+                  { label: "Cost / Unit",   align: "right", w: "10%" },
+                  { label: "VAT",           align: "right", w: "10%" },
+                  { label: "Line Total",    align: "right", w: "10%" },
+                  { label: "",              align: "right", w: "5%"  },
+                ].map((h, i) => (
+                  <th key={i} style={{ padding: "11px 10px", textAlign: h.align, width: h.w, fontSize: "10px", fontWeight: "700", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{h.label}</th>
                 ))}
               </tr>
             </thead>
@@ -440,18 +516,20 @@ export default function Inbound() {
                   </td>
                 </tr>
               ) : currentItems.length > 0 ? currentItems.map((item) => {
-                const sc         = getStatus(item.status);
+                const sc          = getStatus(item.status);
                 const isZeroStock = item.stockOnHand === 0;
+                const draft       = draftGRNs[item.poId]; // existing draft GRN for this PO
                 return (
-                  <tr key={item._id} className="ob-row" style={{ borderBottom: `1px solid ${T.border}` }}>
-                    <td style={{ padding: "12px 14px" }}>
+                  <tr key={item._id} className="ob-row" style={{ borderBottom: `1px solid ${T.border}`, opacity: draft ? 0.75 : 1 }}>
+                    <td style={{ padding: "10px 10px" }}>
                       <input type="checkbox" style={{ accentColor: T.blue }}
                         checked={selectedIds.has(item._id)}
-                        onChange={() => toggleId(item._id)} />
+                        onChange={() => toggleId(item._id)}
+                        disabled={!!draft} />
                     </td>
 
                     {/* Item */}
-                    <td style={{ padding: "12px 14px", maxWidth: "220px" }}>
+                    <td style={{ padding: "10px 10px", maxWidth: "200px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                         <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, fontSize: "13px", flexShrink: 0 }}>
                           <FaBoxOpen />
@@ -467,80 +545,101 @@ export default function Inbound() {
                     </td>
 
                     {/* On Hand */}
-                    <td style={{ padding: "12px 14px" }}>
+                    <td style={{ padding: "10px 10px" }}>
                       <span className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: isZeroStock ? "#ef4444" : T.green }}>
                         {item.stockOnHand}
                       </span>
-                      <span style={{ fontSize: "11px", color: T.textSec, marginLeft: "4px" }}>{item.unit}</span>
+                      <span style={{ fontSize: "11px", color: T.textSec, marginLeft: "3px" }}>{item.unit}</span>
                       {isZeroStock && <span className="ob-pulse" style={{ display: "block", fontSize: "10px", color: "#ef4444", fontWeight: "600", marginTop: "2px" }}>Zero stock</span>}
                     </td>
 
-                    {/* Ordered qty */}
-                    <td style={{ padding: "12px 14px" }}>
+                    {/* Ordered qty + received context */}
+                    <td style={{ padding: "10px 10px" }}>
                       <span className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "600", color: T.textPri }}>{item.orderedQty}</span>
                       <span style={{ fontSize: "11px", color: T.textSec, marginLeft: "4px" }}>{item.unit}</span>
+                      {(item.receivedQty || 0) > 0 && (
+                        <span style={{ display: "block", fontSize: "10px", color: "#f59e0b", fontWeight: "600", marginTop: "2px" }}>
+                          {item.receivedQty} rcvd · {item.remainingQty} left
+                        </span>
+                      )}
                     </td>
 
-                    {/* Receive qty — stepper */}
-                    <td style={{ padding: "12px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <button className="qty-btn" onClick={() => updateQty(item._id, (item.receiveQty || item.orderedQty) - 1)}
-                          disabled={item.receiveQty <= item.orderedQty}
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: item.receiveQty <= item.orderedQty ? T.textMuted : T.textSec, cursor: item.receiveQty <= item.orderedQty ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                          −
-                        </button>
-                        <input type="number" min={1} max={item.orderedQty} value={item.receiveQty}
-                          onChange={e => updateQty(item._id, Math.min(parseInt(e.target.value) || 1, item.orderedQty))}
-                          className="ob-qty-input"
-                          style={{ width: "44px", height: "24px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface2, color: T.textPri, fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }} />
-                        <button className="qty-btn" disabled
-                          style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: T.textMuted, cursor: "not-allowed", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: 0.4 }}>
-                          +
-                        </button>
-                      </div>
-                      <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>ordered: {item.orderedQty}</p>
+                    {/* Receive qty — locked when draft exists */}
+                    <td style={{ padding: "10px 10px" }}>
+                      {draft ? (
+                        <div
+                          onClick={() => navigate(`/Purchase/GRN/${draft.id}`)}
+                          style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 10px", borderRadius: "8px", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", cursor: "pointer" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#d97706" }}>⏸ {draft.grnNumber}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                            <button className="qty-btn" onClick={() => updateQty(item._id, (item.receiveQty || 0) - 1)}
+                              disabled={(item.receiveQty || 0) <= 0}
+                              style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: (item.receiveQty || 0) <= 0 ? T.textMuted : T.textSec, cursor: (item.receiveQty || 0) <= 0 ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>−</button>
+                            <input type="number" min={0} max={item.remainingQty ?? item.orderedQty} value={item.receiveQty}
+                              onChange={e => updateQty(item._id, e.target.value)}
+                              className="ob-qty-input"
+                              style={{ width: "44px", height: "24px", textAlign: "center", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface2, color: (item.receiveQty || 0) === 0 ? '#ef4444' : T.textPri, fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }} />
+                            <button className="qty-btn" onClick={() => updateQty(item._id, (item.receiveQty || 0) + 1)}
+                              disabled={(item.receiveQty || 0) >= (item.remainingQty ?? item.orderedQty)}
+                              style={{ width: "24px", height: "24px", borderRadius: "6px", border: `1px solid ${T.border}`, background: T.surface2, color: (item.receiveQty || 0) >= (item.remainingQty ?? item.orderedQty) ? T.textMuted : T.textSec, cursor: (item.receiveQty || 0) >= (item.remainingQty ?? item.orderedQty) ? "not-allowed" : "pointer", fontSize: "13px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>+</button>
+                          </div>
+                          <p style={{ fontSize: "10px", color: T.textMuted, margin: "3px 0 0 0" }}>of {item.remainingQty ?? item.orderedQty} remaining</p>
+                        </>
+                      )}
                     </td>
 
                     {/* Status */}
-                    <td style={{ padding: "12px 14px" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "10px", fontWeight: "700", padding: "3px 9px", borderRadius: "999px", background: sc.dim, color: sc.color, border: `1px solid ${sc.border}`, whiteSpace: "nowrap" }}>
-                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: sc.color, display: "inline-block" }} />
-                        {sc.label}
+                    <td style={{ padding: "10px 10px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "10px", fontWeight: "700", padding: "3px 9px", borderRadius: "999px", background: draft ? "rgba(245,158,11,0.1)" : sc.dim, color: draft ? "#d97706" : sc.color, border: `1px solid ${draft ? "rgba(245,158,11,0.3)" : sc.border}`, whiteSpace: "nowrap" }}>
+                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: draft ? "#d97706" : sc.color, display: "inline-block" }} />
+                        {draft ? "GRN Draft" : sc.label}
                       </span>
+                      {draft && (
+                        <div onClick={() => navigate(`/Purchase/GRN/${draft.id}`)}
+                          style={{ marginTop: "4px", fontSize: "10px", color: "#d97706", cursor: "pointer", fontWeight: "600" }}>
+                          Open →
+                        </div>
+                      )}
                     </td>
 
                     {/* Purchase Order */}
-                    <td style={{ padding: "12px 14px" }}>
+                    <td style={{ padding: "10px 10px" }}>
                       <span style={{ fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "6px", background: T.blueDim, color: T.blueLight, border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, fontFamily: "'DM Mono', monospace" }}>
                         {item.poNumber}
                       </span>
                     </td>
 
                     {/* Cost / Unit */}
-                    <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                    <td style={{ padding: "10px 10px", textAlign: "right" }}>
                       <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "700", color: T.textPri, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(item.costPrice)}</p>
                       <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>excl. VAT</p>
                     </td>
 
-                    {/* VAT (5%) */}
+                    {/* VAT */}
                     {(() => {
+                      const itemTaxRate = vendorTaxRate(item.vendorOrigin);
                       const lineBase = round2((item.receiveQty || 0) * (item.costPrice || 0));
-                      const lineVat  = round2(lineBase * TAX_RATE);
+                      const lineVat  = round2(lineBase * itemTaxRate);
+                      const vatPct   = Math.round(itemTaxRate * 100);
                       return (
-                        <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                        <td style={{ padding: "10px 10px", textAlign: "right" }}>
                           <p style={{ fontSize: "12px", fontWeight: "700", color: "#f59e0b", margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(lineVat)}</p>
-                          <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>{fmtAED(lineBase)} × 5%</p>
+                          <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>{vatPct > 0 ? `×${vatPct}%` : "0% exempt"}</p>
                         </td>
                       );
                     })()}
 
                     {/* Line Total (incl. VAT) */}
                     {(() => {
+                      const itemTaxRate = vendorTaxRate(item.vendorOrigin);
                       const lineBase  = round2((item.receiveQty || 0) * (item.costPrice || 0));
-                      const lineVat   = round2(lineBase * TAX_RATE);
+                      const lineVat   = round2(lineBase * itemTaxRate);
                       const lineTotal = round2(lineBase + lineVat);
                       return (
-                        <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                        <td style={{ padding: "10px 10px", textAlign: "right" }}>
                           <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(lineTotal)}</p>
                           <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>incl. VAT</p>
                         </td>
@@ -548,7 +647,7 @@ export default function Inbound() {
                     })()}
 
                     {/* Actions */}
-                    <td style={{ padding: "12px 10px", textAlign: "right" }}>
+                    <td style={{ padding: "10px 8px", textAlign: "right" }}>
                       <div style={{ display: "flex", gap: "5px", justifyContent: "flex-end" }}>
                         {item.status === "pending_approval" && requiresApproval && (
                           <>
@@ -634,25 +733,32 @@ export default function Inbound() {
               </div>
 
               {/* Centre — tax breakdown box */}
-              <div style={{ flex: 1, minWidth: "220px", maxWidth: "340px", background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "10px", padding: "10px 14px" }}>
-                <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 7px" }}>VAT 5% — Grouped by Rate</p>
-                {inboundTaxGroups.length === 0 && (
-                  <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>—</p>
-                )}
-                {inboundTaxGroups.map((g, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < inboundTaxGroups.length - 1 ? `1px solid ${isDark ? "rgba(245,158,11,0.12)" : "#fef3c7"}` : "none" }}>
-                    <div>
-                      <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Rate {fmtAED(g.rate)}</p>
-                      <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "'DM Mono', monospace" }}>{fmtAED(g.baseAmount)} × 5%</p>
-                    </div>
-                    <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(g.taxAmount)}</span>
-                  </div>
-                ))}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "7px", paddingTop: "7px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
-                  <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalTax)}</span>
+              {selVatPct === 0 ? (
+                <div style={{ flex: 1, minWidth: "220px", maxWidth: "340px", background: isDark ? "rgba(100,116,139,0.06)" : "#f8fafc", border: `1.5px solid ${isDark ? "rgba(100,116,139,0.2)" : "#e2e8f0"}`, borderRadius: "10px", padding: "10px 14px" }}>
+                  <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: T.textSec, margin: "0 0 4px" }}>VAT</p>
+                  <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>0% — Exempt (Free Zone / Overseas)</p>
                 </div>
-              </div>
+              ) : (
+                <div style={{ flex: 1, minWidth: "220px", maxWidth: "340px", background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1.5px solid ${isDark ? "rgba(245,158,11,0.2)" : "#fde68a"}`, borderRadius: "10px", padding: "10px 14px" }}>
+                  <p style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: ".07em", color: "#f59e0b", margin: "0 0 7px" }}>VAT {selVatPct}% — Grouped by Rate</p>
+                  {inboundTaxGroups.length === 0 && (
+                    <p style={{ fontSize: "12px", color: T.textSec, margin: 0 }}>—</p>
+                  )}
+                  {inboundTaxGroups.map((g, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < inboundTaxGroups.length - 1 ? `1px solid ${isDark ? "rgba(245,158,11,0.12)" : "#fef3c7"}` : "none" }}>
+                      <div>
+                        <p style={{ fontSize: "12px", fontWeight: "600", color: T.textPri, margin: 0 }}>Rate {fmtAED(g.rate)}</p>
+                        <p style={{ fontSize: "10px", color: T.textSec, margin: "1px 0 0", fontFamily: "'DM Mono', monospace" }}>{fmtAED(g.baseAmount)} × {selVatPct}%</p>
+                      </div>
+                      <span style={{ fontSize: "13px", fontWeight: "700", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(g.taxAmount)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "7px", paddingTop: "7px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT ({selVatPct}%)</span>
+                    <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalTax)}</span>
+                  </div>
+                </div>
+              )}
 
               {/* Right — grand total + action */}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
@@ -660,10 +766,17 @@ export default function Inbound() {
                   <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Grand Total (incl. VAT)</p>
                   <p className="ob-jakarta" style={{ fontSize: "20px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalValue)}</p>
                 </div>
-                <button className="ob-btn" onClick={handleReceive} disabled={receiveLoading}
-                  style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: receiveLoading ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: receiveLoading ? 0.7 : 1 }}>
-                  <MdMoveToInbox size={14} /> {receiveLoading ? 'Saving…' : 'Receive Goods'}
-                </button>
+                {(() => {
+                  const selPoId  = items.find(i => selectedIds.has(i._id))?.poId || '';
+                  const hasDraft = selPoId && !!draftGRNs[selPoId];
+                  return (
+                    <button className="ob-btn" onClick={handleReceive} disabled={receiveLoading}
+                      style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 22px", background: hasDraft ? '#d97706' : T.blue, color: "white", border: "none", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: receiveLoading ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: receiveLoading ? 0.7 : 1 }}>
+                      <MdMoveToInbox size={14} />
+                      {receiveLoading ? 'Loading…' : hasDraft ? 'Resume Draft GRN' : 'Receive Goods'}
+                    </button>
+                  );
+                })()}
               </div>
 
             </div>
@@ -750,7 +863,7 @@ export default function Inbound() {
                         { label: "Ordered",  value: selected.orderedQty,  unit: selected.unit },
                         { label: "Receive",  value: selected.receiveQty,  unit: selected.unit, blue: true },
                       ].map(({ label, value, unit, warn, blue }) => (
-                        <div key={label} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "12px 14px", textAlign: "center" }}>
+                        <div key={label} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "10px 10px", textAlign: "center" }}>
                           <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 6px" }}>{label}</p>
                           <p className="ob-jakarta" style={{ fontSize: "18px", fontWeight: "800", color: warn ? "#ef4444" : blue ? T.blue : T.textPri, margin: 0, lineHeight: 1 }}>{value}</p>
                           <p style={{ fontSize: "10px", color: T.textSec, margin: "3px 0 0" }}>{unit}</p>
@@ -783,7 +896,7 @@ export default function Inbound() {
                           <span style={{ fontSize: "13px", fontWeight: "600", color: T.textPri }}>{value}</span>
                         </div>
                       ))}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: isDark ? "rgba(59,130,246,0.06)" : "#eff6ff" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 10px", background: isDark ? "rgba(59,130,246,0.06)" : "#eff6ff" }}>
                         <span className="ob-jakarta" style={{ fontSize: "12px", fontWeight: "700", color: T.textPri }}>Line Total</span>
                         <span className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "800", color: T.blue }}>
                           {fmtAED((selected.receiveQty || 1) * selected.costPrice)}

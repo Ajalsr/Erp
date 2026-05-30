@@ -51,6 +51,8 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.GET("/:id/credit-status", controllers.GetCustomerCreditStatus())
 	custRoutes.POST("/:id/apply-credit", controllers.ApplyCredit())
 	custRoutes.POST("/migrate-codes", controllers.MigrateCustomerOrgAndCodes())
+	custRoutes.POST("/:id/documents", controllers.AddCustomerDocument())
+	custRoutes.DELETE("/:id/documents/:docId", controllers.DeleteCustomerDocument())
 }
 
 func SaleOrderRoutes(router *gin.Engine) {
@@ -88,6 +90,8 @@ func InvoiceRoutes(router *gin.Engine) {
 		invRoutes.POST("/:id/send", controllers.SendInvoice())
 		invRoutes.POST("/:id/send-reminder", controllers.SendInvoiceReminder())
 		invRoutes.POST("/:id/return", controllers.CreateSalesReturn())
+		invRoutes.GET("/:id/history", controllers.GetInvoiceHistory())
+		invRoutes.GET("/:id/pdf", controllers.DownloadInvoicePDF())
 	}
 }
 
@@ -104,6 +108,7 @@ func QuoteRoutes(router *gin.Engine) {
 		qRoutes.POST("/:id/convert", controllers.ConvertQuoteToInvoice())
 		qRoutes.POST("/:id/convert-to-so", controllers.ConvertQuoteToSalesOrder())
 		qRoutes.DELETE("/:id", controllers.DeleteQuote())
+		qRoutes.GET("/:id/pdf", controllers.DownloadQuotePDF())
 	}
 }
 
@@ -140,6 +145,17 @@ func DebitNoteRoutes(router *gin.Engine) {
 	}
 }
 
+func DocumentRoutes(router *gin.Engine) {
+	// /proxy is unauthenticated — it only relays public Cloudinary URLs (raw/upload type)
+	router.GET("/api/documents/proxy", controllers.ProxyDocument())
+
+	docRoutes := router.Group("/api/documents")
+	docRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		docRoutes.POST("/upload", controllers.UploadDocument())
+	}
+}
+
 func DashboardRoutes(router *gin.Engine) {
 	dashRoutes := router.Group("/api/dashboard")
 	dashRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
@@ -158,6 +174,8 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 		poRoutes.GET("/:id", controllers.GetPurchaseOrderByID())
 		poRoutes.PATCH("/:id/status", controllers.UpdatePurchaseOrderStatus())
 		poRoutes.PATCH("/:id/approve", controllers.ApprovePurchaseOrder())
+		poRoutes.PATCH("/:id/cancel", controllers.CancelPurchaseOrder())
+		poRoutes.POST("/:id/convert-to-bill", controllers.ConvertPOToBill())
 	}
 }
 
@@ -170,6 +188,8 @@ func GRNRoutes(router *gin.Engine) {
 		grnRoutes.GET("/stats", controllers.GetGRNStats())
 		grnRoutes.GET("/:id", controllers.GetGRNByID())
 		grnRoutes.PATCH("/:id", controllers.UpdateGRN())
+		grnRoutes.POST("/:id/confirm", controllers.ConfirmGRN())
+		grnRoutes.DELETE("/:id", controllers.DiscardDraftGRN())
 	}
 }
 
@@ -208,7 +228,9 @@ func BillRoutes(router *gin.Engine) {
 		billRoutes.GET("/", controllers.GetAllBills())
 		billRoutes.GET("/stats", controllers.GetBillStats())
 		billRoutes.GET("/:id", controllers.GetBillByID())
+		billRoutes.PUT("/:id", controllers.UpdateBill())
 		billRoutes.PATCH("/:id/status", controllers.UpdateBillStatus())
+		billRoutes.PATCH("/:id/void", controllers.VoidBill())
 	}
 }
 
@@ -318,5 +340,14 @@ func EnquiryRoutes(router *gin.Engine) {
 		enqRoutes.GET("/:id", controllers.GetEnquiryByID())
 		enqRoutes.PATCH("/:id/status", controllers.UpdateEnquiryStatus())
 		enqRoutes.PUT("/:id", controllers.UpdateEnquiry())
+	}
+}
+
+func ReportsRoutes(router *gin.Engine) {
+	rptRoutes := router.Group("/api/reports")
+	rptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		rptRoutes.GET("/vat", controllers.GetVATReport())
+		rptRoutes.GET("/vendor-aging", controllers.GetVendorAging())
 	}
 }

@@ -44,13 +44,14 @@ const fmt = (n) => `AED ${Number(n).toLocaleString("en-AE", { minimumFractionDig
 const fmtDate = (d) => new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" });
 
 const COLS = [
-  { key: "id",       label: "Invoice #",   w: "14%" },
-  { key: "customer", label: "Customer",    w: "18%" },
-  { key: "date",     label: "Issue Date",  w: "13%" },
-  { key: "due",      label: "Due Date",    w: "13%" },
-  { key: "items",    label: "Items",       w: "8%"  },
-  { key: "amount",   label: "Amount",      w: "15%" },
-  { key: "status",   label: "Status",      w: "12%" },
+  { key: "sel",      label: "",            w: "4%"  },
+  { key: "id",       label: "Invoice #",   w: "13%" },
+  { key: "customer", label: "Customer",    w: "17%" },
+  { key: "date",     label: "Issue Date",  w: "12%" },
+  { key: "due",      label: "Due Date",    w: "12%" },
+  { key: "items",    label: "Items",       w: "7%"  },
+  { key: "amount",   label: "Amount",      w: "14%" },
+  { key: "status",   label: "Status",      w: "11%" },
   { key: "actions",  label: "",            w: "7%"  },
 ];
 
@@ -796,7 +797,40 @@ const Invoices = () => {
     } finally { setVoidLoading(false); }
   };
 
-  /* CSV export */
+  /* Bulk selection */
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const toggleRow    = (id, e) => { e.stopPropagation(); setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
+  const toggleAll    = () => setSelectedIds(prev => prev.size === pageData.length ? new Set() : new Set(pageData.map(i => i.id)));
+  const bulkSelected = pageData.filter(i => selectedIds.has(i.id));
+
+  const bulkExportCSV = () => {
+    const src = bulkSelected.length ? bulkSelected : pageData;
+    const escape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = ["Invoice #","Customer","Issue Date","Due Date","Amount","Paid","Balance","Status"];
+    const rows = src.map(i => [i.id, i.customer, i.date, i.due, i.amount.toFixed(2), i.paid.toFixed(2), (i.amount - i.paid).toFixed(2), i.status]);
+    const csv = [header, ...rows].map(r => r.map(escape).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `invoices_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    setSelectedIds(new Set());
+  };
+
+  const bulkSend = async () => {
+    if (!bulkSelected.length) return;
+    const sendable = bulkSelected.filter(i => ["draft","unpaid","overdue","partial"].includes(i.status) && i.docType !== "proforma");
+    if (!sendable.length) { nexusToast.error("No sendable invoices in selection (need draft/unpaid/overdue/partial)"); return; }
+    if (!window.confirm(`Send ${sendable.length} invoice(s) to their customers?`)) return;
+    let ok = 0, fail = 0;
+    await Promise.all(sendable.map(i =>
+      axiosInstance.post(`/api/invoices/${i._id}/send`).then(() => ok++).catch(() => fail++)
+    ));
+    nexusToast.success(`Sent ${ok} invoice(s)${fail ? `, ${fail} failed` : ""}`);
+    setSelectedIds(new Set());
+    loadInvoices();
+  };
+
+  /* CSV export (all) */
   const exportInvoicesCSV = () => {
     const rows = invoices.map(i => [
       i.id, i.customer, i.date, i.due,
@@ -833,11 +867,13 @@ const Invoices = () => {
         discount:     li.discount ?? 0,
       }))
     : [];
-  const drawerHistory = selected ? [
-    { date: selected.createdAt || selected.issueDate, event: `Invoice ${selected.invoiceNumber} created`, user: selected.createdBy || "System" },
-    ...(selected.status === "paid" ? [{ date: selected.updatedAt, event: "Invoice marked paid", user: "" }] : []),
-    ...(selected.status === "overdue" ? [{ date: selected.dueDate, event: "Invoice became overdue", user: "" }] : []),
-  ].filter(h => h.date) : [];
+  const [drawerHistory, setDrawerHistory] = useState([]);
+  useEffect(() => {
+    if (!selected?._id) { setDrawerHistory([]); return; }
+    axiosInstance.get(`/api/invoices/${selected._id}/history`)
+      .then(res => setDrawerHistory(res.data?.data || []))
+      .catch(() => setDrawerHistory([]));
+  }, [selected?._id]);
 
   /* ── Styles shared ── */
   const inputStyle = {
@@ -957,8 +993,18 @@ const Invoices = () => {
           </div>
         </div>
 
+        {/* ── Bulk Actions Bar ── */}
+        {selectedIds.size > 0 && (
+          <div style={{ margin: "12px 28px 0", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", background: isDark ? "rgba(245,158,11,0.08)" : "#fffbeb", border: `1px solid rgba(245,158,11,0.3)`, borderRadius: 9 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>{selectedIds.size} selected</span>
+            <button onClick={bulkExportCSV} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit" }}>Export CSV</button>
+            <button onClick={bulkSend} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.accent, border: "none", color: "#0a0e1a", fontFamily: "inherit" }}>📧 Send Selected</button>
+            <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 7, fontSize: 12, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.muted, fontFamily: "inherit" }}>✕ Clear</button>
+          </div>
+        )}
+
         {/* ── Table ── */}
-        <div style={{ margin: "20px 28px 0", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ margin: "12px 28px 0", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
               <colgroup>
@@ -967,8 +1013,11 @@ const Invoices = () => {
               <thead>
                 <tr>
                   {COLS.map(c => (
-                    <th key={c.key} style={thStyle(c.key)} onClick={() => c.key !== "actions" && handleSort(c.key)}>
-                      {c.label}{c.key !== "actions" && c.key !== "items" && <SortArrow col={c.key} />}
+                    <th key={c.key} style={thStyle(c.key)} onClick={() => c.key !== "actions" && c.key !== "sel" && handleSort(c.key)}>
+                      {c.key === "sel"
+                        ? <input type="checkbox" checked={pageData.length > 0 && selectedIds.size === pageData.length} onChange={toggleAll} style={{ cursor: "pointer", accentColor: T.accent }} />
+                        : <>{c.label}{c.key !== "actions" && c.key !== "items" && <SortArrow col={c.key} />}</>
+                      }
                     </th>
                   ))}
                 </tr>
@@ -984,6 +1033,9 @@ const Invoices = () => {
                   </tr>
                 ) : pageData.map(inv => (
                   <tr key={inv.id} className="inv-row" onClick={() => { setSelected(inv); setDrawerTab("overview"); }}>
+                    <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={selectedIds.has(inv.id)} onChange={e => toggleRow(inv.id, e)} style={{ cursor: "pointer", accentColor: T.accent }} />
+                    </td>
                     <td style={tdStyle}>
                       <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.accent, fontWeight: 500 }}>{inv.id}</span>
                     </td>
@@ -1223,6 +1275,29 @@ const Invoices = () => {
                           </button>
                         </>
                       )}
+
+                      {/* Download PDF */}
+                      <button
+                        onClick={() => {
+                          const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+                          const base = import.meta.env.VITE_API_URL || "http://localhost:8080";
+                          const pdfUrl = `${base}/api/invoices/${selected._id}/pdf`;
+                          if (isTauri) {
+                            window.__TAURI_INTERNALS__.invoke("plugin:shell|open", { path: pdfUrl }).catch(() => {});
+                          } else {
+                            axiosInstance.get(`/api/invoices/${selected._id}/pdf`, { responseType: "blob" })
+                              .then(res => {
+                                const a = document.createElement("a");
+                                a.href = URL.createObjectURL(res.data);
+                                a.download = `invoice-${selected.id}.pdf`;
+                                a.click();
+                              })
+                              .catch(() => window.open(pdfUrl, "_blank"));
+                          }
+                        }}
+                        style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                        ⬇ Download PDF
+                      </button>
 
                       {/* Send Invoice / Send Reminder */}
                       {["draft", "unpaid", "overdue", "partial"].includes(selected.status) && (
@@ -1518,23 +1593,37 @@ const Invoices = () => {
                             draft: "#94a3b8", pending_approval: "#f59e0b", approved: "#8b5cf6",
                             applied: "#10b981", closed: "#64748b", void: "#ef4444",
                           }[cn.status] || "#64748b";
-                          const isSettled   = ["applied","closed"].includes(cn.status);
-                          const displayAmt  = isSettled
-                            ? (cn.appliedToInvoiceAmount ?? cn.appliedAmount ?? 0)
+                          const isSettled      = ["applied","closed"].includes(cn.status);
+                          const invIdStr       = String(selected._id);
+                          const appliedHere    = String(cn.appliedToInvoiceId || "") === invIdStr;
+                          // Old CNs created via sales-return before appliedToInvoiceId was tracked:
+                          // sourceDocId === this invoice AND no appliedToInvoiceId → CN was auto-applied here
+                          const legacyHere     = !cn.appliedToInvoiceId && String(cn.sourceDocId || "") === invIdStr;
+                          const appliedElsewhere = isSettled && !appliedHere && !legacyHere;
+                          const displayAmt     = isSettled
+                            ? appliedHere
+                              ? (cn.appliedToInvoiceAmount ?? 0)
+                              : legacyHere
+                                // appliedAmount may be 0 in old records; fall back to grandTotal
+                                ? (cn.appliedAmount || cn.totals?.grandTotal || 0)
+                                : 0
                             : (cn.totals?.grandTotal ?? cn.remainingAmount ?? 0);
-                          const refundedAmt = cn.refundedAmount ?? 0;
+                          const refundedAmt    = cn.refundedAmount ?? 0;
                           return (
                             <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, padding: "12px 14px" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                                 <div>
                                   <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.blue, fontWeight: 600 }}>{cn.creditNoteNumber}</span>
                                   <p style={{ fontSize: 12, color: T.muted, margin: "3px 0 0" }}>{cn.reason || "—"}</p>
+                                  {appliedElsewhere && (
+                                    <p style={{ fontSize: 10, color: "#f59e0b", margin: "3px 0 0" }}>Applied to a different invoice</p>
+                                  )}
                                 </div>
                                 <div style={{ textAlign: "right" }}>
                                   <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: `${statusColor}18`, color: statusColor, border: `1px solid ${statusColor}30` }}>
                                     {cn.status}
                                   </span>
-                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: isSettled ? "#10b981" : T.text, margin: "5px 0 0" }}>
+                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: (isSettled && !appliedElsewhere) ? "#10b981" : T.text, margin: "5px 0 0" }}>
                                     AED {Number(displayAmt).toFixed(2)}
                                   </p>
                                   {refundedAmt > 0 && (
@@ -1550,7 +1639,15 @@ const Invoices = () => {
                         <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
                           <span style={{ fontSize: 12, color: T.muted }}>Total credits applied</span>
                           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#10b981" }}>
-                            AED {linkedCNs.filter(cn => ["applied","closed"].includes(cn.status)).reduce((s, cn) => s + (cn.appliedToInvoiceAmount ?? cn.appliedAmount ?? 0), 0).toFixed(2)}
+                            AED {linkedCNs
+                              .filter(cn => ["applied","closed"].includes(cn.status))
+                              .reduce((s, cn) => {
+                                const invIdStr = String(selected._id);
+                                if (String(cn.appliedToInvoiceId || "") === invIdStr) return s + (cn.appliedToInvoiceAmount ?? 0);
+                                if (!cn.appliedToInvoiceId && String(cn.sourceDocId || "") === invIdStr) return s + (cn.appliedAmount || cn.totals?.grandTotal || 0);
+                                return s;
+                              }, 0)
+                              .toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -1563,10 +1660,10 @@ const Invoices = () => {
                   // Build unified timeline: structural events + each payment + each credit applied
                   const timelineEntries = [
                     ...drawerHistory.map(h => ({
-                      date: new Date(h.date || 0),
+                      date: new Date(h.timestamp || 0),
                       dot: T.accent2,
-                      label: h.event,
-                      sub: `${fmtDate(h.date)} · ${h.user}`,
+                      label: h.action,
+                      sub: [h.timestamp ? new Date(h.timestamp).toLocaleString("en-AE") : null, h.user, h.note].filter(Boolean).join(" · "),
                     })),
                     ...linkedPayments.flatMap(p => {
                       const entries = [{
@@ -1604,9 +1701,15 @@ const Invoices = () => {
                       ].filter(Boolean).join(" · "),
                     })),
                     ...linkedCNs.map(cn => {
-                      const invoiceAmt  = cn.appliedToInvoiceAmount ?? cn.appliedAmount ?? 0;
-                      const refundedAmt = cn.refundedAmount ?? 0;
                       const grandTotal  = cn.totals?.grandTotal ?? cn.grandTotal ?? 0;
+                      const invIdStr2   = String(selected._id);
+                      const invAmt2     = String(cn.appliedToInvoiceId || "") === invIdStr2
+                        ? (cn.appliedToInvoiceAmount ?? 0)
+                        : (!cn.appliedToInvoiceId && String(cn.sourceDocId || "") === invIdStr2)
+                          ? (cn.appliedAmount || grandTotal || 0)
+                          : 0;
+                      const invoiceAmt  = invAmt2;
+                      const refundedAmt = cn.refundedAmount ?? 0;
                       const statusLabel = {
                         draft:            `Credit note created (draft) — ${fmt(grandTotal)}`,
                         pending_approval: `Credit note submitted for approval — ${fmt(grandTotal)}`,

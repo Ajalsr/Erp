@@ -2,7 +2,7 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar    from './Home/Sidebar'
 import Navbar     from './Home/Navbar'
-import TourGuide  from './Tour/TourGuide'
+// import TourGuide  from './Tour/TourGuide'
 import useThemeStore from '../store/useThemeStore'
 import useWebSocket from '../helper/useWebSocket'
 import useNotifications from '../helper/useNotifications'
@@ -126,7 +126,7 @@ export default function Layout() {
         </main>
       </div>
 
-      <TourGuide />
+      {/* <TourGuide /> */}
     </div>
   )
 }

@@ -97,9 +97,20 @@ const buildCSS = (isDark) => {
 };
 
 /* ─── Constants ───────────────────────────────────────────────────── */
-const TAX_RATE = 0.05;
 const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
-const PAYMENT_TERMS_OPTS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60'];
+// normalise origin: handle both stored keys ('free_zone') and legacy display labels ('Free Zone')
+const normaliseOrigin = (origin) => {
+  if (!origin) return 'mainland';
+  const o = origin.toLowerCase().replace(/\s+/g, '_');
+  if (o === 'free_zone' || o === 'freezone') return 'free_zone';
+  if (o === 'overseas')                      return 'overseas';
+  return 'mainland';
+};
+const getVendorTaxRate = origin => {
+  const o = normaliseOrigin(origin);
+  return (o === 'free_zone' || o === 'overseas') ? 0.0 : 0.05;
+};
+const PAYMENT_TERMS_OPTS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 90', 'End of Month', 'Cash on Delivery', 'Custom'];
 const SHIP_PREFS = [
   { value: 'standard',  label: 'Standard'  },
   { value: 'express',   label: 'Express'   },
@@ -114,7 +125,7 @@ const calcLineBase = (qty, rate, discount, discountType) => {
   return round2(base);
 };
 
-const buildTaxGroups = items => {
+const buildTaxGroups = (items, taxRate) => {
   const order = [], groups = {};
   items.forEach(item => {
     if (!item.rate || !item.quantity) return;
@@ -124,9 +135,9 @@ const buildTaxGroups = items => {
     groups[key].base = round2(groups[key].base + base);
   });
   return order.map(rate => ({
-    rate, taxRate: 5,
+    rate, taxRate: round2(taxRate * 100),
     baseAmount: round2(groups[rate].base),
-    taxAmount:  round2(groups[rate].base * TAX_RATE),
+    taxAmount:  round2(groups[rate].base * taxRate),
   }));
 };
 
@@ -568,6 +579,7 @@ export default function Newpurchaseorders() {
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [vendors,        setVendors]        = useState([]);
   const [vendorsLoading, setVendorsLoading] = useState(false);
+  const [poType,         setPoType]         = useState('goods');
   const [orderDate,      setOrderDate]      = useState(new Date().toISOString().split('T')[0]);
   const [expectedDate,   setExpectedDate]   = useState('');
   const [paymentTerms,   setPaymentTerms]   = useState('Due on Receipt');
@@ -626,16 +638,19 @@ export default function Newpurchaseorders() {
   const debouncedSearch = useCallback(debounce(t => setSearchTerm(t), 300), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Computed totals ── */
+  const effectiveTaxRate = getVendorTaxRate(selectedVendor?.origin);
+
   const computedItems = items.map(item => {
     const qty  = parseFloat(item.quantity) || 0;
     const rate = parseFloat(item.rate)     || 0;
     const disc = parseFloat(item.discount) || 0;
     const base = calcLineBase(qty, rate, disc, item.discountType);
-    const tax  = round2(base * TAX_RATE);
+    const tax  = round2(base * effectiveTaxRate);
     return { ...item, base, tax, amount: round2(base + tax) };
   });
 
-  const taxGroups  = buildTaxGroups(computedItems);
+  const vatPct     = Math.round(effectiveTaxRate * 100);
+  const taxGroups  = buildTaxGroups(computedItems, effectiveTaxRate);
   const subTotal   = round2(computedItems.reduce((s, i) => s + i.base, 0));
   const totalTax   = round2(taxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const shipAmt    = round2(parseFloat(shipping)   || 0);
@@ -666,33 +681,33 @@ export default function Newpurchaseorders() {
     const qty  = parseFloat(u[idx].quantity) || 1;
     const disc = parseFloat(u[idx].discount) || 0;
     const base = calcLineBase(qty, rate, disc, u[idx].discountType);
-    u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.sku || sel.item_code || '', rate, unit: sel.unit || sel.Unit || 'pcs', quantity: qty, amount: String(round2(base + base * TAX_RATE)) };
+    u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.sku || sel.item_code || '', rate, unit: sel.unit || sel.Unit || 'pcs', quantity: qty, amount: String(round2(base + base * effectiveTaxRate)) };
     setItems(u); setShowItemDropdown(null); setSearchTerm('');
   };
 
   const handleQuantityChange = (idx, val) => {
     const u = [...items], qty = parseFloat(val) || 1;
     u[idx].quantity = qty;
-    if (u[idx].rate) { const base = calcLineBase(qty, parseFloat(u[idx].rate), parseFloat(u[idx].discount)||0, u[idx].discountType); u[idx].amount = String(round2(base + base * TAX_RATE)); }
+    if (u[idx].rate) { const base = calcLineBase(qty, parseFloat(u[idx].rate), parseFloat(u[idx].discount)||0, u[idx].discountType); u[idx].amount = String(round2(base + base * effectiveTaxRate)); }
     setItems(u);
   };
 
   const handleRateChange = (idx, val) => {
     const u = [...items], rate = parseFloat(val) || 0;
     u[idx].rate = val;
-    if (u[idx].quantity) { const base = calcLineBase(parseFloat(u[idx].quantity)||0, rate, parseFloat(u[idx].discount)||0, u[idx].discountType); u[idx].amount = String(round2(base + base * TAX_RATE)); }
+    if (u[idx].quantity) { const base = calcLineBase(parseFloat(u[idx].quantity)||0, rate, parseFloat(u[idx].discount)||0, u[idx].discountType); u[idx].amount = String(round2(base + base * effectiveTaxRate)); }
     setItems(u);
   };
 
   const handleDiscountChange = (idx, val) => {
     const u = [...items]; u[idx].discount = val;
-    if (u[idx].quantity && u[idx].rate) { const base = calcLineBase(parseFloat(u[idx].quantity)||0, parseFloat(u[idx].rate)||0, parseFloat(val)||0, u[idx].discountType); u[idx].amount = String(round2(base + base * TAX_RATE)); }
+    if (u[idx].quantity && u[idx].rate) { const base = calcLineBase(parseFloat(u[idx].quantity)||0, parseFloat(u[idx].rate)||0, parseFloat(val)||0, u[idx].discountType); u[idx].amount = String(round2(base + base * effectiveTaxRate)); }
     setItems(u);
   };
 
   const handleDiscountTypeChange = (idx, type) => {
     const u = [...items]; u[idx].discountType = type;
-    if (u[idx].quantity && u[idx].rate && u[idx].discount) { const base = calcLineBase(parseFloat(u[idx].quantity)||0, parseFloat(u[idx].rate)||0, parseFloat(u[idx].discount)||0, type); u[idx].amount = String(round2(base + base * TAX_RATE)); }
+    if (u[idx].quantity && u[idx].rate && u[idx].discount) { const base = calcLineBase(parseFloat(u[idx].quantity)||0, parseFloat(u[idx].rate)||0, parseFloat(u[idx].discount)||0, type); u[idx].amount = String(round2(base + base * effectiveTaxRate)); }
     setItems(u);
   };
 
@@ -707,7 +722,7 @@ export default function Newpurchaseorders() {
         vendorName: selectedVendor.displayName || selectedVendor.companyName || '',
         orderDate: new Date(orderDate).toISOString(),
         expectedDeliveryDate: expectedDate ? new Date(expectedDate).toISOString() : null,
-        paymentTerms, deliveryAddress: deliveryAddr, shipmentPreference: shipPref, referenceNo,
+        poType, paymentTerms, deliveryAddress: deliveryAddr, shipmentPreference: shipPref, referenceNo,
         items: computedItems.filter(i => i.details && i.quantity > 0).map(i => ({
           itemId: i.itemId, details: i.details, quantity: parseFloat(i.quantity),
           rate: parseFloat(i.rate)||0, discount: parseFloat(i.discount)||0, discountType: i.discountType, unit: i.unit,
@@ -777,11 +792,48 @@ export default function Newpurchaseorders() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
               <div style={{ gridColumn: '1/-1' }}>
                 <Field label="Vendor" req>
-                  <VendorSelect value={selectedVendor} onChange={setSelectedVendor} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} />
+                  <VendorSelect value={selectedVendor} onChange={v => {
+                    setSelectedVendor(v);
+                    if (v?.paymentTerms) setPaymentTerms(v.paymentTerms);
+                  }} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} />
                 </Field>
+                {selectedVendor && (
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {(() => {
+                      const origin = normaliseOrigin(selectedVendor.origin);
+                      const isZero = origin === 'free_zone' || origin === 'overseas';
+                      const label = origin === 'free_zone' ? 'Free Zone' : origin === 'overseas' ? 'Overseas' : 'Mainland';
+                      const color = isZero ? '#10b981' : '#f59e0b';
+                      const bg    = isZero ? (isDark ? 'rgba(16,185,129,.12)' : '#f0fdf4') : (isDark ? 'rgba(245,158,11,.12)' : '#fffbeb');
+                      const border= isZero ? (isDark ? 'rgba(16,185,129,.3)' : '#a7f3d0') : (isDark ? 'rgba(245,158,11,.3)' : '#fde68a');
+                      return (
+                        <>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99, background: bg, border: `1.5px solid ${border}`, color }}>
+                            {label}
+                          </span>
+                          <span style={{ fontSize: 11, color: T.textSec }}>
+                            VAT: <strong style={{ color }}>{isZero ? '0%' : '5%'}</strong>
+                            {isZero && <span style={{ marginLeft: 4, color: T.textSec }}>({origin === 'overseas' ? 'Reverse charge' : 'Designated zone — exempt'})</span>}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
               <Field label="Reference #">
                 <input className="npo-inp" value={referenceNo} onChange={e => setReferenceNo(e.target.value)} placeholder="PO-REF-001" style={{ fontFamily: "'DM Mono',monospace" }} />
+              </Field>
+              <Field label="PO Type">
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[{ v: 'goods', label: 'Goods', hint: 'Requires GRN' }, { v: 'service', label: 'Service', hint: 'Bill directly' }].map(({ v, label, hint }) => (
+                    <button key={v} type="button" onClick={() => setPoType(v)}
+                      style={{ flex: 1, padding: '9px 0', borderRadius: 10, border: `1.5px solid ${poType === v ? '#3b82f6' : T.border}`, background: poType === v ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : T.surface2, color: poType === v ? '#3b82f6' : T.textSec, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s' }}>
+                      {label}
+                      <span style={{ display: 'block', fontSize: 10, fontWeight: 500, opacity: 0.7, marginTop: 1 }}>{hint}</span>
+                    </button>
+                  ))}
+                </div>
               </Field>
               <Field label="Order Date" req>
                 <DatePicker value={orderDate} onChange={setOrderDate} placeholder="Select order date" />
@@ -977,20 +1029,25 @@ export default function Newpurchaseorders() {
             <div className="npo-sin">
               <div className="npo-stitle"><div className="npo-sicon" style={{ background: '#f59e0b18', color: '#f59e0b' }}><FaMoneyBillWave /></div>Tax Breakdown</div>
               <div className="npo-srow"><span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Sub Total</span><span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'DM Mono',monospace", color: T.textPri }}>{fmtAED(subTotal)}</span></div>
-              {taxGroups.length > 0 && (
+              {taxGroups.length > 0 && vatPct === 0 && (
+                <div style={{ margin: '10px 0', padding: '10px 12px', background: isDark ? 'rgba(100,116,139,.06)' : '#f8fafc', borderRadius: 10, border: `1.5px solid ${isDark ? 'rgba(100,116,139,.2)' : '#e2e8f0'}` }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: T.textSec, margin: 0 }}>VAT 0% — Exempt (Free Zone / Overseas)</p>
+                </div>
+              )}
+              {taxGroups.length > 0 && vatPct > 0 && (
                 <div style={{ margin: '10px 0', padding: '10px 12px', background: isDark ? 'rgba(245,158,11,.06)' : '#fffbeb', borderRadius: 10, border: `1.5px solid ${isDark ? 'rgba(245,158,11,.2)' : '#fde68a'}` }}>
-                  <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: '#f59e0b', margin: '0 0 8px' }}>VAT 5% — Grouped by Rate</p>
+                  <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: '#f59e0b', margin: '0 0 8px' }}>VAT {vatPct}% — Grouped by Rate</p>
                   {taxGroups.map((g, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: 7, marginBottom: i < taxGroups.length - 1 ? 4 : 0 }}>
                       <div>
                         <p style={{ fontSize: 12, fontWeight: 600, color: T.textPri, margin: 0 }}>Rate AED {g.rate}</p>
-                        <p style={{ fontSize: 10, color: T.textSec, margin: '2px 0 0', fontFamily: "'DM Mono',monospace" }}>{fmtAED(g.baseAmount)} × 5%</p>
+                        <p style={{ fontSize: 10, color: T.textSec, margin: '2px 0 0', fontFamily: "'DM Mono',monospace" }}>{fmtAED(g.baseAmount)} × {vatPct}%</p>
                       </div>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#f59e0b', fontFamily: "'DM Mono',monospace" }}>{fmtAED(g.taxAmount)}</span>
                     </div>
                   ))}
                   <div style={{ borderTop: `1.5px solid ${isDark ? 'rgba(245,158,11,.25)' : '#fcd34d'}`, marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>Total VAT (5%)</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>Total VAT ({vatPct}%)</span>
                     <span style={{ fontSize: 13, fontWeight: 800, color: '#f59e0b', fontFamily: "'DM Mono',monospace" }}>{fmtAED(totalTax)}</span>
                   </div>
                 </div>

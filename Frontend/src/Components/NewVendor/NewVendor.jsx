@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import PhoneInput, { getCountryCallingCode } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -478,17 +478,28 @@ const COUNTRIES = [
 const CURRENCIES = ['AED','USD','EUR','GBP','INR','SAR','QAR','KWD','BHD','OMR','EGP'];
 
 const PAYMENT_TERMS = [
-  'Net 15','Net 30','Net 45','Net 60','Net 90',
-  'Due on receipt','End of month','Cash on delivery',
+  'Due on Receipt','Net 15','Net 30','Net 45','Net 60','Net 90',
+  'End of Month','Cash on Delivery','Custom',
 ];
 
 const VENDOR_TYPES = ['Individual','Business / Company','Manufacturer','Distributor','Service Provider'];
+
+const normaliseOrigin = (o) => {
+  if (!o) return '';
+  const s = String(o).toLowerCase().replace(/[\s-]+/g, '_');
+  if (s.includes('free') || s === 'free_zone' || s === 'freezone') return 'free_zone';
+  if (s === 'overseas') return 'overseas';
+  if (s === 'mainland') return 'mainland';
+  return '';
+};
 
 /* ══════════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════ */
 export default function NewVendor() {
   const navigate  = useNavigate();
+  const { id }    = useParams();
+  const isEdit    = !!id;
   const isDark    = useThemeStore(s => s.isDark);
   const T         = { ...getTheme(isDark), isDark };
 
@@ -506,11 +517,8 @@ export default function NewVendor() {
     website: '',
     // Contact
     email: '', phone: '', workPhone: '', mobile: '',
-    // Address — Billing
+    // Address
     billStreet: '', billCity: '', billState: '', billPostal: '', billCountry: '',
-    // Address — Shipping
-    sameAsBilling: true,
-    shipStreet: '', shipCity: '', shipState: '', shipPostal: '', shipCountry: '',
     // Finance
     currency: 'AED', paymentTerms: '', creditLimit: '', noOfDays: '',
     // Banking
@@ -518,6 +526,51 @@ export default function NewVendor() {
     // Notes
     notes: '', remarks: '', tags: '',
   });
+
+  /* ── Pre-fill on edit ── */
+  useEffect(() => {
+    if (!id) return;
+    axiosInstance.get(`/api/vendors/${id}`).then(res => {
+      const v = res.data?.data || res.data || {};
+      // support both flat (current) and legacy nested (old data) address/banking
+      const ba = v.billingAddress || {};
+      const bk = v.banking || {};
+      setForm({
+        vendorType:         v.vendorType         || '',
+        origin:             normaliseOrigin(v.origin),
+        tradeLicenseNumber: v.tradeLicenseNumber || '',
+        displayName:        v.displayName        || '',
+        companyName:        v.companyName        || '',
+        vendorCode:         v.vendorCode         || '',
+        website:            v.website            || '',
+        trnNumber:          v.trn                || v.trnNumber || '',
+        email:              v.email              || '',
+        phone:              v.phone              || '',
+        workPhone:          v.workPhone          || '',
+        mobile:             v.mobile             || '',
+        billStreet:         v.streetAddress      || ba.street  || '',
+        billCity:           v.city               || ba.city    || '',
+        billState:          v.state              || ba.state   || '',
+        billPostal:         v.postal             || ba.postal  || '',
+        billCountry:        v.country            || ba.country || '',
+        currency:           v.currency           || 'AED',
+        paymentTerms:       v.paymentTerms       || '',
+        creditLimit:        v.creditLimit != null ? String(v.creditLimit) : '',
+        noOfDays:           v.noOfDays           || '',
+        bankName:           v.bankName           || bk.bankName  || '',
+        bankAccount:        v.accountNumber      || bk.accountNo || '',
+        bankIban:           v.iban               || bk.iban      || '',
+        bankSwift:          v.swiftCode          || bk.swiftCode || '',
+        bankBranch:         v.bankBranch         || bk.branch    || '',
+        notes:              v.notes              || '',
+        remarks:            v.remarks            || '',
+        tags:               Array.isArray(v.tags) ? v.tags.join(', ') : (v.tags || ''),
+      });
+      if (v.contactPersons?.length) {
+        setContacts(v.contactPersons.map((c, i) => ({ id: Date.now() + i, name: c.name || '', email: c.email || '', phone: c.phone || '', position: c.position || '', isPrimary: !!c.isPrimary })));
+      }
+    }).catch(() => nexusToast.error('Failed to load vendor'));
+  }, [id]);
 
   /* ── Scroll spy ── */
   useEffect(() => {
@@ -551,6 +604,7 @@ export default function NewVendor() {
     if (!form.email.trim())       e.email        = 'Email address is required';
     if (!form.vendorType)         e.vendorType   = 'Vendor type is required';
     if (!form.trnNumber.trim())   e.trnNumber    = 'TRN Number is required';
+    else if (!/^\d{15}$/.test(form.trnNumber.trim())) e.trnNumber = 'TRN must be exactly 15 digits';
     return e;
   };
 
@@ -567,41 +621,34 @@ export default function NewVendor() {
     setSaving(true);
 
     const payload = {
-      vendorType:          form.vendorType,
-      origin:              form.origin,
-      tradeLicenseNumber:  form.tradeLicenseNumber,
-      displayName:         form.displayName,
-      companyName:         form.companyName,
-      vendorCode:          form.vendorCode,
-      website:             form.website,
-      email:         form.email,
-      phone:         form.phone,
-      workPhone:     form.workPhone,
-      mobile:        form.mobile,
-      billingAddress: {
-        street:  form.billStreet,
-        city:    form.billCity,
-        state:   form.billState,
-        postal:  form.billPostal,
-        country: form.billCountry,
-      },
-      shippingAddress: form.sameAsBilling ? null : {
-        street:  form.shipStreet,
-        city:    form.shipCity,
-        state:   form.shipState,
-        postal:  form.shipPostal,
-        country: form.shipCountry,
-      },
+      vendorType:         form.vendorType,
+      origin:             form.origin,
+      tradeLicenseNumber: form.tradeLicenseNumber,
+      displayName:        form.displayName,
+      companyName:        form.companyName,
+      vendorCode:         form.vendorCode,
+      website:            form.website,
+      trn:                form.trnNumber,
+      email:              form.email,
+      phone:              form.phone,
+      workPhone:          form.workPhone,
+      mobile:             form.mobile,
+      // flat address fields matching backend model
+      streetAddress: form.billStreet,
+      city:          form.billCity,
+      state:         form.billState,
+      postal:        form.billPostal,
+      country:       form.billCountry,
       currency:     form.currency,
       paymentTerms: form.paymentTerms,
       creditLimit:  parseFloat(form.creditLimit) || 0,
-      banking: {
-        bankName:    form.bankName,
-        accountNo:   form.bankAccount,
-        iban:        form.bankIban,
-        swiftCode:   form.bankSwift,
-        branch:      form.bankBranch,
-      },
+      noOfDays:     form.noOfDays,
+      // flat banking fields matching backend model
+      bankName:      form.bankName,
+      accountNumber: form.bankAccount,
+      iban:          form.bankIban,
+      swiftCode:     form.bankSwift,
+      bankBranch:    form.bankBranch,
       contactPersons: contacts.filter(c => c.name.trim()),
       notes:   form.notes,
       remarks: form.remarks,
@@ -610,8 +657,13 @@ export default function NewVendor() {
     };
 
     try {
-      await axiosInstance.post('/api/vendors/', payload);
-      nexusToast.success('Vendor created successfully!');
+      if (isEdit) {
+        await axiosInstance.put(`/api/vendors/${id}`, payload);
+        nexusToast.success('Vendor updated successfully!');
+      } else {
+        await axiosInstance.post('/api/vendors/', payload);
+        nexusToast.success('Vendor created successfully!');
+      }
       setTimeout(() => navigate('/Purchase/Vendors'), 1500);
     } catch (err) {
       const msg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to save vendor';
@@ -718,7 +770,7 @@ export default function NewVendor() {
             <div style={{ width: 1, height: 24, background: borderColor }} />
             <div>
               <p style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>
-                New Vendor
+                {isEdit ? 'Edit Vendor' : 'New Vendor'}
               </p>
               <p style={{ fontSize: 11, color: T.textSec, margin: 0 }}>
                 Purchase → Vendors
@@ -818,7 +870,11 @@ export default function NewVendor() {
                 </F>
                 <F label="Origin" T={T}>
                   <CustomSelect name="origin" value={form.origin} onChange={handleChange}
-                    options={['Free Zone', 'Mainland', 'Overseas']} placeholder="Select origin"
+                    options={[
+                      { value: 'mainland',  label: 'Mainland'  },
+                      { value: 'free_zone', label: 'Free Zone' },
+                      { value: 'overseas',  label: 'Overseas'  },
+                    ]} placeholder="Select origin"
                     T={T} isDark={isDark} />
                 </F>
               </div>
@@ -883,11 +939,6 @@ export default function NewVendor() {
             <Section id="sec-address" title="Address" accent="#8b5cf6" T={T}
               icon={<svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx={12} cy={10} r={3}/></svg>}
             >
-              {/* Billing */}
-              <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#8b5cf6', margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 20, height: 1.5, background: '#8b5cf6', display: 'inline-block', borderRadius: 999 }} />
-                Billing Address
-              </p>
               <div style={{ ...grid2, marginBottom: 16 }}>
                 <F label="Street / P.O Box" T={T} style={{ gridColumn: '1 / -1' }}>
                   <Input name="billStreet" value={form.billStreet} onChange={handleChange} placeholder="Street address, floor, suite…" T={T} />
@@ -909,57 +960,6 @@ export default function NewVendor() {
                 </F>
               </div>
 
-              {/* Same as billing toggle */}
-              <label style={{
-                display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
-                padding: '10px 14px', borderRadius: 10,
-                background: isDark ? 'rgba(255,255,255,.03)' : '#f8fafc',
-                border: `1.5px solid ${borderColor}`, marginBottom: form.sameAsBilling ? 0 : 20,
-              }}>
-                <div
-                  onClick={() => setForm(p => ({ ...p, sameAsBilling: !p.sameAsBilling }))}
-                  style={{
-                    width: 18, height: 18, borderRadius: 5, border: `2px solid ${form.sameAsBilling ? '#8b5cf6' : T.border}`,
-                    background: form.sameAsBilling ? '#8b5cf6' : 'transparent',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    transition: 'all .15s', cursor: 'pointer',
-                  }}
-                >
-                  {form.sameAsBilling && (
-                    <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3} strokeLinecap="round"><path d="M20 6L9 17l-5-5"/></svg>
-                  )}
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 600, color: T.textPri }}>Shipping address same as billing</span>
-              </label>
-
-              {!form.sameAsBilling && (
-                <>
-                  <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#8b5cf6', margin: '20px 0 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 20, height: 1.5, background: '#8b5cf6', display: 'inline-block', borderRadius: 999 }} />
-                    Shipping Address
-                  </p>
-                  <div style={{ ...grid2, marginBottom: 16 }}>
-                    <F label="Street / P.O Box" T={T}>
-                      <Input name="shipStreet" value={form.shipStreet} onChange={handleChange} placeholder="Street address…" T={T} />
-                    </F>
-                    <F label="City" T={T}>
-                      <Input name="shipCity" value={form.shipCity} onChange={handleChange} placeholder="Dubai" T={T} />
-                    </F>
-                  </div>
-                  <div style={{ ...grid3 }}>
-                    <F label="State" T={T}>
-                      <Input name="shipState" value={form.shipState} onChange={handleChange} placeholder="Dubai" T={T} />
-                    </F>
-                    <F label="Postal Code" T={T}>
-                      <Input name="shipPostal" value={form.shipPostal} onChange={handleChange} placeholder="00000" mono T={T} />
-                    </F>
-                    <F label="Country" T={T}>
-                      <CustomSelect name="shipCountry" value={form.shipCountry} onChange={handleChange}
-                        options={COUNTRIES} placeholder="Select country" T={T} isDark={isDark} />
-                    </F>
-                  </div>
-                </>
-              )}
             </Section>
 
             {/* ── FINANCE ── */}
@@ -972,22 +972,22 @@ export default function NewVendor() {
                     options={CURRENCIES} placeholder="Select currency" T={T} isDark={isDark} />
                 </F>
                 <F label="Payment Terms" T={T}>
-                  <CustomSelect name="paymentTerms" value={form.paymentTerms} onChange={handleChange}
+                  <CustomSelect name="paymentTerms" value={form.paymentTerms}
+                    onChange={e => {
+                      handleChange(e);
+                      if (e.target.value !== 'Custom') setForm(p => ({ ...p, noOfDays: '' }));
+                    }}
                     options={PAYMENT_TERMS} placeholder="Select terms" T={T} isDark={isDark} />
                 </F>
-                <F label="No. of Days" T={T}>
-                  <Input type="number" name="noOfDays" value={form.noOfDays} onChange={handleChange} placeholder="0" mono T={T} />
-                </F>
+                {form.paymentTerms === 'Custom' && (
+                  <F label="No. of Days" T={T}>
+                    <Input type="number" name="noOfDays" value={form.noOfDays} onChange={handleChange} placeholder="e.g. 21" mono T={T} />
+                  </F>
+                )}
               </div>
               <div style={{ ...grid2 }}>
-                <F label="Credit Limit" T={T}>
+                <F label="Purchase Limit" hint="internal budget cap" T={T}>
                   <Input prefix="AED" type="number" name="creditLimit" value={form.creditLimit} onChange={handleChange} placeholder="0.00" mono T={T} />
-                </F>
-                <F label="Credit Used" T={T}>
-                  <Input prefix="AED" type="number" name="creditUsed" value={form.creditUsed} onChange={handleChange} placeholder="0.00" mono T={T} />
-                </F>
-                <F label="TRN Number" T={T}>
-                  <Input name="trnNumber" value={form.trnNumber} onChange={handleChange} placeholder="VAT Reg No." mono T={T} />
                 </F>
               </div>
             </Section>

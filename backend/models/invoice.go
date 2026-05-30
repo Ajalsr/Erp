@@ -62,6 +62,13 @@ type InvoiceNotes struct {
 	Internal string `json:"internal" bson:"internal"`
 }
 
+type InvoiceHistoryEntry struct {
+	Action    string    `json:"action"    bson:"action"`
+	Timestamp time.Time `json:"timestamp" bson:"timestamp"`
+	User      string    `json:"user,omitempty" bson:"user,omitempty"`
+	Note      string    `json:"note,omitempty" bson:"note,omitempty"`
+}
+
 type Invoice struct {
 	ID            primitive.ObjectID `json:"_id,omitempty"    bson:"_id,omitempty"`
 	InvoiceNumber string             `json:"invoiceNumber"    bson:"invoiceNumber"`
@@ -92,7 +99,8 @@ type Invoice struct {
 	VoidReason         string    `json:"voidReason,omitempty"        bson:"voidReason,omitempty"`
 	VoidedAt           time.Time `json:"voidedAt,omitempty"          bson:"voidedAt,omitempty"`
 	OrgID              string    `json:"orgId,omitempty"             bson:"orgId,omitempty"`
-	CreatedAt     time.Time          `json:"createdAt"                 bson:"createdAt"`
-	UpdatedAt     time.Time          `json:"updatedAt"                 bson:"updatedAt"`
-	CreatedBy     string             `json:"createdBy"                 bson:"createdBy"`
+	History       []InvoiceHistoryEntry `json:"history,omitempty"       bson:"history,omitempty"`
+	CreatedAt     time.Time             `json:"createdAt"               bson:"createdAt"`
+	UpdatedAt     time.Time             `json:"updatedAt"               bson:"updatedAt"`
+	CreatedBy     string                `json:"createdBy"               bson:"createdBy"`
 }

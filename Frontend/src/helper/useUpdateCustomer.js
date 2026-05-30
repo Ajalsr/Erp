@@ -11,14 +11,22 @@ const useUpdateCustomer = () => {
         return entry;
       });
 
-      const documents = (inputs.documents || []).map(doc => ({
-        name:        doc.name        || '',
-        type:        doc.type        || '',
-        size:        doc.size        || 0,
-        uploadDate:  doc.uploadDate  || new Date().toISOString(),
-        status:      doc.status      || 'pending',
-        description: doc.description || '',
-      }));
+      const documents = (inputs.documents || [])
+        .filter(doc => doc.status !== 'uploading')
+        .map(doc => {
+          const entry = {
+            name:        doc.name        || '',
+            type:        doc.type        || '',
+            url:         doc.url         || '',
+            size:        doc.size        || 0,
+            uploadDate:  doc.uploadDate  || new Date().toISOString(),
+            status:      doc.url ? 'uploaded' : (doc.status || 'pending'),
+            description: doc.description || '',
+          };
+          // Preserve existing server-side _id so backend doesn't create duplicates
+          if (doc._id) entry._id = doc._id;
+          return entry;
+        });
 
       const creditLimit = parseFloat(inputs.credit_limit) || 0;
       const creditUsed  = parseFloat(inputs.credit_used)  || 0;
@@ -60,6 +68,7 @@ const useUpdateCustomer = () => {
         remarks:        inputs.remarks       || '',
       };
 
+      console.log('[useUpdateCustomer] documents payload:', JSON.stringify(documents, null, 2));
       const response = await axiosInstance.put(`/api/customers/${id}`, payload);
 
       nexusToast.success('Customer updated successfully!');
