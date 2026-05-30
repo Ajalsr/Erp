@@ -1,14 +1,52 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { FaChevronLeft, FaPlus, FaTrash, FaCheckCircle, FaSpinner } from 'react-icons/fa';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { FaChevronLeft, FaPlus, FaTrash, FaCheckCircle, FaSpinner, FaChevronDown } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
 
-const TAX_RATE = 0.05;
+// ── Custom dropdown — replaces native <select> ───────────────────────────────
+function CustomSelect({ value, onChange, options, placeholder = 'Select…', T, isDark, style = {} }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  const opts = options.map(o => typeof o === 'string' ? { value: o, label: o } : o);
+  const selected = opts.find(o => o.value === value);
+  return (
+    <div ref={ref} style={{ position: 'relative', ...style }}>
+      <button type="button" onClick={() => setOpen(v => !v)}
+        style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${open ? '#3b82f6' : T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: selected ? T.textPri : T.textSec, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, textAlign: 'left', boxShadow: open ? '0 0 0 3px rgba(59,130,246,.12)' : 'none', transition: 'border-color .15s, box-shadow .15s' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected?.label || placeholder}</span>
+        <FaChevronDown size={10} style={{ flexShrink: 0, color: T.textSec, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden', maxHeight: 220, overflowY: 'auto' }}>
+          {opts.map(o => (
+            <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+              style={{ width: '100%', padding: '9px 14px', fontSize: 13, background: o.value === value ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : 'transparent', color: o.value === value ? '#3b82f6' : T.textPri, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', fontWeight: o.value === value ? 700 : 400, display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background .1s' }}>
+              {o.label}
+              {o.value === value && <span style={{ fontSize: 10, color: '#3b82f6' }}>✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-const PAYMENT_TERMS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60'];
+const PAYMENT_TERMS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 90', 'End of Month', 'Cash on Delivery', 'Custom'];
+const UAE_EMIRATES  = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'];
+const RCM_TYPES     = [
+  { value: 'import',          label: 'Import (Overseas Vendor)' },
+  { value: 'designated_zone', label: 'Designated Zone' },
+  { value: 'domestic_rcm',    label: 'Domestic RCM' },
+];
 
 const emptyLine = () => ({ description: '', qty: 1, unitPrice: '', taxRate: 5, discount: 0, discountType: 'fixed', gross: 0, discAmt: 0, subtotal: 0, taxAmt: 0, total: 0 });
 
@@ -28,22 +66,33 @@ function calcLine(line) {
 export default function NewBill() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { id }   = useParams();
+  const isEdit   = !!id;
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const [saving, setSaving] = useState(false);
 
   const pre = location.state || {};
 
+  const today = new Date().toISOString().slice(0, 10);
+
   // Form state
-  const [vendorId,   setVendorId]   = useState(pre.vendorId   || '');
-  const [vendorName, setVendorName] = useState(pre.vendorName || '');
-  const [billDate,   setBillDate]   = useState(new Date().toISOString().slice(0, 10));
-  const [dueDate,    setDueDate]    = useState('');
-  const [payTerms,   setPayTerms]   = useState('Net 30');
-  const [poNumber,   setPoNumber]   = useState(pre.poNumber   || '');
-  const [grnNumber,  setGrnNumber]  = useState(pre.grnNumber  || '');
-  const [grnId,      setGrnId]      = useState(pre.grnId      || '');
-  const [notes,      setNotes]      = useState('');
+  const [vendorId,       setVendorId]       = useState(pre.vendorId   || '');
+  const [vendorName,     setVendorName]     = useState(pre.vendorName || '');
+  const [vendorTrn,      setVendorTrn]      = useState('');
+  const [vendorRef,      setVendorRef]      = useState('');
+  const [billDate,       setBillDate]       = useState(today);
+  const [accountingDate, setAccountingDate] = useState(today);
+  const [dueDate,        setDueDate]        = useState('');
+  const [payTerms,       setPayTerms]       = useState('Net 30');
+  const [placeOfSupply,  setPlaceOfSupply]  = useState('Dubai');
+  const [rcmApplicable,  setRcmApplicable]  = useState(pre.rcmApplicable || false);
+  const [rcmType,        setRcmType]        = useState(pre.rcmType || '');
+  const [poNumber,         setPoNumber]         = useState(pre.poNumber        || '');
+  const [purchaseOrderId,  setPurchaseOrderId]  = useState(pre.purchaseOrderId || '');
+  const [grnNumber,        setGrnNumber]        = useState(pre.grnNumber       || '');
+  const [grnId,            setGrnId]            = useState(pre.grnId           || '');
+  const [notes,          setNotes]          = useState('');
   const [lines, setLines] = useState(() => {
     if (pre.items?.length) return pre.items.map(calcLine);
     return [emptyLine()];
@@ -64,10 +113,48 @@ export default function NewBill() {
     return () => clearTimeout(t);
   }, [vendorSearch, vendorId]);
 
-  // Auto-set due date from pay terms
+  // Edit mode — load existing bill
+  const [loadedEdit, setLoadedEdit] = useState(false);
+  useEffect(() => {
+    if (!isEdit) return;
+    axiosInstance.get(`/api/bills/${id}`).then(res => {
+      const b = res.data?.data || res.data || {};
+      setVendorId(b.vendorId || '');
+      setVendorName(b.vendorName || '');
+      setVendorSearch(b.vendorName || '');
+      setVendorTrn(b.vendorTrn || '');
+      setVendorRef(b.vendorRef || '');
+      if (b.billDate)       setBillDate(b.billDate.slice(0, 10));
+      if (b.accountingDate) setAccountingDate(b.accountingDate.slice(0, 10));
+      if (b.dueDate)        setDueDate(b.dueDate.slice(0, 10));
+      setPayTerms(b.paymentTerms || 'Net 30');
+      setPlaceOfSupply(b.placeOfSupply || 'Dubai');
+      setRcmApplicable(!!b.rcmApplicable);
+      setRcmType(b.rcmType || '');
+      setPoNumber(b.poNumber || '');
+      setPurchaseOrderId(b.purchaseOrderId || '');
+      setGrnNumber(b.grnNumber || '');
+      setGrnId(b.grnId || '');
+      setNotes(b.notes || '');
+      if (b.lineItems?.length) {
+        setLines(b.lineItems.map(li => calcLine({
+          description:  li.description || '',
+          qty:          li.qty || 1,
+          unitPrice:    li.unitPrice || 0,
+          taxRate:      li.taxRate ?? 0,
+          discount:     li.discount || 0,
+          discountType: li.discountType || 'fixed',
+        })));
+      }
+      setLoadedEdit(true);
+    }).catch(() => nexusToast.error('Failed to load bill'));
+  }, [id]); // eslint-disable-line
+
+  // Auto-set due date from pay terms — skip first run in edit mode (keep stored dueDate)
   useEffect(() => {
     if (!billDate) return;
-    const days = { 'Due on Receipt': 0, 'Net 15': 15, 'Net 30': 30, 'Net 45': 45, 'Net 60': 60 };
+    if (isEdit && !loadedEdit) return;
+    const days = { 'Due on Receipt': 0, 'Net 15': 15, 'Net 30': 30, 'Net 45': 45, 'Net 60': 60, 'Net 90': 90, 'End of Month': 30, 'Cash on Delivery': 0 };
     const d = new Date(billDate);
     d.setDate(d.getDate() + (days[payTerms] ?? 30));
     setDueDate(d.toISOString().slice(0, 10));
@@ -99,13 +186,22 @@ export default function NewBill() {
       const payload = {
         vendorId,
         vendorName,
+        vendorTrn:      vendorTrn      || undefined,
+        vendorRef:      vendorRef      || undefined,
         billDate,
+        accountingDate: accountingDate || undefined,
         dueDate,
-        paymentTerms: payTerms,
-        poNumber:  poNumber  || undefined,
-        grnId:     grnId     || undefined,
-        grnNumber: grnNumber || undefined,
-        notes:     notes     || undefined,
+        paymentTerms:   payTerms,
+        placeOfSupply:  placeOfSupply  || undefined,
+        rcmApplicable,
+        rcmType:        rcmApplicable ? rcmType : undefined,
+        rcmOutputVat:   rcmApplicable ? round2(subtotal * 0.05) : undefined,
+        rcmInputVat:    rcmApplicable ? round2(subtotal * 0.05) : undefined,
+        poNumber:         poNumber         || undefined,
+        purchaseOrderId:  purchaseOrderId  || undefined,
+        grnId:            grnId            || undefined,
+        grnNumber:        grnNumber        || undefined,
+        notes:          notes          || undefined,
         lineItems: lines.filter((l) => l.description).map((l) => ({
           description:  l.description,
           qty:          parseFloat(l.qty)       || 0,
@@ -119,13 +215,17 @@ export default function NewBill() {
           total:        l.total,
         })),
         totals: { grossTotal, discountTotal, subtotal, taxTotal, grandTotal },
-        status: 'open',
       };
-      await axiosInstance.post('/api/bills/', payload);
-      nexusToast.success('Bill created successfully!');
-      setTimeout(() => navigate('/Purchase/Bills'), 1200);
+      if (isEdit) {
+        await axiosInstance.put(`/api/bills/${id}`, payload);
+        nexusToast.success('Bill updated successfully!');
+      } else {
+        await axiosInstance.post('/api/bills/', { ...payload, status: 'open' });
+        nexusToast.success('Bill created successfully!');
+      }
+      setTimeout(() => navigate('/Purchase/Bills'), 1000);
     } catch (err) {
-      nexusToast.error(err?.response?.data?.message || 'Failed to create bill');
+      nexusToast.error(err?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} bill`);
     } finally {
       setSaving(false);
     }
@@ -148,14 +248,14 @@ export default function NewBill() {
                 <FaChevronLeft size={13} />
               </button>
               <div>
-                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 17, fontWeight: 800, color: T.textPri, margin: 0 }}>New Vendor Bill</h1>
+                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 17, fontWeight: 800, color: T.textPri, margin: 0 }}>{isEdit ? 'Edit Vendor Bill' : 'New Vendor Bill'}</h1>
                 {pre.fromGRN && <p style={{ fontSize: 11, color: T.blue, margin: '2px 0 0' }}>Created from GRN: {pre.grnNumber}</p>}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => navigate('/Purchase/Bills')} style={{ padding: '9px 18px', border: `1.5px solid ${T.border}`, borderRadius: 9, background: 'transparent', color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleSubmit} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 20px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-                {saving ? <><FaSpinner size={12} style={{ animation: 'spin .7s linear infinite' }} /> Saving…</> : <><FaCheckCircle size={12} /> Save Bill</>}
+                {saving ? <><FaSpinner size={12} style={{ animation: 'spin .7s linear infinite' }} /> Saving…</> : <><FaCheckCircle size={12} /> {isEdit ? 'Update Bill' : 'Save Bill'}</>}
               </button>
             </div>
           </div>
@@ -172,7 +272,20 @@ export default function NewBill() {
               {vendorResults.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.15)', marginTop: 3 }}>
                   {vendorResults.map((v) => (
-                    <div key={v._id} onClick={() => { setVendorId(v._id); setVendorName(v.displayName || v.companyName || ''); setVendorSearch(v.displayName || v.companyName || ''); setVendorResults([]); }}
+                    <div key={v._id} onClick={() => {
+                      setVendorId(v._id);
+                      setVendorName(v.displayName || v.companyName || '');
+                      setVendorSearch(v.displayName || v.companyName || '');
+                      setVendorTrn(v.trn || '');
+                      setVendorResults([]);
+                      if (v.origin === 'free_zone' || v.origin === 'overseas') {
+                        setRcmApplicable(true);
+                        setRcmType(v.origin === 'overseas' ? 'import' : 'designated_zone');
+                      } else {
+                        setRcmApplicable(false);
+                        setRcmType('');
+                      }
+                    }}
                       style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}` }}
                       onMouseEnter={(e) => e.currentTarget.style.background = T.surface2}
                       onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
@@ -185,9 +298,7 @@ export default function NewBill() {
             </div>
             <div>
               <label style={lbl}>Payment Terms</label>
-              <select value={payTerms} onChange={(e) => setPayTerms(e.target.value)} style={{ ...inp, appearance: 'auto' }}>
-                {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <CustomSelect value={payTerms} onChange={setPayTerms} options={PAYMENT_TERMS} T={T} isDark={isDark} />
             </div>
             <div>
               <label style={lbl}>Bill Date</label>
@@ -196,6 +307,24 @@ export default function NewBill() {
             <div>
               <label style={lbl}>Due Date</label>
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Accounting Date</label>
+              <input type="date" value={accountingDate} onChange={(e) => setAccountingDate(e.target.value)} style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Vendor Ref (Invoice #)</label>
+              <input value={vendorRef} onChange={(e) => setVendorRef(e.target.value)} placeholder="Vendor's own invoice number" style={inp} />
+            </div>
+            {vendorTrn && (
+              <div>
+                <label style={lbl}>Vendor TRN</label>
+                <input value={vendorTrn} readOnly style={{ ...inp, background: T.surface2, color: T.textSec, fontFamily: "'DM Mono',monospace", letterSpacing: '0.05em' }} />
+              </div>
+            )}
+            <div>
+              <label style={lbl}>Place of Supply</label>
+              <CustomSelect value={placeOfSupply} onChange={setPlaceOfSupply} options={UAE_EMIRATES} T={T} isDark={isDark} />
             </div>
             {poNumber && (
               <div>
@@ -208,6 +337,20 @@ export default function NewBill() {
                 <label style={lbl}>GRN #</label>
                 <input value={grnNumber} readOnly style={{ ...inp, background: T.surface2, color: T.textSec }} />
               </div>
+            )}
+          </div>
+
+          {/* RCM */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, padding: '12px 0', borderTop: `1px solid ${T.border}` }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: T.textPri }}>
+              <input type="checkbox" checked={rcmApplicable} onChange={(e) => { setRcmApplicable(e.target.checked); if (!e.target.checked) setRcmType(''); }}
+                style={{ width: 16, height: 16, cursor: 'pointer' }} />
+              Reverse Charge Mechanism (RCM) Applicable
+            </label>
+            {rcmApplicable && (
+              <CustomSelect value={rcmType} onChange={setRcmType}
+                options={[{ value: '', label: 'Select RCM Type…' }, ...RCM_TYPES]}
+                placeholder="Select RCM Type…" T={T} isDark={isDark} style={{ width: 'auto', minWidth: 220 }} />
             )}
           </div>
         </div>

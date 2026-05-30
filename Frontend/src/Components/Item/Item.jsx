@@ -78,19 +78,34 @@ export default function Item() {
     setOrdersLoading(true);
     Promise.allSettled([
       axiosInstance.get("/api/sales-orders/getsaleorder?limit=500"),
+      axiosInstance.get("/api/grns/?status=confirmed&limit=500"),
       axiosInstance.get("/api/purchase-orders/getorders?limit=500"),
-    ]).then(([soRes, poRes]) => {
-      const sos = soRes.status === "fulfilled" ? (soRes.value.data?.data?.salesOrders || []) : [];
-      const pos = poRes.status === "fulfilled" ? (poRes.value.data?.data?.purchaseOrders || []) : [];
+    ]).then(([soRes, grnRes, poRes]) => {
+      const sos  = soRes.status  === "fulfilled" ? (soRes.value.data?.data?.salesOrders   || []) : [];
+      const grns = grnRes.status === "fulfilled" ? (grnRes.value.data?.data?.grns         || []) : [];
+      const pos  = poRes.status  === "fulfilled" ? (poRes.value.data?.data?.purchaseOrders || []) : [];
+
+      // Sales — use SO ordered qty (outbound)
       const sales = sos.filter(so => (so.items||[]).some(i=>i.itemId===selectedItem._id)).map(so=>{
         const l = so.items.find(i=>i.itemId===selectedItem._id);
         return { type:"sale", id:so._id, orderNumber:so.orderNumber, partyName:so.customerName||"—", date:so.orderDate, qty:l?.quantity??0, total:(l?.quantity??0)*(l?.rate??0), status:so.status };
       });
-      const purchases = pos.filter(po=>(po.items||[]).some(i=>i.itemId===selectedItem._id)).map(po=>{
-        const l = po.items.find(i=>i.itemId===selectedItem._id);
-        return { type:"purchase", id:po._id, orderNumber:po.orderNumber, partyName:po.vendorName||"—", date:po.orderDate, qty:l?.quantity??0, total:(l?.quantity??0)*(l?.rate??0), status:po.status };
+
+      // Purchases — use confirmed GRN accepted qty (actual stock movement)
+      const purchases = grns.filter(g=>(g.items||[]).some(i=>i.itemId===selectedItem._id)).map(g=>{
+        const gItem = g.items.find(i=>i.itemId===selectedItem._id);
+        const accepted = Math.max(0, (gItem?.receivedQty||0) - (gItem?.rejectedQty||0));
+        return { type:"purchase", id:g._id, orderNumber:g.grnNumber, partyName:g.vendorName||"—", date:g.receiptDate||g.createdAt, qty:accepted, total:accepted*(gItem?.rate||0), status:"confirmed", poNumber:g.poNumber };
       });
-      setItemOrders([...sales,...purchases].sort((a,b)=>new Date(a.date)-new Date(b.date)));
+
+      // PO orders (for "on order" context — not stock movements)
+      const onOrder = pos.filter(po=>["issued","partial"].includes(po.status)&&(po.items||[]).some(i=>i.itemId===selectedItem._id)).map(po=>{
+        const l = po.items.find(i=>i.itemId===selectedItem._id);
+        const remaining = Math.max(0, (l?.quantity??0) - (l?.receivedQty||0));
+        return { type:"onorder", id:po._id, orderNumber:po.orderNumber, partyName:po.vendorName||"—", date:po.orderDate, qty:remaining, total:remaining*(l?.rate??0), status:po.status };
+      });
+
+      setItemOrders([...sales,...purchases,...onOrder].sort((a,b)=>new Date(a.date)-new Date(b.date)));
     }).finally(()=>setOrdersLoading(false));
   }, [activeTab, selectedItem]);
 
@@ -805,15 +820,18 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
     if(ordersLoading||adjLoading) return <div style={{textAlign:"center",padding:"48px 0",color:muted,fontSize:13}}>Loading…</div>;
     const REASON_LABEL = { sale:"Sale (Dispatched)", return:"Sales Return", purchase:"Purchase", damaged:"Damaged", expired:"Expired", found:"Found", correction:"Correction", transfer:"Transfer", other:"Other" };
     // Map SO/PO orders to timeline entries
-    const orderEntries = itemOrders.map(o=>({
-      _id:`order-${o.id}`,
-      type: o.type==="purchase"?"increase":"decrease",
-      quantity: o.qty,
-      reason: o.type==="purchase"?"purchase":"sale",
-      reference: o.orderNumber,
-      partyName: o.partyName,
-      adjustedAt: o.date||o.createdAt,
-    }));
+    // Only confirmed GRN receipts and sales move stock — exclude "onorder" POs
+    const orderEntries = itemOrders
+      .filter(o => o.type === "purchase" || o.type === "sale")
+      .map(o=>({
+        _id:`order-${o.id}`,
+        type: o.type==="purchase"?"increase":"decrease",
+        quantity: o.qty,
+        reason: o.type==="purchase"?"purchase":"sale",
+        reference: o.orderNumber,
+        partyName: o.partyName,
+        adjustedAt: o.date||o.createdAt,
+      }));
     // Merge with real manual adjustment records
     const histEntries = [...orderEntries, ...itemAdjustments]
       .sort((a,b)=>new Date(a.adjustedAt||a.createdAt)-new Date(b.adjustedAt||b.createdAt));
@@ -838,7 +856,9 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
 
   if(ordersLoading) return <div style={{textAlign:"center",padding:"48px 0",color:muted,fontSize:13}}>Loading…</div>;
 
-  const sales=itemOrders.filter(o=>o.type==="sale"), purchases=itemOrders.filter(o=>o.type==="purchase");
+  const sales    = itemOrders.filter(o=>o.type==="sale");
+  const purchases= itemOrders.filter(o=>o.type==="purchase");   // confirmed GRNs — actual stock movements
+  const onOrder  = itemOrders.filter(o=>o.type==="onorder");    // issued POs — pending receipt
   if(itemOrders.length===0) return <Empty icon={<FaBox size={22}/>} title="No Transactions" sub="Sales and purchase orders appear here." T={T} muted={muted}/>;
 
   const TxTable=({rows,color,label})=>(
@@ -878,7 +898,8 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
 
   return (
     <div style={{padding:"20px 24px"}}>
-      {purchases.length>0&&<TxTable rows={purchases} color={T.green} label="Inbound — Purchase Orders"/>}
+      {purchases.length>0&&<TxTable rows={purchases} color={T.green} label="Inbound — Goods Received (GRN)"/>}
+      {onOrder.length>0&&<TxTable rows={onOrder} color={T.amber} label="On Order — Pending Receipt"/>}
       {sales.length>0&&<TxTable rows={sales} color={T.blue} label="Outbound — Sales Orders"/>}
     </div>
   );

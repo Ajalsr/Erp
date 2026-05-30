@@ -5,7 +5,7 @@ import {
   FaEnvelope, FaPhone, FaDownload,
   FaUsers, FaCheckCircle, FaClock, FaCreditCard,
   FaChevronLeft, FaChevronRight, FaBoxOpen, FaEdit,
-  FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaCalendarAlt, FaSync
+  FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaCalendarAlt, FaSync, FaEye
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
@@ -211,6 +211,7 @@ const Customers = () => {
 
   const [selectedItem, setSelectedItem]       = useState(null);
   const [activeTab, setActiveTab]             = useState("overview");
+  const [previewDoc,  setPreviewDoc]          = useState(null);
   const [custInvoices,  setCustInvoices]         = useState([]);
   const [custPayments,  setCustPayments]         = useState([]);
   const [txnLoading,    setTxnLoading]           = useState(false);
@@ -334,6 +335,49 @@ const Customers = () => {
     a.click();
   };
 
+  const handleDocDownload = useCallback(async (url, name) => {
+    if (!url) return;
+    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+    if (isTauri) {
+      // In Tauri, blob + a.download is unreliable for PDFs (WKWebView intercepts).
+      // Open the proxy URL in the system browser instead — proxy sends
+      // Content-Disposition: attachment so the browser saves the file to disk.
+      // Proxy is public (no auth) so Safari can call it directly.
+      const base = import.meta.env.VITE_API_URL || "http://localhost:8080";
+      const proxyUrl = `${base}/api/documents/proxy?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(name || "document")}`;
+      try {
+        await window.__TAURI_INTERNALS__.invoke("plugin:shell|open", { path: proxyUrl });
+      } catch (e) {
+        console.error("shell.open failed:", e);
+        // Last resort: open direct Cloudinary URL in system browser
+        window.__TAURI_INTERNALS__.invoke("plugin:shell|open", { path: url }).catch(() => {});
+      }
+      return;
+    }
+    try {
+      const res  = await axiosInstance.get(
+        `/api/documents/proxy?url=${encodeURIComponent(url)}`,
+        { responseType: "blob" }
+      );
+      const blob = res.data;
+      if (!blob || blob.size === 0) throw new Error("empty");
+      const downloadBlob = new Blob([blob], { type: "application/octet-stream" });
+      const objectUrl = URL.createObjectURL(downloadBlob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = name || "document";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name || "document";
+      a.click();
+    }
+  }, []);
+
   const loadInvoiceMap = useCallback(() => {
     axiosInstance.get("/api/invoices?limit=500")
       .then(res => {
@@ -367,6 +411,13 @@ const Customers = () => {
   }, [handleGetCustomers, loadInvoiceMap]);
 
   useEffect(() => { handleRefresh(); }, [handleRefresh]);
+
+  // Keep selectedItem in sync when the list re-fetches (e.g. after document upload)
+  useEffect(() => {
+    if (!selectedItem?._id || !data?.length) return;
+    const updated = data.find(c => c._id === selectedItem._id);
+    if (updated) setSelectedItem(updated);
+  }, [data]);
 
   useWebSocket((event) => {
     if (event.type === "customers_updated") handleRefresh();
@@ -867,6 +918,7 @@ const Customers = () => {
                           { id: "statement",    label: "Payments" },
                           { id: "financials",   label: "Statement" },
                           { id: "contacts",     label: "Contacts" },
+                          { id: "documents",    label: `Documents${selectedItem?.documents?.length ? ` (${selectedItem.documents.length})` : ""}` },
                         ].map(tab => (
                           <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
                             padding: "10px 12px", border: "none", background: "transparent",
@@ -1469,12 +1521,145 @@ const Customers = () => {
                     </button>
                   </div>
                 )}
+
+                {/* ── DOCUMENTS TAB ── */}
+                {activeTab === "documents" && (() => {
+                  const docs = selectedItem?.documents || [];
+                  const DOC_TYPE_LABELS = {
+                    trade_license: "Trade License", trl_copy: "TRL Copy",
+                    owners_passport: "Owner's Passport", eid_copy: "EID Copy",
+                    power_of_attorney: "Power of Attorney", other: "Other",
+                  };
+                  const getExt = (name = "") => name.split(".").pop().toLowerCase();
+                  const getIcon = (name) => {
+                    const e = getExt(name);
+                    if (e === "pdf") return "📄";
+                    if (["jpg","jpeg","png","gif"].includes(e)) return "🖼️";
+                    if (["doc","docx"].includes(e)) return "📝";
+                    if (["xls","xlsx"].includes(e)) return "📊";
+                    return "📎";
+                  };
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Uploaded Documents ({docs.length})</p>
+                        <button onClick={() => navigate(`/sales/customers/edit/${selectedItem._id}`)}
+                          style={{ padding: "6px 14px", background: T.blueDim, color: T.blueLight, border: `1px solid rgba(59,130,246,0.25)`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                          + Add Documents
+                        </button>
+                      </div>
+
+                      {docs.length === 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "40px 0" }}>
+                          <div style={{ width: 48, height: 48, borderRadius: 13, background: T.surface2, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>📁</div>
+                          <p style={{ fontWeight: 700, color: T.textPri, fontSize: 14, margin: 0 }}>No documents yet</p>
+                          <p style={{ color: T.textSec, fontSize: 12, margin: 0 }}>Upload during customer edit</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {docs.map((doc, i) => (
+                            <div key={doc._id || i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 14px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div style={{ width: 38, height: 38, borderRadius: 10, background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>
+                                  {getIcon(doc.name)}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</p>
+                                  <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>
+                                    {DOC_TYPE_LABELS[doc.type] || doc.type}
+                                    {doc.size ? ` · ${(doc.size / 1024).toFixed(0)} KB` : ""}
+                                    {doc.uploadDate ? ` · ${new Date(doc.uploadDate).toLocaleDateString()}` : ""}
+                                  </p>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999,
+                                    background: doc.status === "uploaded" ? "rgba(16,185,129,0.1)" : "rgba(245,158,11,0.1)",
+                                    color: doc.status === "uploaded" ? "#10b981" : "#f59e0b",
+                                    border: `1px solid ${doc.status === "uploaded" ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)"}`,
+                                    textTransform: "capitalize" }}>
+                                    {doc.status || "pending"}
+                                  </span>
+                                  <button title={doc.url ? "Preview document" : "No URL available"}
+                                    onClick={() => doc.url && setPreviewDoc(doc)}
+                                    style={{ display:"flex", alignItems:"center", justifyContent:"center", width:30, height:30, background: doc.url ? T.blueDim : T.surface2, color: doc.url ? T.blueLight : T.textMuted, border:`1px solid ${doc.url ? "rgba(59,130,246,0.2)" : T.border}`, borderRadius:8, cursor: doc.url ? "pointer" : "not-allowed", opacity: doc.url ? 1 : 0.45 }}>
+                                    <FaEye size={12} />
+                                  </button>
+                                  <button title={doc.url ? "Download document" : "No URL available"}
+                                    onClick={() => handleDocDownload(doc.url, doc.name)}
+                                    style={{ display:"flex", alignItems:"center", justifyContent:"center", width:30, height:30, background: doc.url ? "rgba(16,185,129,0.1)" : T.surface2, color: doc.url ? "#10b981" : T.textMuted, border:`1px solid ${doc.url ? "rgba(16,185,129,0.2)" : T.border}`, borderRadius:8, cursor: doc.url ? "pointer" : "not-allowed", opacity: doc.url ? 1 : 0.45 }}>
+                                    <FaDownload size={11} />
+                                  </button>
+                                </div>
+                              </div>
+                              {doc.description && (
+                                <p style={{ fontSize: 11, color: T.textSec, margin: "8px 0 0", paddingTop: 8, borderTop: `1px solid ${T.border}` }}>{doc.description}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               </div>
           </div>
         );
       })()}
       </div>{/* end cust-root */}
+
+      {/* ── Document Preview Portal ──────────────────────────────── */}
+      {previewDoc && createPortal(
+        <div onClick={() => setPreviewDoc(null)}
+          style={{ position:"fixed", inset:0, zIndex:99999, background:"rgba(0,0,0,0.75)", backdropFilter:"blur(6px)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: isDark ? "#1e2433" : "#ffffff", borderRadius:16, border:`1px solid ${T.border}`, width:"100%", maxWidth:900, maxHeight:"90vh", display:"flex", flexDirection:"column", overflow:"hidden", boxShadow:"0 24px 80px rgba(0,0,0,0.5)" }}>
+
+            {/* header */}
+            <div style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 18px", borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+              <span style={{ fontSize:22 }}>
+                {/\.pdf$/i.test(previewDoc.name) ? "📄" : /\.(jpe?g|png|gif|webp)$/i.test(previewDoc.name) ? "🖼️" : "📎"}
+              </span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ margin:0, fontSize:14, fontWeight:700, color:T.textPri, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{previewDoc.name}</p>
+                <p style={{ margin:0, fontSize:11, color:T.textSec }}>
+                  {{trade_license:"Trade License",trl_copy:"TRL Copy",owners_passport:"Owner's Passport",eid_copy:"EID Copy",power_of_attorney:"Power of Attorney",other:"Other"}[previewDoc.type] || previewDoc.type}
+                  {previewDoc.size ? ` · ${(previewDoc.size/1024).toFixed(0)} KB` : ""}
+                </p>
+              </div>
+              <button onClick={() => handleDocDownload(previewDoc.url, previewDoc.name)}
+                style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 14px", background:"rgba(16,185,129,0.1)", color:"#10b981", border:"1px solid rgba(16,185,129,0.25)", borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer", flexShrink:0 }}>
+                <FaDownload size={11} /> Download
+              </button>
+              <button onClick={() => setPreviewDoc(null)}
+                style={{ display:"flex", alignItems:"center", justifyContent:"center", width:32, height:32, background:"rgba(239,68,68,0.1)", color:"#ef4444", border:"1px solid rgba(239,68,68,0.2)", borderRadius:8, cursor:"pointer", flexShrink:0 }}>
+                <FaTimes size={13} />
+              </button>
+            </div>
+
+            {/* body */}
+            <div style={{ flex:1, overflow:"hidden", background: isDark ? "#141824" : "#f8fafc", minHeight:0 }}>
+              {/\.(jpe?g|png|gif|webp)$/i.test(previewDoc.name) ? (
+                <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+                  <img src={previewDoc.url} alt={previewDoc.name} style={{ maxWidth:"100%", maxHeight:"70vh", objectFit:"contain", borderRadius:8 }} />
+                </div>
+              ) : /\.pdf$/i.test(previewDoc.name) ? (
+                <iframe src={previewDoc.url} title={previewDoc.name} style={{ width:"100%", height:"70vh", border:"none" }} />
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16, height:200 }}>
+                  <span style={{ fontSize:40 }}>📎</span>
+                  <p style={{ color:T.textSec, fontSize:13, margin:0 }}>Preview not available for this file type.</p>
+                  <button onClick={() => handleDocDownload(previewDoc.url, previewDoc.name)}
+                    style={{ padding:"8px 20px", background:T.blueDim, color:T.blueLight, border:`1px solid rgba(59,130,246,0.25)`, borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+                    Download File
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 };

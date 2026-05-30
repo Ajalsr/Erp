@@ -65,6 +65,16 @@ func CreateBill() gin.HandlerFunc {
 			return
 		}
 
+		// Mark linked GRN as billed
+		if b.GRNID != "" {
+			if grnObjID, err := primitive.ObjectIDFromHex(b.GRNID); err == nil {
+				grnCollection.UpdateOne(ctx,
+					bson.M{"_id": grnObjID, "orgId": orgIDStr},
+					bson.M{"$set": bson.M{"status": "billed", "billId": b.ID.Hex(), "updatedAt": time.Now()}},
+				)
+			}
+		}
+
 		// Update vendor outstanding payable + push history
 		if b.VendorID != "" && b.Status != "draft" {
 			vendorFilter := bson.M{"orgId": orgIDStr}
@@ -106,6 +116,9 @@ func GetAllBills() gin.HandlerFunc {
 		}
 		if vid := c.Query("vendorId"); vid != "" {
 			filter["vendorId"] = vid
+		}
+		if poid := c.Query("purchaseOrderId"); poid != "" {
+			filter["purchaseOrderId"] = poid
 		}
 
 		total, _ := billCollection.CountDocuments(ctx, filter)
@@ -215,6 +228,416 @@ func UpdateBillStatus() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Bill status updated"})
+	}
+}
+
+// ConvertPOToBill creates a draft bill pre-filled from a purchase order
+func ConvertPOToBill() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		userID, _ := c.Get("userId")
+
+		poObjID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid PO ID"})
+			return
+		}
+
+		var po models.PurchaseOrder
+		if err := purchaseOrderCollection.FindOne(ctx, bson.M{"_id": poObjID, "orgId": orgIDStr}).Decode(&po); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Purchase order not found"})
+			return
+		}
+
+		// Goods POs must flow through GRN → bill, not directly
+		if po.POType == "" || po.POType == "goods" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  http.StatusBadRequest,
+				"message": "Goods POs must be billed via a confirmed GRN. Open the GRN and click 'Create Bill' from there.",
+				"code":    "REQUIRES_GRN",
+			})
+			return
+		}
+
+		// Prevent duplicate bills for the same PO
+		existingCount, _ := billCollection.CountDocuments(ctx, bson.M{
+			"orgId":           orgIDStr,
+			"purchaseOrderId": c.Param("id"),
+		})
+		if existingCount > 0 {
+			c.JSON(http.StatusConflict, gin.H{
+				"status":  http.StatusConflict,
+				"message": "A bill already exists for this purchase order.",
+				"code":    "DUPLICATE_BILL",
+			})
+			return
+		}
+
+		// Fetch vendor TRN
+		vendorTRN := ""
+		if po.VendorID != "" {
+			if vObjID, err2 := primitive.ObjectIDFromHex(po.VendorID); err2 == nil {
+				var v struct {
+					TRN    string `bson:"trn"`
+					Origin string `bson:"origin"`
+				}
+				vendorCollection.FindOne(ctx, bson.M{"_id": vObjID}).Decode(&v)
+				vendorTRN = v.TRN
+			}
+		}
+
+		// Convert PO items to bill line items
+		var lineItems []models.BillLineItem
+		var subtotal, taxTotal float64
+		for _, item := range po.Items {
+			base := round2(item.BaseAmount)
+			tax := round2(item.TaxAmount)
+			lineItems = append(lineItems, models.BillLineItem{
+				ID:          primitive.NewObjectID(),
+				Description: item.Details,
+				Qty:         item.Quantity,
+				UnitPrice:   item.Rate,
+				TaxRate:     item.TaxRate,
+				Discount:    item.Discount,
+				DiscountAmt: 0,
+				TaxAmt:      tax,
+				Subtotal:    base,
+				Total:       round2(base + tax),
+			})
+			subtotal += base
+			taxTotal += tax
+		}
+		subtotal = round2(subtotal)
+		taxTotal = round2(taxTotal)
+		grandTotal := round2(subtotal + taxTotal)
+
+		now := time.Now()
+		billDate := now.Format("2006-01-02")
+		// default 30-day due
+		dueDate := now.AddDate(0, 0, 30).Format("2006-01-02")
+
+		normOrigin := normaliseOrigin(po.VendorOrigin)
+		rcm := normOrigin == "free_zone" || normOrigin == "overseas"
+		rcmType := ""
+		if normOrigin == "overseas" {
+			rcmType = "import"
+		} else if normOrigin == "free_zone" {
+			rcmType = "designated_zone"
+		}
+		rcmOutputVAT := 0.0
+		rcmInputVAT := 0.0
+		if rcm {
+			rcmOutputVAT = round2(subtotal * 0.05)
+			rcmInputVAT = rcmOutputVAT
+		}
+
+		bill := models.Bill{
+			ID:                  primitive.NewObjectID(),
+			BillNumber:          generateBillNumber(),
+			BillDate:            billDate,
+			DueDate:             dueDate,
+			AccountingDate:      billDate,
+			VendorID:            po.VendorID,
+			VendorName:          po.VendorName,
+			VendorTRN:           vendorTRN,
+			PlaceOfSupply:       "Dubai",
+			RCMApplicable:       rcm,
+			RCMType:             rcmType,
+			RCMOutputVAT:        rcmOutputVAT,
+			RCMInputVAT:         rcmInputVAT,
+			PurchaseOrderID:     po.ID.Hex(),
+			PONumber:            po.OrderNumber,
+			ThreeWayMatchStatus: "pending",
+			LineItems:           lineItems,
+			Totals: models.BillTotals{
+				Subtotal:      subtotal,
+				DiscountTotal: 0,
+				TaxTotal:      taxTotal,
+				GrandTotal:    grandTotal,
+			},
+			AmountPaid:   0,
+			BalanceDue:   grandTotal,
+			PaymentTerms: string(po.PaymentTerms),
+			Status:       "open",
+			OrgID:        orgIDStr,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+			CreatedBy:    fmt.Sprintf("%v", userID),
+		}
+
+		if _, err := billCollection.InsertOne(ctx, bill); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create bill", "error": err.Error()})
+			return
+		}
+
+		// Update vendor outstanding payable
+		if po.VendorID != "" {
+			vendorFilter := bson.M{"orgId": orgIDStr}
+			if vObjID, err2 := primitive.ObjectIDFromHex(po.VendorID); err2 == nil {
+				vendorFilter["_id"] = vObjID
+			}
+			histEntry := bson.M{
+				"action":    "bill_created",
+				"timestamp": now,
+				"user":      fmt.Sprintf("%v", userID),
+				"details":   fmt.Sprintf("Bill %s created from service PO %s. Amount: AED %.2f", bill.BillNumber, po.OrderNumber, grandTotal),
+			}
+			vendorCollection.UpdateOne(ctx, vendorFilter, bson.M{
+				"$inc":  bson.M{"outstandingPayable": grandTotal},
+				"$push": bson.M{"history": histEntry},
+				"$set":  bson.M{"updatedAt": now},
+			})
+		}
+
+		c.JSON(http.StatusCreated, gin.H{
+			"status":  http.StatusCreated,
+			"message": "Bill created from purchase order",
+			"data":    gin.H{"id": bill.ID.Hex(), "billNumber": bill.BillNumber},
+		})
+	}
+}
+
+// UpdateBill edits a draft/open bill's details
+func UpdateBill() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		objID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid bill ID"})
+			return
+		}
+
+		var b models.Bill
+		if err := c.ShouldBindJSON(&b); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
+			return
+		}
+
+		// Fetch existing bill to preserve amountPaid and recompute balance/status
+		var existing models.Bill
+		if err := billCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr}).Decode(&existing); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Bill not found"})
+			return
+		}
+		if existing.Status == "void" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Voided bills cannot be edited"})
+			return
+		}
+
+		paid       := existing.AmountPaid
+		newBalance := b.Totals.GrandTotal - paid
+		if newBalance < 0 {
+			newBalance = 0
+		}
+		newStatus := "open"
+		if paid > 0 && newBalance > 0 {
+			newStatus = "partial"
+		} else if newBalance <= 0 && paid > 0 {
+			newStatus = "paid"
+		}
+
+		// Adjust vendor outstandingPayable by the grand-total delta
+		delta := b.Totals.GrandTotal - existing.Totals.GrandTotal
+
+		update := bson.M{
+			"billDate":            b.BillDate,
+			"dueDate":             b.DueDate,
+			"accountingDate":      b.AccountingDate,
+			"vendorRef":           b.VendorRef,
+			"vendorTrn":           b.VendorTRN,
+			"placeOfSupply":       b.PlaceOfSupply,
+			"rcmApplicable":       b.RCMApplicable,
+			"rcmType":             b.RCMType,
+			"rcmOutputVat":        b.RCMOutputVAT,
+			"rcmInputVat":         b.RCMInputVAT,
+			"paymentTerms":        b.PaymentTerms,
+			"lineItems":           b.LineItems,
+			"totals":              b.Totals,
+			"balanceDue":          newBalance,
+			"status":              newStatus,
+			"notes":               b.Notes,
+			"threeWayMatchStatus": b.ThreeWayMatchStatus,
+			"updatedAt":           time.Now(),
+		}
+
+		result, err := billCollection.UpdateOne(ctx,
+			bson.M{"_id": objID, "orgId": orgIDStr, "status": bson.M{"$nin": []string{"void"}}},
+			bson.M{"$set": update},
+		)
+		if err != nil || result.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Bill not found or not editable"})
+			return
+		}
+
+		// Sync vendor outstandingPayable if total changed
+		if delta != 0 && existing.VendorID != "" {
+			if vObjID, err := primitive.ObjectIDFromHex(existing.VendorID); err == nil {
+				vendorCollection.UpdateOne(ctx,
+					bson.M{"_id": vObjID, "orgId": orgIDStr},
+					bson.M{"$inc": bson.M{"outstandingPayable": delta}, "$set": bson.M{"updatedAt": time.Now()}},
+				)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Bill updated"})
+	}
+}
+
+// VoidBill voids a bill and reverses the vendor outstanding payable
+func VoidBill() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		objID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid bill ID"})
+			return
+		}
+
+		var b models.Bill
+		if err := billCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr}).Decode(&b); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Bill not found"})
+			return
+		}
+		if b.Status == "paid" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Cannot void a paid bill"})
+			return
+		}
+
+		billCollection.UpdateOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr},
+			bson.M{"$set": bson.M{"status": "void", "updatedAt": time.Now()}},
+		)
+
+		// Reverse vendor outstanding payable
+		if b.VendorID != "" && b.Status != "draft" && b.BalanceDue > 0 {
+			if vObjID, err2 := primitive.ObjectIDFromHex(b.VendorID); err2 == nil {
+				vendorCollection.UpdateOne(ctx,
+					bson.M{"_id": vObjID, "orgId": orgIDStr},
+					bson.M{"$inc": bson.M{"outstandingPayable": -b.BalanceDue}, "$set": bson.M{"updatedAt": time.Now()}},
+				)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Bill voided"})
+	}
+}
+
+// GetVendorAging returns vendor aging buckets (0-30, 31-60, 61-90, 90+ days overdue)
+func GetVendorAging() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		cursor, err := billCollection.Find(ctx, bson.M{
+			"orgId":  orgIDStr,
+			"status": bson.M{"$in": []string{"open", "partial", "overdue"}},
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to fetch bills"})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var bills []models.Bill
+		cursor.All(ctx, &bills)
+
+		type VendorRow struct {
+			VendorID   string
+			VendorName string
+			Current    float64 // not yet due
+			Days1_30   float64
+			Days31_60  float64
+			Days61_90  float64
+			Days90Plus float64
+			Total      float64
+		}
+
+		rows := map[string]*VendorRow{}
+		today := time.Now().Truncate(24 * time.Hour)
+
+		for _, b := range bills {
+			bal := b.BalanceDue
+			if bal <= 0 {
+				continue
+			}
+			due, err2 := time.Parse("2006-01-02", b.DueDate)
+			if err2 != nil {
+				due = today
+			}
+			daysPast := int(today.Sub(due).Hours() / 24)
+
+			row, exists := rows[b.VendorID]
+			if !exists {
+				row = &VendorRow{VendorID: b.VendorID, VendorName: b.VendorName}
+				rows[b.VendorID] = row
+			}
+			row.Total += bal
+
+			switch {
+			case daysPast <= 0:
+				row.Current += bal
+			case daysPast <= 30:
+				row.Days1_30 += bal
+			case daysPast <= 60:
+				row.Days31_60 += bal
+			case daysPast <= 90:
+				row.Days61_90 += bal
+			default:
+				row.Days90Plus += bal
+			}
+		}
+
+		result := make([]gin.H, 0, len(rows))
+		grandCurrent, grand30, grand60, grand90, grand90p, grandTotal := 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+		for _, r := range rows {
+			result = append(result, gin.H{
+				"vendorId":   r.VendorID,
+				"vendorName": r.VendorName,
+				"current":    round2(r.Current),
+				"1_30":       round2(r.Days1_30),
+				"31_60":      round2(r.Days31_60),
+				"61_90":      round2(r.Days61_90),
+				"90_plus":    round2(r.Days90Plus),
+				"total":      round2(r.Total),
+			})
+			grandCurrent += r.Current
+			grand30 += r.Days1_30
+			grand60 += r.Days31_60
+			grand90 += r.Days61_90
+			grand90p += r.Days90Plus
+			grandTotal += r.Total
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": http.StatusOK,
+			"data": gin.H{
+				"rows": result,
+				"summary": gin.H{
+					"current": round2(grandCurrent),
+					"1_30":    round2(grand30),
+					"31_60":   round2(grand60),
+					"61_90":   round2(grand90),
+					"90_plus": round2(grand90p),
+					"total":   round2(grandTotal),
+				},
+			},
+		})
 	}
 }
 

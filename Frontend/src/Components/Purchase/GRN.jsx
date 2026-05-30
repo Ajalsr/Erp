@@ -1,25 +1,71 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   FaPrint, FaFileDownload, FaBoxOpen,
   FaChevronLeft, FaCheckCircle, FaFileInvoiceDollar,
   FaPaperPlane, FaSpinner, FaArrowLeft,
   FaTimes, FaBuilding, FaEye, FaBox,
-  FaClipboardCheck, FaWarehouse, FaHashtag,
+  FaClipboardCheck, FaWarehouse, FaHashtag, FaChevronDown,
 } from 'react-icons/fa';
 import { MdMoveToInbox } from 'react-icons/md';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import api from '../../helper/axiosInstance';
 
+// ── Custom dropdown ────────────────────────────────────────────────
+function CustomSelect({ value, onChange, options, T, isDark, disabled }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  const opts   = options.map(o => typeof o === 'string' ? { value: o, label: o } : o);
+  const sel    = opts.find(o => o.value === value);
+  const selColor = value === 'pass' ? '#10b981' : value === 'fail' ? '#ef4444' : '#f59e0b';
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block', minWidth: 110 }}>
+      <button type="button" onClick={() => !disabled && setOpen(v => !v)} disabled={disabled}
+        style={{ padding: '4px 10px', borderRadius: 8, border: `1.5px solid ${open ? selColor : (isDark ? 'rgba(255,255,255,.1)' : '#e2e8f0')}`, background: `${selColor}18`, color: selColor, fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: disabled ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, transition: 'border-color .15s', width: '100%', justifyContent: 'space-between' }}>
+        <span>{sel?.label || value}</span>
+        {!disabled && <FaChevronDown size={8} style={{ flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden', minWidth: 130 }}>
+          {opts.map(o => {
+            const c = o.value === 'pass' ? '#10b981' : o.value === 'fail' ? '#ef4444' : '#f59e0b';
+            return (
+              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                style={{ width: '100%', padding: '8px 14px', fontSize: 12, fontWeight: 700, background: o.value === value ? `${c}18` : 'transparent', color: c, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background .1s' }}>
+                {o.label}
+                {o.value === value && <span style={{ fontSize: 9 }}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── helpers ───────────────────────────────────────────────────────
 const round2   = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-const TAX_RATE = 0.05;
 const fmtAED   = (n) =>
   `AED ${parseFloat(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const today = () =>
   new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-const buildTaxGroups = (items) => {
+const normaliseOrigin = (origin) => {
+  if (!origin) return 'mainland';
+  const o = origin.toLowerCase().replace(/\s+/g, '_');
+  if (o === 'free_zone' || o === 'freezone') return 'free_zone';
+  if (o === 'overseas') return 'overseas';
+  return 'mainland';
+};
+const vendorTaxRate = (origin) =>
+  (normaliseOrigin(origin) === 'mainland') ? 0.05 : 0;
+
+const buildTaxGroups = (items, taxRate) => {
   const order = {}, groups = {};
   items.forEach((item, idx) => {
     const price = parseFloat(item.costPrice || item.rate || 0);
@@ -32,18 +78,11 @@ const buildTaxGroups = (items) => {
   return Object.keys(groups).sort((a, b) => order[a] - order[b]).map(key => ({
     rate:       groups[key].rate,
     baseAmount: round2(groups[key].base),
-    taxAmount:  round2(groups[key].base * TAX_RATE),
+    taxAmount:  round2(groups[key].base * taxRate),
   }));
 };
 
 // ── status meta ───────────────────────────────────────────────────
-const GRN_META = {
-  received:  { color: '#10b981', dim: 'rgba(16,185,129,.12)', label: 'Received'  },
-  inspected: { color: '#10b981', dim: 'rgba(16,185,129,.12)', label: 'Inspected' },
-  stocked:   { color: '#8b5cf6', dim: 'rgba(139,92,246,.12)', label: 'Stocked'   },
-  invoiced:  { color: '#3b82f6', dim: 'rgba(59,130,246,.12)', label: 'Invoiced'  },
-};
-const GRN_STEPS = ['received', 'inspected', 'stocked', 'invoiced'];
 
 // ── page CSS (mirrors Deliverynote pageCss exactly) ───────────────
 const pageCss = (isDark) => `
@@ -89,7 +128,8 @@ const pageCss = (isDark) => `
 `;
 
 // ── Print document ─────────────────────────────────────────────
-function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax, grandTotal, grnNote, inFlow }) {
+function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax, grandTotal, grnNote, inFlow, taxRate }) {
+  const vatPct = Math.round((taxRate ?? 0.05) * 100);
   return (
     <div className="grn-doc" style={{
       background: '#fff', color: '#0f172a',
@@ -160,7 +200,7 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
               { label: 'Received',    w: '9%',  align: 'center' },
               { label: 'Unit',        w: '7%',  align: 'center' },
               { label: 'Unit Cost',   w: '12%', align: 'right'  },
-              { label: 'VAT 5%',      w: '10%', align: 'right'  },
+              { label: `VAT ${vatPct}%`, w: '10%', align: 'right'  },
               { label: 'Line Total',  w: '13%', align: 'right'  },
             ].map(({ label, w, align }) => (
               <th key={label} style={{ padding: '9px 10px', textAlign: align, fontSize: 10, fontWeight: 700, color: '#1e3a5f', letterSpacing: '0.04em', width: w }}>{label}</th>
@@ -172,7 +212,7 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
             const unitCost  = parseFloat(item.costPrice || item.rate || 0);
             const qty       = item.receiveQty || 0;
             const lineBase  = round2(unitCost * qty);
-            const lineVat   = round2(lineBase * TAX_RATE);
+            const lineVat   = round2(lineBase * (taxRate ?? 0.05));
             const lineTotal = round2(lineBase + lineVat);
             return (
               <tr key={item._id || idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
@@ -205,7 +245,7 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
           </div>
           {taxGroups.map((g, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ fontSize: 10, color: '#64748b' }}>VAT 5% on {fmtAED(g.baseAmount)}</span>
+              <span style={{ fontSize: 10, color: '#64748b' }}>VAT {vatPct}% on {fmtAED(g.baseAmount)}</span>
               <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: '#b45309' }}>{fmtAED(g.taxAmount)}</span>
             </div>
           ))}
@@ -261,17 +301,24 @@ export default function GRN() {
 
   const isNew = !id || id === 'new';
 
-  const [loading,        setLoading]        = useState(true);
-  const [notFound,       setNotFound]       = useState(false);
-  const [grnData,        setGrnData]        = useState(null);
-  const [inboundData,    setInboundData]    = useState(null);
-  const [sendLoading,    setSendLoading]    = useState(false);
-  const [confirmLoading, setConfirmLoading] = useState(false);
-  const [confirmed,      setConfirmed]      = useState(false);
-  const [toast,          setToast]          = useState(null);
-  const [printPreview,   setPrintPreview]   = useState(false);
-  const [savedGRN,       setSavedGRN]       = useState(null);
-  const [mounted,        setMounted]        = useState(false);
+  const [loading,             setLoading]             = useState(true);
+  const [notFound,            setNotFound]            = useState(false);
+  const [grnData,             setGrnData]             = useState(null);
+  const [inboundData,         setInboundData]         = useState(null);
+  const [deliveryNoteNumber,  setDeliveryNoteNumber]  = useState('');
+  const [receivedBy,          setReceivedBy]          = useState('');
+  const [lineExtras,          setLineExtras]          = useState({});
+  const [sendLoading,         setSendLoading]         = useState(false);
+  const [confirmLoading,      setConfirmLoading]      = useState(false);
+  const [confirmed,           setConfirmed]           = useState(false);
+  const [linkedBill,          setLinkedBill]          = useState(null); // { id, billNumber } if bill already created
+  const [toast,               setToast]               = useState(null);
+  const [printPreview,        setPrintPreview]        = useState(false);
+  const [savedGRN,            setSavedGRN]            = useState(null);
+  const [mounted,             setMounted]             = useState(false);
+
+  const updateLineExtra = (idx, field, val) =>
+    setLineExtras((prev) => ({ ...prev, [idx]: { ...(prev[idx] || {}), [field]: val } }));
 
   useEffect(() => setMounted(true), []);
 
@@ -312,15 +359,37 @@ export default function GRN() {
             receiveQty: i.receivedQty,
             unit:       i.unit,
             costPrice:  i.rate,
+            poId:       d.purchaseOrderId || '',
           })),
           note:             d.notes || '',
           requiresApproval: d.requiresApproval || false,
           vendorId:         d.vendorId || '',
+          vendorOrigin:     d.vendorOrigin || 'mainland',
+          purchaseOrderId:  d.purchaseOrderId || '',
         });
-        if (['confirmed', 'stocked', 'invoiced'].includes(d.status)) {
+        // Restore per-line extras (rejected qty, quality, batch, expiry) from saved GRN
+        const extras = {};
+        (d.items || []).forEach((i, idx) => {
+          extras[idx] = {
+            rejectedQty:     i.rejectedQty     || 0,
+            rejectionReason: i.rejectionReason || '',
+            qualityStatus:   i.qualityStatus   || 'pending',
+            batchNumber:     i.batchNumber     || '',
+            expiryDate:      i.expiryDate      || '',
+          };
+        });
+        setLineExtras(extras);
+        if (['confirmed', 'stocked', 'invoiced', 'billed'].includes(d.status)) {
           setConfirmed(true);
           setSavedGRN({ id: d._id || d.id, grnNumber: d.grnNumber, total: d.total || 0 });
         }
+        // Check for linked bill via grnId or purchaseOrderId
+        const grnIdStr = d._id || d.id || '';
+        api.get(`/api/bills/?purchaseOrderId=${d.purchaseOrderId}&limit=1`)
+          .then(r => {
+            const b = r.data?.data?.bills?.[0];
+            if (b) setLinkedBill({ id: b._id || b.id, billNumber: b.billNumber });
+          }).catch(() => {});
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -351,15 +420,32 @@ export default function GRN() {
 
   const items      = inboundData.items || [];
   const grnNote    = inboundData.note || '';
-  const subTotal   = round2(items.reduce((s, i) => s + (i.receiveQty || 0) * parseFloat(i.costPrice || 0), 0));
-  const taxGroups  = buildTaxGroups(items);
+  const taxRate    = vendorTaxRate(inboundData.vendorOrigin);
+
+  // Use accepted qty (received − rejected) for all totals
+  const itemsAccepted = items.map((item, idx) => {
+    const rejected    = parseFloat(lineExtras[idx]?.rejectedQty || 0);
+    const acceptedQty = Math.max(0, (item.receiveQty || 0) - rejected);
+    return { ...item, receiveQty: acceptedQty };
+  });
+  const subTotal   = round2(itemsAccepted.reduce((s, i) => s + (i.receiveQty || 0) * parseFloat(i.costPrice || 0), 0));
+  const taxGroups  = buildTaxGroups(itemsAccepted, taxRate);
   const totalTax   = round2(taxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const grandTotal = round2(subTotal + totalTax);
 
-  const stepIdx = savedGRN ? 3 : confirmed ? 2 : 1;
-  const sm = confirmed
-    ? { color: '#10b981', dim: 'rgba(16,185,129,.12)', label: 'Confirmed' }
-    : { color: '#f59e0b', dim: 'rgba(245,158,11,.12)', label: 'Pending'   };
+  // 3-stage flow: 0=Draft, 1=Confirmed (stock updated), 2=Billed
+  const stepIdx = linkedBill ? 2 : confirmed ? 1 : 0;
+  const sm = linkedBill
+    ? { color: '#3b82f6', dim: 'rgba(59,130,246,.12)',  label: 'Billed'     }
+    : confirmed
+    ? { color: '#10b981', dim: 'rgba(16,185,129,.12)', label: 'Confirmed'  }
+    : { color: '#64748b', dim: 'rgba(100,116,139,.12)', label: 'Draft'     };
+
+  const FLOW_STEPS = [
+    { label: 'Receipt Created',  color: '#64748b' },
+    { label: 'Stock Updated',    color: '#10b981' },
+    { label: 'Bill Created',     color: '#3b82f6' },
+  ];
 
   const showToast = (msg, icon = '✅') => {
     setToast({ msg, icon });
@@ -378,53 +464,79 @@ export default function GRN() {
   const handleConfirm = async () => {
     setConfirmLoading(true);
     try {
-      if (!isNew) {
-        // GRN already saved as pending — PATCH status to confirmed, then update stock
-        await api.patch(`/api/grns/${id}`, { status: 'confirmed' });
-        await Promise.allSettled(
-          items.filter((i) => i.itemId && (i.receiveQty || 0) > 0)
-            .map((i) => api.patch(`/api/stocks/${i.itemId}/increase`, { increaseBy: i.receiveQty }))
-        );
-        setSavedGRN({ id, grnNumber: grn.number, total: grandTotal });
-        setConfirmed(true);
-        showToast(`Receipt confirmed! GRN ${grn.number} updated.`, '✅');
-      } else {
-        // Legacy new-from-state path (fallback)
+      let grnId = id;
+
+      if (isNew) {
+        // Step 1: save as draft
         const grnPayload = {
-          grnNumber:        grn.number,
-          purchaseOrderId:  items[0]?.poId || '',
-          poNumber:         grn.poNumber || '',
-          vendorId:         inboundData.vendorId || '',
-          vendorName:       grn.vendor || '',
-          receiptDate:      new Date().toISOString(),
-          notes:            grnNote,
-          requiresApproval: inboundData.requiresApproval || false,
-          status:           'confirmed',
-          items: items.map((i) => ({
-            itemId:      i.itemId || '',
-            details:     i.name || '',
-            itemCode:    i.item_code || '',
-            orderedQty:  i.orderedQty || 0,
-            receivedQty: i.receiveQty || 0,
-            unit:        i.unit || 'Pcs',
-            rate:        parseFloat(i.costPrice || 0),
-          })),
+          grnNumber:          grn.number,
+          purchaseOrderId:    items[0]?.poId || '',
+          poNumber:           grn.poNumber || '',
+          vendorId:           inboundData.vendorId || '',
+          vendorName:         grn.vendor || '',
+          vendorOrigin:       inboundData.vendorOrigin || '',
+          receiptDate:        new Date().toISOString(),
+          deliveryNoteNumber: deliveryNoteNumber || undefined,
+          receivedBy:         receivedBy || undefined,
+          notes:              grnNote,
+          requiresApproval:   inboundData.requiresApproval || false,
+          status:             'draft',
+          items: items.map((i, idx) => {
+            const ex = lineExtras[idx] || {};
+            return {
+              itemId:          i.itemId || '',
+              details:         i.name || '',
+              itemCode:        i.item_code || '',
+              orderedQty:      i.orderedQty || 0,
+              receivedQty:     i.receiveQty || 0,
+              rejectedQty:     parseFloat(ex.rejectedQty || 0),
+              rejectionReason: ex.rejectionReason || undefined,
+              qualityStatus:   ex.qualityStatus || 'pending',
+              batchNumber:     ex.batchNumber || undefined,
+              expiryDate:      ex.expiryDate || undefined,
+              unit:            i.unit || 'Pcs',
+              rate:            parseFloat(i.costPrice || 0),
+            };
+          }),
         };
         const res = await api.post('/api/grns/', grnPayload);
         const saved = res.data?.data || {};
-        const savedId = saved._id || saved.id;
-        setSavedGRN({ id: savedId, grnNumber: saved.grnNumber || grn.number, total: saved.total || grandTotal });
-        await Promise.allSettled(
-          items.filter((i) => i.itemId && (i.receiveQty || 0) > 0)
-            .map((i) => api.patch(`/api/stocks/${i.itemId}/increase`, { increaseBy: i.receiveQty }))
-        );
-        setConfirmed(true);
-        showToast(`Receipt confirmed! GRN ${saved.grnNumber || grn.number} saved.`, '✅');
-        if (savedId) setTimeout(() => navigate(`/Purchase/GRN/${savedId}`, { replace: true }), 1200);
+        grnId = saved._id || saved.id;
+        setSavedGRN({ id: grnId, grnNumber: saved.grnNumber || grn.number, total: saved.total || grandTotal });
+      } else {
+        // Existing draft GRN — save updated items (rejectedQty, qualityStatus) before confirming
+        await api.patch(`/api/grns/${grnId}`, {
+          notes: deliveryNoteNumber ? `Delivery Note: ${deliveryNoteNumber}` : undefined,
+          items: items.map((i, idx) => {
+            const ex = lineExtras[idx] || {};
+            return {
+              itemId:          i.itemId || '',
+              details:         i.name   || '',
+              itemCode:        i.item_code || '',
+              orderedQty:      i.orderedQty || 0,
+              receivedQty:     i.receiveQty || 0,
+              rejectedQty:     parseFloat(ex.rejectedQty || 0),
+              rejectionReason: ex.rejectionReason || undefined,
+              qualityStatus:   ex.qualityStatus || 'pending',
+              batchNumber:     ex.batchNumber  || undefined,
+              expiryDate:      ex.expiryDate   || undefined,
+              unit:            i.unit || 'Pcs',
+              rate:            parseFloat(i.costPrice || 0),
+            };
+          }),
+        });
       }
+
+      // Step 2: confirm — backend handles all stock + PO updates atomically
+      await api.post(`/api/grns/${grnId}/confirm`);
+
+      setConfirmed(true);
+      showToast(`GRN confirmed — stock updated.`, '✅');
+      // Update URL without re-mounting: replace history entry so Back goes to Inbound
+      if (isNew && grnId) window.history.replaceState(null, '', `/Purchase/GRN/${grnId}`);
     } catch (err) {
       console.error('GRN confirm error:', err);
-      showToast('Failed to confirm receipt. Please try again.', '❌');
+      showToast(err.response?.data?.message || 'Failed to confirm receipt.', '❌');
     } finally {
       setConfirmLoading(false);
     }
@@ -433,26 +545,33 @@ export default function GRN() {
   const handleCreateBill = () => {
     navigate('/Purchase/Bills/New', {
       state: {
-        fromGRN: true,
-        grnId:      savedGRN?.id || '',
-        grnNumber:  savedGRN?.grnNumber || grn.number,
-        poNumber:   grn.poNumber || '',
-        vendorId:   inboundData.vendorId || '',
-        vendorName: grn.vendor || '',
-        total:      savedGRN?.total || grandTotal,
-        items: items.map((i) => ({
-          description:  i.name,
-          qty:          i.receiveQty || 0,
-          unitPrice:    parseFloat(i.costPrice || 0),
-          taxRate:      5,
-          discount:     i.discount || 0,
-          discountType: i.discountType || 'fixed',
-        })),
+        fromGRN:          true,
+        grnId:            savedGRN?.id || id || '',
+        grnNumber:        savedGRN?.grnNumber || grn.number,
+        poNumber:         grn.poNumber || '',
+        purchaseOrderId:  inboundData.purchaseOrderId || items[0]?.poId || '',
+        vendorId:         inboundData.vendorId || '',
+        vendorName:       grn.vendor || '',
+        total:            savedGRN?.total || grandTotal,
+        items: items.map((i, idx) => {
+          const ex          = lineExtras[idx] || {};
+          const receivedQty = i.receiveQty || 0;
+          const rejectedQty = parseFloat(ex.rejectedQty || 0);
+          const acceptedQty = Math.max(0, receivedQty - rejectedQty);
+          return {
+            description:  i.name,
+            qty:          acceptedQty,
+            unitPrice:    parseFloat(i.costPrice || 0),
+            taxRate:      Math.round(taxRate * 100),
+            discount:     i.discount || 0,
+            discountType: i.discountType || 'fixed',
+          };
+        }).filter(i => i.qty > 0), // skip fully rejected items
       },
     });
   };
 
-  const docProps = { grn, inboundData, items, subTotal, taxGroups, totalTax, grandTotal, grnNote };
+  const docProps = { grn, inboundData, items: itemsAccepted, subTotal, taxGroups, totalTax, grandTotal, grnNote, taxRate };
 
   return (
     <>
@@ -543,6 +662,20 @@ export default function GRN() {
               </div>
 
               <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                {!confirmed && (
+                  <button className="grn-btn" onClick={async () => {
+                    if (!window.confirm('Discard this draft GRN? This cannot be undone.')) return;
+                    try {
+                      await api.delete(`/api/grns/${id || savedGRN?.id}`);
+                      navigate('/Purchase/Inbound');
+                    } catch (e) {
+                      showToast(e?.response?.data?.message || 'Failed to discard GRN', '❌');
+                    }
+                  }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'transparent', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#ef4444' }}>
+                    <FaTimes size={10} /> Discard Draft
+                  </button>
+                )}
                 <button className="grn-btn" onClick={handleSend} disabled={sendLoading}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   {sendLoading ? <><FaSpinner size={11} className="grn-spin" /> Sending…</> : <><FaPaperPlane size={11} /> Send</>}
@@ -573,10 +706,16 @@ export default function GRN() {
                     : confirmed ? <><FaCheckCircle size={11} /> Confirmed</>
                     : <><FaWarehouse size={11} /> Confirm Receipt</>}
                 </button>
-                {confirmed && (
+                {confirmed && !linkedBill && (
                   <button className="grn-btn" onClick={handleCreateBill}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', boxShadow: '0 4px 14px rgba(59,130,246,.3)' }}>
                     <FaFileInvoiceDollar size={11} /> Create Bill
+                  </button>
+                )}
+                {linkedBill && (
+                  <button className="grn-btn" onClick={() => navigate('/Purchase/Bills')}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff' }}>
+                    <FaFileInvoiceDollar size={11} /> View Bill ({linkedBill.billNumber})
                   </button>
                 )}
               </div>
@@ -585,37 +724,34 @@ export default function GRN() {
             {/* Content — mirrors Deliverynote layout */}
             <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 28px 56px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-              {/* Status progress — identical to Deliverynote */}
+              {/* 3-stage flow tracker: Receipt Created → Stock Updated → Bill Created */}
               <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 13, padding: '16px 24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                  {GRN_STEPS.map((step, i) => {
-                    const s    = GRN_META[step];
-                    const done = i <= stepIdx;
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {FLOW_STEPS.map((step, i) => {
+                    const done   = i <= stepIdx;
                     const active = i === stepIdx;
-                    const isLast = i === GRN_STEPS.length - 1;
+                    const isLast = i === FLOW_STEPS.length - 1;
                     return (
-                      <div key={step} style={{ display: 'flex', alignItems: 'center', flex: isLast ? 0 : 1 }}>
+                      <div key={step.label} style={{ display: 'flex', alignItems: 'center', flex: isLast ? 0 : 1 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
                           <div style={{
                             width: 28, height: 28, borderRadius: '50%',
-                            background: done ? s.color : T.surface2,
-                            border: `2px solid ${done ? s.color : T.border}`,
+                            background: done ? step.color : T.surface2,
+                            border: `2px solid ${done ? step.color : T.border}`,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            boxShadow: active ? `0 0 0 4px ${s.dim}` : 'none',
+                            boxShadow: active ? `0 0 0 4px ${step.color}22` : 'none',
                             transition: 'all .2s',
                           }}>
                             {done && <FaCheckCircle size={12} style={{ color: '#fff' }} />}
                           </div>
-                          <span style={{ fontSize: 10.5, fontWeight: active ? 700 : 500, color: done ? s.color : T.textSec, whiteSpace: 'nowrap', letterSpacing: '.02em', textTransform: 'capitalize' }}>
-                            {s.label}
+                          <span style={{ fontSize: 10.5, fontWeight: active ? 700 : 500, color: done ? step.color : T.textSec, whiteSpace: 'nowrap' }}>
+                            {step.label}
                           </span>
                         </div>
                         {!isLast && (
                           <div style={{
-                            flex: 1, height: 2, margin: '0 4px', marginBottom: 16,
-                            background: i < stepIdx
-                              ? `linear-gradient(90deg,${GRN_META[GRN_STEPS[i]].color},${GRN_META[GRN_STEPS[i+1]].color})`
-                              : T.border,
+                            flex: 1, height: 2, margin: '0 6px', marginBottom: 16,
+                            background: i < stepIdx ? `linear-gradient(90deg,${FLOW_STEPS[i].color},${FLOW_STEPS[i+1].color})` : T.border,
                             borderRadius: 2, transition: 'background .3s',
                           }} />
                         )}
@@ -623,6 +759,12 @@ export default function GRN() {
                     );
                   })}
                 </div>
+                {/* Contextual hint at each stage */}
+                <p style={{ fontSize: 11, color: T.textSec, margin: '12px 0 0', paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                  {!confirmed && '→ Review items below, set rejected qty if any, then click Confirm Receipt to update stock.'}
+                  {confirmed && !linkedBill && '→ Stock has been updated. Click Create Bill to generate a vendor bill from this receipt.'}
+                  {linkedBill && `→ Bill ${linkedBill.billNumber} has been created from this receipt.`}
+                </p>
               </div>
 
               {/* 2-col info grid — identical card structure to Deliverynote */}
@@ -677,6 +819,33 @@ export default function GRN() {
                         <span style={{ fontSize: 12.5, color: T.textPri, fontWeight: 600, fontFamily: mono ? '"DM Mono",monospace' : 'inherit', textAlign: 'right' }}>{value}</span>
                       </div>
                     ))}
+                    {/* Delivery Note # and Received By */}
+                    {!confirmed && (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, paddingTop: 4 }}>
+                          <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500, flexShrink: 0 }}>Delivery Note #</span>
+                          <input value={deliveryNoteNumber} onChange={(e) => setDeliveryNoteNumber(e.target.value)}
+                            placeholder="Optional" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.textPri, fontFamily: "'DM Mono',monospace", outline: 'none', width: 160 }} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500, flexShrink: 0 }}>Received By</span>
+                          <input value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)}
+                            placeholder="Name" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.textPri, outline: 'none', width: 160 }} />
+                        </div>
+                      </>
+                    )}
+                    {confirmed && deliveryNoteNumber && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500 }}>Delivery Note #</span>
+                        <span style={{ fontSize: 12.5, color: T.textPri, fontWeight: 600, fontFamily: '"DM Mono",monospace' }}>{deliveryNoteNumber}</span>
+                      </div>
+                    )}
+                    {confirmed && receivedBy && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500 }}>Received By</span>
+                        <span style={{ fontSize: 12.5, color: T.textPri, fontWeight: 600 }}>{receivedBy}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -700,13 +869,15 @@ export default function GRN() {
                       {[
                         { h: '#',           align: 'left',   w: '4%'  },
                         { h: 'Item',        align: 'left',   w: ''    },
-                        { h: 'SKU',         align: 'left',   w: '11%' },
-                        { h: 'Ordered',     align: 'center', w: '8%'  },
-                        { h: 'Received',    align: 'center', w: '9%'  },
-                        { h: 'Unit',        align: 'center', w: '7%'  },
-                        { h: 'Unit Cost',   align: 'right',  w: '12%' },
-                        { h: 'VAT 5%',      align: 'right',  w: '10%' },
-                        { h: 'Line Total',  align: 'right',  w: '13%' },
+                        { h: 'SKU',         align: 'left',   w: '9%'  },
+                        { h: 'Ordered',     align: 'center', w: '7%'  },
+                        { h: 'Received',    align: 'center', w: '7%'  },
+                        { h: 'Rejected',    align: 'center', w: '7%'  },
+                        { h: 'Quality',     align: 'center', w: '8%'  },
+                        { h: 'Unit',        align: 'center', w: '6%'  },
+                        { h: 'Unit Cost',   align: 'right',  w: '10%' },
+                        { h: `VAT ${Math.round(taxRate*100)}%`, align: 'right',  w: '9%'  },
+                        { h: 'Line Total',  align: 'right',  w: '11%' },
                       ].map(({ h, align, w }) => (
                         <th key={h} style={{ padding: '10px 14px', textAlign: align, fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: 'uppercase', letterSpacing: '.07em', whiteSpace: 'nowrap', width: w || undefined }}>
                           {h}
@@ -716,11 +887,31 @@ export default function GRN() {
                   </thead>
                   <tbody>
                     {items.map((item, idx) => {
-                      const unitCost  = parseFloat(item.costPrice || item.rate || 0);
-                      const qty       = item.receiveQty || 0;
-                      const lineBase  = round2(unitCost * qty);
-                      const lineVat   = round2(lineBase * TAX_RATE);
-                      const lineTotal = round2(lineBase + lineVat);
+                      const unitCost    = parseFloat(item.costPrice || item.rate || 0);
+                      const qty         = item.receiveQty || 0;
+                      const rejectedQty = parseFloat(lineExtras[idx]?.rejectedQty || 0);
+                      const acceptedQty = Math.max(0, qty - rejectedQty);
+                      const lineBase    = round2(unitCost * acceptedQty);
+                      const lineVat     = round2(lineBase * taxRate);
+                      const lineTotal   = round2(lineBase + lineVat);
+                      const qualStatus  = lineExtras[idx]?.qualityStatus || 'pending';
+
+                      // Linked handlers — quality ↔ rejected qty
+                      const handleQualityChange = (val) => {
+                        if (val === 'pass') {
+                          setLineExtras(p => ({ ...p, [idx]: { ...(p[idx]||{}), qualityStatus: 'pass', rejectedQty: 0 } }));
+                        } else if (val === 'fail') {
+                          setLineExtras(p => ({ ...p, [idx]: { ...(p[idx]||{}), qualityStatus: 'fail', rejectedQty: qty } }));
+                        } else {
+                          setLineExtras(p => ({ ...p, [idx]: { ...(p[idx]||{}), qualityStatus: 'pending' } }));
+                        }
+                      };
+                      const handleRejectedChange = (val) => {
+                        const n = Math.min(Math.max(0, parseFloat(val) || 0), qty);
+                        const auto = n === 0 ? 'pass' : n >= qty ? 'fail' : 'pending';
+                        setLineExtras(p => ({ ...p, [idx]: { ...(p[idx]||{}), rejectedQty: n, qualityStatus: auto } }));
+                      };
+
                       return (
                         <tr key={item._id || idx} className="grn-row" style={{ borderBottom: `1px solid ${T.border2 || T.border}` }}>
                           <td style={{ padding: '12px 14px', color: T.textSec, fontSize: 12 }}>{idx + 1}</td>
@@ -738,6 +929,32 @@ export default function GRN() {
                           </td>
                           <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                             <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>{qty}</span>
+                          </td>
+                          {/* Rejected Qty — linked to quality */}
+                          <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                            {!confirmed ? (
+                              <input type="number" min="0" max={qty} step="1"
+                                value={rejectedQty || ''}
+                                onChange={(e) => handleRejectedChange(e.target.value)}
+                                style={{ width: 56, padding: '4px 6px', borderRadius: 6, border: `1px solid ${rejectedQty > 0 ? 'rgba(239,68,68,.4)' : T.border}`, background: T.surface2, color: '#ef4444', fontFamily: "'DM Mono',monospace", fontSize: 12, textAlign: 'center', outline: 'none' }} />
+                            ) : (
+                              <span className="mono" style={{ fontSize: 12, color: rejectedQty > 0 ? '#ef4444' : T.textSec }}>
+                                {rejectedQty}
+                              </span>
+                            )}
+                          </td>
+                          {/* Quality Status — linked to rejected qty */}
+                          <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                            <CustomSelect
+                              value={qualStatus}
+                              onChange={handleQualityChange}
+                              disabled={confirmed}
+                              options={[
+                                { value: 'pending', label: 'Pending' },
+                                { value: 'pass',    label: 'Pass'    },
+                                { value: 'fail',    label: 'Fail'    },
+                              ]}
+                              T={T} isDark={isDark} />
                           </td>
                           <td style={{ padding: '12px 14px', textAlign: 'center', color: T.textSec, fontSize: 12 }}>{item.unit || 'Pcs'}</td>
                           <td style={{ padding: '12px 14px', textAlign: 'right' }}>
@@ -768,7 +985,7 @@ export default function GRN() {
                     <div style={{ padding: '10px 0', borderBottom: `1px solid ${T.border}` }}>
                       {taxGroups.map((g, i) => (
                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: i < taxGroups.length - 1 ? 6 : 0 }}>
-                          <span style={{ fontSize: 11.5, color: T.textSec }}>VAT 5% on {fmtAED(g.baseAmount)}</span>
+                          <span style={{ fontSize: 11.5, color: T.textSec }}>VAT {Math.round(taxRate*100)}% on {fmtAED(g.baseAmount)}</span>
                           <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>{fmtAED(g.taxAmount)}</span>
                         </div>
                       ))}

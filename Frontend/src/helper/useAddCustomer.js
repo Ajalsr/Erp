@@ -20,14 +20,17 @@ const useAddCustomer = () => {
       // File() objects cannot be JSON-serialised. We forward only the
       // metadata the backend model needs; binary upload should use a
       // separate multipart endpoint.
-      const documents = (inputs.documents || []).map(doc => ({
-        name:        doc.name        || '',
-        type:        doc.type        || '',
-        size:        doc.size        || 0,
-        uploadDate:  doc.uploadDate  || new Date().toISOString(),
-        status:      doc.status      || 'pending',
-        description: doc.description || '',
-      }));
+      const documents = (inputs.documents || [])
+        .filter(doc => doc.status !== 'uploading') // skip in-progress
+        .map(doc => ({
+          name:        doc.name        || '',
+          type:        doc.type        || '',
+          url:         doc.url         || '',
+          size:        doc.size        || 0,
+          uploadDate:  doc.uploadDate  || new Date().toISOString(),
+          status:      doc.url ? 'uploaded' : 'pending',
+          description: doc.description || '',
+        }));
 
       // ── 3. Numeric fields ─────────────────────────────────────────────
       // The form stores these as strings (''); Go expects float64.

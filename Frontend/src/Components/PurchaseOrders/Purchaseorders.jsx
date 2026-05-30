@@ -1,14 +1,18 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   FaPlus, FaTimes, FaSearch, FaBoxOpen,
   FaChevronLeft, FaChevronRight,
   FaFileInvoiceDollar, FaBan,
-  FaCheckCircle, FaClock, FaTimesCircle, FaSpinner,
+  FaCheckCircle, FaClock, FaSpinner,
   FaTruck, FaDownload, FaFilter, FaEllipsisV,
+  FaTools, FaBox,
 } from 'react-icons/fa';
+import { MdMoveToInbox } from 'react-icons/md';
 import { useNavigate } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useAuthStore from '../../store/useAuthStore';
 import axiosInstance from '../../helper/axiosInstance';
+import nexusToast from '../../helper/nexusToast';
 
 const STATUS_CFG = {
   draft:            { label: 'Draft',            color: '#64748b', dimKey: 'surface2'  },
@@ -61,6 +65,8 @@ export default function Purchaseorders() {
   const navigate = useNavigate();
   const isDark   = useThemeStore(s => s.isDark);
   const T        = { ...getTheme(isDark), isDark };
+  const activeOrg = useAuthStore(s => s.activeOrg);
+  const isAdmin   = ['owner','admin'].includes(activeOrg?.role);
 
   const [orders,      setOrders]      = useState([]);
   const [loading,     setLoading]     = useState(true);
@@ -77,8 +83,11 @@ export default function Purchaseorders() {
   const [activeTab,      setActiveTab]      = useState('overview');
   const [markingReceived,setMarkingReceived]= useState(false);
   const [cancelling,     setCancelling]     = useState(false);
+  const [approving,      setApproving]      = useState(false);
+  const [converting,     setConverting]     = useState(false);
   const [linkedGRNs,     setLinkedGRNs]     = useState([]);
   const [grnsLoading,    setGrnsLoading]    = useState(false);
+  const [poBills,        setPoBills]        = useState([]);
   const PER_PAGE = 15;
 
   const fetchOrders = useCallback(async () => {
@@ -105,7 +114,7 @@ export default function Purchaseorders() {
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
   useEffect(() => { fetchStats();  }, [fetchStats]);
 
-  const openDrawer  = (o) => { setSelected(o); setDrawer(true); setActiveTab('overview'); setLinkedGRNs([]); };
+  const openDrawer  = (o) => { setSelected(o); setDrawer(true); setActiveTab('overview'); setLinkedGRNs([]); setPoBills([]); setApproving(false); setConverting(false); };
   const closeDrawer = ()  => { setDrawer(false); setSelected(null); };
 
   useEffect(() => {
@@ -115,6 +124,9 @@ export default function Purchaseorders() {
       .then(r => setLinkedGRNs(r.data?.data?.grns || []))
       .catch(() => setLinkedGRNs([]))
       .finally(() => setGrnsLoading(false));
+    axiosInstance.get(`/api/bills/?purchaseOrderId=${selected._id}`)
+      .then(r => setPoBills(r.data?.data?.bills || []))
+      .catch(() => setPoBills([]));
   }, [selected?._id]);
   const handleSort  = (f) => { if (sortField===f) setSortDir(d => d==='asc'?'desc':'asc'); else { setSortField(f); setSortDir('desc'); } };
 
@@ -311,7 +323,10 @@ export default function Purchaseorders() {
 
             {/* Tabs */}
             <div style={{ display:'flex', borderBottom:`1px solid ${border}`, padding:'0 20px', flexShrink:0 }}>
-              {[['overview','Overview'],['items','Items'],['grns',`GRNs (${linkedGRNs.length})`],['history','History']].map(([tab,label]) => (
+              {[['overview','Overview'],['items','Items'],
+                ...(selected?.poType !== 'service' ? [['grns',`GRNs (${linkedGRNs.length})`]] : []),
+                ['history','History']
+              ].map(([tab,label]) => (
                 <button key={tab} className={`po-tab${activeTab===tab?' po-tab-active':''}`} onClick={()=>setActiveTab(tab)}
                   style={{ padding:'11px 14px', background:'none', border:'none', fontSize:12, fontWeight:600, color:T.textSec, cursor:'pointer', fontFamily:'inherit' }}>
                   {label}
@@ -336,6 +351,15 @@ export default function Purchaseorders() {
                       </div>
                     </div>
                   </div>
+                  {/* PO Type badge */}
+                  <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 12px', borderRadius:999, fontSize:11, fontWeight:700,
+                      background: selected.poType === 'service' ? (isDark?'rgba(139,92,246,.15)':'#f3e8ff') : (isDark?'rgba(16,185,129,.12)':'#f0fdf4'),
+                      color: selected.poType === 'service' ? '#8b5cf6' : '#059669',
+                      border: `1px solid ${selected.poType === 'service' ? '#8b5cf633' : '#a7f3d0'}` }}>
+                      {selected.poType === 'service' ? <><FaTools size={9}/> Service PO — Bill Directly</> : <><FaBox size={9}/> Goods PO — Requires GRN</>}
+                    </span>
+                  </div>
                   <DRow label="Order Number"  value={selected.orderNumber} T={T}/>
                   <DRow label="Order Date"    value={fmtDate(selected.orderDate)} T={T}/>
                   <DRow label="Expected By"   value={fmtDate(selected.expectedDeliveryDate||selected.expectedDate)} T={T}/>
@@ -346,7 +370,7 @@ export default function Purchaseorders() {
                   <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>
                   <DRow label="Shipping"      value={fmtAmt(selected.shippingCharges)} T={T}/>
                   <DRow label="Adjustment"    value={fmtAmt(selected.adjustment)} T={T}/>
-                  <DRow label="VAT (5%)"      value={fmtAmt(selected.totalTax ?? selected.vat)} T={T}/>
+                  <DRow label={`VAT (${['free_zone','overseas'].includes((selected.vendorOrigin||'').toLowerCase().replace(/\s+/g,'_')) ? '0' : '5'}%)`} value={fmtAmt(selected.totalTax ?? selected.vat)} T={T}/>
                   {selected.notes && (
                     <div style={{ marginTop:14, padding:12, background:T.surface2, border:`1px solid ${border}`, borderRadius:10 }}>
                       <p style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:T.textSec, margin:'0 0 6px' }}>Notes</p>
@@ -466,7 +490,7 @@ export default function Purchaseorders() {
                   { key:'pending_approval', label:'Submitted for Approval',  color:'#f59e0b' },
                   { key:'issued',           label:'PO Issued / Approved',    color:'#8b5cf6' },
                   { key:'partial',          label:'Partial Receipt Recorded', color:'#06b6d4' },
-                  { key:'received',         label:'Goods Fully Received',    color:'#10b981' },
+                  { key:'received',         label: selected.poType === 'service' ? 'Service Delivered' : 'Goods Fully Received', color:'#10b981' },
                   { key:'cancelled',        label:'Order Cancelled',          color:'#ef4444' },
                 ];
                 const curSt = (selected.status||'draft').toLowerCase();
@@ -553,37 +577,151 @@ export default function Purchaseorders() {
               })()}
             </div>
 
-            {/* Footer */}
-            <div style={{ padding:'14px 20px', borderTop:`1px solid ${border}`, flexShrink:0, display:'flex', gap:8, flexWrap:'wrap' }}>
-              {selected.status === 'issued' && (
-                <button onClick={() => navigate(`/Purchase/GRN/new?poId=${selected._id}&poNumber=${selected.orderNumber}&vendorId=${selected.vendorId}&vendorName=${encodeURIComponent(selected.vendorName||'')}`)}
-                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:'linear-gradient(135deg,#10b981,#059669)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-                  <FaTruck size={11}/> Create GRN
-                </button>
+            {/* Footer — actions depend on PO type and status */}
+            <div style={{ padding:'14px 20px', borderTop:`1px solid ${border}`, flexShrink:0, display:'flex', flexDirection:'column', gap:8 }}>
+
+              {/* ── PENDING APPROVAL: approve button for admins ───────────────── */}
+              {selected.status === 'pending_approval' && (
+                <>
+                  {isAdmin ? (
+                    <button
+                      disabled={approving}
+                      onClick={async () => {
+                        setApproving(true);
+                        try {
+                          await axiosInstance.patch(`/api/purchase-orders/${selected._id}/approve`);
+                          nexusToast.success('PO approved and issued');
+                          closeDrawer(); fetchOrders(); fetchStats();
+                        } catch (e) {
+                          nexusToast.error(e?.response?.data?.message || 'Failed to approve');
+                        } finally { setApproving(false); }
+                      }}
+                      style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:approving?'not-allowed':'pointer', opacity:approving?0.6:1, fontFamily:'inherit' }}>
+                      <FaCheckCircle size={11}/> {approving ? 'Approving…' : 'Approve & Issue PO'}
+                    </button>
+                  ) : (
+                    <div style={{ padding:'10px 14px', background: isDark?'rgba(245,158,11,.08)':'#fffbeb', border:`1px solid ${isDark?'rgba(245,158,11,.2)':'#fde68a'}`, borderRadius:9, fontSize:12, color:'#d97706', fontWeight:600, display:'flex', alignItems:'center', gap:7 }}>
+                      <FaClock size={11}/> Awaiting admin approval before this PO can proceed.
+                    </div>
+                  )}
+                </>
               )}
-              {selected.status!=='received' && selected.status!=='cancelled' && (
-                <button
-                  disabled={markingReceived}
-                  onClick={async () => {
-                    setMarkingReceived(true);
-                    try {
-                      await axiosInstance.patch(`/api/purchase-orders/${selected._id}/status`, { status: 'received' });
-                      closeDrawer(); fetchOrders(); fetchStats();
-                    } catch (e) { console.error('Mark received failed', e); }
-                    finally { setMarkingReceived(false); }
-                  }}
-                  style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:T.surface2, color:T.green, border:`1.5px solid ${T.greenDim}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:markingReceived?'not-allowed':'pointer', opacity:markingReceived?0.6:1, fontFamily:'inherit' }}>
-                  <FaCheckCircle size={11}/> {markingReceived ? 'Updating…' : 'Mark Received'}
-                </button>
+
+              {/* ── GOODS PO FLOW ─────────────────────────────────────────────── */}
+              {selected.poType !== 'service' && (
+                <>
+                  {/* issued or partial: go to Inbound to receive goods */}
+                  {(selected.status === 'issued' || selected.status === 'partial') && (
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button onClick={() => { closeDrawer(); navigate(`/Purchase/Inbound?poId=${selected._id}`); }}
+                        style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:10, background:'linear-gradient(135deg,#10b981,#059669)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                        <MdMoveToInbox size={13}/> {selected.status === 'partial' ? 'Receive Remaining Goods' : 'Receive Goods'}
+                      </button>
+                    </div>
+                  )}
+                  {/* partial: show linked GRNs hint */}
+                  {selected.status === 'partial' && (
+                    <div style={{ padding:'8px 12px', background: isDark ? 'rgba(6,182,212,.08)' : '#ecfeff', border:`1px solid ${isDark ? 'rgba(6,182,212,.2)' : '#a5f3fc'}`, borderRadius:9, fontSize:11, color:'#0891b2', display:'flex', alignItems:'center', gap:6 }}>
+                      <FaTruck size={9}/> Partial receipt — some items still outstanding. Create another GRN when the rest arrives.
+                    </div>
+                  )}
+                  {/* received: guide user to GRN page for billing */}
+                  {selected.status === 'received' && (
+                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                      <div style={{ padding:'10px 14px', background: isDark ? 'rgba(16,185,129,.08)' : '#f0fdf4', border:`1px solid ${isDark ? 'rgba(16,185,129,.2)' : '#a7f3d0'}`, borderRadius:9, fontSize:12, color:'#059669', fontWeight:600, display:'flex', alignItems:'center', gap:7 }}>
+                        <FaCheckCircle size={11}/> All goods received. {poBills.length > 0 ? 'Bill already created for this PO.' : 'Open the GRN to create a vendor bill.'}
+                      </div>
+                      {poBills.length > 0 ? (
+                        <button onClick={() => { closeDrawer(); navigate(`/Purchase/Bills`); }}
+                          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:'linear-gradient(135deg,#10b981,#059669)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                          <FaFileInvoiceDollar size={11}/> View Bill ({poBills[0]?.billNumber || 'View'})
+                        </button>
+                      ) : (
+                        <button onClick={() => { closeDrawer(); navigate(`/Purchase/GRN?purchaseOrderId=${selected._id}`); }}
+                          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                          <FaFileInvoiceDollar size={11}/> View GRN &amp; Create Bill
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
-              {selected.status!=='cancelled' && selected.status!=='received' && (
+
+              {/* ── SERVICE PO FLOW ───────────────────────────────────────────── */}
+              {selected.poType === 'service' && selected.status === 'issued' && (
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  <div style={{ padding:'10px 14px', background: isDark?'rgba(139,92,246,.08)':'#faf5ff', border:`1px solid ${isDark?'rgba(139,92,246,.2)':'#e9d5ff'}`, borderRadius:9, fontSize:12, color:'#7c3aed', fontWeight:600, display:'flex', alignItems:'center', gap:7 }}>
+                    <FaTools size={10}/> Service PO approved. You can create a bill directly or mark the service as delivered first.
+                  </div>
+                  <button
+                    disabled={converting}
+                    onClick={async () => {
+                      setConverting(true);
+                      try {
+                        const res = await axiosInstance.post(`/api/purchase-orders/${selected._id}/convert-to-bill`);
+                        nexusToast.success(`Bill ${res.data?.data?.billNumber || ''} created`);
+                        closeDrawer(); navigate('/Purchase/Bills');
+                      } catch (e) {
+                        nexusToast.error(e?.response?.data?.message || 'Failed to create bill');
+                      } finally { setConverting(false); }
+                    }}
+                    style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:converting?'not-allowed':'pointer', opacity:converting?0.6:1, fontFamily:'inherit' }}>
+                    <FaFileInvoiceDollar size={11}/> {converting ? 'Creating Bill…' : 'Create Bill from PO'}
+                  </button>
+                  <button
+                    disabled={markingReceived}
+                    onClick={async () => {
+                      setMarkingReceived(true);
+                      try {
+                        await axiosInstance.patch(`/api/purchase-orders/${selected._id}/status`, { status: 'received' });
+                        closeDrawer(); fetchOrders(); fetchStats();
+                      } catch (e) { console.error('Mark service delivered failed', e); }
+                      finally { setMarkingReceived(false); }
+                    }}
+                    style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:T.surface2, color:'#059669', border:`1.5px solid ${isDark?'rgba(16,185,129,.25)':'#a7f3d0'}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:markingReceived?'not-allowed':'pointer', opacity:markingReceived?0.6:1, fontFamily:'inherit' }}>
+                    <FaCheckCircle size={11}/> {markingReceived ? 'Updating…' : 'Mark Service as Delivered'}
+                  </button>
+                </div>
+              )}
+              {selected.poType === 'service' && selected.status === 'received' && (
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  <div style={{ padding:'10px 14px', background: isDark?'rgba(16,185,129,.08)':'#f0fdf4', border:`1px solid ${isDark?'rgba(16,185,129,.2)':'#a7f3d0'}`, borderRadius:9, fontSize:12, color:'#059669', fontWeight:600, display:'flex', alignItems:'center', gap:7 }}>
+                    <FaCheckCircle size={11}/> Service delivered. {poBills.length > 0 ? 'Bill already created for this PO.' : 'Ready to create a vendor bill.'}
+                  </div>
+                  {poBills.length > 0 ? (
+                    <button onClick={() => { closeDrawer(); navigate('/Purchase/Bills'); }}
+                      style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:'linear-gradient(135deg,#10b981,#059669)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                      <FaFileInvoiceDollar size={11}/> View Bill ({poBills[0]?.billNumber || 'View'})
+                    </button>
+                  ) : (
+                    <button
+                      disabled={converting}
+                      onClick={async () => {
+                        setConverting(true);
+                        try {
+                          const res = await axiosInstance.post(`/api/purchase-orders/${selected._id}/convert-to-bill`);
+                          nexusToast.success(`Bill ${res.data?.data?.billNumber || ''} created`);
+                          closeDrawer(); navigate('/Purchase/Bills');
+                        } catch (e) {
+                          nexusToast.error(e?.response?.data?.message || 'Failed to create bill');
+                        } finally { setConverting(false); }
+                      }}
+                      style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:converting?'not-allowed':'pointer', opacity:converting?0.6:1, fontFamily:'inherit' }}>
+                      <FaFileInvoiceDollar size={11}/> {converting ? 'Creating Bill…' : 'Create Bill from PO'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* ── CANCEL — any non-terminal status ──────────────────────────── */}
+              {!['cancelled','received'].includes(selected.status) && (
                 <button
                   disabled={cancelling}
                   onClick={async () => {
                     if (!window.confirm(`Cancel PO ${selected.orderNumber}?`)) return;
                     setCancelling(true);
                     try {
-                      await axiosInstance.patch(`/api/purchase-orders/${selected._id}/status`, { status: 'cancelled' });
+                      await axiosInstance.patch(`/api/purchase-orders/${selected._id}/cancel`);
                       closeDrawer(); fetchOrders(); fetchStats();
                     } catch (e) { console.error('Cancel PO failed', e); }
                     finally { setCancelling(false); }

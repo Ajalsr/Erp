@@ -39,7 +39,6 @@ const MENU = [
      { name: 'Bills',            route: '/Purchase/Bills' },
     { name: 'Stock',            route: '/Purchase/Stock' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
-    { name: 'Debit Notes',      route: '/Purchase/DebitNotes' },
   ]},
   { icon: TbReportAnalytics, label: 'Reports',    tourKey: 'nav-reports', subItems: [
     { name: 'Sales Report',          route: '/Reports/sales' },
@@ -48,6 +47,8 @@ const MENU = [
     { name: 'AR Aging',              route: '/Reports/aging' },
     { name: 'Customer Statement',    route: '/Reports/customer-statement' },
     { name: 'Statement of Account',  route: '/Reports/statement-of-account' },
+    { name: 'VAT Report',            route: '/Reports/vat' },
+    { name: 'Vendor Aging',          route: '/Reports/vendor-aging' },
   ]},
   { icon: MdAccountBalance,   label: 'Finance',   tourKey: 'nav-finance', subItems: [
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },

@@ -31,10 +31,23 @@ type Bill struct {
 	BillNumber string             `json:"billNumber"      bson:"billNumber"`
 	BillDate   string             `json:"billDate"        bson:"billDate"`
 	DueDate    string             `json:"dueDate"         bson:"dueDate"`
+	// AccountingDate separates the posting period from the vendor's invoice date
+	AccountingDate string `json:"accountingDate,omitempty" bson:"accountingDate,omitempty"`
 
 	// Vendor
-	VendorID   string `json:"vendorId"   bson:"vendorId"`
-	VendorName string `json:"vendorName" bson:"vendorName"`
+	VendorID   string `json:"vendorId"             bson:"vendorId"`
+	VendorName string `json:"vendorName"           bson:"vendorName"`
+	VendorTRN  string `json:"vendorTrn,omitempty"  bson:"vendorTrn,omitempty"`  // captured at bill time for VAT claim
+	VendorRef  string `json:"vendorRef,omitempty"  bson:"vendorRef,omitempty"`  // vendor's own invoice number
+
+	// UAE VAT
+	PlaceOfSupply string `json:"placeOfSupply,omitempty" bson:"placeOfSupply,omitempty"` // UAE emirate
+
+	// Reverse Charge Mechanism
+	RCMApplicable bool    `json:"rcmApplicable"           bson:"rcmApplicable"`
+	RCMType       string  `json:"rcmType,omitempty"       bson:"rcmType,omitempty"`       // import | designated_zone | domestic_rcm
+	RCMOutputVAT  float64 `json:"rcmOutputVat,omitempty"  bson:"rcmOutputVat,omitempty"`  // self-assessed output leg (Box 3)
+	RCMInputVAT   float64 `json:"rcmInputVat,omitempty"   bson:"rcmInputVat,omitempty"`   // recoverable input leg (Box 10)
 
 	// Linked PO (optional)
 	PurchaseOrderID string `json:"purchaseOrderId,omitempty" bson:"purchaseOrderId,omitempty"`
@@ -43,6 +56,9 @@ type Bill struct {
 	// Linked GRN (optional)
 	GRNID     string `json:"grnId,omitempty"     bson:"grnId,omitempty"`
 	GRNNumber string `json:"grnNumber,omitempty" bson:"grnNumber,omitempty"`
+
+	// 3-way match: matched | mismatch | pending | na
+	ThreeWayMatchStatus string `json:"threeWayMatchStatus,omitempty" bson:"threeWayMatchStatus,omitempty"`
 
 	// Line items & totals
 	LineItems []BillLineItem `json:"lineItems" bson:"lineItems"`

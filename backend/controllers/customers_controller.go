@@ -462,7 +462,7 @@ func UpdateCustomer() gin.HandlerFunc {
 			update["custom_fields"] = updateData.CustomFields
 		}
 
-		if len(updateData.Documents) > 0 {
+		if updateData.Documents != nil {
 			for i := range updateData.Documents {
 				if updateData.Documents[i].ID.IsZero() {
 					updateData.Documents[i].ID = primitive.NewObjectID()

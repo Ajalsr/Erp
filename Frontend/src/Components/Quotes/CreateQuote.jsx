@@ -305,16 +305,24 @@ const LineRow = ({ item, onChange, onRemove, isOnly }) => {
 
   return (
     <tr>
+      <td style={{ padding: "6px 4px", width: 90 }}>
+        <Inp value={item.partNumber} onChange={e => set("partNumber", e.target.value)} placeholder="Part No." />
+      </td>
       <td style={{ padding: "6px 4px" }}>
         <ItemCombo value={item.desc} stockId={item.stockId} onChange={handleItemPick} />
       </td>
-      <td style={{ padding: "6px 4px", width: 72 }}>
-        <Inp type="number" min="1" value={item.qty} onChange={e => set("qty", e.target.value)} style={{ textAlign: "right" }} />
+      <td style={{ padding: "6px 4px", width: 62 }}>
+        <Inp type="number" min="0.01" step="0.01" value={item.qty} onChange={e => set("qty", e.target.value)} style={{ textAlign: "right" }} />
       </td>
-      <td style={{ padding: "6px 4px", width: 110 }}>
+      <td style={{ padding: "6px 4px", width: 70 }}>
+        <Sel value={item.unit} onChange={e => set("unit", e.target.value)}>
+          {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
+        </Sel>
+      </td>
+      <td style={{ padding: "6px 4px", width: 100 }}>
         <Inp type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => set("unitPrice", e.target.value)} style={{ textAlign: "right" }} />
       </td>
-      <td style={{ padding: "6px 4px", width: 110 }}>
+      <td style={{ padding: "6px 4px", width: 100 }}>
         <div style={{ display: "flex", gap: 3 }}>
           <Inp type="number" min="0" value={item.discount} onChange={e => set("discount", e.target.value)} style={{ textAlign: "right" }} />
           <Sel value={item.discountType} onChange={e => set("discountType", e.target.value)} style={{ width: 50, padding: "8px 4px" }}>
@@ -323,10 +331,10 @@ const LineRow = ({ item, onChange, onRemove, isOnly }) => {
           </Sel>
         </div>
       </td>
-      <td style={{ padding: "6px 4px", width: 72 }}>
+      <td style={{ padding: "6px 4px", width: 62 }}>
         <Inp type="number" min="0" max="100" value={item.taxRate} onChange={e => set("taxRate", e.target.value)} style={{ textAlign: "right" }} />
       </td>
-      <td style={{ padding: "6px 4px", width: 110, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 13, color: T.text, whiteSpace: "nowrap" }}>
+      <td style={{ padding: "6px 4px", width: 100, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 13, color: T.text, whiteSpace: "nowrap" }}>
         {fmtMoney(total)}
       </td>
       <td style={{ padding: "6px 4px", width: 28, textAlign: "center" }}>
@@ -337,7 +345,9 @@ const LineRow = ({ item, onChange, onRemove, isOnly }) => {
 };
 
 /* ─── Main Component ────────────────────────────────────────────────────── */
-const EMPTY_ITEM = () => ({ _uid: uid(), desc: "", qty: 1, unitPrice: 0, discount: 0, discountType: "percentage", taxRate: 5 });
+const EMPTY_ITEM = () => ({ _uid: uid(), partNumber: "", desc: "", qty: 1, unit: "Nos", unitPrice: 0, discount: 0, discountType: "percentage", taxRate: 5 });
+
+const UNIT_OPTIONS = ["Nos", "Pcs", "Set", "Kg", "Ltr", "Mtr", "Sqm", "Box", "Roll", "Lot", "Job", "Month", "Hr"];
 
 export default function CreateQuote() {
   const navigate  = useNavigate();
@@ -400,6 +410,32 @@ export default function CreateQuote() {
   const [internalNote,setInternalNote]= useState(
     prefill?.notes?.internal || (fromEnquiry?.enquiryNumber ? `Ref: ${fromEnquiry.enquiryNumber}` : "")
   );
+
+  // Reference / document fields
+  const [attentionTo,  setAttentionTo]  = useState(prefill?.attentionTo  || "");
+  const [subject,      setSubject]      = useState(prefill?.subject      || fromEnquiry?.subject || "");
+  const [projectName,  setProjectName]  = useState(prefill?.projectName  || "");
+  const [introText,    setIntroText]    = useState(prefill?.introText    || "");
+
+  // Sender company details
+  const [company, setCompany] = useState(prefill?.company || {
+    name: "", address: "", trn: "", phone: "", email: "", website: "",
+  });
+  const [signatory, setSignatory] = useState(prefill?.signatory || { name: "", title: "" });
+
+  // Terms & Conditions
+  const DEFAULT_TERMS = [
+    "Pricing: Above quoted are in AED.",
+    "Price Validity: Above quoted prices are valid for orders finalized within 15 days from date.",
+    "Payment Terms: 30 Days PDC, cheque copy should be received prior to delivery.",
+    "Availability: Ex-stock subject to prior sales. Final delivery schedule to be mutually agreed.",
+    "Delivery: Delivered to your project site.",
+    "Pricing: This offer has been made on the basis of items, quantities and specifications indicated. Any changes may render price adjustments.",
+  ];
+  const [terms, setTerms] = useState(
+    prefill?.termsAndConditions?.length ? prefill.termsAndConditions : DEFAULT_TERMS
+  );
+
   const [saving,      setSaving]      = useState(false);
 
   // Totals
@@ -431,9 +467,19 @@ export default function CreateQuote() {
         customerId, customerName, customerEmail,
         billTo,
         quoteDate, validUntil, currency, paymentTerms,
+        attentionTo, subject, projectName, introText,
+        company, signatory,
+        termsAndConditions: terms,
         lineItems: lineItems.map((li, i) => {
           const { subtotal, discAmt, taxAmt, total } = computed[i];
-          return { desc: li.desc, qty: p(li.qty), unitPrice: p(li.unitPrice), discount: p(li.discount), taxRate: p(li.taxRate), subtotal, discAmt, taxAmt, total, stockId: li.stockId || li._enqItemId || null };
+          return {
+            partNumber: li.partNumber || "",
+            desc: li.desc, qty: p(li.qty), unit: li.unit || "Nos",
+            unitPrice: p(li.unitPrice), discount: p(li.discount),
+            discountType: li.discountType || "percentage",
+            taxRate: p(li.taxRate), subtotal, discAmt, taxAmt, total,
+            stockId: li.stockId || li._enqItemId || null,
+          };
         }),
         totals: { subtotal: subtotalSum, discountTotal: discountSum, taxTotal: taxSum, grandTotal },
         notes: { customer: custNote, internal: internalNote },
@@ -562,7 +608,7 @@ export default function CreateQuote() {
                 <Inp value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" type="email" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 16 }}>
               <Field label="Quote Date">
                 <Inp type="date" value={quoteDate} onChange={e => setQuoteDate(e.target.value)} />
               </Field>
@@ -576,23 +622,46 @@ export default function CreateQuote() {
               </Field>
               <Field label="Payment Terms">
                 <Sel value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)}>
-                  {["Due on Receipt","Net 15","Net 30","Net 60","End of Month"].map(t => <option key={t}>{t}</option>)}
+                  {["Due on Receipt","Net 15","Net 30","Net 60","End of Month","30 Days PDC"].map(t => <option key={t}>{t}</option>)}
                 </Sel>
+              </Field>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+              <Field label="Attention To (Contact Person)">
+                <Inp value={attentionTo} onChange={e => setAttentionTo(e.target.value)} placeholder="e.g. Mr. John Smith - Procurement" />
+              </Field>
+              <Field label="Subject">
+                <Inp value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Offer for supply of…" />
+              </Field>
+              <Field label="Project Name">
+                <Inp value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. Nashama School" />
               </Field>
             </div>
           </Section>
 
+          {/* Intro Text */}
+          <Section title="Intro Text (PDF Body)">
+            <Field label="Opening Paragraph">
+              <Tex
+                value={introText}
+                onChange={e => setIntroText(e.target.value)}
+                rows={3}
+                placeholder="e.g. We refer to your enquiry dated … please find the attached offer for supply of the above subject."
+              />
+            </Field>
+          </Section>
+
           {/* Bill To */}
-          <Section title="Bill To">
+          <Section title="Bill To (Customer Address)">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-              <Field label="Name">
+              <Field label="Name / Company">
                 <Inp value={billTo.name} onChange={e => setBillTo(b => ({ ...b, name: e.target.value }))} placeholder="Company / Contact name" />
               </Field>
               <Field label="TRN">
                 <Inp value={billTo.trn} onChange={e => setBillTo(b => ({ ...b, trn: e.target.value }))} placeholder="Tax Registration Number" />
               </Field>
-              <Field label="Address">
-                <Tex value={billTo.address} onChange={e => setBillTo(b => ({ ...b, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} />
+              <Field label="Address (Street, City, P.O. Box, Country)">
+                <Tex value={billTo.address} onChange={e => setBillTo(b => ({ ...b, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} placeholder={"e.g.\nP.O. Box: 37579\nDubai, U.A.E"} />
               </Field>
             </div>
           </Section>
@@ -603,8 +672,8 @@ export default function CreateQuote() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["Description", "Qty", "Unit Price", "Discount", "Tax %", "Total", ""].map((h, i) => (
-                      <th key={i} style={{ padding: "0 4px 10px", textAlign: i >= 5 ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: ".07em", borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                    {["Part No.", "Description", "Qty", "Unit", "Unit Price", "Discount", "Tax %", "Total", ""].map((h, i) => (
+                      <th key={i} style={{ padding: "0 4px 10px", textAlign: i >= 6 ? "right" : "left", fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: ".07em", borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -647,11 +716,70 @@ export default function CreateQuote() {
           {/* Notes */}
           <Section title="Notes">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Customer Notes">
-                <Tex value={custNote} onChange={e => setCustNote(e.target.value)} placeholder="Visible on the quote…" />
+              <Field label="Notes (visible on PDF — each line becomes a bullet point)">
+                <Tex value={custNote} onChange={e => setCustNote(e.target.value)} placeholder={"e.g.\nAll prices are exclusive of additional taxes.\nPrices valid subject to prior sales."} />
               </Field>
               <Field label="Internal Notes">
                 <Tex value={internalNote} onChange={e => setInternalNote(e.target.value)} placeholder="Internal only…" />
+              </Field>
+            </div>
+          </Section>
+
+          {/* Terms & Conditions */}
+          <Section title="Terms &amp; Conditions">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {terms.map((t, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <span style={{ minWidth: 20, paddingTop: 9, fontSize: 11, fontWeight: 700, color: T.muted, textAlign: "right" }}>{i + 1}</span>
+                  <Tex
+                    value={t}
+                    onChange={e => setTerms(prev => prev.map((x, j) => j === i ? e.target.value : x))}
+                    rows={1}
+                    style={{ minHeight: 0, flex: 1 }}
+                  />
+                  <button
+                    onClick={() => setTerms(prev => prev.filter((_, j) => j !== i))}
+                    style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 16, paddingTop: 6, lineHeight: 1 }}
+                  >×</button>
+                </div>
+              ))}
+              <button
+                onClick={() => setTerms(prev => [...prev, ""])}
+                style={{ alignSelf: "flex-start", background: "none", border: `1px dashed ${T.border}`, borderRadius: 7, padding: "6px 14px", color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+              >+ Add Term</button>
+            </div>
+          </Section>
+
+          {/* Your Company Details */}
+          <Section title="Your Company (PDF Header &amp; Footer)">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <Field label="Company Name">
+                <Inp value={company.name} onChange={e => setCompany(c => ({ ...c, name: e.target.value }))} placeholder="Allied Building Materials L.L.C" />
+              </Field>
+              <Field label="TRN">
+                <Inp value={company.trn} onChange={e => setCompany(c => ({ ...c, trn: e.target.value }))} placeholder="Tax Registration Number" />
+              </Field>
+              <Field label="Address">
+                <Tex value={company.address} onChange={e => setCompany(c => ({ ...c, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} placeholder="P.O. Box 8261, Abu Dhabi, UAE" />
+              </Field>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <Field label="Phone">
+                <Inp value={company.phone} onChange={e => setCompany(c => ({ ...c, phone: e.target.value }))} placeholder="+971 54 4920990" />
+              </Field>
+              <Field label="Email">
+                <Inp value={company.email} onChange={e => setCompany(c => ({ ...c, email: e.target.value }))} placeholder="sales@company.com" type="email" />
+              </Field>
+              <Field label="Website">
+                <Inp value={company.website} onChange={e => setCompany(c => ({ ...c, website: e.target.value }))} placeholder="www.company.com" />
+              </Field>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <Field label="Signatory Name">
+                <Inp value={signatory.name} onChange={e => setSignatory(s => ({ ...s, name: e.target.value }))} placeholder="e.g. MANU" />
+              </Field>
+              <Field label="Signatory Title">
+                <Inp value={signatory.title} onChange={e => setSignatory(s => ({ ...s, title: e.target.value }))} placeholder="e.g. Sales Manager" />
               </Field>
             </div>
           </Section>

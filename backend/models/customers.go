@@ -55,6 +55,7 @@ type Customer struct {
 	// ── Legal & Tax ──────────────────────────────────────────────────────
 	TrnNumber string `json:"trnNumber,omitempty" bson:"trnNumber,omitempty"`
 	LegalForm string `json:"legalForm,omitempty" bson:"legalForm,omitempty"`
+	Origin    string `json:"origin,omitempty"    bson:"origin,omitempty"`    // mainland | free_zone | overseas
 
 	// ── Extras ───────────────────────────────────────────────────────────
 	Remarks       string                 `json:"remarks,omitempty"        bson:"remarks,omitempty"`

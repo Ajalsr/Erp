@@ -29,6 +29,7 @@ type Vendor struct {
 	PaymentTerms        string  `json:"paymentTerms"        bson:"paymentTerms"`
 	CreditLimit         float64 `json:"creditLimit"         bson:"creditLimit"`
 	OutstandingPayable  float64 `json:"outstandingPayable"  bson:"outstandingPayable"`
+	CreditAvailable     float64 `json:"creditAvailable"     bson:"creditAvailable"`  // unused vendor credits
 
 	// Banking
 	BankName      string `json:"bankName"      bson:"bankName"`

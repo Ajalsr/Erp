@@ -38,6 +38,8 @@ import InventoryReport from "./Components/Reports/InventoryReport"
 import AgingReport from "./Components/Reports/AgingReport"
 import CustomerStatement from "./Components/Reports/CustomerStatement"
 import StatementOfAccount from "./Components/Reports/StatementOfAccount"
+import VATReport from "./Components/Reports/VATReport"
+import VendorAging from "./Components/Reports/VendorAging"
 import Accounts from "./Components/Accounts/Accounts"
 import NewAccount from "./Components/NewAccount/NewAccount"
 import ItemGroups from "./Components/ItemGroups/ItemGroups"
@@ -48,7 +50,6 @@ import Warehouses from "./Components/Inventory/Warehouses"
 import Adjustments from "./Components/Inventory/Adjustments"
 import Enquiries from "./Components/Enquiries/Enquiries"
 import CreditNotes from "./Components/CreditNotes/CreditNotes"
-import DebitNotes from "./Components/DebitNotes/DebitNotes"
 import PublicInvoice from "./Components/Invoices/PublicInvoice"
 import Quotes from "./Components/Quotes/Quotes"
 import CreateQuote from "./Components/Quotes/CreateQuote"
@@ -110,6 +111,7 @@ function App() {
             <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
             <Route path="/Purchase/Vendors" element={<Vendors />} />
             <Route path="/Purchase/Vendors/NewVendor" element={<NewVendor />} />
+            <Route path="/Purchase/Vendors/Edit/:id" element={<NewVendor />} />
             <Route path="/Purchase/GRN" element={<GRNList />} />
             <Route path="/Purchase/GRN/new" element={<GRN />} />
             <Route path="/Purchase/GRN/:id" element={<GRN />} />
@@ -121,15 +123,17 @@ function App() {
             <Route path="/Sales/PaymentsReceived" element={<PaymentsReceived />} />
             <Route path="/Purchase/Bills" element={<Bills />} />
             <Route path="/Purchase/Bills/New" element={<NewBill />} />
+            <Route path="/Purchase/Bills/Edit/:id" element={<NewBill />} />
             <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
             <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
-            <Route path="/Purchase/DebitNotes"   element={<DebitNotes />} />
             <Route path="/Reports/sales"                element={<SalesReport />} />
             <Route path="/Reports/purchases"            element={<PurchaseReport />} />
             <Route path="/Reports/inventory"            element={<InventoryReport />} />
             <Route path="/Reports/aging"                element={<AgingReport />} />
             <Route path="/Reports/customer-statement"   element={<CustomerStatement />} />
             <Route path="/Reports/statement-of-account" element={<StatementOfAccount />} />
+            <Route path="/Reports/vat"                  element={<VATReport />} />
+            <Route path="/Reports/vendor-aging"         element={<VendorAging />} />
             <Route path="/Finance/Accounts"        element={<Accounts />} />
             <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
             <Route path="/Items/item-groups"        element={<ItemGroups />} />

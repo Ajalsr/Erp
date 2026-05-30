@@ -62,6 +62,9 @@ func main() {
 		port = "8080"
 	}
 
+	// Init Cloudinary
+	config.InitCloudinary()
+
 	// Start the WebSocket hub
 	go ws.GlobalHub.Run()
 
@@ -100,6 +103,8 @@ func main() {
 	routes.DeliveryNoteRoutes(router)
 	routes.CreditNoteRoutes(router)
 	routes.DebitNoteRoutes(router)
+	routes.DocumentRoutes(router)
+	routes.ReportsRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))

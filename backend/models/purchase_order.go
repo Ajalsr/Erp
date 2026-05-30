@@ -19,6 +19,7 @@ type PurchaseOrderItem struct {
 	ItemID       string             `json:"itemId"           bson:"itemId"`
 	Details      string             `json:"details"          bson:"details"`
 	Quantity     float64            `json:"quantity"         bson:"quantity"`
+	ReceivedQty  float64            `json:"receivedQty"      bson:"receivedQty"`  // cumulative accepted qty from confirmed GRNs
 	Rate         float64            `json:"rate"             bson:"rate"`
 	Discount     float64            `json:"discount"         bson:"discount"`
 	DiscountType string             `json:"discountType"     bson:"discountType"` // "percentage" | "fixed"
@@ -35,6 +36,7 @@ type PurchaseOrder struct {
 	VendorID             string              `json:"vendorId"                bson:"vendorId"`
 	VendorName           string              `json:"vendorName"              bson:"vendorName"`
 	VendorCode           string              `json:"vendorCode"              bson:"vendorCode"`
+	VendorOrigin         string              `json:"vendorOrigin"            bson:"vendorOrigin"`         // free_zone | mainland | overseas
 	OrderDate            time.Time           `json:"orderDate"               bson:"orderDate"`
 	ExpectedDeliveryDate *time.Time          `json:"expectedDeliveryDate"    bson:"expectedDeliveryDate"`
 	PaymentTerms         string              `json:"paymentTerms"            bson:"paymentTerms"`
@@ -53,7 +55,9 @@ type PurchaseOrder struct {
 
 	CustomerNotes      string `json:"customerNotes"      bson:"customerNotes"`
 	TermsAndConditions string `json:"termsAndConditions" bson:"termsAndConditions"`
-	Status             string `json:"status"             bson:"status"` // draft | pending_approval | approved | issued | received | cancelled
+	// POType: goods = must go through GRN before bill; service = bill directly from PO
+	POType string `json:"poType" bson:"poType"` // goods | service
+	Status string `json:"status" bson:"status"` // draft | pending_approval | approved | issued | partial | received | cancelled
 
 	// ── LPO / Approval ────────────────────────────────────────────────────
 	LPONumber      string     `json:"lpoNumber,omitempty"      bson:"lpoNumber,omitempty"`      // issued only after approval

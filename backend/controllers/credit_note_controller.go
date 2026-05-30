@@ -363,7 +363,7 @@ func ApplyCreditNote() gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"message": "credit note not found"})
 			return
 		}
-		if cn["status"] != "approved" {
+		if cn["status"] != "approved" && cn["status"] != "applied" {
 			c.JSON(http.StatusConflict, gin.H{"message": "only approved credit notes can be applied"})
 			return
 		}
@@ -467,7 +467,16 @@ func ApplyCreditNote() gin.HandlerFunc {
 			cnUpdate["sourceDocId"]     = sourceDocID
 			cnUpdate["sourceDocNumber"] = inv.InvoiceNumber
 		}
-		creditNoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": cnUpdate})
+		applicationEntry := bson.M{
+			"invoiceId":     sourceDocID,
+			"invoiceNumber": inv.InvoiceNumber,
+			"amount":        creditAmount,
+			"date":          time.Now().Format("2006-01-02"),
+		}
+		creditNoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{
+			"$set":  cnUpdate,
+			"$push": bson.M{"applications": applicationEntry},
+		})
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "credit note applied",

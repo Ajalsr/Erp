@@ -35,8 +35,11 @@ func runDueDateChecks() {
 	// Invoices due in exactly 3 days — "due soon" alert
 	processDueSoon(ctx, threeDaysStr)
 
-	// Invoices past due date — mark overdue + send reminder
-	processOverdue(ctx, todayStr)
+	// Invoices past due date — mark overdue + escalating reminders
+	processOverdue(ctx, todayStr, now)
+
+	// Expire quotes whose validUntil date has passed
+	processExpiredQuotes(ctx, todayStr)
 }
 
 func processDueSoon(ctx context.Context, threeDaysStr string) {
@@ -82,8 +85,8 @@ func processDueSoon(ctx context.Context, threeDaysStr string) {
 	}
 }
 
-func processOverdue(ctx context.Context, todayStr string) {
-	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+func processOverdue(ctx context.Context, todayStr string, now time.Time) {
+	sevenDaysAgo := now.AddDate(0, 0, -7)
 
 	// Match invoices that are overdue and haven't been reminded in the last 7 days
 	cursor, err := invoiceCollection.Find(ctx, bson.M{
@@ -105,9 +108,9 @@ func processOverdue(ctx context.Context, todayStr string) {
 	var invoices []models.Invoice
 	cursor.All(ctx, &invoices)
 
-	now := time.Now()
 	for _, inv := range invoices {
-		// Mark overdue status + record reminder timestamp
+		daysOverdue := int(now.Sub(time.Time{}).Hours()/24) - int(parseDateDays(inv.DueDate))
+
 		invoiceCollection.UpdateOne(ctx,
 			bson.M{"_id": inv.ID},
 			bson.M{"$set": bson.M{
@@ -118,15 +121,23 @@ func processOverdue(ctx context.Context, todayStr string) {
 			}},
 		)
 
-		// Send overdue reminder email to customer
 		toEmail := fetchCustomerEmail(ctx, inv.CustomerID)
 		if toEmail != "" {
-			if err := utils.SendInvoiceEmail(toEmail, inv, "", true); err != nil {
+			// Escalating dunning message based on how long overdue
+			var msg string
+			switch {
+			case daysOverdue >= 30:
+				msg = fmt.Sprintf("URGENT: Invoice %s is %d days overdue. Amount %.2f %s. Please contact us immediately to avoid further action.", inv.InvoiceNumber, daysOverdue, inv.BalanceDue, inv.Currency)
+			case daysOverdue >= 14:
+				msg = fmt.Sprintf("Second reminder: Invoice %s is now %d days past due. Outstanding balance: %.2f %s.", inv.InvoiceNumber, daysOverdue, inv.BalanceDue, inv.Currency)
+			default:
+				msg = fmt.Sprintf("Invoice %s is overdue. Outstanding balance: %.2f %s. Due date was %s.", inv.InvoiceNumber, inv.BalanceDue, inv.Currency, inv.DueDate)
+			}
+			if err := utils.SendInvoiceEmail(toEmail, inv, msg, true); err != nil {
 				log.Printf("[scheduler] overdue email failed for %s: %v", inv.InvoiceNumber, err)
 			}
 		}
 
-		// Push in-app notification to org admins/owners (first time only)
 		if !inv.OverdueAlertSent {
 			notifyOrgAdmins(ctx, inv.OrgID,
 				"invoice_overdue",
@@ -136,6 +147,14 @@ func processOverdue(ctx context.Context, todayStr string) {
 			)
 		}
 	}
+}
+
+func parseDateDays(dateStr string) int {
+	t, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return 0
+	}
+	return int(t.Unix() / 86400)
 }
 
 func fetchCustomerEmail(ctx context.Context, customerID string) string {
@@ -151,6 +170,24 @@ func fetchCustomerEmail(ctx context.Context, customerID string) string {
 		return ""
 	}
 	return cust.CustomerEmail
+}
+
+// processExpiredQuotes sets status="expired" on quotes whose validUntil date has passed.
+func processExpiredQuotes(ctx context.Context, todayStr string) {
+	result, err := quoteCollection.UpdateMany(ctx,
+		bson.M{
+			"validUntil": bson.M{"$lt": todayStr, "$gt": ""},
+			"status":     bson.M{"$in": []string{"draft", "sent"}},
+		},
+		bson.M{"$set": bson.M{"status": "expired", "updatedAt": time.Now()}},
+	)
+	if err != nil {
+		log.Printf("[scheduler] expire-quotes error: %v", err)
+		return
+	}
+	if result.ModifiedCount > 0 {
+		log.Printf("[scheduler] expired %d quotes", result.ModifiedCount)
+	}
 }
 
 func notifyOrgAdmins(ctx context.Context, orgID, notifType, title, message string, metadata map[string]string) {

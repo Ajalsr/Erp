@@ -4,7 +4,7 @@ import {
   FaPlus, FaTimes, FaSearch, FaFileAlt,
   FaChevronLeft, FaChevronRight, FaEdit, FaTrash,
   FaCheckCircle, FaTimesCircle, FaBoxOpen, FaFileInvoice,
-  FaCopy, FaPaperPlane, FaExchangeAlt, FaLink,
+  FaCopy, FaPaperPlane, FaExchangeAlt, FaLink, FaDownload,
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
@@ -67,6 +67,20 @@ export default function Quotes() {
   const [converting,    setConverting]    = useState(false);
   const [convertingToSO, setConvertingToSO] = useState(false);
   const [deleting,      setDeleting]      = useState(false);
+
+  const exportQuotesCSV = () => {
+    const escape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = ["Quote #", "Customer", "Quote Date", "Valid Until", "Status", "Amount", "Currency"];
+    const rows = quotes.map(q => [
+      q.quoteNumber, q.customerName, q.quoteDate, q.validUntil,
+      q.status, (q.grandTotal ?? q.total ?? 0).toFixed(2), q.currency || "AED",
+    ]);
+    const csv = [header, ...rows].map(r => r.map(escape).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `quotes_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -197,18 +211,31 @@ export default function Quotes() {
                   {total} quote{total !== 1 ? "s" : ""} · all pipelines
                 </p>
               </div>
-              <button
-                onClick={() => navigate("/Sales/Quotes/Create")}
-                style={{
-                  display: "flex", alignItems: "center", gap: 7,
-                  padding: "9px 20px", background: T.blue || T.accent,
-                  color: "#fff", border: "none", borderRadius: 10,
-                  fontSize: 13, fontWeight: 700, cursor: "pointer",
-                  fontFamily: "inherit", letterSpacing: "0.01em",
-                  boxShadow: `0 2px 10px ${T.blueDim || "rgba(59,130,246,0.3)"}`,
-                }}>
-                <FaPlus size={11} /> New Quote
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={exportQuotesCSV}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "9px 16px", background: "transparent",
+                    color: T.textSec || T.muted, border: `1.5px solid ${T.border}`,
+                    borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}>
+                  <FaDownload size={11} /> Export CSV
+                </button>
+                <button
+                  onClick={() => navigate("/Sales/Quotes/Create")}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 7,
+                    padding: "9px 20px", background: T.blue || T.accent,
+                    color: "#fff", border: "none", borderRadius: 10,
+                    fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    fontFamily: "inherit", letterSpacing: "0.01em",
+                    boxShadow: `0 2px 10px ${T.blueDim || "rgba(59,130,246,0.3)"}`,
+                  }}>
+                  <FaPlus size={11} /> New Quote
+                </button>
+              </div>
             </div>
 
             {/* Stat cards */}
@@ -647,6 +674,31 @@ export default function Quotes() {
                 {/* Actions */}
                 <Section label="Actions">
                   <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+
+                    {/* PDF download */}
+                    <ActionBtn
+                      onClick={() => {
+                        const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+                        const base = import.meta.env.VITE_API_URL || "http://localhost:8080";
+                        const pdfUrl = `${base}/api/quotes/${selected._id}/pdf`;
+                        if (isTauri) {
+                          window.__TAURI_INTERNALS__.invoke("plugin:shell|open", { path: pdfUrl }).catch(() => {});
+                        } else {
+                          axiosInstance.get(`/api/quotes/${selected._id}/pdf`, { responseType: "blob" })
+                            .then(res => {
+                              const a = document.createElement("a");
+                              a.href = URL.createObjectURL(res.data);
+                              a.download = `quote-${selected.quoteNumber}.pdf`;
+                              a.click();
+                            })
+                            .catch(() => window.open(pdfUrl, "_blank"));
+                        }
+                      }}
+                      icon={<FaDownload />}
+                      label="Download PDF"
+                      color="#10b981" glow="rgba(16,185,129,0.15)"
+                      outline
+                    />
 
                     {selected.status === "draft" && (
                       <ActionBtn

@@ -27,6 +27,19 @@ func generatePublicToken() string {
 
 var invoiceCollection *mongo.Collection = config.GetCollection(config.DB, "invoices")
 
+// pushInvoiceHistory appends a history entry to the invoice document.
+func pushInvoiceHistory(ctx context.Context, id primitive.ObjectID, action, user, note string) {
+	invoiceCollection.UpdateOne(ctx,
+		bson.M{"_id": id},
+		bson.M{"$push": bson.M{"history": models.InvoiceHistoryEntry{
+			Action:    action,
+			Timestamp: time.Now(),
+			User:      user,
+			Note:      note,
+		}}},
+	)
+}
+
 func CreateInvoice() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -73,6 +86,12 @@ func CreateInvoice() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create invoice", "error": err.Error()})
 			return
 		}
+
+		action := "Invoice created"
+		if inv.Type == "proforma" {
+			action = "Proforma created"
+		}
+		pushInvoiceHistory(ctx, inv.ID, action, inv.CreatedBy, "")
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
@@ -376,6 +395,7 @@ func UpdateInvoiceStatus() gin.HandlerFunc {
 		}
 
 		orgID, _ := c.Get("orgId")
+		userID, _ := c.Get("userId")
 		update := bson.M{"$set": bson.M{"status": req.Status, "updatedAt": time.Now()}}
 		result, err := invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil || result.MatchedCount == 0 {
@@ -383,6 +403,7 @@ func UpdateInvoiceStatus() gin.HandlerFunc {
 			return
 		}
 
+		pushInvoiceHistory(ctx, objectID, "Status changed to "+req.Status, fmt.Sprintf("%v", userID), "")
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Invoice status updated"})
 	}
 }
@@ -516,6 +537,9 @@ func VoidInvoice() gin.HandlerFunc {
 			return
 		}
 
+		userIDVoid, _ := c.Get("userId")
+		pushInvoiceHistory(ctx, objectID, "Invoice voided", fmt.Sprintf("%v", userIDVoid), req.Reason)
+
 		msg := "Invoice voided"
 		if len(linkedPayments) > 0 {
 			msg = "Invoice voided — " + strconv.Itoa(len(linkedPayments)) + " payment(s) converted to unapplied credits"
@@ -573,6 +597,9 @@ func SendInvoice() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send invoice email", "error": err.Error()})
 			return
 		}
+
+		userIDSend, _ := c.Get("userId")
+		pushInvoiceHistory(ctx, objectID, "Invoice emailed", fmt.Sprintf("%v", userIDSend), "Sent to "+toEmail)
 
 		// Promote draft to unpaid when email is sent
 		if inv.Status == "draft" {
@@ -633,6 +660,39 @@ func SendInvoiceReminder() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Reminder sent to " + toEmail})
+	}
+}
+
+// GET /api/invoices/:id/history
+func GetInvoiceHistory() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
+			return
+		}
+
+		var inv models.Invoice
+		if err := invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID},
+			options.FindOne().SetProjection(bson.M{"history": 1}),
+		).Decode(&inv); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+			return
+		}
+
+		history := inv.History
+		if history == nil {
+			history = []models.InvoiceHistoryEntry{}
+		}
+		// Return newest first
+		for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+			history[i], history[j] = history[j], history[i]
+		}
+		c.JSON(http.StatusOK, gin.H{"data": history})
 	}
 }
 
@@ -1180,7 +1240,7 @@ func CreateSalesReturn() gin.HandlerFunc {
 					bson.M{"$set": bson.M{"balanceDue": newBal, "amountPaid": newPaid, "status": newStatus, "updatedAt": time.Now()}},
 				)
 			}
-			creditNoteCollection.InsertOne(ctx, bson.M{
+			cnDoc := bson.M{
 				"_id":              cnOID,
 				"creditNoteNumber": cnNumber,
 				"sourceDocId":      inv.ID.Hex(),
@@ -1203,7 +1263,18 @@ func CreateSalesReturn() gin.HandlerFunc {
 				"createdAt":        time.Now(),
 				"updatedAt":        time.Now(),
 				"createdBy":        createdByStr,
-			})
+			}
+			if cnAppliedAmt > 0 {
+				cnDoc["appliedToInvoiceId"]     = inv.ID.Hex()
+				cnDoc["appliedToInvoiceAmount"] = cnAppliedAmt
+				cnDoc["applications"] = []bson.M{{
+					"invoiceId":     inv.ID.Hex(),
+					"invoiceNumber": inv.InvoiceNumber,
+					"amount":        cnAppliedAmt,
+					"date":          time.Now().Format("2006-01-02"),
+				}}
+			}
+			creditNoteCollection.InsertOne(ctx, cnDoc)
 			salesReturn.CreditNoteID = cnOID.Hex()
 			salesReturn.CreditNoteNum = cnNumber
 			responseExtra = gin.H{"creditNoteId": cnOID.Hex(), "creditNoteNum": cnNumber}
