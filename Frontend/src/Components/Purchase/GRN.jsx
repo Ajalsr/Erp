@@ -1022,10 +1022,16 @@ export default function GRN() {
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, color: T.textSec, cursor: 'pointer' }}>
                   <FaArrowLeft size={11} /> Back to GRN List
                 </button>
-                {confirmed && (
+                {confirmed && !linkedBill && (
                   <button className="grn-btn" onClick={handleCreateBill}
                     style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,.3)' }}>
                     <FaFileInvoiceDollar size={13} /> Create Bill →
+                  </button>
+                )}
+                {linkedBill && (
+                  <button className="grn-btn" onClick={() => navigate('/Purchase/Bills')}
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,.3)' }}>
+                    <FaFileInvoiceDollar size={13} /> View Bill ({linkedBill.billNumber}) →
                   </button>
                 )}
               </div>

@@ -249,6 +249,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 			req.OrderNumber = generateOrderNumber(ctx)
 		}
 		soStatus := func() string { if privileged { return "open" }; return "pending_approval" }()
+		now := time.Now()
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
 			OrgID:                orgID.(string),
@@ -274,8 +275,16 @@ func CreateSalesOrder() gin.HandlerFunc {
 			TermsAndConditions:   req.TermsAndConditions,
 			Status:               soStatus,
 			CreatedBy:            fmt.Sprintf("%v", userID),
-			CreatedAt:            time.Now(),
-			UpdatedAt:            time.Now(),
+			CreatedAt:            now,
+			UpdatedAt:            now,
+			StatusHistory: []models.SOHistoryEntry{
+				{
+					Action:    "created",
+					Status:    soStatus,
+					ChangedBy: fmt.Sprintf("%v", userID),
+					ChangedAt: now,
+				},
+			},
 		}
 
 		result, err := salesOrdersCollection.InsertOne(ctx, salesOrder)
@@ -607,25 +616,38 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			return
 		}
 
-		// Only admin/owner can approve or reject
-		if req.Status == "approved" || req.Status == "rejected" || req.Status == "confirmed" {
+		// Only admin/owner can approve, reject, confirm, or directly cancel
+		if req.Status == "approved" || req.Status == "rejected" || req.Status == "confirmed" || req.Status == "cancelled" {
 			statusUserID, _ := c.Get("userId")
 			statusOrgIDStr := fmt.Sprintf("%v", orgID)
 			if statusOrgObjID, err2 := primitive.ObjectIDFromHex(statusOrgIDStr); err2 == nil {
 				if statusRole, ok2 := getMemberRole(ctx, statusOrgObjID, fmt.Sprintf("%v", statusUserID)); !ok2 || !isAdminOrOwner(statusRole) {
-					c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admin or owner can approve, reject, or confirm sales orders."})
+					c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admin or owner can approve, reject, confirm, or cancel sales orders."})
 					return
 				}
 			}
 		}
 
+		statusUserID, _ := c.Get("userId")
 		setFields := bson.M{"status": req.Status, "updatedAt": time.Now()}
-		updateDoc := bson.M{"$set": setFields}
-
+		histNote := ""
 		if req.Status == "cancel_requested" {
 			setFields["cancelReason"] = req.CancelReason
 			setFields["cancelRequestedBy"] = req.CancelRequestedBy
-		} else {
+			histNote = req.CancelReason
+		}
+		histEntry := models.SOHistoryEntry{
+			Action:    "status_changed",
+			Status:    req.Status,
+			Note:      histNote,
+			ChangedBy: fmt.Sprintf("%v", statusUserID),
+			ChangedAt: time.Now(),
+		}
+		updateDoc := bson.M{
+			"$set":  setFields,
+			"$push": bson.M{"statusHistory": histEntry},
+		}
+		if req.Status != "cancel_requested" {
 			updateDoc["$unset"] = bson.M{"cancelReason": "", "cancelRequestedBy": ""}
 		}
 
@@ -716,6 +738,43 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 				"status":        req.Status,
 				"matchedCount":  result.MatchedCount,
 				"modifiedCount": result.ModifiedCount,
+			},
+		})
+	}
+}
+
+func GetSalesOrderHistory() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid sales order ID"})
+			return
+		}
+
+		var so models.SalesOrder
+		if err := salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&so); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Sales order not found"})
+			return
+		}
+
+		history := so.StatusHistory
+		if history == nil {
+			history = []models.SOHistoryEntry{}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "History retrieved successfully",
+			"data": gin.H{
+				"orderNumber":   so.OrderNumber,
+				"createdAt":     so.CreatedAt,
+				"createdBy":     so.CreatedBy,
+				"statusHistory": history,
 			},
 		})
 	}
