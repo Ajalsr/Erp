@@ -129,6 +129,7 @@ type SalesOrder struct {
 	SourceQuoteID        string             `json:"sourceQuoteId,omitempty"     bson:"sourceQuoteId,omitempty"`
 	SourceQuoteNumber    string             `json:"sourceQuoteNumber,omitempty" bson:"sourceQuoteNumber,omitempty"`
 	FulfillmentStatus    string             `json:"fulfillmentStatus,omitempty" bson:"fulfillmentStatus,omitempty"`
+	StatusHistory        []SOHistoryEntry   `json:"statusHistory,omitempty" bson:"statusHistory,omitempty"`
 }
 
 // SalesOrderItem — one line in an order.
@@ -242,6 +243,7 @@ type SalesOrderResponse struct {
 	CancelRequestedBy    string           `json:"cancelRequestedBy,omitempty"`
 	CreatedAt            time.Time        `json:"createdAt"`
 	UpdatedAt            time.Time        `json:"updatedAt"`
+	StatusHistory        []SOHistoryEntry `json:"statusHistory,omitempty"`
 }
 
 type SalesOrderListResponse struct {
@@ -272,4 +274,12 @@ type TopCustomer struct {
 	CustomerName string  `json:"customerName"`
 	OrderCount   int64   `json:"orderCount"`
 	TotalAmount  float64 `json:"totalAmount"`
+}
+
+type SOHistoryEntry struct {
+	Action    string    `json:"action" bson:"action"`
+	Status    string    `json:"status,omitempty" bson:"status,omitempty"`
+	Note      string    `json:"note,omitempty" bson:"note,omitempty"`
+	ChangedBy string    `json:"changedBy,omitempty" bson:"changedBy,omitempty"`
+	ChangedAt time.Time `json:"changedAt" bson:"changedAt"`
 }

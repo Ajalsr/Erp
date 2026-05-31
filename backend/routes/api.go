@@ -64,6 +64,7 @@ func SaleOrderRoutes(router *gin.Engine) {
 		salesOrderRoutes.GET("/search", controllers.SearchSalesOrders())
 		salesOrderRoutes.GET("/stats", controllers.GetSalesOrderStats())
 		salesOrderRoutes.GET("/:id", controllers.GetSalesOrderByID())
+		salesOrderRoutes.GET("/:id/history", controllers.GetSalesOrderHistory())
 		salesOrderRoutes.PUT("/:id", controllers.UpdateSalesOrder())
 		salesOrderRoutes.PATCH("/:id/status", controllers.UpdateSalesOrderStatus())
 		salesOrderRoutes.DELETE("/:id", controllers.DeleteSalesOrder())

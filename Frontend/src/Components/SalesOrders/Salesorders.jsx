@@ -230,7 +230,9 @@ const Salesorders = () => {
   const [approvingId, setApprovingId] = useState(null);
   const approvingRef = useRef(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
-  const perPage = 10;
+  const [perPage, setPerPage] = useState(10);
+  const [soHistory, setSoHistory] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const updateOrderStatus = async (id, status) => {
     if (approvingRef.current) return;
@@ -250,6 +252,16 @@ const Salesorders = () => {
 
   useEffect(() => { handleGetSalesorder(); }, [handleGetSalesorder]);
   useWebSocket((event) => { if (event.type === "sales_orders_updated") handleGetSalesorder(); });
+
+  useEffect(() => {
+    if (activeTab !== "history" || !selected?.id) return;
+    setSoHistory(null);
+    setHistoryLoading(true);
+    axiosInstance.get(`/api/sales-orders/${selected.id}/history`)
+      .then(r => setSoHistory(r.data?.data ?? null))
+      .catch(() => setSoHistory(null))
+      .finally(() => setHistoryLoading(false));
+  }, [activeTab, selected?.id]);
 
   const allOrders = data ? transformOrders(data) : [];
 
@@ -278,6 +290,45 @@ const Salesorders = () => {
       setSelectedRows(new Set());
     } catch (e) {
       alert(e.response?.data?.message || `Failed to bulk ${status}`);
+    }
+  };
+
+  const handleBulkCancel = async () => {
+    if (!selectedRows.size) return;
+    if (isAdminOrOwner) {
+      const reason = window.prompt(
+        `Cancel ${selectedRows.size} order(s)?\n\nOptional reason (leave blank to skip):`,
+        ""
+      );
+      if (reason === null) return; // user hit Cancel on prompt
+      const ids = [...selectedRows];
+      try {
+        await Promise.all(
+          ids.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, {
+            status: "cancelled",
+            cancelReason: reason || "",
+          }))
+        );
+        await handleGetSalesorder();
+        setSelectedRows(new Set());
+      } catch (e) {
+        alert(e.response?.data?.message || "Failed to cancel orders.");
+      }
+    } else {
+      if (!window.confirm(`Submit cancellation request for ${selectedRows.size} order(s)?`)) return;
+      const ids = [...selectedRows];
+      try {
+        await Promise.all(
+          ids.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, {
+            status: "cancel_requested",
+            cancelRequestedBy: activeOrg?.userId || "",
+          }))
+        );
+        await handleGetSalesorder();
+        setSelectedRows(new Set());
+      } catch (e) {
+        alert(e.response?.data?.message || "Failed to submit cancel requests.");
+      }
     }
   };
 
@@ -325,28 +376,30 @@ const Salesorders = () => {
 
   // ── Colors ───────────────────────────────────────────────────
   const C = {
-    bg:         isDark ? "#080e1a" : "#f4f6f9",
-    surface:    isDark ? "#0d1626" : "#ffffff",
-    surface2:   isDark ? "#111e30" : "#f8fafc",
-    surface3:   isDark ? "#162038" : "#f1f5f9",
+    bg:         isDark ? "#070c18" : "#eef1fb",
+    surface:    isDark ? "#0b1220" : "#ffffff",
+    surface2:   isDark ? "#0f1828" : "#f4f7fc",
+    surface3:   isDark ? "#141f30" : "#edf1f8",
     border:     isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)",
     border2:    isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
-    textPri:    isDark ? "#e8edf5" : "#0f172a",
-    textSec:    isDark ? "#5a6a80" : "#64748b",
-    textMuted:  isDark ? "#3a4a5c" : "#94a3b8",
+    textPri:    isDark ? "#eef1f8" : "#0f172a",
+    textSec:    isDark ? "#5a6a84" : "#64748b",
+    textMuted:  isDark ? "#374255" : "#94a3b8",
     blue:       "#3b82f6",
     blueLight:  isDark ? "#60a5fa" : "#1d4ed8",
-    blueDim:    isDark ? "rgba(59,130,246,0.12)" : "rgba(59,130,246,0.07)",
+    blueDim:    isDark ? "rgba(59,130,246,0.13)" : "rgba(59,130,246,0.08)",
     green:      "#10b981",
-    greenDim:   isDark ? "rgba(16,185,129,0.12)" : "rgba(16,185,129,0.08)",
+    greenDim:   isDark ? "rgba(16,185,129,0.13)" : "rgba(16,185,129,0.08)",
     amber:      "#f59e0b",
-    amberDim:   isDark ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.08)",
+    amberDim:   isDark ? "rgba(245,158,11,0.13)" : "rgba(245,158,11,0.08)",
     purple:     "#8b5cf6",
-    purpleDim:  isDark ? "rgba(139,92,246,0.12)" : "rgba(139,92,246,0.08)",
+    purpleDim:  isDark ? "rgba(139,92,246,0.13)" : "rgba(139,92,246,0.08)",
     red:        "#ef4444",
-    redDim:     isDark ? "rgba(239,68,68,0.12)" : "rgba(239,68,68,0.07)",
+    redDim:     isDark ? "rgba(239,68,68,0.13)" : "rgba(239,68,68,0.07)",
     cyan:       "#06b6d4",
-    cyanDim:    isDark ? "rgba(6,182,212,0.12)" : "rgba(6,182,212,0.07)",
+    cyanDim:    isDark ? "rgba(6,182,212,0.13)" : "rgba(6,182,212,0.07)",
+    glass:      isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.7)",
+    glow:       isDark ? "0 0 0 1px rgba(255,255,255,0.06), 0 4px 24px rgba(0,0,0,0.4)" : "0 2px 16px rgba(0,0,0,0.07)",
   };
 
   const css = `
@@ -361,12 +414,13 @@ const Salesorders = () => {
     *::-webkit-scrollbar-thumb { background: ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.12)"}; border-radius: 999px; }
     *::-webkit-scrollbar-thumb:hover { background: ${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.22)"}; }
 
-    .so-stat { transition: transform 0.16s ease, box-shadow 0.16s ease; cursor: default; }
-    .so-stat:hover { transform: translateY(-1px); }
+    .so-stat { transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.18s ease; cursor: default; }
+    .so-stat:hover { transform: translateY(-3px); box-shadow: ${isDark ? "0 8px 32px rgba(0,0,0,0.5)" : "0 6px 20px rgba(0,0,0,0.1)"}; }
 
-    .so-row { cursor: default; transition: background 0.08s; }
-    .so-row:hover { background: ${isDark ? "rgba(59,130,246,0.04)" : "rgba(59,130,246,0.03)"} !important; }
-    .so-row.selected-row { background: ${isDark ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.05)"} !important; }
+    .so-row { cursor: default; transition: background 0.1s, transform 0.12s; }
+    .so-row:hover { background: ${isDark ? "rgba(99,102,241,0.05)" : "rgba(59,130,246,0.03)"} !important; }
+    .so-row:hover td { position: relative; }
+    .so-row.selected-row { background: ${isDark ? "rgba(59,130,246,0.09)" : "rgba(59,130,246,0.05)"} !important; }
 
     .so-order-link { cursor: pointer; transition: color 0.12s; }
     .so-order-link:hover { color: ${C.blueLight} !important; }
@@ -471,7 +525,7 @@ const Salesorders = () => {
       <div className="so" style={{ background: C.bg, minHeight: "100vh", color: C.textPri }}>
 
         {/* ── PAGE HEADER ─────────────────────────────────────── */}
-        <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 28px" }}>
+        <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 28px", boxShadow: isDark ? "0 1px 0 rgba(255,255,255,0.04)" : "0 1px 4px rgba(0,0,0,0.04)" }}>
           <div className="anim-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "60px" }}>
             {/* Breadcrumb + title */}
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -507,49 +561,33 @@ const Salesorders = () => {
           {/* ── STAT CARDS ──────────────────────────────────── */}
           <div className="anim-up1" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: "12px", marginBottom: "18px" }}>
             {[
-              {
-                label: "Total Orders", value: stats.total, icon: <FaShoppingCart />,
-                color: C.blue, dim: C.blueDim,
-                sub: `${stats.open} active`,
-              },
-              {
-                label: "Active", value: stats.open, icon: <FaBolt />,
-                color: C.green, dim: C.greenDim,
-                sub: "open + confirmed",
-              },
-              {
-                label: "Pending Review", value: stats.pending, icon: <FaHourglassHalf />,
-                color: C.amber, dim: C.amberDim,
-                sub: "awaiting approval",
-                alert: stats.pending > 0,
-              },
-              {
-                label: "Drafts", value: stats.drafts, icon: <FaEdit />,
-                color: C.purple, dim: C.purpleDim,
-                sub: "not submitted",
-              },
-              {
-                label: "Pipeline Value", value: formatCurrencyShort(stats.value), icon: <FaFileInvoiceDollar />,
-                color: C.cyan, dim: C.cyanDim,
-                sub: "all orders", small: true,
-              },
+              { label: "Total Orders",   value: stats.total,                       icon: <FaShoppingCart />, color: C.blue,   dim: C.blueDim,   sub: `${stats.open} active`      },
+              { label: "Active",         value: stats.open,                        icon: <FaBolt />,         color: C.green,  dim: C.greenDim,  sub: "open + confirmed"          },
+              { label: "Pending Review", value: stats.pending,                     icon: <FaHourglassHalf />,color: C.amber,  dim: C.amberDim,  sub: "awaiting approval", alert: stats.pending > 0 },
+              { label: "Drafts",         value: stats.drafts,                      icon: <FaEdit />,         color: C.purple, dim: C.purpleDim, sub: "not submitted"             },
+              { label: "Pipeline Value", value: formatCurrencyShort(stats.value),  icon: <FaFileInvoiceDollar />, color: C.cyan, dim: C.cyanDim, sub: "all orders", small: true  },
             ].map((c, i) => (
               <div key={i} className="so-stat" style={{
-                ...card(),
-                padding: "14px 16px",
+                background: C.surface,
+                border: `1px solid ${C.border}`,
+                borderRadius: "14px",
+                padding: "16px 18px",
                 position: "relative", overflow: "hidden",
+                boxShadow: isDark ? "0 2px 16px rgba(0,0,0,0.3)" : "0 1px 8px rgba(0,0,0,0.05)",
               }}>
-                {/* Top accent line */}
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "2px", background: `linear-gradient(90deg, ${c.color}60, ${c.color}20, transparent)` }} />
+                {/* Gradient top bar */}
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "2px", background: `linear-gradient(90deg, ${c.color}, ${c.color}40, transparent)` }} />
+                {/* Subtle glow corner */}
+                <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: c.color, opacity: isDark ? 0.04 : 0.06, pointerEvents: "none" }} />
 
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px" }}>
                   <div style={{ minWidth: 0 }}>
-                    <p style={{ fontSize: "10px", color: C.textMuted, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 6px", whiteSpace: "nowrap" }}>{c.label}</p>
-                    <p className="so-heading" style={{ fontSize: c.small ? "14px" : "22px", fontWeight: "700", color: C.textPri, margin: "0 0 4px", lineHeight: 1, letterSpacing: "-0.02em" }}>{c.value}</p>
+                    <p style={{ fontSize: "10px", color: C.textMuted, fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px", whiteSpace: "nowrap" }}>{c.label}</p>
+                    <p className="so-heading" style={{ fontSize: c.small ? "15px" : "24px", fontWeight: "800", color: C.textPri, margin: "0 0 5px", lineHeight: 1, letterSpacing: "-0.03em" }}>{c.value}</p>
                     <p style={{ fontSize: "10px", color: C.textSec, margin: 0 }}>{c.sub}</p>
                   </div>
                   <div style={{ position: "relative", flexShrink: 0 }}>
-                    <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: c.dim, color: c.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>{c.icon}</div>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: c.dim, color: c.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", border: `1px solid ${c.color}22` }}>{c.icon}</div>
                     {c.alert && (
                       <div className="anim-pulse" style={{ position: "absolute", top: -2, right: -2, width: "8px", height: "8px", borderRadius: "50%", background: C.amber, border: `2px solid ${C.surface}` }} />
                     )}
@@ -638,11 +676,13 @@ const Salesorders = () => {
               <span style={{ fontSize: "12px", fontWeight: "600", color: C.blueLight }}>{selectedRows.size} selected</span>
               <button onClick={() => setSelectedRows(new Set())} style={{ fontSize: "11px", color: C.textSec, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
               <div style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
-                <button className="so-tbl-btn" onClick={() => bulkUpdateStatus("approved")} style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.green, background: "rgba(16,185,129,0.1)", cursor: "pointer", fontFamily: "inherit" }}>
-                  Bulk Approve
-                </button>
-                <button className="so-tbl-btn" onClick={() => bulkUpdateStatus("cancelled")} style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.red, background: "rgba(239,68,68,0.1)", cursor: "pointer", fontFamily: "inherit" }}>
-                  Bulk Cancel
+                {isAdminOrOwner && (
+                  <button className="so-tbl-btn" onClick={() => bulkUpdateStatus("approved")} style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.green, background: "rgba(16,185,129,0.1)", cursor: "pointer", fontFamily: "inherit" }}>
+                    Bulk Approve
+                  </button>
+                )}
+                <button className="so-tbl-btn" onClick={handleBulkCancel} style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.red, background: "rgba(239,68,68,0.1)", cursor: "pointer", fontFamily: "inherit" }}>
+                  {isAdminOrOwner ? "Bulk Cancel" : "Request Cancel"}
                 </button>
                 <button className="so-tbl-btn" onClick={() => exportOrdersCSV(currentItems.filter(i => selectedRows.has(i.id)))} style={{ padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: C.textSec, background: C.surface3, cursor: "pointer", fontFamily: "inherit" }}>
                   Export Selected
@@ -656,7 +696,7 @@ const Salesorders = () => {
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "860px" }}>
                 <thead>
-                  <tr style={{ background: C.surface2, borderBottom: `1px solid ${C.border}` }}>
+                  <tr style={{ background: isDark ? "rgba(255,255,255,0.025)" : C.surface2, borderBottom: `1px solid ${C.border}` }}>
                     <th style={{ padding: "10px 14px", width: "40px" }}>
                       <input type="checkbox" className="so-checkbox"
                         checked={currentItems.length > 0 && selectedRows.size === currentItems.length}
@@ -821,10 +861,28 @@ const Salesorders = () => {
 
           {/* ── PAGINATION ────────────────────────────────────── */}
           {filtered.length > 0 && (
-            <div style={{ ...card(), padding: "9px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "11px", color: C.textSec }}>
-                {(page - 1) * perPage + 1}–{Math.min(page * perPage, filtered.length)} of {filtered.length} orders
-              </span>
+            <div style={{ ...card(), padding: "9px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              {/* Left: count + per-page */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: "11px", color: C.textSec, whiteSpace: "nowrap" }}>
+                  {(page - 1) * perPage + 1}–{Math.min(page * perPage, filtered.length)} of {filtered.length} orders
+                </span>
+                <div style={{ width: 1, height: 14, background: C.border }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: "11px", color: C.textMuted, whiteSpace: "nowrap" }}>Rows per page</span>
+                  <div style={{ display: "flex", gap: 3 }}>
+                    {[10, 20, 50, 100].map(n => (
+                      <button key={n} onClick={() => { setPerPage(n); setPage(1); }}
+                        className="so-page-btn"
+                        style={{ height: "24px", minWidth: "32px", borderRadius: "5px", fontSize: "11px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", border: `1px solid ${perPage === n ? "rgba(59,130,246,0.35)" : C.border}`, background: perPage === n ? C.blueDim : "transparent", color: perPage === n ? C.blueLight : C.textSec }}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: page nav */}
               <div style={{ display: "flex", gap: "3px", alignItems: "center" }}>
                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                   className="so-page-btn"
@@ -848,7 +906,6 @@ const Salesorders = () => {
                   Next <FaChevronRight size={9} />
                 </button>
               </div>
-              <span style={{ fontSize: "11px", color: C.textMuted }}>{totalPages} page{totalPages !== 1 ? "s" : ""}</span>
             </div>
           )}
         </div>
@@ -1124,13 +1181,101 @@ const Salesorders = () => {
                 )}
 
                 {/* HISTORY */}
-                {activeTab === "history" && (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "10px" }}>
-                    <div style={{ width: "44px", height: "44px", borderRadius: "12px", background: C.surface2, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", color: C.textMuted }}><FaClock /></div>
-                    <p className="so-heading" style={{ fontWeight: "700", color: C.textPri, fontSize: "13px", margin: 0 }}>No activity yet</p>
-                    <p style={{ color: C.textSec, fontSize: "11px", margin: 0 }}>Activity log will appear here.</p>
-                  </div>
-                )}
+                {activeTab === "history" && (() => {
+                  const statusMeta = {
+                    created:          { label: "Order Created",         color: "#6366f1", icon: "✦" },
+                    status_changed:   { label: "Status Updated",        color: "#3b82f6", icon: "⟳" },
+                    open:             { label: "Open",                  color: "#3b82f6", icon: "◉" },
+                    pending_approval: { label: "Submitted for Approval", color: "#f59e0b", icon: "⏳" },
+                    approved:         { label: "Approved",              color: "#10b981", icon: "✓" },
+                    confirmed:        { label: "Confirmed",             color: "#10b981", icon: "✓" },
+                    rejected:         { label: "Rejected",              color: "#ef4444", icon: "✕" },
+                    cancelled:        { label: "Cancelled",             color: "#ef4444", icon: "✕" },
+                    cancel_requested: { label: "Cancel Requested",      color: "#f59e0b", icon: "!" },
+                    shipped:          { label: "Shipped",               color: "#8b5cf6", icon: "→" },
+                    completed:        { label: "Completed",             color: "#10b981", icon: "★" },
+                    invoiced:         { label: "Invoiced",              color: "#06b6d4", icon: "◈" },
+                    draft:            { label: "Draft",                 color: C.textSec, icon: "◌" },
+                    pending:          { label: "Pending",               color: "#f59e0b", icon: "⏳" },
+                  };
+
+                  const fmtTs = ts => {
+                    if (!ts) return "";
+                    const d = new Date(ts);
+                    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                      + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+                  };
+
+                  if (historyLoading) return (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "160px", gap: 8, color: C.textSec, fontSize: "12px" }}>
+                      <FaSpinner style={{ animation: "spin .7s linear infinite" }} /> Loading history…
+                    </div>
+                  );
+
+                  const entries = soHistory?.statusHistory ?? [];
+                  if (!entries.length) return (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "10px" }}>
+                      <div style={{ width: "44px", height: "44px", borderRadius: "12px", background: C.surface2, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", color: C.textMuted }}><FaClock /></div>
+                      <p className="so-heading" style={{ fontWeight: "700", color: C.textPri, fontSize: "13px", margin: 0 }}>No activity yet</p>
+                      <p style={{ color: C.textSec, fontSize: "11px", margin: 0 }}>History is recorded from this point forward.</p>
+                    </div>
+                  );
+
+                  return (
+                    <div style={{ padding: "4px 0 8px" }}>
+                      {entries.map((e, i) => {
+                        const isLast = i === entries.length - 1;
+                        const meta = e.action === "created"
+                          ? statusMeta.created
+                          : (statusMeta[e.status] ?? statusMeta.status_changed);
+                        return (
+                          <div key={i} style={{ display: "flex", gap: 12, position: "relative" }}>
+                            {/* vertical line */}
+                            {!isLast && (
+                              <div style={{
+                                position: "absolute", left: 15, top: 28, width: 2,
+                                height: "calc(100% - 8px)",
+                                background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)",
+                              }} />
+                            )}
+                            {/* dot */}
+                            <div style={{ flexShrink: 0, width: 32, height: 32, borderRadius: "50%", marginTop: 4,
+                              background: isDark ? `${meta.color}22` : `${meta.color}18`,
+                              border: `2px solid ${meta.color}55`,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: "13px", color: meta.color, fontWeight: "700", zIndex: 1 }}>
+                              {meta.icon}
+                            </div>
+                            {/* content */}
+                            <div style={{ flex: 1, paddingBottom: isLast ? 0 : 16 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: "12px", fontWeight: "700", color: meta.color }}>{meta.label}</span>
+                                {e.action !== "created" && e.status && (
+                                  <span style={{ fontSize: "10px", fontWeight: "600", padding: "1px 7px", borderRadius: "10px",
+                                    background: isDark ? `${meta.color}20` : `${meta.color}15`,
+                                    color: meta.color, border: `1px solid ${meta.color}35` }}>
+                                    {e.status.replace(/_/g, " ")}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: "10px", color: C.textSec, marginTop: 2 }}>
+                                {fmtTs(e.changedAt)}
+                                {e.changedBy && <span style={{ marginLeft: 6, color: C.textMuted }}>by {e.changedBy}</span>}
+                              </div>
+                              {e.note && (
+                                <div style={{ marginTop: 4, fontSize: "11px", color: C.textSec,
+                                  background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
+                                  border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px" }}>
+                                  {e.note}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </>

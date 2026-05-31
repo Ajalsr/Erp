@@ -423,9 +423,25 @@ export default function Bills() {
                     </div>
                     <p style={{ fontFamily: "Sora, sans-serif", fontSize: 15, fontWeight: 800, color: T.textPri, margin: 0 }}>{b.vendorName || "—"}</p>
                   </div>
-                  <button onClick={closeDrawer} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 7, cursor: "pointer", color: T.textSec, display: "flex", flexShrink: 0 }}>
-                    <FaTimes size={11} />
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                    {canPay && (
+                      <button className="bl-btn" onClick={() => navigate(`/Purchase/Bills/Edit/${b._id}`)}
+                        title="Edit" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
+                        <FaEdit size={11} /> Edit
+                      </button>
+                    )}
+                    <button className="bl-btn" onClick={handlePrintBill}
+                      title="Print" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
+                      <FaPrint size={11} /> Print
+                    </button>
+                    <button className="bl-btn" onClick={handleEmailBill} disabled={emailing}
+                      title="Email" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: emailing ? "wait" : "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
+                      <FaPaperPlane size={11} />
+                    </button>
+                    <button onClick={closeDrawer} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 7, cursor: "pointer", color: T.textSec, display: "flex" }}>
+                      <FaTimes size={11} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Payment progress */}
@@ -457,7 +473,7 @@ export default function Bills() {
               </div>
 
               {/* Body */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
 
                 {/* ── OVERVIEW ── */}
                 {activeTab === "overview" && (<>
@@ -698,32 +714,14 @@ export default function Bills() {
                 </div>
               )}
 
-              {/* Secondary actions */}
-              <div style={{ padding: "10px 20px 0", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {canPay && (
-                  <button className="bl-btn" onClick={() => navigate(`/Purchase/Bills/Edit/${b._id}`)}
-                    style={{ flex: 1, minWidth: 90, padding: "8px 10px", background: T.surface2, color: T.textPri, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                    <FaEdit size={11} /> Edit
-                  </button>
-                )}
+              {/* Footer — single row */}
+              <div style={{ padding: "10px 20px 14px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8 }}>
                 {canPay && b.balanceDue > 0 && (
                   <button className="bl-btn" onClick={() => setCreditPicker(v => !v)}
-                    style={{ flex: 1, minWidth: 110, padding: "8px 10px", background: isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4", color: "#10b981", border: `1px solid ${isDark ? "rgba(16,185,129,0.25)" : "#bbf7d0"}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    style={{ padding: "9px 12px", background: isDark ? "rgba(16,185,129,0.1)" : "#f0fdf4", color: "#10b981", border: `1px solid ${isDark ? "rgba(16,185,129,0.25)" : "#bbf7d0"}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
                     <FaFileInvoiceDollar size={11} /> Apply Credit
                   </button>
                 )}
-                <button className="bl-btn" onClick={handlePrintBill}
-                  style={{ flex: 1, minWidth: 80, padding: "8px 10px", background: T.surface2, color: T.textPri, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                  <FaPrint size={11} /> Print
-                </button>
-                <button className="bl-btn" onClick={handleEmailBill} disabled={emailing}
-                  style={{ flex: 1, minWidth: 90, padding: "8px 10px", background: T.surface2, color: T.textPri, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: emailing ? "wait" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                  <FaPaperPlane size={11} /> {emailing ? "Sending…" : "Email"}
-                </button>
-              </div>
-
-              {/* Primary footer */}
-              <div style={{ padding: "10px 20px 12px", borderTop: "none", display: "flex", gap: 8 }}>
                 {canPay && !payModal && (
                   <button className="bl-btn" onClick={() => { setPayModal(true); setActiveTab("payments"); }}
                     style={{ flex: 1, padding: 10, background: "#3b82f6", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -732,14 +730,16 @@ export default function Bills() {
                 )}
                 {canVoid && (
                   <button className="bl-btn" onClick={handleVoid} disabled={voidLoading}
-                    style={{ padding: "10px 16px", background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: voidLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+                    style={{ padding: "10px 14px", background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: voidLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
                     {voidLoading ? "Voiding…" : "Void"}
                   </button>
                 )}
-                <button className="bl-btn" onClick={closeDrawer}
-                  style={{ padding: "10px 16px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-                  Close
-                </button>
+                {!canPay && !canVoid && (
+                  <button className="bl-btn" onClick={closeDrawer}
+                    style={{ flex: 1, padding: "10px 16px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                    Close
+                  </button>
+                )}
               </div>
             </div>
           </>
