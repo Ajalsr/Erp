@@ -454,6 +454,11 @@ const New = () => {
     r.readAsDataURL(file);
   };
 
+  // Derived: prefix string from the selected item group, e.g. "ITM-"
+  const groupPrefix = formData.category && groupMap[formData.category]?.prefix
+    ? groupMap[formData.category].prefix + '-'
+    : '';
+
   /* ── Submit ── */
   const handleSubmit = async () => {
     // Validate all required fields and collect every error at once

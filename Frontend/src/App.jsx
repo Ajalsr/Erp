@@ -40,6 +40,7 @@ import CustomerStatement from "./Components/Reports/CustomerStatement"
 import StatementOfAccount from "./Components/Reports/StatementOfAccount"
 import VATReport from "./Components/Reports/VATReport"
 import VendorAging from "./Components/Reports/VendorAging"
+import TrialBalance from "./Components/Reports/TrialBalance"
 import Accounts from "./Components/Accounts/Accounts"
 import NewAccount from "./Components/NewAccount/NewAccount"
 import ItemGroups from "./Components/ItemGroups/ItemGroups"
@@ -133,6 +134,7 @@ function App() {
             <Route path="/Reports/customer-statement"   element={<CustomerStatement />} />
             <Route path="/Reports/statement-of-account" element={<StatementOfAccount />} />
             <Route path="/Reports/vat"                  element={<VATReport />} />
+            <Route path="/Reports/trial-balance"        element={<TrialBalance />} />
             <Route path="/Reports/vendor-aging"         element={<VendorAging />} />
             <Route path="/Finance/Accounts"        element={<Accounts />} />
             <Route path="/Finance/Accounts/New"    element={<NewAccount />} />

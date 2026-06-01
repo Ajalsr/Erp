@@ -45,20 +45,23 @@ const customerTaxRate = (origin, country) => {
   return 0.05;
 };
 
-const buildObTaxGroups = (selItems, taxRate) => {
+const buildObTaxGroups = (selItems, originCache = {}) => {
   const order = [], groups = {};
   selItems.forEach(item => {
     const price = parseFloat(item.selling_price || 0);
     const qty   = item.outboundQuantity || 0;
     if (!price || !qty) return;
-    const key = String(price);
-    if (!groups[key]) { groups[key] = { rate: price, base: 0 }; order.push(key); }
+    const custCache = originCache[item.customerId] || {};
+    const taxRate   = customerTaxRate(custCache.origin, custCache.country);
+    const key = `${price}_${taxRate}`;
+    if (!groups[key]) { groups[key] = { unitPrice: price, taxRate, base: 0 }; order.push(key); }
     groups[key].base = round2(groups[key].base + qty * price);
   });
   return order.map(key => ({
-    rate:       groups[key].rate,
+    rate:       groups[key].unitPrice,
+    taxRate:    groups[key].taxRate,
     baseAmount: round2(groups[key].base),
-    taxAmount:  round2(groups[key].base * taxRate),
+    taxAmount:  round2(groups[key].base * groups[key].taxRate),
   }));
 };
 
@@ -397,7 +400,7 @@ export default function Outbound() {
   const totalQty    = selItems.reduce((s, i) => s + (i.outboundQuantity || 0), 0);
   const totalDisc   = selItems.reduce((s, i) => s + parseFloat(i.discount || 0), 0);
   const subTotal    = round2(selItems.reduce((s, i) => s + (i.outboundQuantity || 0) * parseFloat(i.selling_price || 0), 0));
-  const obTaxGroups = buildObTaxGroups(selItems);
+  const obTaxGroups = buildObTaxGroups(selItems, customerOriginCache);
   const totalTax    = round2(obTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const totalValue  = round2(subTotal + totalTax);
   const stockWarn  = outboundItems.filter(i => i.availableQuantity === 0).length;
@@ -946,7 +949,7 @@ export default function Outbound() {
                   </div>
                 ))}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1.5px solid ${isDark ? "rgba(245,158,11,0.25)" : "#fcd34d"}`, marginTop: "7px", paddingTop: "7px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT (5%)</span>
+                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#f59e0b" }}>Total VAT {totalTax > 0 ? "(5%)" : "(0% — exempt)"}</span>
                   <span style={{ fontSize: "13px", fontWeight: "800", color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAED(totalTax)}</span>
                 </div>
               </div>

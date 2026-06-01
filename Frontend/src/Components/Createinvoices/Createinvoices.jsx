@@ -358,6 +358,7 @@ const CreateInvoice = () => {
   const [status,          setStatus]          = useState("draft");
   const [invoiceDocType,  setInvoiceDocType]  = useState("invoice"); // "invoice" | "proforma"
   const [items,           setItems]           = useState([]);
+  const [expenseItems,  setExpenseItems]  = useState([]);
   const [activeTab,     setActiveTab]     = useState(0);
   const [submitting,    setSubmitting]    = useState(false);
   const [draftId,       setDraftId]       = useState(null);
@@ -433,6 +434,25 @@ const CreateInvoice = () => {
     if (prefill.date) {
       const parsed = new Date(prefill.date);
       if (!isNaN(parsed)) setIssueDate(parsed.toISOString().split("T")[0]);
+    }
+
+    // Auto-populate expense items from linked SO's shipping + adjustment
+    const soId = prefill.salesOrderIds?.[0];
+    if (soId) {
+      axiosInstance.get(`/api/sales-orders/${soId}`)
+        .then(res => {
+          const so = res.data?.data || res.data;
+          if (!so) return;
+          const expenses = [];
+          if (so.shippingCharges > 0) {
+            expenses.push({ id: uid(), desc: "Shipping Charges", qty: 1, unitPrice: so.shippingCharges, taxRate: 0 });
+          }
+          if (so.adjustment !== 0 && so.adjustment != null) {
+            expenses.push({ id: uid(), desc: "Adjustment", qty: 1, unitPrice: so.adjustment, taxRate: 0 });
+          }
+          if (expenses.length > 0) setExpenseItems(expenses);
+        })
+        .catch(() => {});
     }
   }, [location.state]);
 
@@ -512,10 +532,23 @@ const CreateInvoice = () => {
     try { const res = await axiosInstance.get(`/api/customers/${id}`); applyCustomer(res.data?.data); } catch { /* ignore */ }
   };
 
-  const totals = useMemo(() => items.reduce((acc, item) => {
-    const c = calcLine(item);
-    return { subtotal: acc.subtotal + c.subtotal, discountTotal: acc.discountTotal + c.discAmt, taxTotal: acc.taxTotal + c.taxAmt, grandTotal: acc.grandTotal + c.total };
-  }, { subtotal: 0, discountTotal: 0, taxTotal: 0, grandTotal: 0 }), [items]);
+  const totals = useMemo(() => {
+    const base = items.reduce((acc, item) => {
+      const c = calcLine(item);
+      return { subtotal: acc.subtotal + c.subtotal, discountTotal: acc.discountTotal + c.discAmt, taxTotal: acc.taxTotal + c.taxAmt, grandTotal: acc.grandTotal + c.total };
+    }, { subtotal: 0, discountTotal: 0, taxTotal: 0, grandTotal: 0 });
+    const expTotals = expenseItems.reduce((acc, ei) => {
+      const sub = p(ei.qty) * p(ei.unitPrice);
+      const tax = sub * (p(ei.taxRate) / 100);
+      return { subtotal: acc.subtotal + sub, taxTotal: acc.taxTotal + tax, grandTotal: acc.grandTotal + sub + tax };
+    }, { subtotal: 0, taxTotal: 0, grandTotal: 0 });
+    return {
+      subtotal:      base.subtotal      + expTotals.subtotal,
+      discountTotal: base.discountTotal,
+      taxTotal:      base.taxTotal      + expTotals.taxTotal,
+      grandTotal:    base.grandTotal    + expTotals.grandTotal,
+    };
+  }, [items, expenseItems]);
 
   const taxBreakdown = useMemo(() => {
     const map = {};
@@ -547,7 +580,15 @@ const CreateInvoice = () => {
       from:      { name: fromName, address: fromAddr, trn: fromTrn },
       billTo:    { name: custName, address: custAddr, trn: custTrn },
       customerId,
-      lineItems:   items.map((item) => { const { id: _, ...rest } = item; return { ...rest, ...calcLine(rest) }; }),
+      lineItems: [
+        ...items.map((item) => { const { id: _, ...rest } = item; return { ...rest, ...calcLine(rest) }; }),
+        ...expenseItems.map((ei) => {
+          const { id: _, ...rest } = ei;
+          const sub = p(rest.qty) * p(rest.unitPrice);
+          const taxAmt = sub * (p(rest.taxRate) / 100);
+          return { ...rest, _type: "expense", subtotal: sub, discAmt: 0, taxAmt, total: sub + taxAmt };
+        }),
+      ],
       totals,
       amountPaid:  0,
       balanceDue:  totals.grandTotal,
@@ -594,12 +635,23 @@ const CreateInvoice = () => {
 
   const handleSaveDraft = async () => {
     setSubmitting(true);
+    const _prefill = location.state?.prefill || {};
+    const dnId     = _prefill.dnId;
     try {
       const res = draftId
         ? await axiosInstance.put(`/api/invoices/${draftId}`, buildPayload("draft"))
         : await axiosInstance.post("/api/invoices", buildPayload("draft"));
-      const id = res.data?.data?.id;
-      if (id && !draftId) setDraftId(id);
+      const saved = res.data?.data || {};
+      const resolvedId     = saved.id     || draftId || "";
+      const resolvedNumber = saved.invoiceNumber || invoiceNumber;
+      if (resolvedId && !draftId) setDraftId(resolvedId);
+      // Link DN to this draft so it can't be invoiced again
+      if (dnId && resolvedId) {
+        await axiosInstance.patch(`/api/delivery-notes/${dnId}/invoice`, {
+          invoiceId:     resolvedId,
+          invoiceNumber: resolvedNumber,
+        });
+      }
       navigate("/Sales/Invoices");
     }
     catch (err) { console.error(err); } finally { setSubmitting(false); }
@@ -723,21 +775,79 @@ const CreateInvoice = () => {
 
             <Section title="Line Items">
               <div style={{ display: "flex", gap: 0, background: T.surface2, borderRadius: 7, padding: 3, marginBottom: 16, border: `1px solid ${T.border}` }}>
-                {["Products & Services", "Expense Items", "Recurring"].map((tab, i) => (
+                {["Products & Services", "Expense Items"].map((tab, i) => (
                   <div key={tab} onClick={() => setActiveTab(i)}
                     style={{ flex: 1, textAlign: "center", padding: "6px", borderRadius: 5, fontSize: 12, cursor: "pointer", transition: ".15s", background: activeTab === i ? T.surface : "transparent", color: activeTab === i ? T.text : T.muted, fontWeight: activeTab === i ? 600 : 400, borderBottom: activeTab === i ? `2px solid ${T.accent}` : "2px solid transparent" }}>
-                    {tab}
+                    {tab}{i === 1 && expenseItems.length > 0 && <span style={{ marginLeft: 5, fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, background: T.accent, color: "#fff" }}>{expenseItems.length}</span>}
                   </div>
                 ))}
               </div>
-              {items.length === 0 ? (
-                <div style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: "44px 24px", textAlign: "center" }}>
-                  <div style={{ fontSize: 36, marginBottom: 12 }}>📦</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 6 }}>No line items</div>
-                  <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>Items will be populated from the delivery note.</div>
+
+              {activeTab === 0 && (
+                items.length === 0 ? (
+                  <div style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: "44px 24px", textAlign: "center" }}>
+                    <div style={{ fontSize: 36, marginBottom: 12 }}>📦</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 6 }}>No line items</div>
+                    <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>Items will be populated from the delivery note.</div>
+                  </div>
+                ) : (
+                  <LineItems items={items} />
+                )
+              )}
+
+              {activeTab === 1 && (
+                <div>
+                  <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, marginBottom: 12 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ background: T.surface2 }}>
+                          {["Description", "Qty", "Unit Price", "Tax %", "Line Total", ""].map((h, i) => (
+                            <th key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.muted, padding: "10px 8px", textAlign: i > 0 ? "right" : "left", borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {expenseItems.length === 0 ? (
+                          <tr><td colSpan={6} style={{ padding: "28px", textAlign: "center", color: T.muted, fontSize: 12 }}>No expense items — click Add below</td></tr>
+                        ) : expenseItems.map((ei, idx) => {
+                          const sub = p(ei.qty) * p(ei.unitPrice);
+                          const tax = sub * (p(ei.taxRate) / 100);
+                          const lineTotal = sub + tax;
+                          const upd = (field, val) => setExpenseItems(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+                          const inpStyle = { width: "100%", border: "none", background: "transparent", outline: "none", fontSize: 12, color: T.text, textAlign: "right", fontFamily: "'DM Mono', monospace", padding: "4px 0" };
+                          return (
+                            <tr key={ei.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                              <td style={{ padding: "8px" }}>
+                                <input value={ei.desc} onChange={e => upd("desc", e.target.value)} placeholder="e.g. Shipping charges"
+                                  style={{ ...inpStyle, textAlign: "left", fontFamily: "inherit", fontSize: 13, width: "100%" }} />
+                              </td>
+                              <td style={{ padding: "8px", width: "8%" }}>
+                                <input type="number" min="0" value={ei.qty} onChange={e => upd("qty", e.target.value)} style={inpStyle} />
+                              </td>
+                              <td style={{ padding: "8px", width: "13%" }}>
+                                <input type="number" min="0" value={ei.unitPrice} onChange={e => upd("unitPrice", e.target.value)} style={inpStyle} />
+                              </td>
+                              <td style={{ padding: "8px", width: "8%" }}>
+                                <input type="number" min="0" max="100" value={ei.taxRate} onChange={e => upd("taxRate", e.target.value)} style={inpStyle} />
+                              </td>
+                              <td style={{ padding: "8px", width: "12%", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: T.text }}>
+                                {lineTotal > 0 ? lineTotal.toFixed(2) : "—"}
+                              </td>
+                              <td style={{ padding: "8px", width: "40px", textAlign: "right" }}>
+                                <button onClick={() => setExpenseItems(prev => prev.filter((_, i) => i !== idx))}
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 14, lineHeight: 1 }}>✕</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button onClick={() => setExpenseItems(prev => [...prev, { id: Date.now(), desc: "", qty: 1, unitPrice: "", taxRate: 5 }])}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", border: `1.5px dashed ${T.border}`, borderRadius: 8, background: "transparent", color: T.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                    + Add Expense Item
+                  </button>
                 </div>
-              ) : (
-                <LineItems items={items} />
               )}
             </Section>
 

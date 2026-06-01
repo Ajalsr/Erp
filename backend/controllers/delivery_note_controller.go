@@ -181,8 +181,9 @@ func GetDeliveryNoteByID() gin.HandlerFunc {
 		}
 
 		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
 		var note models.DeliveryNote
-		err = deliveryNotesCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": fmt.Sprintf("%v", orgID)}).Decode(&note)
+		err = deliveryNotesCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}).Decode(&note)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
 				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Delivery note not found"})
@@ -190,6 +191,24 @@ func GetDeliveryNoteByID() gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to fetch delivery note"})
 			}
 			return
+		}
+
+		// Lazy heal: if linked invoice is voided, clear the DN's invoiceId so it can be re-invoiced
+		if note.InvoiceID != "" {
+			if invObjID, e := primitive.ObjectIDFromHex(note.InvoiceID); e == nil {
+				var inv struct {
+					Status string `bson:"status"`
+				}
+				invErr := invoiceCollection.FindOne(ctx, bson.M{"_id": invObjID, "orgId": orgIDStr}).Decode(&inv)
+				if invErr != nil || inv.Status == "void" {
+					deliveryNotesCollection.UpdateOne(ctx,
+						bson.M{"_id": objectID},
+						bson.M{"$unset": bson.M{"invoiceId": "", "invoiceNumber": ""}},
+					)
+					note.InvoiceID = ""
+					note.InvoiceNumber = ""
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Delivery note retrieved", "data": note})

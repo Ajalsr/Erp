@@ -111,6 +111,13 @@ func CreateOrganization() gin.HandlerFunc {
 			bson.M{"$set": bson.M{"orgId": org.ID}},
 		)
 
+		// Auto-seed default chart of accounts for the new org
+		go func() {
+			seedCtx, seedCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer seedCancel()
+			seedDefaultAccountsForOrg(seedCtx, org.ID.Hex(), userIDStr)
+		}()
+
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Organization created successfully",

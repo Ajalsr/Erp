@@ -766,15 +766,28 @@ const Salesorders = () => {
 
                         {/* Status */}
                         <td style={{ padding: "12px 14px" }}>
-                          <span style={{
-                            display: "inline-flex", alignItems: "center", gap: "4px",
-                            fontSize: "10px", fontWeight: "600", padding: "3px 8px",
-                            borderRadius: "5px", background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`,
-                            whiteSpace: "nowrap",
-                          }}>
-                            <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: sc.color, flexShrink: 0 }} />
-                            {item.status}
-                          </span>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: "4px",
+                              fontSize: "10px", fontWeight: "600", padding: "3px 8px",
+                              borderRadius: "5px", background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`,
+                              whiteSpace: "nowrap", width: "fit-content",
+                            }}>
+                              <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: sc.color, flexShrink: 0 }} />
+                              {item.status}
+                            </span>
+                            {item.rawStatus === "shipped" && (
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", gap: "3px",
+                                fontSize: "9px", fontWeight: "700", padding: "2px 6px",
+                                borderRadius: "4px", width: "fit-content",
+                                background: "rgba(245,158,11,0.12)", color: "#f59e0b",
+                                border: "1px solid rgba(245,158,11,0.3)", whiteSpace: "nowrap",
+                              }}>
+                                ⚡ To Invoice
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* LPO */}
@@ -974,6 +987,16 @@ const Salesorders = () => {
                             }}>
                               <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "currentColor" }} />
                               {selected.fulfillmentStatus === "fulfilled" ? "Fulfilled" : selected.fulfillmentStatus === "partial" ? "Partial Delivery" : "Unfulfilled"}
+                            </span>
+                          )}
+                          {selected.rawStatus === "shipped" && (
+                            <span style={{
+                              fontSize: "10px", fontWeight: "700", padding: "2px 7px", borderRadius: "4px",
+                              background: "rgba(245,158,11,0.12)", color: "#f59e0b",
+                              border: "1px solid rgba(245,158,11,0.3)",
+                              display: "inline-flex", alignItems: "center", gap: "3px",
+                            }}>
+                              ⚡ To Invoice
                             </span>
                           )}
                         </div>
