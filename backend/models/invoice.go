@@ -7,17 +7,18 @@ import (
 )
 
 type InvoiceLineItem struct {
-	ID        primitive.ObjectID `json:"_id,omitempty"     bson:"_id,omitempty"`
-	StockID   string             `json:"stockId,omitempty" bson:"stockId,omitempty"`
-	Desc      string             `json:"desc"      bson:"desc"`
-	Qty       float64            `json:"qty"       bson:"qty"`
-	UnitPrice float64            `json:"unitPrice" bson:"unitPrice"`
-	Discount  float64            `json:"discount"  bson:"discount"`
-	TaxRate   float64            `json:"taxRate"   bson:"taxRate"`
-	Subtotal  float64            `json:"subtotal"  bson:"subtotal"`
-	DiscAmt   float64            `json:"discAmt"   bson:"discAmt"`
-	TaxAmt    float64            `json:"taxAmt"    bson:"taxAmt"`
-	Total     float64            `json:"total"     bson:"total"`
+	ID           primitive.ObjectID `json:"_id,omitempty"          bson:"_id,omitempty"`
+	StockID      string             `json:"stockId,omitempty"      bson:"stockId,omitempty"`
+	Desc         string             `json:"desc"       bson:"desc"`
+	Qty          float64            `json:"qty"        bson:"qty"`
+	UnitPrice    float64            `json:"unitPrice"  bson:"unitPrice"`
+	Discount     float64            `json:"discount"   bson:"discount"`
+	TaxRate      float64            `json:"taxRate"    bson:"taxRate"`
+	Subtotal     float64            `json:"subtotal"   bson:"subtotal"`
+	DiscAmt      float64            `json:"discAmt"    bson:"discAmt"`
+	TaxAmt       float64            `json:"taxAmt"     bson:"taxAmt"`
+	Total        float64            `json:"total"      bson:"total"`
+	LineItemType string             `json:"_type,omitempty" bson:"_type,omitempty"` // "goods" | "expense"
 }
 
 type SalesReturnItem struct {

@@ -87,6 +87,17 @@ func CreateInvoice() gin.HandlerFunc {
 			return
 		}
 
+		// Journal entry: DR Accounts Receivable / CR Sales Revenue + CR VAT Payable
+		if inv.Status != "draft" && inv.Totals.GrandTotal > 0 {
+			go autoJE(inv.OrgID, "invoice", inv.ID.Hex(), inv.InvoiceNumber, inv.IssueDate,
+				"Invoice raised - "+inv.InvoiceNumber,
+				[]jeLineInput{
+					{AccountCode: "1100", Debit: inv.Totals.GrandTotal},
+					{AccountCode: "4000", Credit: inv.Totals.Subtotal - inv.Totals.DiscountTotal},
+					{AccountCode: "2100", Credit: inv.Totals.TaxTotal},
+				})
+		}
+
 		action := "Invoice created"
 		if inv.Type == "proforma" {
 			action = "Proforma created"
@@ -539,6 +550,19 @@ func VoidInvoice() gin.HandlerFunc {
 
 		userIDVoid, _ := c.Get("userId")
 		pushInvoiceHistory(ctx, objectID, "Invoice voided", fmt.Sprintf("%v", userIDVoid), req.Reason)
+
+		// ── 5. Unlink delivery note — allow re-invoicing ──────────────────────
+		if existing.LinkedDNID != "" {
+			if dnObjID, e := primitive.ObjectIDFromHex(existing.LinkedDNID); e == nil {
+				deliveryNotesCollection.UpdateOne(ctx,
+					bson.M{"_id": dnObjID, "orgId": orgID},
+					bson.M{"$unset": bson.M{"invoiceId": "", "invoiceNumber": ""}},
+				)
+			}
+		}
+
+		// ── 6. Reverse journal entries for this invoice ───────────────────────
+		go reverseJournalEntries(existing.OrgID, existing.ID.Hex(), fmt.Sprintf("%v", userIDVoid))
 
 		msg := "Invoice voided"
 		if len(linkedPayments) > 0 {

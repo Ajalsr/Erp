@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import ReactDOM from "react-dom";
 import DatePicker from "react-datepicker";
 import { format, addDays, addMonths, isSameDay } from "date-fns";
@@ -604,6 +604,7 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
 /* ─── Main Component ────────────────────────────────────────────────────── */
 const Invoices = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const isDark = useThemeStore((s) => s.isDark);
   const T = buildTheme(isDark);
 
@@ -621,7 +622,7 @@ const Invoices = () => {
   const [returnItems,     setReturnItems]     = useState([]);
   const [returnNotes,     setReturnNotes]     = useState("");
   const [returnMode,      setReturnMode]      = useState("credit"); // "credit" | "refund" | "reduce"
-  const [returnPaymentId, setReturnPaymentId] = useState("");
+  const [_returnPaymentId, setReturnPaymentId] = useState("");
   const [returnLoading,   setReturnLoading]   = useState(false);
   const [stocksList,      setStocksList]      = useState([]);
 
@@ -634,6 +635,18 @@ const Invoices = () => {
   }, []);
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
+
+  // Auto-open drawer when navigated from DN with openInvoiceId — fetch directly by ID
+  useEffect(() => {
+    const targetId = location.state?.openInvoiceId;
+    if (!targetId) return;
+    axiosInstance.get(`/api/invoices/${targetId}`)
+      .then(res => {
+        const inv = res.data?.data;
+        if (inv) { setSelected(toRow(inv)); setDrawerTab("overview"); }
+      })
+      .catch(() => {});
+  }, [location.state?.openInvoiceId]);
 
   /* filters */
   const [search,       setSearch]       = useState("");
@@ -865,8 +878,13 @@ const Invoices = () => {
         discountAed:  li.discountAed ?? li.discountAED ?? 0,
         discountType: li.discountType || "fixed",
         discount:     li.discount ?? 0,
+        _type:        li._type || "goods",
       }))
     : [];
+  // Expense items: explicitly tagged OR no stockId + no tax (shipping/adj pattern)
+  const isExpense = (li) => li._type === "expense" || (!li.stockId && li.tax === 0 && li._type !== "goods");
+  const goodsItems   = drawerItems.filter(li => !isExpense(li));
+  const expenseItems = drawerItems.filter(li =>  isExpense(li));
   const [drawerHistory, setDrawerHistory] = useState([]);
   useEffect(() => {
     if (!selected?._id) { setDrawerHistory([]); return; }
@@ -1440,7 +1458,7 @@ const Invoices = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {drawerItems.map((item, i) => (
+                        {goodsItems.map((item, i) => (
                           <tr key={i}>
                             <td style={{ ...tdStyle, padding: "10px 8px", fontSize: 13 }}>{item.desc}</td>
                             <td style={{ ...tdStyle, padding: "10px 8px", textAlign: "right", color: T.muted, fontFamily: "'DM Mono', monospace", fontSize: 12 }}>{item.qty}</td>
@@ -1461,14 +1479,16 @@ const Invoices = () => {
                     {/* Totals summary */}
                     <div style={{ marginTop: 16, background: T.surface2, borderRadius: 8, border: `1px solid ${T.border}`, padding: 14 }}>
                       {(() => {
-                        const totalDiscount = drawerItems.reduce((s, li) => s + (Number(li.discountAed) || 0), 0);
-                        const subtotalBeforeDiscount = drawerItems.reduce((s, li) => s + (li.qty * li.price), 0);
+                        const totalDiscount = goodsItems.reduce((s, li) => s + (Number(li.discountAed) || 0), 0);
+                        const subtotalBeforeDiscount = goodsItems.reduce((s, li) => s + (li.qty * li.price), 0);
                         const subtotalAfterDiscount = subtotalBeforeDiscount - totalDiscount;
-                        const vat = subtotalAfterDiscount * 0.05;
+                        const vat = goodsItems.reduce((s, li) => s + li.amt, 0) - subtotalAfterDiscount <= 0
+                          ? subtotalAfterDiscount * 0.05
+                          : goodsItems.reduce((s, li) => s + li.amt, 0) - subtotalAfterDiscount;
                         const rows = [
                           { label: "Subtotal", val: `AED ${subtotalBeforeDiscount.toFixed(2)}` },
                           ...(totalDiscount > 0 ? [{ label: "Discount", val: `-AED ${totalDiscount.toFixed(2)}`, color: "#10b981" }] : []),
-                          { label: "VAT (5%)", val: `AED ${vat.toFixed(2)}` },
+                          { label: `VAT (5%)`, val: `AED ${vat.toFixed(2)}` },
                         ];
                         return rows.map(({ label, val, color }) => (
                           <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
@@ -1477,6 +1497,19 @@ const Invoices = () => {
                           </div>
                         ));
                       })()}
+                      {/* Shipping + misc charges — shown separately below goods subtotal */}
+                      {expenseItems.length > 0 && (
+                        <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px dashed ${T.border}` }}>
+                          {expenseItems.map((ei, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                              <span style={{ fontSize: 12, color: T.muted }}>{ei.desc}</span>
+                              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: T.text }}>
+                                {ei.amt < 0 ? `−AED ${Math.abs(ei.amt).toFixed(2)}` : `AED ${ei.amt.toFixed(2)}`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 0", marginTop: 8, borderTop: `1px solid ${T.border}` }}>
                         <span style={{ fontSize: 14, fontWeight: 600 }}>Total</span>
                         <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 500, color: T.accent }}>{fmt(selected.amount)}</span>
@@ -1878,7 +1911,6 @@ const Invoices = () => {
           const sub = i.qty * i.unitPrice;
           return s + sub + sub * (i.taxRate / 100);
         }, 0);
-        const nonRefundedPayments = linkedPayments.filter(p => !p.isRefunded);
         const invStatus = selected.status;
 
         // Available modes per invoice status

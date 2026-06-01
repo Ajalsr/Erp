@@ -75,7 +75,7 @@ func GetStatementOfAccount() gin.HandlerFunc {
 			"orgId":      orgID,
 			"customerId": customerIDStr,
 			"issueDate":  bson.M{"$gte": startStr, "$lte": endStr},
-			"status":     bson.M{"$ne": "voided"},
+			"status":     bson.M{"$nin": []string{"void", "draft"}},
 		})
 		if err == nil {
 			defer invCursor.Close(ctx)
@@ -165,7 +165,7 @@ func GetStatementOfAccount() gin.HandlerFunc {
 			"orgId":      orgID,
 			"customerId": customerIDStr,
 			"issueDate":  bson.M{"$lt": startStr},
-			"status":     bson.M{"$ne": "voided"},
+			"status":     bson.M{"$nin": []string{"void", "draft"}},
 		})
 		if invBeforeCursor != nil {
 			defer invBeforeCursor.Close(ctx)

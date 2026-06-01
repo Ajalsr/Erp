@@ -114,7 +114,7 @@ export default function Item() {
     setAdjLoading(true);
     axiosInstance.get(`/api/inventory/adjustments/?itemId=${selectedItem._id}&limit=500`)
       .then(res => {
-        const adjs = res.data?.data || res.data?.adjustments || [];
+        const adjs = res.data?.data?.adjustments || res.data?.adjustments || [];
         setItemAdjustments(adjs.map(a => ({ ...a, _source: "adj" })));
       })
       .catch(() => setItemAdjustments([]))
@@ -417,7 +417,7 @@ export default function Item() {
               activeTab={activeTab} setActiveTab={setActiveTab}
               itemOrders={itemOrders} ordersLoading={ordersLoading}
               itemAdjustments={itemAdjustments} adjLoading={adjLoading}
-              requested={availability.requested ?? 0}
+              requested={(availability.requested ?? 0) + (availability.committed ?? 0)}
               onClose={closePanel}
               onAdjust={(item)=>{setAdjustItem(item);setAdjustQty(String(item.quantity??0));}}
               onEdit={(item)=>navigate(`/Items/Items/Edit/${item._id||item.id}`)}
@@ -625,7 +625,7 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
             label="Requested qty"
             value={requested>0?`${fmtN(requested)} ${item.unit||"units"}`:"—"}
             tone={requested>0?"warn":""}
-            sub={requested>0?"Pending approval":"No pending orders"}
+            sub={requested>0?"Reserved for orders":"No pending orders"}
             icon={<FaExclamationTriangle size={12}/>}
             T={T} isDark={isDark} muted={muted} text={text}
           />
@@ -819,21 +819,9 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
   if(activeTab==="history"){
     if(ordersLoading||adjLoading) return <div style={{textAlign:"center",padding:"48px 0",color:muted,fontSize:13}}>Loading…</div>;
     const REASON_LABEL = { sale:"Sale (Dispatched)", return:"Sales Return", purchase:"Purchase", damaged:"Damaged", expired:"Expired", found:"Found", correction:"Correction", transfer:"Transfer", other:"Other" };
-    // Map SO/PO orders to timeline entries
-    // Only confirmed GRN receipts and sales move stock — exclude "onorder" POs
-    const orderEntries = itemOrders
-      .filter(o => o.type === "purchase" || o.type === "sale")
-      .map(o=>({
-        _id:`order-${o.id}`,
-        type: o.type==="purchase"?"increase":"decrease",
-        quantity: o.qty,
-        reason: o.type==="purchase"?"purchase":"sale",
-        reference: o.orderNumber,
-        partyName: o.partyName,
-        adjustedAt: o.date||o.createdAt,
-      }));
-    // Merge with real manual adjustment records
-    const histEntries = [...orderEntries, ...itemAdjustments]
+    // History uses ONLY real adjustment records (written by deductStockOnDispatch + GRN confirms).
+    // SOs in draft/pending would cause phantom decreases — they belong in Transactions tab only.
+    const histEntries = [...itemAdjustments]
       .sort((a,b)=>new Date(a.adjustedAt||a.createdAt)-new Date(b.adjustedAt||b.createdAt));
     if(!histEntries.length) return <Empty text icon={<FaBarcode size={22}/>} title="No History" sub="Stock movements appear here after dispatches and adjustments." T={T} muted={muted}/>;
     return (

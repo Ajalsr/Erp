@@ -105,12 +105,12 @@ func GetItemStockAvailability() gin.HandlerFunc {
 		}
 		inHand, _ := strconv.ParseFloat(stock.Quantity, 64)
 
-		// ── 2. Committed qty from open/confirmed/processing orders ─────────
+		// ── 2. Committed qty from all active orders ───────────────────────
 		soCol := config.GetCollection(config.DB, "sales_orders")
 		pipeline := []bson.M{
 			{"$match": bson.M{
 				"orgId":          orgIDStr,
-				"status":         bson.M{"$in": []string{"open", "confirmed", "processing"}},
+				"status":         bson.M{"$in": []string{"open", "confirmed", "approved", "processing", "shipped"}},
 				"items.itemId":   itemIDStr,
 			}},
 			{"$unwind": "$items"},
@@ -132,7 +132,7 @@ func GetItemStockAvailability() gin.HandlerFunc {
 			committed = committedRes[0].Committed
 		}
 
-		// ── 3. Requested qty from pending_approval orders ────────────
+		// ── 3. Requested qty — pending_approval SOs + unshipped DNs ─────
 		reqPipeline := []bson.M{
 			{"$match": bson.M{
 				"orgId":        orgIDStr,
@@ -156,6 +156,32 @@ func GetItemStockAvailability() gin.HandlerFunc {
 		requested := 0.0
 		if len(requestedRes) > 0 {
 			requested = requestedRes[0].Requested
+		}
+
+		// Add qty from delivery notes that are draft or confirmed (not yet dispatched/delivered)
+		dnCol := config.GetCollection(config.DB, "delivery_notes")
+		dnPipeline := []bson.M{
+			{"$match": bson.M{
+				"orgId":           orgIDStr,
+				"status":          bson.M{"$in": []string{"draft", "confirmed"}},
+				"items.itemId":    itemIDStr,
+			}},
+			{"$unwind": "$items"},
+			{"$match": bson.M{"items.itemId": itemIDStr}},
+			{"$group": bson.M{
+				"_id":  nil,
+				"qty":  bson.M{"$sum": "$items.quantity"},
+			}},
+		}
+		dnCur, err3 := dnCol.Aggregate(ctx, dnPipeline)
+		var dnRes []struct {
+			Qty float64 `bson:"qty"`
+		}
+		if err3 == nil {
+			_ = dnCur.All(ctx, &dnRes)
+		}
+		if len(dnRes) > 0 {
+			requested += dnRes[0].Qty
 		}
 
 		available := inHand - committed

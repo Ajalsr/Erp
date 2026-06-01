@@ -187,6 +187,25 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 					"$inc": bson.M{"quantity_ordered": -item.ReceivedQty},
 				},
 			)
+			// Write audit record so item History tab shows this purchase
+			if acceptedQty > 0 {
+				adj := models.StockAdjustment{
+					ID:          primitive.NewObjectID(),
+					OrgID:       orgIDStr,
+					ItemID:      item.ItemID,
+					ItemName:    item.Details,
+					ItemCode:    item.ItemCode,
+					Quantity:    acceptedQty,
+					Type:        "increase",
+					Reason:      "purchase",
+					Reference:   g.GRNNumber,
+					PreviousQty: currentQty,
+					NewQty:      newQty,
+					AdjustedAt:  time.Now(),
+					CreatedAt:   time.Now(),
+				}
+				adjustmentCollection.InsertOne(ctx, adj)
+			}
 		}
 	}
 

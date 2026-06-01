@@ -134,6 +134,14 @@ func CreatePayment() gin.HandlerFunc {
 			return
 		}
 
+		// Journal entry: DR Bank/Cash / CR Accounts Receivable
+		go autoJE(p.OrgID, "payment", p.ID.Hex(), p.PaymentNumber, p.Date,
+			"Payment received - "+p.InvoiceNumber,
+			[]jeLineInput{
+				{AccountCode: "1001", Debit: p.Amount},
+				{AccountCode: "1100", Credit: p.Amount},
+			})
+
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Payment recorded successfully",

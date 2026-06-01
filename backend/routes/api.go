@@ -297,11 +297,24 @@ func AccountRoutes(router *gin.Engine) {
 	accRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
 	{
 		accRoutes.POST("/", controllers.CreateAccount())
+		accRoutes.POST("/seed", controllers.SeedDefaultAccounts())
 		accRoutes.GET("/", controllers.GetAllAccounts())
 		accRoutes.GET("/stats", controllers.GetAccountStats())
+		accRoutes.GET("/trial-balance", controllers.GetTrialBalance())
 		accRoutes.GET("/:id", controllers.GetAccountByID())
+		accRoutes.GET("/:id/ledger", controllers.GetAccountLedger())
 		accRoutes.PUT("/:id", controllers.UpdateAccount())
 		accRoutes.DELETE("/:id", controllers.DeleteAccount())
+	}
+}
+
+func JournalEntryRoutes(router *gin.Engine) {
+	jeRoutes := router.Group("/api/journal-entries")
+	jeRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		jeRoutes.POST("/", controllers.CreateManualJournalEntry())
+		jeRoutes.GET("/", controllers.GetJournalEntries())
+		jeRoutes.GET("/:id", controllers.GetJournalEntryByID())
 	}
 }
 

@@ -319,9 +319,10 @@ export default function DeliveryNote() {
         </button>
       )}
       {note.invoiceId ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#10b981' }}>
-          <FaCheckCircle size={11} /> Invoiced: {note.invoiceNumber}
-        </div>
+        <button className="dn-btn" onClick={() => navigate('/Sales/Invoices', { state: { openInvoiceId: note.invoiceId } })}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#10b981', cursor: 'pointer' }}>
+          <FaCheckCircle size={11} /> Invoiced: {note.invoiceNumber} →
+        </button>
       ) : (isDispatched || isDelivered) ? (
         <button className="dn-btn" onClick={handleCreateInvoice}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>
@@ -809,9 +810,10 @@ export default function DeliveryNote() {
                   <FaArrowLeft size={11} /> All Delivery Notes
                 </button>
                 {note.invoiceId ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#10b981' }}>
-                    <FaCheckCircle size={13} /> Invoice {note.invoiceNumber}
-                  </div>
+                  <button className="dn-btn" onClick={() => navigate('/Sales/Invoices', { state: { openInvoiceId: note.invoiceId } })}
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#10b981', cursor: 'pointer' }}>
+                    <FaCheckCircle size={13} /> Invoice {note.invoiceNumber} →
+                  </button>
                 ) : (isDispatched || isDelivered) ? (
                   <button className="dn-btn" onClick={handleCreateInvoice}
                     style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>

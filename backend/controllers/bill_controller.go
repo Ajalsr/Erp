@@ -65,6 +65,17 @@ func CreateBill() gin.HandlerFunc {
 			return
 		}
 
+		// Journal entry: DR COGS + DR VAT Input / CR Accounts Payable
+		if b.Status != "draft" && b.Totals.GrandTotal > 0 {
+			go autoJE(b.OrgID, "bill", b.ID.Hex(), b.BillNumber, b.BillDate,
+				"Bill received - "+b.BillNumber,
+				[]jeLineInput{
+					{AccountCode: "5000", Debit: b.Totals.Subtotal - b.Totals.DiscountTotal},
+					{AccountCode: "5500", Debit: b.Totals.TaxTotal},
+					{AccountCode: "2000", Credit: b.Totals.GrandTotal},
+				})
+		}
+
 		// Mark linked GRN as billed
 		if b.GRNID != "" {
 			if grnObjID, err := primitive.ObjectIDFromHex(b.GRNID); err == nil {
