@@ -568,7 +568,7 @@ const calcTotals = (items) => {
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function CreditNotes() {
+export default function CreditNotes({ prefill: inlinePrefill = null, onClose: onInlineClose = null }) {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const location = useLocation();
@@ -613,6 +613,7 @@ export default function CreditNotes() {
     setForm(DEFAULT_FORM);
     setPrefillSource(null);
     setCustInvs([]);
+    if (onInlineClose) onInlineClose();
   };
 
   const load = useCallback(async () => {
@@ -633,9 +634,53 @@ export default function CreditNotes() {
       .catch(() => {});
   }, []);
 
+  // When rendered inline from Invoices page (no navigation), open via prop
+  useEffect(() => {
+    if (!inlinePrefill) return;
+    const p = inlinePrefill;
+    const prefillForm = {
+      ...DEFAULT_FORM,
+      customerId:      p.customerId      || "",
+      customerName:    p.customerName    || "",
+      sourceDocId:     p.invoiceId       || "",
+      sourceDocType:   "invoice",
+      sourceDocNumber: p.invoiceNumber   || "",
+    };
+    openModal(prefillForm);
+    if (p.invoiceId) {
+      setPrefillLoading(true);
+      axiosInstance.get(`/api/invoices/${p.invoiceId}`)
+        .then(r => {
+          const full = r.data?.data || r.data;
+          const mapped = (full.lineItems || [])
+            .filter(item => item._type !== "expense" && item.stockId)
+            .map(item => calcItem({
+              description: item.description || item.desc || "",
+              qty:         parseFloat(item.qty || item.quantity || 1),
+              unitPrice:   parseFloat(item.unitPrice || item.rate || 0),
+              taxRate:     parseFloat(item.taxRate || 0),
+              taxAmt: 0, total: 0,
+            })).filter(i => i.description);
+          if (mapped.length > 0) {
+            setForm(f => ({ ...f, lineItems: mapped }));
+            setPrefillSource({
+              invNumber:  p.invoiceNumber,
+              count:      mapped.length,
+              amountPaid: parseFloat(p.amountPaid || full.amountPaid || 0),
+              balanceDue: parseFloat(p.balanceDue || full.balanceDue || 0),
+              isPartial:  parseFloat(p.amountPaid || 0) > 0 && parseFloat(p.balanceDue || 0) > 0,
+            });
+          }
+        })
+        .catch(() => {})
+        .finally(() => setPrefillLoading(false));
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-open create modal when arriving from "Raise Credit Note" on an invoice,
   // and pre-fetch that invoice's line items so the form is pre-filled
   useEffect(() => {
+    if (inlinePrefill) return; // handled by inline prop effect above
     const p = location.state?.prefill;
     if (!p) return;
     const prefillForm = {
@@ -652,13 +697,15 @@ export default function CreditNotes() {
       axiosInstance.get(`/api/invoices/${p.invoiceId}`)
         .then(r => {
           const full = r.data?.data || r.data;
-          const mapped = (full.lineItems || []).map(item => calcItem({
-            description: item.description || item.desc || "",
-            qty:         parseFloat(item.qty || item.quantity || 1),
-            unitPrice:   parseFloat(item.unitPrice || item.rate || 0),
-            taxRate:     parseFloat(item.taxRate || 0),
-            taxAmt: 0, total: 0,
-          })).filter(i => i.description);
+          const mapped = (full.lineItems || [])
+            .filter(item => item._type !== "expense" && item.stockId)
+            .map(item => calcItem({
+              description: item.description || item.desc || "",
+              qty:         parseFloat(item.qty || item.quantity || 1),
+              unitPrice:   parseFloat(item.unitPrice || item.rate || 0),
+              taxRate:     parseFloat(item.taxRate || 0),
+              taxAmt: 0, total: 0,
+            })).filter(i => i.description);
           if (mapped.length > 0) {
             const amountPaid  = parseFloat(p.amountPaid  || full.amountPaid  || 0);
             const balanceDue  = parseFloat(p.balanceDue  || full.balanceDue  || 0);
@@ -879,9 +926,11 @@ export default function CreditNotes() {
   const inputSt = { width: "100%", padding: "10px 13px", border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit" };
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // Inline mode (rendered from Invoices page): skip the full list page, show only the modal
   return (
     <>
       <style>{css}</style>
+      {!onInlineClose && (
       <div className="cn-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
 
         {/* Header */}
@@ -997,6 +1046,7 @@ export default function CreditNotes() {
           </div>
         )}
       </div>
+      )}
 
       {/* ── Create Modal ──────────────────────────────────────────────────── */}
       {modalOpen && (

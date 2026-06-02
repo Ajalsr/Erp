@@ -180,7 +180,7 @@ const ModernDatePicker = ({ value, onChange, placeholder = 'Select date' }) => {
 
       <div style={{ padding: '14px 14px 10px' }}>
         {mode === 'calendar' ? (
-          <DatePicker selected={sel} onChange={d => { onChange(d.toISOString().split('T')[0]); setOpen(false); setMode('calendar'); }} inline
+          <DatePicker selected={sel} onChange={d => { onChange(d.toLocaleDateString('en-CA')); setOpen(false); setMode('calendar'); }} inline
             renderCustomHeader={({ date, decreaseMonth, increaseMonth, prevMonthButtonDisabled, nextMonthButtonDisabled }) => (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '0 2px' }}>
                 <button onClick={decreaseMonth} disabled={prevMonthButtonDisabled}
@@ -206,7 +206,7 @@ const ModernDatePicker = ({ value, onChange, placeholder = 'Select date' }) => {
             {presets.map(p => {
               const active = sel && isSameDay(sel, p.value);
               return (
-                <button key={p.label} onClick={() => { onChange(p.value.toISOString().split('T')[0]); setOpen(false); setMode('calendar'); }}
+                <button key={p.label} onClick={() => { onChange(p.value.toLocaleDateString('en-CA')); setOpen(false); setMode('calendar'); }}
                   style={{
                     padding: '10px 12px', borderRadius: 10, textAlign: 'left', cursor: 'pointer', transition: 'all .15s',
                     border: `1.5px solid ${active ? '#3b82f6' : T.border}`,

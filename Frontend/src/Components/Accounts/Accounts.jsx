@@ -29,6 +29,7 @@ export default function Accounts() {
   const [drawerAccount, setDrawerAccount] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [seeding, setSeeding] = useState(false);
+  const [seedModal, setSeedModal] = useState(false);
   const [ledgerAccount, setLedgerAccount] = useState(null);
   const [ledgerData, setLedgerData] = useState(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
@@ -60,7 +61,7 @@ export default function Accounts() {
   });
 
   const handleSeed = async () => {
-    if (!window.confirm('Seed 23 standard chart of accounts for this organisation?')) return;
+    setSeedModal(false);
     setSeeding(true);
     try {
       const res = await axiosInstance.post('/api/accounts/seed');
@@ -139,7 +140,7 @@ export default function Accounts() {
           }}>
             <FaBalanceScale size={11} /> Trial Balance
           </button>
-          <button onClick={handleSeed} disabled={seeding} style={{
+          <button onClick={() => setSeedModal(true)} disabled={seeding} style={{
             display: 'flex', alignItems: 'center', gap: 7,
             padding: '9px 16px', background: 'transparent', color: T.textSec,
             border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 12, fontWeight: 600,
@@ -211,7 +212,7 @@ export default function Accounts() {
             {accounts.length === 0 ? (
               <div>
                 <p style={{ fontSize: 12, color: T.textSec, margin: '0 0 16px' }}>Get started by seeding the standard 23 default accounts.</p>
-                <button onClick={handleSeed} disabled={seeding}
+                <button onClick={() => setSeedModal(true)} disabled={seeding}
                   style={{ padding: '10px 24px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
                   {seeding ? 'Seeding…' : 'Seed Default Accounts'}
                 </button>
@@ -262,6 +263,45 @@ export default function Accounts() {
           </div>
         ))}
       </div>
+
+      {/* Seed confirmation modal */}
+      {seedModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setSeedModal(false)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)' }} />
+          <div onClick={e => e.stopPropagation()}
+            style={{
+              position: 'relative', width: 420, background: T.surface,
+              border: `1.5px solid ${T.border}`, borderRadius: 16,
+              padding: '28px 28px 24px', boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+              zIndex: 1, fontFamily: "'DM Sans', sans-serif",
+            }}>
+            {/* Icon */}
+            <div style={{ width: 52, height: 52, borderRadius: 14, background: isDark ? 'rgba(59,130,246,0.12)' : '#eff6ff', border: '1.5px solid rgba(59,130,246,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+              <FaUniversity size={20} color="#3b82f6" />
+            </div>
+            <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 17, fontWeight: 700, color: T.textPri, margin: '0 0 8px' }}>
+              Seed Default Chart of Accounts
+            </h2>
+            <p style={{ fontSize: 13, color: T.textSec, margin: '0 0 6px', lineHeight: 1.6 }}>
+              This will add <strong style={{ color: T.textPri }}>23 standard accounts</strong> (Assets, Liabilities, Equity, Income, Expenses) to your organisation.
+            </p>
+            <p style={{ fontSize: 12, color: T.textSec, margin: '0 0 24px', lineHeight: 1.5 }}>
+              Existing accounts with the same code will be skipped — no duplicates created.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setSeedModal(false)}
+                style={{ flex: 1, padding: '10px', background: T.surface2, border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: T.textSec, fontFamily: 'inherit' }}>
+                Cancel
+              </button>
+              <button onClick={handleSeed}
+                style={{ flex: 1, padding: '10px', background: '#3b82f6', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', color: '#fff', fontFamily: 'inherit', boxShadow: '0 4px 14px rgba(59,130,246,0.35)' }}>
+                Seed Accounts
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ledger drawer */}
       {ledgerAccount && (
