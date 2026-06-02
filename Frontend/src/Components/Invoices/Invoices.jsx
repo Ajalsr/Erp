@@ -6,6 +6,7 @@ import { format, addDays, addMonths, isSameDay } from "date-fns";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
+import CreditNotes from "../CreditNotes/CreditNotes";
 import "react-datepicker/dist/react-datepicker.css";
 
 /* ─── Theme builder ──────────────────────────────────────────────────────── */
@@ -118,7 +119,7 @@ const toRow = (inv) => ({
   docType:      inv.type || "invoice",
   proformaConvertedTo:       inv.proformaConvertedTo || "",
   proformaConvertedToNumber: inv.proformaConvertedToNumber || "",
-  items:        (inv.lineItems || []).length,
+  items:        (inv.lineItems || []).filter(li => li._type !== "expense" && li.stockId).length,
   currency:     inv.currency || "AED",
   paymentTerms: inv.paymentTerms || "",
   lineItems:    inv.lineItems || [],
@@ -648,6 +649,17 @@ const Invoices = () => {
       .catch(() => {});
   }, [location.state?.openInvoiceId]);
 
+  /* inline credit-note modal */
+  const [cnPrefill, setCnPrefill] = useState(null);
+  const openCreditNote = (inv) => setCnPrefill({
+    customerId:    inv.customerId,
+    customerName:  inv.customer,
+    invoiceId:     inv._id,
+    invoiceNumber: inv.id,
+    amountPaid:    inv.paid,
+    balanceDue:    inv.balance,
+  });
+
   /* filters */
   const [search,       setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -878,11 +890,12 @@ const Invoices = () => {
         discountAed:  li.discountAed ?? li.discountAED ?? 0,
         discountType: li.discountType || "fixed",
         discount:     li.discount ?? 0,
-        _type:        li._type || "goods",
+        _type:   li._type || "",   // keep empty if unset — don't coerce to "goods"
+        stockId: li.stockId || "",
       }))
     : [];
-  // Expense items: explicitly tagged OR no stockId + no tax (shipping/adj pattern)
-  const isExpense = (li) => li._type === "expense" || (!li.stockId && li.tax === 0 && li._type !== "goods");
+  // Expense: explicit tag OR no inventory link (stockId absent + not explicitly "goods")
+  const isExpense = (li) => li._type === "expense" || (!li.stockId && li._type !== "goods");
   const goodsItems   = drawerItems.filter(li => !isExpense(li));
   const expenseItems = drawerItems.filter(li =>  isExpense(li));
   const [drawerHistory, setDrawerHistory] = useState([]);
@@ -1346,16 +1359,7 @@ const Invoices = () => {
                       {/* Credit note — paid invoices (refund) or partial with balance remaining */}
                       {(selected.status === "paid" || selected.status === "partial") && (
                         <button
-                          onClick={() => navigate("/Sales/CreditNotes", {
-                            state: {
-                              prefill: {
-                                customerId:    selected.customerId,
-                                customerName:  selected.customer,
-                                invoiceId:     selected._id,
-                                invoiceNumber: selected.id,
-                              }
-                            }
-                          })}
+                          onClick={() => openCreditNote(selected)}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue, fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           📋 Raise Credit Note
                         </button>
@@ -1370,7 +1374,8 @@ const Invoices = () => {
                             alreadyReturned[item.itemName] = (alreadyReturned[item.itemName] || 0) + item.qty;
                           })
                         );
-                        const hasReturnable = (selected.lineItems || []).some(li =>
+                        const goodsLineItems = (selected.lineItems || []).filter(li => li._type !== "expense" && li.stockId);
+                        const hasReturnable = goodsLineItems.some(li =>
                           Math.max(0, (li.qty ?? 0) - (alreadyReturned[li.desc] || 0)) > 0
                         );
                         return (
@@ -1379,7 +1384,7 @@ const Invoices = () => {
                             onClick={() => {
                               const s = selected.status;
                               const defaultMode = (s === "unpaid" || s === "overdue") ? "reduce" : s === "partial" ? "reduce" : "credit";
-                              setReturnItems((selected.lineItems || []).map(li => ({
+                              setReturnItems(goodsLineItems.map(li => ({
                                 itemName:  li.desc || "",
                                 qty:       0,
                                 maxQty:    Math.max(0, (li.qty ?? 0) - (alreadyReturned[li.desc] || 0)),
@@ -1542,18 +1547,27 @@ const Invoices = () => {
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {linkedPayments.map((p, i) => {
                           const modeColor = { Cash: "#10b981", "Bank Transfer": "#3b82f6", Cheque: "#f59e0b", Card: "#8b5cf6", Other: "#64748b" }[p.paymentMode] || "#64748b";
+                          const refundedAmt = p.refundedAmount || 0;
+                          const fullyRefunded = p.isRefunded && refundedAmt >= (p.amount || 0) - 0.005;
+                          const partiallyRefunded = p.isRefunded && !fullyRefunded;
+                          const netPaid = (p.amount || 0) - refundedAmt;
                           return (
                             <div key={i} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 9, padding: "12px 14px" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                                 <div>
                                   <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.blue, fontWeight: 600 }}>{p.paymentNumber}</span>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
                                     <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: `${modeColor}18`, color: modeColor, border: `1px solid ${modeColor}30` }}>
                                       {p.paymentMode || "Other"}
                                     </span>
-                                    {p.isRefunded && (
+                                    {fullyRefunded && (
                                       <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.25)" }}>
                                         Refunded
+                                      </span>
+                                    )}
+                                    {partiallyRefunded && (
+                                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: "rgba(245,158,11,0.1)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.25)" }}>
+                                        Partial Refund {fmt(refundedAmt)}
                                       </span>
                                     )}
                                     {p.reference && (
@@ -1562,15 +1576,20 @@ const Invoices = () => {
                                   </div>
                                 </div>
                                 <div style={{ textAlign: "right" }}>
-                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color: p.isRefunded ? T.muted : "#10b981", margin: 0, textDecoration: p.isRefunded ? "line-through" : "none" }}>
+                                  <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color: fullyRefunded ? T.muted : "#10b981", margin: 0, textDecoration: fullyRefunded ? "line-through" : "none" }}>
                                     {fmt(p.amount)}
                                   </p>
+                                  {partiallyRefunded && (
+                                    <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "#10b981", margin: "2px 0 0" }}>
+                                      Net: {fmt(netPaid)}
+                                    </p>
+                                  )}
                                   <p style={{ fontSize: 11, color: T.muted, margin: "3px 0 0" }}>
                                     {p.date ? new Date(p.date).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                                   </p>
-                                  {!p.isRefunded && (
+                                  {netPaid > 0.005 && (
                                     <button
-                                      onClick={() => { setRefundModal(p); setRefundAmount(String(p.amount)); setRefundReason(""); }}
+                                      onClick={() => { setRefundModal(p); setRefundAmount(String(netPaid)); setRefundReason(""); }}
                                       style={{ marginTop: 6, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 6, cursor: "pointer", background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", fontFamily: "'DM Sans', sans-serif" }}>
                                       ↩ Reverse Payment
                                     </button>
@@ -1581,9 +1600,9 @@ const Invoices = () => {
                           );
                         })}
                         <div style={{ marginTop: 4, padding: "10px 14px", background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 12, color: T.muted }}>Total paid</span>
+                          <span style={{ fontSize: 12, color: T.muted }}>Total paid (net of refunds)</span>
                           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#10b981" }}>
-                            {fmt(linkedPayments.reduce((s, p) => s + (p.amount || 0), 0))}
+                            {fmt(linkedPayments.reduce((s, p) => s + ((p.amount || 0) - (p.refundedAmount || 0)), 0))}
                           </span>
                         </div>
                       </div>
@@ -1597,16 +1616,7 @@ const Invoices = () => {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <p style={{ fontSize: 13, fontWeight: 600, color: T.text, margin: 0 }}>Credit Notes Applied</p>
                       <button
-                        onClick={() => navigate("/Sales/CreditNotes", {
-                          state: {
-                            prefill: {
-                              customerId:    selected.customerId,
-                              customerName:  selected.customer,
-                              invoiceId:     selected._id,
-                              invoiceNumber: selected.id,
-                            }
-                          }
-                        })}
+                        onClick={() => openCreditNote(selected)}
                         style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue }}>
                         + New Credit Note
                       </button>
@@ -1847,10 +1857,12 @@ const Invoices = () => {
       {refundModal && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
           onClick={e => e.target === e.currentTarget && setRefundModal(null)}>
+          {(() => { const refundRemaining = (refundModal.amount || 0) - (refundModal.refundedAmount || 0); return (
           <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
             <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>↩ Reverse Payment</div>
             <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>
               {refundModal.paymentNumber} · Original: {fmt(refundModal.amount)}
+              {(refundModal.refundedAmount || 0) > 0 && <> · Already refunded: {fmt(refundModal.refundedAmount)}</>}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
@@ -1861,17 +1873,17 @@ const Invoices = () => {
                   type="number"
                   value={refundAmount}
                   min={0.01}
-                  max={refundModal.amount}
+                  max={refundRemaining}
                   step="0.01"
                   onChange={e => {
                     const raw = parseFloat(e.target.value);
                     if (isNaN(raw) || raw < 0) { setRefundAmount(""); return; }
-                    setRefundAmount(String(Math.min(raw, refundModal.amount)));
+                    setRefundAmount(String(Math.min(raw, refundRemaining)));
                   }}
-                  style={{ width: "100%", padding: "10px 13px", background: T.input, border: `1.5px solid ${parseFloat(refundAmount) > refundModal.amount ? "#ef4444" : T.inputBdr}`, borderRadius: 9, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Mono', monospace" }}
+                  style={{ width: "100%", padding: "10px 13px", background: T.input, border: `1.5px solid ${parseFloat(refundAmount) > refundRemaining ? "#ef4444" : T.inputBdr}`, borderRadius: 9, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Mono', monospace" }}
                 />
                 <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>
-                  Max: <span style={{ fontFamily: "'DM Mono', monospace", color: T.text }}>{fmt(refundModal.amount)}</span>
+                  Max refundable: <span style={{ fontFamily: "'DM Mono', monospace", color: T.text }}>{fmt(refundRemaining)}</span>
                 </div>
               </div>
               <div>
@@ -1901,6 +1913,7 @@ const Invoices = () => {
               </button>
             </div>
           </div>
+          ); })()}
         </div>
       )}
 
@@ -2060,6 +2073,14 @@ const Invoices = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Inline Credit Note modal — opened from invoice drawer, no navigation */}
+      {cnPrefill && (
+        <CreditNotes
+          prefill={cnPrefill}
+          onClose={() => { setCnPrefill(null); loadInvoices(); }}
+        />
       )}
     </>
   );

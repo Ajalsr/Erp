@@ -453,8 +453,10 @@ func RefundPayment() gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"message": "Payment not found"})
 			return
 		}
-		if pmt.IsRefunded {
-			c.JSON(http.StatusConflict, gin.H{"message": "Payment already refunded"})
+		alreadyRefunded := pmt.RefundedAmount
+		remaining := pmt.Amount - alreadyRefunded
+		if remaining <= 0.005 {
+			c.JSON(http.StatusConflict, gin.H{"message": "Payment already fully refunded"})
 			return
 		}
 
@@ -464,10 +466,10 @@ func RefundPayment() gin.HandlerFunc {
 		}
 		c.ShouldBindJSON(&req)
 		if req.Amount <= 0 {
-			req.Amount = pmt.Amount
+			req.Amount = remaining
 		}
-		if req.Amount > pmt.Amount {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "Refund amount cannot exceed original payment"})
+		if req.Amount > remaining+0.005 {
+			c.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("Refund amount cannot exceed remaining refundable balance (%.2f)", remaining)})
 			return
 		}
 
@@ -499,14 +501,51 @@ func RefundPayment() gin.HandlerFunc {
 			}
 		}
 
-		// ── Mark payment as refunded ──────────────────────────────────────────
+		// ── Restore customer AR (reverse the CreatePayment decrement) ─────────
+		if pmt.CustomerID != "" {
+			custFilter := bson.M{"orgId": orgID}
+			if custObjID, e := primitive.ObjectIDFromHex(pmt.CustomerID); e == nil {
+				custFilter["_id"] = custObjID
+			} else {
+				custFilter["_id"] = pmt.CustomerID
+			}
+			histEntry := bson.M{
+				"action":    "payment_refunded",
+				"timestamp": time.Now(),
+				"user":      pmt.CreatedBy,
+				"details": bson.M{
+					"amount":        req.Amount,
+					"paymentNumber": pmt.PaymentNumber,
+					"invoiceId":     pmt.InvoiceID,
+					"invoiceNumber": pmt.InvoiceNumber,
+					"reason":        req.Reason,
+				},
+			}
+			customersCollection.UpdateOne(ctx, custFilter, bson.M{
+				"$inc":  bson.M{"outstanding_balance": req.Amount},
+				"$push": bson.M{"history": histEntry},
+				"$set":  bson.M{"updated_at": time.Now()},
+			})
+		}
+
+		// ── Mark payment as refunded (accumulate; isRefunded only when fully refunded) ──
+		newRefundedTotal := alreadyRefunded + req.Amount
+		fullyRefunded := newRefundedTotal >= pmt.Amount-0.005
 		paymentCollection.UpdateOne(ctx, bson.M{"_id": objID, "orgId": orgID}, bson.M{"$set": bson.M{
-			"isRefunded":     true,
-			"refundedAmount": req.Amount,
+			"isRefunded":     fullyRefunded,
+			"refundedAmount": newRefundedTotal,
 			"refundedAt":     time.Now(),
 			"refundReason":   req.Reason,
 			"updatedAt":      time.Now(),
 		}})
+
+		// ── Reverse journal entry: DR Accounts Receivable / CR Bank/Cash ──────
+		go autoJE(fmt.Sprintf("%v", orgID), "payment_refund", pmt.ID.Hex(), pmt.PaymentNumber, time.Now().Format("2006-01-02"),
+			"Payment refunded - "+pmt.InvoiceNumber,
+			[]jeLineInput{
+				{AccountCode: "1100", Debit: req.Amount},
+				{AccountCode: "1001", Credit: req.Amount},
+			})
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Payment refunded",

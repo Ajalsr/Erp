@@ -132,7 +132,7 @@ function AdjustmentForm({ T, isDark, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     type: 'increase', quantity: '', reason: 'correction',
-    notes: '', reference: '', adjustedAt: new Date().toISOString().split('T')[0],
+    notes: '', reference: '', adjustedAt: new Date().toLocaleDateString('en-CA'),
   });
 
   useEffect(() => {

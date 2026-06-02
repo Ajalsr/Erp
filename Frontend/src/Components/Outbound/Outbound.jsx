@@ -27,41 +27,24 @@ const parseAmt = (v) => {
 };
 const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const round2  = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-const normaliseOrigin = (origin) => {
-  if (!origin) return 'mainland';
-  const o = origin.toLowerCase().replace(/\s+/g, '_');
-  if (o === 'free_zone' || o === 'freezone') return 'free_zone';
-  if (o === 'overseas') return 'overseas';
-  return 'mainland';
-};
-const customerTaxRate = (origin, country) => {
-  const norm = normaliseOrigin(origin);
-  if (norm === 'free_zone' || norm === 'overseas') return 0;
-  // Fallback: if country is not UAE → treat as overseas (0%)
-  if (!origin && country) {
-    const c = country.toLowerCase();
-    if (!c.includes('united arab emirates') && c !== 'uae' && c !== 'ae') return 0;
-  }
-  return 0.05;
-};
+// Sales VAT is always flat 5% — origin/freezone logic applies to purchases only
+const SALES_VAT = 0.05;
 
-const buildObTaxGroups = (selItems, originCache = {}) => {
+const buildObTaxGroups = (selItems) => {
   const order = [], groups = {};
   selItems.forEach(item => {
     const price = parseFloat(item.selling_price || 0);
     const qty   = item.outboundQuantity || 0;
     if (!price || !qty) return;
-    const custCache = originCache[item.customerId] || {};
-    const taxRate   = customerTaxRate(custCache.origin, custCache.country);
-    const key = `${price}_${taxRate}`;
-    if (!groups[key]) { groups[key] = { unitPrice: price, taxRate, base: 0 }; order.push(key); }
+    const key = String(price);
+    if (!groups[key]) { groups[key] = { unitPrice: price, base: 0 }; order.push(key); }
     groups[key].base = round2(groups[key].base + qty * price);
   });
   return order.map(key => ({
     rate:       groups[key].unitPrice,
-    taxRate:    groups[key].taxRate,
+    taxRate:    SALES_VAT,
     baseAmount: round2(groups[key].base),
-    taxAmount:  round2(groups[key].base * groups[key].taxRate),
+    taxAmount:  round2(groups[key].base * SALES_VAT),
   }));
 };
 
@@ -101,7 +84,6 @@ export default function Outbound() {
   const [activeDnSoIds,    setActiveDnSoIds]    = useState(new Set());
   const [showPrintModal,     setShowPrintModal]     = useState(false);
   const [page,               setPage]               = useState(1);
-  const [customerOriginCache, setCustomerOriginCache] = useState({});
   const perPage = 8;
   const searchRef = useRef(null);
 
@@ -182,19 +164,6 @@ export default function Outbound() {
     setSelectedIds(ids);
     setOutboundItems(items.map(i => ({ ...i, isSelected: true })));
 
-    // Fetch customer origins for VAT calculation
-    const custIds = [...new Set(items.map(i => i.customerId).filter(Boolean))];
-    if (custIds.length === 0) return;
-    Promise.allSettled(custIds.map(id => axiosInstance.get(`/api/customers/${id}`))).then(results => {
-      const cache = {};
-      results.forEach((r, i) => {
-        if (r.status === "fulfilled") {
-          const cust = r.value.data?.data || r.value.data;
-          if (cust) cache[custIds[i]] = { origin: cust.origin || "", country: cust.country || "" };
-        }
-      });
-      setCustomerOriginCache(prev => ({ ...prev, ...cache }));
-    });
   }, [itemsData, salesOrdersData, activeDnSoIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -251,9 +220,8 @@ export default function Outbound() {
     const subtotal   = sel.reduce((s, i) => s + i.outboundQuantity * parseFloat(i.selling_price || 0), 0);
     const soIds = [...new Set(sel.map(i => i.salesOrderId).filter(Boolean))];
 
-    // Fetch customer contact details (phone, email, address, origin)
+    // Fetch customer contact details
     let customerPhone = "", customerEmail = "", customerAddress = "", customerCode = "";
-    let customerOrigin = "", customerCountry = "";
     const customerId = so?.customerId;
     if (customerId) {
       try {
@@ -262,15 +230,12 @@ export default function Outbound() {
         customerPhone   = cust?.customerPhone || cust?.phone || "";
         customerEmail   = cust?.customerEmail || cust?.email || "";
         customerCode    = cust?.customerCode  || "";
-        customerOrigin  = cust?.origin        || "";
-        customerCountry = cust?.country       || "";
         const parts = [cust?.streetAddress, cust?.city, cust?.country].filter(Boolean);
         customerAddress = parts.join(", ");
       } catch { /* non-fatal — fields will be blank */ }
     }
 
-    const taxRate    = customerTaxRate(customerOrigin, customerCountry);
-    const totalTax   = Math.round(subtotal * taxRate * 100) / 100;
+    const totalTax   = Math.round(subtotal * SALES_VAT * 100) / 100;
     const grandTotal = Math.round((subtotal - totalDisc + totalTax) * 100) / 100;
 
     // Format lpoDate if present
@@ -400,7 +365,7 @@ export default function Outbound() {
   const totalQty    = selItems.reduce((s, i) => s + (i.outboundQuantity || 0), 0);
   const totalDisc   = selItems.reduce((s, i) => s + parseFloat(i.discount || 0), 0);
   const subTotal    = round2(selItems.reduce((s, i) => s + (i.outboundQuantity || 0) * parseFloat(i.selling_price || 0), 0));
-  const obTaxGroups = buildObTaxGroups(selItems, customerOriginCache);
+  const obTaxGroups = buildObTaxGroups(selItems);
   const totalTax    = round2(obTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const totalValue  = round2(subTotal + totalTax);
   const stockWarn  = outboundItems.filter(i => i.availableQuantity === 0).length;
@@ -772,18 +737,15 @@ export default function Outbound() {
 
                     {/* VAT */}
                     {(() => {
-                      const custCache = customerOriginCache[item.customerId] || {};
-                      const rate      = customerTaxRate(custCache.origin, custCache.country);
-                      const vatPct    = Math.round(rate * 100);
                       const unitPrice = parseFloat(item.selling_price || 0);
                       const qty       = item.outboundQuantity || 0;
                       const lineBase  = round2(unitPrice * qty);
-                      const lineVat   = round2(lineBase * rate);
+                      const lineVat   = round2(lineBase * SALES_VAT);
                       return (
                         <td style={{ padding: "12px 14px", textAlign: "right" }}>
                           <p style={{ fontSize: "12px", fontWeight: "700", color: "#f59e0b", margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(lineVat)}</p>
                           <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>
-                            {vatPct > 0 ? `${fmtAED(lineBase)} × ${vatPct}%` : "VAT 0% (exempt)"}
+                            {fmtAED(lineBase)} × 5%
                           </p>
                         </td>
                       );
@@ -791,12 +753,10 @@ export default function Outbound() {
 
                     {/* Line Total (incl. VAT) */}
                     {(() => {
-                      const custCache  = customerOriginCache[item.customerId] || {};
-                      const rate       = customerTaxRate(custCache.origin, custCache.country);
                       const unitPrice  = parseFloat(item.selling_price || 0);
                       const qty        = item.outboundQuantity || 0;
                       const lineBase   = round2(unitPrice * qty);
-                      const lineVat    = round2(lineBase * rate);
+                      const lineVat    = round2(lineBase * SALES_VAT);
                       const lineTotal  = round2(lineBase + lineVat);
                       return (
                         <td style={{ padding: "12px 14px", textAlign: "right" }}>
@@ -1207,10 +1167,7 @@ export default function Outbound() {
           printItems.map(i => salesOrdersData?.salesOrders?.find(s => s.id === i.salesOrderId)?.customerName).filter(Boolean)
         )];
         const pSubtotal   = round2(printItems.reduce((s, i) => s + (i.outboundQuantity || 0) * parseFloat(i.selling_price || 0), 0));
-        const firstCustId = printItems[0]?.customerId || "";
-        const firstCache  = customerOriginCache[firstCustId] || {};
-        const printTaxRate = customerTaxRate(firstCache.origin, firstCache.country);
-        const pVat        = round2(pSubtotal * printTaxRate);
+        const pVat        = round2(pSubtotal * SALES_VAT);
         const pTotal      = round2(pSubtotal + pVat);
         const pDiscount   = round2(printItems.reduce((s, i) => s + parseFloat(i.discount || 0), 0));
 

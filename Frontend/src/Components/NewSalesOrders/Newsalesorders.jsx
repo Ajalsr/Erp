@@ -383,7 +383,7 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
 
       <div style={{padding:'10px 10px 8px'}}>
         {mode==='calendar' ? (
-          <DatePicker selected={sel} onChange={d=>{onChange(d.toISOString().split('T')[0]);setOpen(false);setMode('calendar');}} inline
+          <DatePicker selected={sel} onChange={d=>{onChange(d.toLocaleDateString('en-CA'));setOpen(false);setMode('calendar');}} inline
             renderCustomHeader={({date,decreaseMonth,increaseMonth,prevMonthButtonDisabled,nextMonthButtonDisabled})=>(
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10,padding:'0 2px'}}>
                 <button onClick={decreaseMonth} disabled={prevMonthButtonDisabled}
@@ -409,7 +409,7 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
             {presets.map(p=>{
               const active=sel&&isSameDay(sel,p.value);
               return (
-                <button key={p.label} onClick={()=>{onChange(p.value.toISOString().split('T')[0]);setOpen(false);setMode('calendar');}}
+                <button key={p.label} onClick={()=>{onChange(p.value.toLocaleDateString('en-CA'));setOpen(false);setMode('calendar');}}
                   style={{padding:'10px 12px',borderRadius:10,textAlign:'left',cursor:'pointer',transition:'all .15s',
                     border:`1.5px solid ${active?'#3b82f6':T.border}`,
                     background:active?(isDark?'rgba(59,130,246,0.12)':'#eff6ff'):T.surface2,
@@ -592,7 +592,7 @@ const Newsalesorders = () => {
 
   useEffect(()=>{
     if(isEditMode) return; // number/date are loaded from the draft
-    setOrderDate(new Date().toISOString().split('T')[0]);
+    setOrderDate(new Date().toLocaleDateString('en-CA'));
     const d=new Date(),m=(d.getMonth()+1).toString().padStart(2,'0'),y=d.getFullYear();
     setOrderNumber(`SO-${y}${m}-${Math.floor(Math.random()*1000).toString().padStart(3,'0')}`);
   },[isEditMode]);

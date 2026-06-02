@@ -30,6 +30,7 @@ const MENU = [
     { name: 'Delivery Notes',     route: '/Sales/Deliverynote' },
     { name: 'Invoices',           route: '/Sales/Invoices' },
     { name: 'Credit Notes',       route: '/Sales/CreditNotes' },
+    { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
   ]},
   { icon: FaCartArrowDown,   label: 'Purchases',  tourKey: 'nav-purchases', subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors' },
@@ -39,6 +40,7 @@ const MENU = [
      { name: 'Bills',            route: '/Purchase/Bills' },
     { name: 'Stock',            route: '/Purchase/Stock' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
+    { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
   ]},
   { icon: TbReportAnalytics, label: 'Reports',    tourKey: 'nav-reports', subItems: [
     { name: 'Sales Report',          route: '/Reports/sales' },
@@ -51,9 +53,8 @@ const MENU = [
     { name: 'Vendor Aging',          route: '/Reports/vendor-aging' },
   ]},
   { icon: MdAccountBalance,   label: 'Finance',   tourKey: 'nav-finance', subItems: [
-    { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
-     { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
     { name: 'Chart of Accounts', route: '/Finance/Accounts' },
+    { name: 'Trial Balance',     route: '/Reports/trial-balance' },
   ]},
 ]
 

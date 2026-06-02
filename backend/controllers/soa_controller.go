@@ -123,6 +123,16 @@ func GetStatementOfAccount() gin.HandlerFunc {
 					Description: desc + " (" + mode + ")",
 					Credit:      amount,
 				})
+				// Refund reverses part/all of the payment — shown as a debit (increases balance)
+				if refunded, _ := pay["refundedAmount"].(float64); refunded > 0 {
+					transactions = append(transactions, SOATransaction{
+						Date:        soaParseDateStr(pay["date"]),
+						Reference:   payNum,
+						Type:        "refund",
+						Description: "Payment refunded - " + payNum,
+						Debit:       refunded,
+					})
+				}
 			}
 		}
 
@@ -188,6 +198,10 @@ func GetStatementOfAccount() gin.HandlerFunc {
 			for _, pay := range prevPayments {
 				amt, _ := pay["amount"].(float64)
 				openingBalance -= amt
+				// Refund adds the amount back to the customer's balance
+				if refunded, _ := pay["refundedAmount"].(float64); refunded > 0 {
+					openingBalance += refunded
+				}
 			}
 		}
 

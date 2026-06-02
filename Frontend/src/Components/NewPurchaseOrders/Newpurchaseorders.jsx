@@ -472,7 +472,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
         {mode === 'calendar' ? (
           <RDatePicker
             selected={sel}
-            onChange={d => { onChange(d.toISOString().split('T')[0]); setOpen(false); setMode('calendar'); }}
+            onChange={d => { onChange(d.toLocaleDateString('en-CA')); setOpen(false); setMode('calendar'); }}
             inline
             renderCustomHeader={({ date, decreaseMonth, increaseMonth, prevMonthButtonDisabled, nextMonthButtonDisabled }) => (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '0 2px' }}>
@@ -499,7 +499,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
             {presets.map(p => {
               const active = sel && isSameDay(sel, p.value);
               return (
-                <button key={p.label} onClick={() => { onChange(p.value.toISOString().split('T')[0]); setOpen(false); setMode('calendar'); }}
+                <button key={p.label} onClick={() => { onChange(p.value.toLocaleDateString('en-CA')); setOpen(false); setMode('calendar'); }}
                   style={{ padding: '10px 12px', borderRadius: 10, textAlign: 'left', cursor: 'pointer', transition: 'all .15s',
                     border: `1.5px solid ${active ? '#3b82f6' : T.border}`,
                     background: active ? (isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff') : T.surface,
@@ -580,7 +580,7 @@ export default function Newpurchaseorders() {
   const [vendors,        setVendors]        = useState([]);
   const [vendorsLoading, setVendorsLoading] = useState(false);
   const [poType,         setPoType]         = useState('goods');
-  const [orderDate,      setOrderDate]      = useState(new Date().toISOString().split('T')[0]);
+  const [orderDate,      setOrderDate]      = useState(new Date().toLocaleDateString('en-CA'));
   const [expectedDate,   setExpectedDate]   = useState('');
   const [paymentTerms,   setPaymentTerms]   = useState('Due on Receipt');
   const [deliveryAddr,   setDeliveryAddr]   = useState('organization');
