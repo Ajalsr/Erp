@@ -651,6 +651,35 @@ const Invoices = () => {
 
   /* inline credit-note modal */
   const [cnPrefill, setCnPrefill] = useState(null);
+
+  /* available customer advances for the open invoice + apply modal */
+  const [availAdvances, setAvailAdvances] = useState([]);
+  const [applyAdvModal, setApplyAdvModal] = useState(false);
+  const [advToApply, setAdvToApply] = useState("");      // advance _id
+  const [advApplyAmt, setAdvApplyAmt] = useState("");
+  const [advApplying, setAdvApplying] = useState(false);
+
+  const handleApplyAdvance = async () => {
+    if (!advToApply || !selected) { nexusToast.error("Select an advance"); return; }
+    const adv = availAdvances.find(a => a._id === advToApply);
+    if (!adv) return;
+    const cap = Math.min(adv.remainingAmount, selected.balance ?? 0);
+    const amt = parseFloat(advApplyAmt) || cap;
+    if (amt <= 0) { nexusToast.error("Enter a valid amount"); return; }
+    setAdvApplying(true);
+    try {
+      const r = await axiosInstance.post(`/api/advance-payments/${advToApply}/apply`, { invoiceId: selected._id, amount: amt });
+      nexusToast.success(r.data?.message || "Advance applied");
+      setApplyAdvModal(false); setAdvToApply(""); setAdvApplyAmt("");
+      loadInvoices();
+      const invId = selected._id;
+      axiosInstance.get(`/api/invoices/${invId}`).then(res => { const f = res.data?.data; if (f) setSelected(toRow(f)); }).catch(() => {});
+      axiosInstance.get(`/api/payments/?invoiceId=${invId}`).then(res => setLinkedPayments(res.data?.data?.payments || [])).catch(() => {});
+      axiosInstance.get(`/api/advance-payments/?customerId=${selected.customerId}&available=true`).then(res => setAvailAdvances(res.data?.data?.advances || [])).catch(() => {});
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Failed to apply advance");
+    } finally { setAdvApplying(false); }
+  };
   const openCreditNote = (inv) => setCnPrefill({
     customerId:    inv.customerId,
     customerName:  inv.customer,
@@ -905,6 +934,16 @@ const Invoices = () => {
       .then(res => setDrawerHistory(res.data?.data || []))
       .catch(() => setDrawerHistory([]));
   }, [selected?._id]);
+
+  // Available customer advances — surfaced as "Apply Advance" on unpaid invoices
+  useEffect(() => {
+    if (!selected?.customerId) { setAvailAdvances([]); return; }
+    axiosInstance.get(`/api/advance-payments/?customerId=${selected.customerId}&available=true`)
+      .then(res => setAvailAdvances(res.data?.data?.advances || []))
+      .catch(() => setAvailAdvances([]));
+  }, [selected?.customerId, selected?._id]);
+
+  const totalAdvanceAvail = availAdvances.reduce((s, a) => s + (a.remainingAmount || 0), 0);
 
   /* ── Styles shared ── */
   const inputStyle = {
@@ -1353,6 +1392,15 @@ const Invoices = () => {
                           onClick={() => setPaymentInvoice(selected)}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           💳 Record Payment
+                        </button>
+                      )}
+
+                      {/* Apply Advance — when customer has available advance credit */}
+                      {["unpaid", "overdue", "partial"].includes(selected.status) && (selected.balance ?? 0) > 0 && totalAdvanceAvail > 0.005 && (
+                        <button
+                          onClick={() => setApplyAdvModal(true)}
+                          style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", color: "#8b5cf6", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                          🏦 Apply Advance ({fmt(totalAdvanceAvail)} available)
                         </button>
                       )}
 
@@ -2070,6 +2118,62 @@ const Invoices = () => {
                 style={{ flex: 2, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: voidLoading ? "not-allowed" : "pointer", opacity: voidLoading ? 0.6 : 1, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", fontFamily: "'DM Sans', sans-serif" }}>
                 {voidLoading ? "Voiding…" : "Void Invoice"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Apply Advance modal */}
+      {applyAdvModal && selected && (
+        <div onClick={e => e.target === e.currentTarget && setApplyAdvModal(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)", padding: 20 }}>
+          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: 24, width: 460, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>🏦 Apply Advance</div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>
+              {selected.id} · Balance due: <b style={{ color: T.accent, fontFamily: "'DM Mono',monospace" }}>{fmt(selected.balance)}</b>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>
+                  Select Advance <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {availAdvances.map(adv => {
+                    const active = advToApply === adv._id;
+                    const soLinked = adv.salesOrderNumber ? ` · ${adv.salesOrderNumber}` : "";
+                    return (
+                      <div key={adv._id}
+                        onClick={() => { setAdvToApply(adv._id); setAdvApplyAmt(String(Math.min(adv.remainingAmount, selected.balance ?? 0))); }}
+                        style={{ padding: "10px 13px", borderRadius: 9, cursor: "pointer", border: `1.5px solid ${active ? "#8b5cf6" : T.border}`, background: active ? "rgba(139,92,246,0.08)" : T.surface2 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 600, color: T.blue }}>{adv.advanceNumber}</span>
+                          <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: T.accent }}>{fmt(adv.remainingAmount)}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>{fmtDate(adv.date)} · {adv.paymentMode}{soLinked}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {advToApply && (() => {
+                const adv = availAdvances.find(a => a._id === advToApply);
+                const cap = adv ? Math.min(adv.remainingAmount, selected.balance ?? 0) : 0;
+                return (
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 }}>Amount to Apply</label>
+                    <input type="number" min="0" step="0.01" max={cap} value={advApplyAmt}
+                      onChange={e => { const raw = parseFloat(e.target.value); setAdvApplyAmt(isNaN(raw) ? "" : String(Math.min(raw, cap))); }}
+                      style={{ width: "100%", padding: "10px 13px", background: T.input, border: `1.5px solid ${T.border}`, borderRadius: 9, color: T.text, fontSize: 13, outline: "none", fontFamily: "'DM Mono', monospace" }} />
+                    <p style={{ fontSize: 11, color: T.muted, margin: "5px 0 0" }}>Max: <span style={{ fontFamily: "'DM Mono',monospace", color: T.text }}>{fmt(cap)}</span></p>
+                  </div>
+                );
+              })()}
+              <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+                <button onClick={() => { setApplyAdvModal(false); setAdvToApply(""); setAdvApplyAmt(""); }}
+                  style={{ flex: 1, padding: "10px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.muted, border: `1.5px solid ${T.border}`, fontFamily: "inherit" }}>Cancel</button>
+                <button onClick={handleApplyAdvance} disabled={advApplying || !advToApply}
+                  style={{ flex: 2, padding: "10px", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: (advApplying || !advToApply) ? "not-allowed" : "pointer", opacity: (advApplying || !advToApply) ? 0.6 : 1, background: "#8b5cf6", color: "#fff", border: "none", fontFamily: "inherit" }}>{advApplying ? "Applying…" : "Apply Advance"}</button>
+              </div>
             </div>
           </div>
         </div>
