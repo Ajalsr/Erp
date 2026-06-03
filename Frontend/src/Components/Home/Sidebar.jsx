@@ -31,6 +31,7 @@ const MENU = [
     { name: 'Invoices',           route: '/Sales/Invoices' },
     { name: 'Credit Notes',       route: '/Sales/CreditNotes' },
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
+    { name: 'Customer Advances',  route: '/Sales/AdvancePayments' },
   ]},
   { icon: FaCartArrowDown,   label: 'Purchases',  tourKey: 'nav-purchases', subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors' },

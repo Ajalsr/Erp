@@ -28,6 +28,7 @@ import AcceptInvitation from "./Components/Organization/AcceptInvitation"
 import Invoices from "./Components/Invoices/Invoices"
 import Createinvoices from "./Components/Createinvoices/Createinvoices"
 import PaymentsReceived from "./Components/PaymentsReceived/PaymentsReceived"
+import AdvancePayments from "./Components/AdvancePayments/AdvancePayments"
 import Bills from "./Components/Bills/Bills"
 import NewBill from "./Components/Bills/NewBill"
 import PaymentsMade from "./Components/PaymentsMade/PaymentsMade"
@@ -122,6 +123,7 @@ function App() {
             <Route path="/Sales/Invoices" element={<Invoices />} />
             <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
             <Route path="/Sales/PaymentsReceived" element={<PaymentsReceived />} />
+            <Route path="/Sales/AdvancePayments"   element={<AdvancePayments />} />
             <Route path="/Purchase/Bills" element={<Bills />} />
             <Route path="/Purchase/Bills/New" element={<NewBill />} />
             <Route path="/Purchase/Bills/Edit/:id" element={<NewBill />} />

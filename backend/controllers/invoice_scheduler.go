@@ -109,7 +109,10 @@ func processOverdue(ctx context.Context, todayStr string, now time.Time) {
 	cursor.All(ctx, &invoices)
 
 	for _, inv := range invoices {
-		daysOverdue := int(now.Sub(time.Time{}).Hours()/24) - int(parseDateDays(inv.DueDate))
+		daysOverdue := 0
+		if due, perr := time.Parse("2006-01-02", inv.DueDate); perr == nil {
+			daysOverdue = int(now.Sub(due).Hours() / 24)
+		}
 
 		invoiceCollection.UpdateOne(ctx,
 			bson.M{"_id": inv.ID},
@@ -147,14 +150,6 @@ func processOverdue(ctx context.Context, todayStr string, now time.Time) {
 			)
 		}
 	}
-}
-
-func parseDateDays(dateStr string) int {
-	t, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		return 0
-	}
-	return int(t.Unix() / 86400)
 }
 
 func fetchCustomerEmail(ctx context.Context, customerID string) string {

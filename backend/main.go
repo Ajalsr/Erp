@@ -95,6 +95,7 @@ func main() {
 	routes.GRNRoutes(router)
 	routes.AccountRoutes(router)
 	routes.JournalEntryRoutes(router)
+	routes.AdvancePaymentRoutes(router)
 	routes.WarehouseRoutes(router)
 	routes.AdjustmentRoutes(router)
 	routes.ItemGroupRoutes(router)

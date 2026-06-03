@@ -318,6 +318,17 @@ func JournalEntryRoutes(router *gin.Engine) {
 	}
 }
 
+func AdvancePaymentRoutes(router *gin.Engine) {
+	advRoutes := router.Group("/api/advance-payments")
+	advRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		advRoutes.POST("/", controllers.CreateAdvancePayment())
+		advRoutes.GET("/", controllers.GetAdvancePayments())
+		advRoutes.GET("/:id", controllers.GetAdvancePaymentByID())
+		advRoutes.POST("/:id/apply", controllers.ApplyAdvanceToInvoice())
+	}
+}
+
 func VendorCreditRoutes(router *gin.Engine) {
 	vcRoutes := router.Group("/api/vendor-credits")
 	vcRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)

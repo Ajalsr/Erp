@@ -296,6 +296,7 @@ var defaultAccountSeeds = []seedDef{
 	{"2100", "VAT Payable",            "liability", "current_liability", "credit", true,  false},
 	{"2200", "Accrued Liabilities",    "liability", "current_liability", "credit", false, false},
 	{"2300", "Short-term Loans",       "liability", "current_liability", "credit", false, false},
+	{"2400", "Customer Advances",      "liability", "current_liability", "credit", true,  false},
 	{"3000", "Owner's Equity",         "equity",    "equity",            "credit", true,  false},
 	{"3100", "Retained Earnings",      "equity",    "equity",            "credit", true,  false},
 	{"4000", "Sales Revenue",          "income",    "operating_revenue", "credit", true,  false},

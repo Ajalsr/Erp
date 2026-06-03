@@ -20,6 +20,7 @@ const PAGE_TITLES = {
   '/Sales/Deliverynote': 'Delivery Notes',
   '/Sales/Outbound': 'Outbound',
   '/Sales/PaymentsReceived': 'Payments Received',
+  '/Sales/AdvancePayments': 'Customer Advances',
   '/Sales/CreditNotes': 'Credit Notes',
   '/Purchase/Vendors': 'Vendors',
   '/Purchase/Purchaseorders': 'Purchase Orders',
