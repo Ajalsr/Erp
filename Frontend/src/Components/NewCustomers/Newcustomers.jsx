@@ -1394,23 +1394,7 @@ const Newcustomers = () => {
                 </div>
 
                 {/* Legal Form — business only */}
-                {formData.customerType === 'business' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                    <div>
-                      <Label T={T}>Legal Form</Label>
-                      <input className="nc-input" name="legalForm" value={formData.legalForm}
-                        onChange={handleChange} placeholder="e.g. LLC, FZCO, Sole Proprietorship" />
-                    </div>
-                    <div>
-                      <Label T={T}>Customer Origin</Label>
-                      <select className="nc-input" name="origin" value={formData.origin || 'mainland'} onChange={handleChange}>
-                        <option value="mainland">Mainland (5% VAT)</option>
-                        <option value="free_zone">Free Zone (0% VAT)</option>
-                        <option value="overseas">Overseas (0% VAT)</option>
-                      </select>
-                    </div>
-                  </div>
-                )}
+              
               </div>
             </div>
 

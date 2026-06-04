@@ -29,6 +29,8 @@ export default function StockSummary() {
   const [drawerTab, setDrawerTab] = useState('details');
   const [history, setHistory]     = useState([]);
   const [histLoading, setHistLoading] = useState(false);
+  const [whNames, setWhNames]     = useState({}); // warehouseId → name
+  const [backfilling, setBackfilling] = useState(false);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -43,6 +45,29 @@ export default function StockSummary() {
   }, []);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  // Warehouse id → name map for the per-warehouse breakdown
+  useEffect(() => {
+    axiosInstance.get('/api/warehouses/')
+      .then(r => {
+        const list = r.data?.data?.warehouses || r.data?.data || [];
+        const m = {};
+        list.forEach(w => { m[w._id] = w.name + (w.isDefault ? ' (default)' : ''); });
+        setWhNames(m);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const res = await axiosInstance.post('/api/stocks/backfill-warehouse');
+      nexusToast.success(res.data?.message || 'Warehouse stock seeded');
+      fetchItems();
+    } catch (e) {
+      nexusToast.error(e?.response?.data?.message || 'Backfill failed');
+    } finally { setBackfilling(false); }
+  };
 
   // Reset tab + fetch history when drawer item changes
   useEffect(() => {
@@ -88,9 +113,16 @@ export default function StockSummary() {
         .ss-row:hover { background: ${isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc'} !important; }
       `}</style>
 
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Stock Summary</h1>
-        <p style={{ fontSize: 13, color: T.textSec, margin: '4px 0 0' }}>Real-time overview of all inventory levels</p>
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Stock Summary</h1>
+          <p style={{ fontSize: 13, color: T.textSec, margin: '4px 0 0' }}>Real-time overview of all inventory levels</p>
+        </div>
+        <button onClick={handleBackfill} disabled={backfilling}
+          title="Seed per-warehouse breakdown from current stock into the default warehouse"
+          style={{ padding: '8px 14px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 12.5, fontWeight: 600, cursor: backfilling ? 'wait' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          {backfilling ? 'Seeding…' : 'Seed Warehouses'}
+        </button>
       </div>
 
       {/* Stats */}
@@ -223,6 +255,23 @@ export default function StockSummary() {
                       <span style={{ fontSize: 12, fontWeight: 600, color: T.textPri, textAlign: 'right', maxWidth: '55%' }}>{v}</span>
                     </div>
                   ))}
+
+                  {/* Per-warehouse breakdown */}
+                  <div style={{ marginTop: 18 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 8px' }}>By Warehouse</p>
+                    {drawer.warehouseStock && Object.keys(drawer.warehouseStock).length > 0 ? (
+                      <div style={{ background: T.surface2 || (isDark ? 'rgba(255,255,255,.03)' : '#f8fafc'), border: `1px solid ${T.border}`, borderRadius: 10, overflow: 'hidden' }}>
+                        {Object.entries(drawer.warehouseStock).map(([wid, q], i, arr) => (
+                          <div key={wid} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 13px', borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : 'none' }}>
+                            <span style={{ fontSize: 12.5, color: T.textPri }}>{whNames[wid] || 'Unknown warehouse'}</span>
+                            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12.5, fontWeight: 700, color: q > 0 ? T.textPri : T.textSec }}>{q} {drawer.unit}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>No warehouse breakdown yet. Use “Seed Warehouses” to populate from current stock.</p>
+                    )}
+                  </div>
                 </>
               )}
 

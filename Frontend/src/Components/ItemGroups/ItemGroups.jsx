@@ -218,7 +218,7 @@ export default function ItemGroups() {
 function EditGroupDrawer({ group, groups, T, isDark, COLORS, onClose, onSaved }) {
   const [form, setForm] = useState({ name: group.name, description: group.description || '', parentId: group.parentId || '', color: group.color || '#3b82f6', prefix: group.prefix || '', status: group.status || 'active' });
   const [saving, setSaving] = useState(false);
-  const [prefixTouched, setPrefixTouched] = useState(!!group.codePrefix);
+  const [prefixTouched, setPrefixTouched] = useState(!!group.prefix);
 
   const derivePrefix = (name) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase();
 
@@ -261,7 +261,7 @@ function EditGroupDrawer({ group, groups, T, isDark, COLORS, onClose, onSaved })
                 const val = e.target.value;
                 setForm(p => {
                   const next = { ...p, [name]: val };
-                  if (name === 'name' && !prefixTouched) next.codePrefix = val.trim() ? derivePrefix(val) : '';
+                  if (name === 'name' && !prefixTouched) next.prefix = val.trim() ? derivePrefix(val) : '';
                   return next;
                 });
               }}
@@ -274,7 +274,7 @@ function EditGroupDrawer({ group, groups, T, isDark, COLORS, onClose, onSaved })
             Item Code Prefix
             <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontStyle: 'italic', color: T.textSec }}>used in item codes for this group</span>
           </label>
-          <input name="prefix" value={form.prefix} onChange={e => setForm(p => ({ ...p, prefix: e.target.value.toUpperCase().replace(/\s/g, '') }))}
+          <input name="prefix" value={form.prefix} onChange={e => { setPrefixTouched(true); setForm(p => ({ ...p, prefix: e.target.value.toUpperCase().replace(/\s/g, '') })); }}
             placeholder="e.g. ELEC, FURN, IT"
             style={{ width: '100%', height: 40, padding: '0 12px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: "'DM Mono', monospace", boxSizing: 'border-box', letterSpacing: '0.05em' }} />
           {form.prefix && (

@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft,
   FaChevronRight, FaClock, FaExclamationCircle, FaMoneyBillWave,
-  FaCheckCircle, FaSpinner, FaReceipt, FaEdit, FaPrint, FaPaperPlane,
+  FaCheckCircle, FaSpinner, FaReceipt, FaEdit, FaPrint, FaPaperPlane, FaCopy,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
@@ -18,11 +19,188 @@ const STATUS_CFG = {
   void:    { color: "#6b7280", bg: "rgba(107,114,128,0.1)", label: "Void"    },
 };
 
-const PAYMENT_MODES = ["Cash", "Bank Transfer", "Cheque", "Card", "Other"];
+// Mirrors PaymentsMade (vendor payment create) so the bill drawer offers the same options.
+const PAYMENT_MODES = [
+  "Cash", "Bank Transfer", "Cheque", "PDC",
+  "Credit Card", "Debit Card", "Demand Draft",
+  "Online Transfer", "Letter of Credit", "Other",
+];
+
+const MODE_FIELDS = {
+  "Cash":             [{ key: "receiptNo",   label: "Receipt No.",         placeholder: "e.g. RCP-001" }],
+  "Bank Transfer":    [{ key: "bankName",    label: "Bank Name",           placeholder: "e.g. Emirates NBD" },
+                       { key: "txnRef",      label: "Transaction Ref No.", placeholder: "e.g. TXN-001234", required: true },
+                       { key: "accountNo",   label: "Account / IBAN",      placeholder: "e.g. AE07033..." }],
+  "Cheque":           [{ key: "chequeNo",    label: "Cheque No.",          placeholder: "e.g. 001234", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. ADIB" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. Dubai Mall Branch" }],
+  "PDC":              [{ key: "chequeNo",    label: "Cheque No.",          placeholder: "e.g. 001234", required: true },
+                       { key: "chequeDate",  label: "Cheque Date",         type: "date", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. Mashreq Bank" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. DIFC Branch" }],
+  "Credit Card":      [{ key: "cardNetwork", label: "Card Network",        type: "select", options: ["Visa", "Mastercard", "Amex", "Other"] },
+                       { key: "last4",       label: "Last 4 Digits",       placeholder: "e.g. 4242" },
+                       { key: "approvalCode",label: "Approval Code",       placeholder: "e.g. 123456" }],
+  "Debit Card":       [{ key: "cardNetwork", label: "Card Network",        type: "select", options: ["Visa", "Mastercard", "Other"] },
+                       { key: "last4",       label: "Last 4 Digits",       placeholder: "e.g. 4242" },
+                       { key: "txnRef",      label: "Transaction Ref",     placeholder: "e.g. TXN-001234" }],
+  "Demand Draft":     [{ key: "ddNo",        label: "DD No.",              placeholder: "e.g. DD-001234", required: true },
+                       { key: "bankName",    label: "Bank Name",           placeholder: "e.g. HDFC Bank" },
+                       { key: "branch",      label: "Branch",              placeholder: "e.g. Main Branch" }],
+  "Online Transfer":  [{ key: "platform",   label: "Platform",            type: "select", options: ["NEFT", "RTGS", "IMPS", "UPI", "Wire Transfer", "Other"] },
+                       { key: "txnRef",      label: "Reference / UTR No.", placeholder: "e.g. UTR12345678", required: true }],
+  "Letter of Credit": [{ key: "lcNo",        label: "LC No.",              placeholder: "e.g. LC-001234", required: true },
+                       { key: "issuingBank", label: "Issuing Bank",        placeholder: "e.g. First Abu Dhabi Bank" },
+                       { key: "lcDate",      label: "LC Date",             type: "date" }],
+  "Other":            [{ key: "txnRef",      label: "Reference / Description", placeholder: "Enter reference or description" }],
+};
+
+const getPrimaryRef = (mode, d = {}) => {
+  if (["Bank Transfer", "Online Transfer", "Debit Card", "Other"].includes(mode)) return d.txnRef || "";
+  if (["Cheque", "PDC"].includes(mode)) return d.chequeNo ? `CHQ-${d.chequeNo}` : "";
+  if (mode === "Demand Draft")     return d.ddNo || "";
+  if (mode === "Letter of Credit") return d.lcNo || "";
+  if (mode === "Credit Card")      return d.approvalCode ? `APPR-${d.approvalCode}` : "";
+  if (mode === "Cash")             return d.receiptNo || "";
+  return "";
+};
+
 const LIMIT = 10;
 
 const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+
+/* ── Portal helper: anchor a popup under a trigger, escape overflow:auto ── */
+function useAnchoredPopup(open) {
+  const triggerRef = useRef(null);
+  const popupRef   = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const place = () => {
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    }
+  };
+  useEffect(() => {
+    if (!open) return;
+    place();
+    const onScroll = (e) => { if (!popupRef.current?.contains(e.target)) place(); };
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", onScroll, true);
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", onScroll, true); };
+  }, [open]);
+  return { triggerRef, popupRef, pos };
+}
+
+/* ── CustomSelect — portal dropdown (no native <select>) ── */
+function CustomSelect({ value, onChange, options, placeholder = "Select…", T, isDark }) {
+  const [open, setOpen] = useState(false);
+  const { triggerRef, popupRef, pos } = useAnchoredPopup(open);
+  const opts = options.map(o => typeof o === "string" ? { value: o, label: o } : o);
+  const sel = opts.find(o => o.value === value);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (!triggerRef.current?.contains(e.target) && !popupRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]); // eslint-disable-line
+  return (
+    <>
+      <button type="button" ref={triggerRef} onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", padding: "9px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, border: `1.5px solid ${open ? "#3b82f6" : T.border}`, borderRadius: 9, background: T.surface, color: sel ? T.textPri : T.textSec, cursor: "pointer", fontSize: 13, fontFamily: "inherit", boxShadow: open ? "0 0 0 3px rgba(59,130,246,.12)" : "none", transition: "all .15s" }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel?.label || placeholder}</span>
+        <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: open ? "#3b82f6" : T.textSec, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }}><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      {open && createPortal(
+        <div ref={popupRef} style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, minWidth: 160, zIndex: 20000, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? "0 8px 32px rgba(0,0,0,.5)" : "0 8px 24px rgba(0,0,0,.14)", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
+          {opts.map(o => (
+            <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+              style={{ width: "100%", padding: "9px 13px", fontSize: 13, background: o.value === value ? (isDark ? "rgba(59,130,246,.15)" : "#eff6ff") : "transparent", color: o.value === value ? "#3b82f6" : T.textPri, fontWeight: o.value === value ? 700 : 400, border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              {o.label}{o.value === value && <span style={{ fontSize: 10 }}>✓</span>}
+            </button>
+          ))}
+        </div>, document.body)}
+    </>
+  );
+}
+
+/* ── CustomDate — portal calendar (no native date input, no external dep) ── */
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const WEEKDAYS = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+function CustomDate({ value, onChange, T, isDark, placeholder = "Select date…" }) {
+  const [open, setOpen] = useState(false);
+  const { triggerRef, popupRef, pos } = useAnchoredPopup(open);
+  const sel = value ? new Date(value + "T00:00:00") : null;
+  const [view, setView] = useState(sel || new Date());
+  useEffect(() => { if (open) setView(sel || new Date()); }, [open]); // eslint-disable-line
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (!triggerRef.current?.contains(e.target) && !popupRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]); // eslint-disable-line
+
+  const y = view.getFullYear(), m = view.getMonth();
+  const firstDow = new Date(y, m, 1).getDay();
+  const daysIn = new Date(y, m + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysIn; d++) cells.push(new Date(y, m, d));
+  const today = toISO(new Date());
+
+  const navBtn = { width: 28, height: 28, borderRadius: 8, border: `1.5px solid ${T.border}`, background: isDark ? T.surface2 : "#f1f5f9", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1 };
+
+  return (
+    <>
+      <button type="button" ref={triggerRef} onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", padding: "9px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, border: `1.5px solid ${open ? "#3b82f6" : T.border}`, borderRadius: 9, background: T.surface, color: sel ? T.textPri : T.textSec, cursor: "pointer", fontSize: 13, fontFamily: "inherit", boxShadow: open ? "0 0 0 3px rgba(59,130,246,.12)" : "none", transition: "all .15s" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span>📅</span>{sel ? fmtDate(value) : placeholder}</span>
+        <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: open ? "#3b82f6" : T.textSec, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }}><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      {open && createPortal(
+        <div ref={popupRef} style={{ position: "fixed", top: pos.top, left: pos.left, width: Math.max(pos.width, 280), zIndex: 20000, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, boxShadow: isDark ? "0 16px 48px rgba(0,0,0,.5)" : "0 16px 40px rgba(0,0,0,.18)", overflow: "hidden", padding: 12 }}>
+          {/* header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <button type="button" onClick={() => setView(new Date(y, m - 1, 1))} style={navBtn}>‹</button>
+            <span style={{ fontFamily: "Sora, sans-serif", fontWeight: 800, fontSize: 13.5, color: T.textPri }}>{MONTHS[m]} {y}</span>
+            <button type="button" onClick={() => setView(new Date(y, m + 1, 1))} style={navBtn}>›</button>
+          </div>
+          {/* weekdays */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2, marginBottom: 4 }}>
+            {WEEKDAYS.map(w => <div key={w} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700, color: T.textSec, padding: "4px 0" }}>{w}</div>)}
+          </div>
+          {/* days */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+            {cells.map((d, i) => {
+              if (!d) return <div key={i} />;
+              const iso = toISO(d);
+              const isSel = value === iso;
+              const isToday = today === iso;
+              return (
+                <button key={i} type="button" onClick={() => { onChange(iso); setOpen(false); }}
+                  style={{ height: 32, borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12.5, fontFamily: "inherit",
+                    fontWeight: isSel || isToday ? 700 : 400,
+                    background: isSel ? "#3b82f6" : isToday ? "rgba(59,130,246,.12)" : "transparent",
+                    color: isSel ? "#fff" : isToday ? "#3b82f6" : T.textPri,
+                    transition: "background .1s" }}
+                  onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = "rgba(59,130,246,.15)"; }}
+                  onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = isToday ? "rgba(59,130,246,.12)" : "transparent"; }}>
+                  {d.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          {/* footer */}
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+            <button type="button" onClick={() => { onChange(today); setOpen(false); }} style={{ fontSize: 11.5, fontWeight: 700, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Today</button>
+            {value && <button type="button" onClick={() => { onChange(""); setOpen(false); }} style={{ fontSize: 11.5, fontWeight: 600, color: T.textSec, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Clear</button>}
+          </div>
+        </div>, document.body)}
+    </>
+  );
+}
 
 export default function Bills() {
   const navigate  = useNavigate();
@@ -43,11 +221,14 @@ export default function Bills() {
   const [payModal,        setPayModal]        = useState(false);
   const [payForm,         setPayForm]         = useState({});
   const [paySubmitting,   setPaySubmitting]   = useState(false);
+  const [reverseModal,    setReverseModal]    = useState(null); // payment being reversed
+  const [reverseReason,   setReverseReason]   = useState("");
   const [voidLoading,     setVoidLoading]     = useState(false);
   const [debitNotes,      setDebitNotes]      = useState([]);
   const [dnLoading,       setDnLoading]       = useState(false);
   const [appliedCredits,  setAppliedCredits]  = useState([]);
   const [reversing,       setReversing]       = useState(null);
+  const [unapplyingCr,    setUnapplyingCr]    = useState(null);
   const [openCredits,     setOpenCredits]     = useState([]);   // open vendor credits to apply
   const [creditPicker,    setCreditPicker]    = useState(false);
   const [applyingCr,      setApplyingCr]      = useState(null);
@@ -90,13 +271,18 @@ export default function Bills() {
     }).finally(() => setDnLoading(false));
   }, [selected?._id]);
 
-  /* ── Reverse vendor payment ── */
-  const handleReversePayment = async (pmt) => {
-    if (!window.confirm(`Reverse payment ${pmt.paymentNumber} of ${fmtAED(pmt.amount)}? This will restore the bill balance.`)) return;
+  /* ── Reverse vendor payment (modal-driven, with reason) ── */
+  const handleReversePayment = async () => {
+    const pmt = reverseModal;
+    if (!pmt) return;
     setReversing(pmt._id);
     try {
-      await axiosInstance.post(`/api/vendor-payments/${pmt._id}/reverse`, { notes: 'Reversed by user' });
+      await axiosInstance.post(`/api/vendor-payments/${pmt._id}/reverse`, {
+        notes: reverseReason || "Reversed by user",
+      });
       nexusToast.success('Payment reversed');
+      setReverseModal(null);
+      setReverseReason("");
       await load();
       const refreshed = await axiosInstance.get(`/api/bills/${selected._id}`);
       if (refreshed.data?.data) setSelected(refreshed.data.data);
@@ -118,7 +304,7 @@ export default function Bills() {
     setOpenCredits([]);
     setCreditPicker(false);
     setPayModal(false);
-    setPayForm({ amount: String(b.balanceDue || ""), paymentMode: "Bank Transfer", reference: "", date: new Date().toISOString().split("T")[0], notes: "" });
+    setPayForm({ amount: String(b.balanceDue || ""), paymentMode: "Bank Transfer", reference: "", date: new Date().toISOString().split("T")[0], notes: "", details: {} });
   };
   const closeDrawer = () => { setDrawerOpen(false); setSelected(null); setPayModal(false); };
 
@@ -126,6 +312,19 @@ export default function Bills() {
   const handleRecordPayment = async () => {
     const amt = parseFloat(payForm.amount);
     if (!amt || amt <= 0) { nexusToast.error("Enter a valid amount"); return; }
+    // Enforce required mode-specific fields (matches Payments Made)
+    const reqMissing = (MODE_FIELDS[payForm.paymentMode] || [])
+      .filter(f => f.required && !(payForm.details?.[f.key] || "").trim())
+      .map(f => f.label);
+    if (reqMissing.length) { nexusToast.error(`Required: ${reqMissing.join(", ")}`); return; }
+
+    const primaryRef = getPrimaryRef(payForm.paymentMode, payForm.details) || payForm.reference || "";
+    // Fold mode details into notes for the audit trail
+    const detailStr = Object.entries(payForm.details || {})
+      .filter(([, v]) => (v || "").toString().trim())
+      .map(([k, v]) => `${k}: ${v}`).join(", ");
+    const fullNotes = [payForm.notes, detailStr].filter(Boolean).join(" | ");
+
     setPaySubmitting(true);
     try {
       await axiosInstance.post("/api/vendor-payments/", {
@@ -135,9 +334,9 @@ export default function Bills() {
         billNumber:  selected.billNumber,
         amount:      amt,
         paymentMode: payForm.paymentMode,
-        reference:   payForm.reference || undefined,
+        reference:   primaryRef || undefined,
         date:        payForm.date,
-        notes:       payForm.notes    || undefined,
+        notes:       fullNotes || undefined,
       });
       nexusToast.success("Payment recorded!");
       setPayModal(false);
@@ -185,6 +384,47 @@ export default function Bills() {
     } catch (e) {
       nexusToast.error(e?.response?.data?.message || "Failed to apply credit");
     } finally { setApplyingCr(null); }
+  };
+
+  /* ── Unapply vendor credit from this bill ── */
+  const handleUnapplyCredit = async (cr) => {
+    if (!window.confirm(`Unapply credit ${cr.creditNumber} from this bill? The balance will be restored.`)) return;
+    setUnapplyingCr(cr._id);
+    try {
+      await axiosInstance.post(`/api/vendor-credits/${cr._id}/unapply`);
+      nexusToast.success(`Credit ${cr.creditNumber} unapplied`);
+      await load();
+      const [billRes, vcRes, openRes] = await Promise.allSettled([
+        axiosInstance.get(`/api/bills/${selected._id}`),
+        axiosInstance.get(`/api/vendor-credits/?billId=${selected._id}`),
+        axiosInstance.get(`/api/vendor-credits/?vendorId=${selected.vendorId}&status=open`),
+      ]);
+      if (billRes.status === "fulfilled" && billRes.value.data?.data) setSelected(billRes.value.data.data);
+      const credits = vcRes.status === "fulfilled" ? (vcRes.value.data?.data?.credits || []) : [];
+      setAppliedCredits(credits.filter(c => c.status === "applied"));
+      setOpenCredits(openRes.status === "fulfilled" ? (openRes.value.data?.data?.credits || []) : []);
+    } catch (e) {
+      nexusToast.error(e?.response?.data?.message || "Failed to unapply credit");
+    } finally { setUnapplyingCr(null); }
+  };
+
+  /* ── Clone bill → prefill a new bill from this one ── */
+  const handleCloneBill = () => {
+    const b = selected;
+    navigate("/Purchase/Bills/New", {
+      state: {
+        vendorId:   b.vendorId || "",
+        vendorName: b.vendorName || "",
+        items: (b.lineItems || []).map(li => ({
+          description:  li.description || "",
+          qty:          li.qty || 1,
+          unitPrice:    li.unitPrice || 0,
+          taxRate:      li.taxRate ?? 0,
+          discount:     li.discount || 0,
+          discountType: li.discountType || "fixed",
+        })),
+      },
+    });
   };
 
   /* ── Print bill ── */
@@ -405,7 +645,11 @@ export default function Bills() {
         const grand  = b.totals?.grandTotal || 0;
         const paidPct= grand > 0 ? Math.min(100, ((b.amountPaid || 0) / grand) * 100) : 0;
         const canPay = b.status !== "paid" && b.status !== "void";
-        const canVoid= b.status !== "void";
+        // ERP rule (Zoho/QuickBooks): a bill with any payment OR applied credit/debit
+        // note cannot be voided directly — those settlements must be reversed first,
+        // else the linked payments/credits are orphaned and the ledger goes out of balance.
+        const settled = (b.amountPaid || 0) > 0;
+        const canVoid = b.status !== "void" && b.status !== "paid" && !settled;
 
         return (
           <>
@@ -430,6 +674,10 @@ export default function Bills() {
                         <FaEdit size={11} /> Edit
                       </button>
                     )}
+                    <button className="bl-btn" onClick={handleCloneBill}
+                      title="Clone — create a new bill from this one" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
+                      <FaCopy size={11} /> Clone
+                    </button>
                     <button className="bl-btn" onClick={handlePrintBill}
                       title="Print" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
                       <FaPrint size={11} /> Print
@@ -571,7 +819,7 @@ export default function Bills() {
                           {p.reference && <p style={{ fontSize: 11, color: T.textSec, margin: "4px 0 0" }}>Ref: {p.reference}</p>}
                           {p.notes     && <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0", fontStyle: "italic" }}>{p.notes}</p>}
                           {!p.isReversed && (
-                            <button onClick={() => handleReversePayment(p)} disabled={reversing === p._id}
+                            <button onClick={() => { setReverseModal(p); setReverseReason(""); }} disabled={reversing === p._id}
                               style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: reversing === p._id ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
                               <FaReceipt size={9} /> {reversing === p._id ? "Reversing…" : "↩ Reverse Payment"}
                             </button>
@@ -614,6 +862,10 @@ export default function Bills() {
                               VAT reversed: <strong style={{ color: T.textPri }}>{fmtAED(cr.totals.taxTotal)}</strong>
                             </div>
                           )}
+                          <button onClick={() => handleUnapplyCredit(cr)} disabled={unapplyingCr === cr._id}
+                            style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: unapplyingCr === cr._id ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+                            <FaReceipt size={9} /> {unapplyingCr === cr._id ? "Unapplying…" : "↩ Unapply Credit"}
+                          </button>
                         </div>
                       ))}
                       {/* Debit notes */}
@@ -645,47 +897,6 @@ export default function Bills() {
                   )}
                 </>)}
 
-                {/* ── Inline record payment form ── */}
-                {payModal && canPay && (
-                  <div style={{ background: isDark ? "rgba(59,130,246,0.06)" : "#eff6ff", border: `1.5px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, borderRadius: 14, padding: "16px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                      <p style={{ fontFamily: "Sora, sans-serif", fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Record Payment</p>
-                      <button onClick={() => setPayModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 2 }}><FaTimes size={11} /></button>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      <div style={{ gridColumn: "1 / -1" }}>
-                        <label style={lbl}>Amount (AED) *</label>
-                        <input type="number" min="0.01" step="0.01" value={payForm.amount}
-                          onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
-                          placeholder={`Balance: ${fmtAED(b.balanceDue)}`} style={inp} />
-                      </div>
-                      <div>
-                        <label style={lbl}>Payment Mode</label>
-                        <select value={payForm.paymentMode} onChange={e => setPayForm(f => ({ ...f, paymentMode: e.target.value }))} style={{ ...inp, appearance: "auto" }}>
-                          {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={lbl}>Date</label>
-                        <input type="date" value={payForm.date} onChange={e => setPayForm(f => ({ ...f, date: e.target.value }))} style={inp} />
-                      </div>
-                      <div style={{ gridColumn: "1 / -1" }}>
-                        <label style={lbl}>Reference</label>
-                        <input value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))}
-                          placeholder="Cheque / TT number…" style={inp} />
-                      </div>
-                      <div style={{ gridColumn: "1 / -1" }}>
-                        <label style={lbl}>Notes</label>
-                        <input value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))}
-                          placeholder="Optional…" style={inp} />
-                      </div>
-                    </div>
-                    <button onClick={handleRecordPayment} disabled={paySubmitting}
-                      style={{ marginTop: 12, width: "100%", padding: 10, background: "#3b82f6", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: paySubmitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, fontFamily: "inherit", opacity: paySubmitting ? 0.7 : 1 }}>
-                      {paySubmitting ? <><FaSpinner className="bl-spin" size={12} /> Saving…</> : <><FaCheckCircle size={12} /> Confirm Payment</>}
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* Credit picker panel — pick an open vendor credit to apply */}
@@ -723,7 +934,7 @@ export default function Bills() {
                   </button>
                 )}
                 {canPay && !payModal && (
-                  <button className="bl-btn" onClick={() => { setPayModal(true); setActiveTab("payments"); }}
+                  <button className="bl-btn" onClick={() => setPayModal(true)}
                     style={{ flex: 1, padding: 10, background: "#3b82f6", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                     <FaMoneyBillWave size={12} /> Record Payment
                   </button>
@@ -734,14 +945,120 @@ export default function Bills() {
                     {voidLoading ? "Voiding…" : "Void"}
                   </button>
                 )}
+                {!canPay && !canVoid && b.status !== "void" && settled && (
+                  <span style={{ flex: 1, fontSize: 11.5, color: T.textSec, display: "flex", alignItems: "center", gap: 6, lineHeight: 1.4 }}>
+                    Reverse payments &amp; applied credits to void this bill.
+                  </span>
+                )}
                 {!canPay && !canVoid && (
                   <button className="bl-btn" onClick={closeDrawer}
-                    style={{ flex: 1, padding: "10px 16px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                    style={{ padding: "10px 16px", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
                     Close
                   </button>
                 )}
               </div>
             </div>
+
+            {/* ── Record Payment modal ── */}
+            {payModal && canPay && (
+              <div style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
+                onClick={e => e.target === e.currentTarget && setPayModal(false)}>
+                <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "22px", width: 460, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <p style={{ fontFamily: "Sora, sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>Record Payment</p>
+                    <button onClick={() => setPayModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 2 }}><FaTimes size={13} /></button>
+                  </div>
+                  <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 16px" }}>{selected.billNumber} · {selected.vendorName} · Balance {fmtAED(selected.balanceDue)}</p>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <label style={lbl}>Amount (AED) *</label>
+                      <input type="number" min="0.01" step="0.01" value={payForm.amount}
+                        onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
+                        placeholder={`Balance: ${fmtAED(selected.balanceDue)}`} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Payment Mode *</label>
+                      <CustomSelect value={payForm.paymentMode} options={PAYMENT_MODES} T={T} isDark={isDark}
+                        onChange={v => setPayForm(f => ({ ...f, paymentMode: v, details: {} }))} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Date *</label>
+                      <CustomDate value={payForm.date} T={T} isDark={isDark}
+                        onChange={v => setPayForm(f => ({ ...f, date: v }))} />
+                    </div>
+
+                    {/* Mode-specific fields — same as Payments Made */}
+                    {(MODE_FIELDS[payForm.paymentMode] || []).map(fld => (
+                      <div key={fld.key} style={{ gridColumn: (MODE_FIELDS[payForm.paymentMode].length === 1 || fld.key === "accountNo") ? "1 / -1" : "auto" }}>
+                        <label style={lbl}>{fld.label}{fld.required && " *"}</label>
+                        {fld.type === "select" ? (
+                          <CustomSelect value={payForm.details?.[fld.key] || ""} options={fld.options} placeholder="Select…" T={T} isDark={isDark}
+                            onChange={v => setPayForm(f => ({ ...f, details: { ...f.details, [fld.key]: v } }))} />
+                        ) : fld.type === "date" ? (
+                          <CustomDate value={payForm.details?.[fld.key] || ""} T={T} isDark={isDark}
+                            onChange={v => setPayForm(f => ({ ...f, details: { ...f.details, [fld.key]: v } }))} />
+                        ) : (
+                          <input type="text" value={payForm.details?.[fld.key] || ""}
+                            onChange={e => setPayForm(f => ({ ...f, details: { ...f.details, [fld.key]: e.target.value } }))}
+                            placeholder={fld.placeholder || ""} style={inp} />
+                        )}
+                      </div>
+                    ))}
+
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <label style={lbl}>Notes</label>
+                      <input value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))}
+                        placeholder="Optional…" style={inp} />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                    <button onClick={() => setPayModal(false)}
+                      style={{ flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.textSec, border: `1.5px solid ${T.border}`, fontFamily: "inherit" }}>
+                      Cancel
+                    </button>
+                    <button onClick={handleRecordPayment} disabled={paySubmitting}
+                      style={{ flex: 2, padding: "10px 0", background: "#3b82f6", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: paySubmitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, fontFamily: "inherit", opacity: paySubmitting ? 0.7 : 1 }}>
+                      {paySubmitting ? <><FaSpinner className="bl-spin" size={12} /> Saving…</> : <><FaCheckCircle size={12} /> Confirm Payment</>}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Reverse Payment modal ── */}
+            {reverseModal && (
+              <div style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
+                onClick={e => e.target === e.currentTarget && setReverseModal(null)}>
+                <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, maxWidth: "92vw", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+                  <div style={{ fontFamily: "Sora, sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, marginBottom: 4 }}>↩ Reverse Payment</div>
+                  <div style={{ fontSize: 12, color: T.textSec, marginBottom: 18 }}>
+                    {reverseModal.paymentNumber} · Amount: {fmtAED(reverseModal.amount)} · {reverseModal.paymentMode}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div>
+                      <label style={lbl}>Reason <span style={{ color: T.textSec, fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
+                      <input type="text" value={reverseReason} onChange={e => setReverseReason(e.target.value)}
+                        placeholder="e.g. Wrong bill, duplicate entry, cheque bounced…" style={inp} />
+                    </div>
+                    <div style={{ padding: "10px 13px", borderRadius: 8, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)", fontSize: 12, color: "#f59e0b" }}>
+                      ⚠️ This restores the bill balance and vendor payable. The original payment record stays for audit trail.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                    <button onClick={() => setReverseModal(null)}
+                      style={{ flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.textSec, border: `1.5px solid ${T.border}`, fontFamily: "inherit" }}>
+                      Cancel
+                    </button>
+                    <button onClick={handleReversePayment} disabled={reversing === reverseModal._id}
+                      style={{ flex: 2, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: reversing === reverseModal._id ? "not-allowed" : "pointer", opacity: reversing === reverseModal._id ? 0.6 : 1, background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", fontFamily: "inherit" }}>
+                      {reversing === reverseModal._id ? "Processing…" : "↩ Confirm Reversal"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         );
       })()}

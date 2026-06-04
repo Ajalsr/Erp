@@ -33,6 +33,8 @@ type GRN struct {
 	VendorID           string             `json:"vendorId"               bson:"vendorId"`
 	VendorName         string             `json:"vendorName"             bson:"vendorName"`
 	VendorOrigin       string             `json:"vendorOrigin,omitempty" bson:"vendorOrigin,omitempty"` // mainland | free_zone | overseas
+	WarehouseID        string             `json:"warehouseId,omitempty"   bson:"warehouseId,omitempty"`   // receiving warehouse
+	WarehouseName      string             `json:"warehouseName,omitempty" bson:"warehouseName,omitempty"`
 	ReceiptDate        time.Time          `json:"receiptDate"            bson:"receiptDate"`
 	DeliveryNoteNumber string             `json:"deliveryNoteNumber,omitempty" bson:"deliveryNoteNumber,omitempty"`
 	ReceivedBy         string             `json:"receivedBy,omitempty"   bson:"receivedBy,omitempty"`
@@ -42,7 +44,8 @@ type GRN struct {
 	SubTotal           float64            `json:"subTotal"               bson:"subTotal"`
 	TotalTax           float64            `json:"totalTax"               bson:"totalTax"`
 	Total              float64            `json:"total"                  bson:"total"`
-	Status             string             `json:"status"                 bson:"status"` // draft | confirmed
+	Status             string             `json:"status"                 bson:"status"` // draft | confirmed | rejected | billed
+	HasRejections      bool               `json:"hasRejections"          bson:"hasRejections"` // any line failed QC (partial accept)
 	OrgID              string             `json:"orgId,omitempty"        bson:"orgId,omitempty"`
 	CreatedAt          time.Time          `json:"createdAt"              bson:"createdAt"`
 	UpdatedAt          time.Time          `json:"updatedAt"              bson:"updatedAt"`

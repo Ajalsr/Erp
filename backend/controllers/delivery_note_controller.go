@@ -443,6 +443,7 @@ func deductStockOnDispatch(dn models.DeliveryNote, orgID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	defWh, _ := defaultWarehouse(ctx, orgID)
 	for _, item := range dn.Items {
 		if item.ItemID == "" || item.OutboundQuantity <= 0 {
 			continue
@@ -461,9 +462,12 @@ func deductStockOnDispatch(dn models.DeliveryNote, orgID string) {
 		if newQty < 0 {
 			newQty = 0
 		}
+		// Per-warehouse breakdown: drain from default warehouse first, then others.
+		whMap := seedWarehouseMap(stock.WarehouseStock, currentQty, defWh)
+		whMap = deductWarehouses(whMap, defWh, item.OutboundQuantity)
 		stockCollection.UpdateOne(ctx,
 			bson.M{"_id": itemObjID, "orgId": orgID},
-			bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}},
+			bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()}},
 		)
 		// Audit trail
 		adj := models.StockAdjustment{

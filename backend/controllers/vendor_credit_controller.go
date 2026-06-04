@@ -216,11 +216,12 @@ func ApplyVendorCredit() gin.HandlerFunc {
 			return
 		}
 
-		// Block applying credit to a paid bill — credit should apply to an open/partial bill
-		if b.Status == "paid" {
+		// Block applying credit to a paid / fully-settled bill — credit should apply
+		// to a bill with an outstanding balance, else amountPaid overshoots the total.
+		if b.Status == "paid" || b.BalanceDue <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  http.StatusBadRequest,
-				"message": "This bill is already paid. The credit is available against this vendor — apply it to an open bill instead.",
+				"message": "This bill has no outstanding balance. The credit stays available against this vendor — apply it to an open bill instead.",
 				"code":    "BILL_ALREADY_PAID",
 			})
 			return
@@ -229,10 +230,14 @@ func ApplyVendorCredit() gin.HandlerFunc {
 		creditAmt  := cr.Totals.GrandTotal
 		vatReversed := cr.Totals.TaxTotal
 
-		// Update bill balance
+		// Update bill balance — cap amountPaid at the grand total so a credit larger
+		// than the remaining balance does not push "Paid X of Y" past Y.
 		newPaid    := b.AmountPaid + creditAmt
 		newBalance := b.Totals.GrandTotal - newPaid
-		if newBalance < 0 { newBalance = 0 }
+		if newBalance < 0 {
+			newBalance = 0
+			newPaid    = b.Totals.GrandTotal
+		}
 		newBillStatus := "partial"
 		if newBalance <= 0 { newBillStatus = "paid" }
 
@@ -289,6 +294,86 @@ func ApplyVendorCredit() gin.HandlerFunc {
 				"billStatus":     newBillStatus,
 			},
 		})
+	}
+}
+
+// UnapplyVendorCredit reverses ApplyVendorCredit: detaches a credit from its bill,
+// restores the bill balance, and frees the credit back to "open". Needed so a settled
+// bill can be unwound (e.g. before voiding).
+func UnapplyVendorCredit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		userID, _ := c.Get("userId")
+		userIDStr := fmt.Sprintf("%v", userID)
+
+		crObjID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid credit ID"})
+			return
+		}
+
+		var cr models.VendorCredit
+		if err = vendorCreditCollection.FindOne(ctx, bson.M{"_id": crObjID, "orgId": orgIDStr}).Decode(&cr); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Credit not found"})
+			return
+		}
+		if cr.Status != "applied" || cr.BillID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Credit is not applied to a bill"})
+			return
+		}
+
+		creditAmt := cr.Totals.GrandTotal
+
+		// Restore the bill balance
+		if billObjID, err2 := primitive.ObjectIDFromHex(cr.BillID); err2 == nil {
+			var b models.Bill
+			if billCollection.FindOne(ctx, bson.M{"_id": billObjID, "orgId": orgIDStr}).Decode(&b) == nil {
+				newPaid := round2(b.AmountPaid - creditAmt)
+				if newPaid < 0 {
+					newPaid = 0
+				}
+				newBalance := round2(b.Totals.GrandTotal - newPaid)
+				newStatus := "open"
+				if newPaid > 0 {
+					newStatus = "partial"
+				}
+				billCollection.UpdateOne(ctx, bson.M{"_id": billObjID, "orgId": orgIDStr}, bson.M{
+					"$set": bson.M{"amountPaid": newPaid, "balanceDue": newBalance, "status": newStatus, "updatedAt": time.Now()},
+				})
+			}
+		}
+
+		// Free the credit back to open
+		vendorCreditCollection.UpdateOne(ctx, bson.M{"_id": crObjID, "orgId": orgIDStr}, bson.M{
+			"$set":   bson.M{"status": "open", "updatedAt": time.Now()},
+			"$unset": bson.M{"billId": "", "billNumber": ""},
+		})
+
+		// Restore vendor: payable goes back up, credit becomes available again
+		if cr.VendorID != "" {
+			if vObjID, err2 := primitive.ObjectIDFromHex(cr.VendorID); err2 == nil {
+				histEntry := bson.M{
+					"action":    "credit_unapplied",
+					"timestamp": time.Now(),
+					"user":      userIDStr,
+					"details":   fmt.Sprintf("Credit %s unapplied from Bill %s. Amount restored: AED %.2f", cr.CreditNumber, cr.BillNumber, creditAmt),
+				}
+				vendorCollection.UpdateOne(ctx,
+					bson.M{"_id": vObjID, "orgId": orgIDStr},
+					bson.M{
+						"$inc":  bson.M{"outstandingPayable": creditAmt, "creditAvailable": creditAmt},
+						"$push": bson.M{"history": histEntry},
+						"$set":  bson.M{"updatedAt": time.Now()},
+					},
+				)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Vendor credit unapplied", "data": gin.H{"creditRestored": creditAmt}})
 	}
 }
 

@@ -11,9 +11,14 @@ const STATUSES = [
   { key: "all",       label: "All",       color: "#64748b", dim: "rgba(100,116,139,.12)" },
   { key: "pending",   label: "Pending",   color: "#f59e0b", dim: "rgba(245,158,11,.12)"  },
   { key: "confirmed", label: "Confirmed", color: "#10b981", dim: "rgba(16,185,129,.12)"  },
+  { key: "rejected",  label: "Rejected",  color: "#ef4444", dim: "rgba(239,68,68,.12)"   },
+  { key: "billed",    label: "Billed",    color: "#3b82f6", dim: "rgba(59,130,246,.12)"  },
   { key: "invoiced",  label: "Invoiced",  color: "#3b82f6", dim: "rgba(59,130,246,.12)"  },
 ];
-const SM = Object.fromEntries(STATUSES.map(s => [s.key, s]));
+const SM = {
+  ...Object.fromEntries(STATUSES.map(s => [s.key, s])),
+  draft: { key: "draft", label: "Draft", color: "#64748b", dim: "rgba(100,116,139,.12)" },
+};
 
 const fmtAED = (n) =>
   `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -99,6 +104,7 @@ export default function GRNList() {
     { label: "Total",     val: stats.total     || 0, color: "#64748b", dim: "rgba(100,116,139,.1)"  },
     { label: "Pending",   val: stats.pending   || 0, color: "#f59e0b", dim: "rgba(245,158,11,.12)"  },
     { label: "Confirmed", val: stats.confirmed || 0, color: "#10b981", dim: "rgba(16,185,129,.12)"  },
+    { label: "Rejected",  val: stats.rejected  || 0, color: "#ef4444", dim: "rgba(239,68,68,.12)"   },
     { label: "Invoiced",  val: stats.invoiced  || 0, color: "#3b82f6", dim: "rgba(59,130,246,.12)"  },
   ];
 

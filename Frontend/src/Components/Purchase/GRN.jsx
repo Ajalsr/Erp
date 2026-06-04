@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   FaPrint, FaFileDownload, FaBoxOpen,
@@ -14,12 +15,37 @@ import api from '../../helper/axiosInstance';
 // ── Custom dropdown ────────────────────────────────────────────────
 function CustomSelect({ value, onChange, options, T, isDark, disabled }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [coords, setCoords] = useState(null);
+  const ref = useRef(null);     // trigger wrapper
+  const menuRef = useRef(null); // portalled menu
+
+  // Position the portalled menu under the trigger (fixed, so it escapes any
+  // overflow:auto/hidden ancestor — e.g. the horizontally scrollable table).
+  const place = () => {
+    if (!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    setCoords({ top: r.bottom + 4, left: r.left, width: r.width });
+  };
+
   useEffect(() => {
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
+    if (!open) return;
+    place();
+    const close = (e) => {
+      if (ref.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    // Menu is position:fixed, so it won't track scroll — close it instead.
+    const onScrollResize = () => setOpen(false);
+    document.addEventListener('mousedown', close);
+    window.addEventListener('resize', onScrollResize);
+    window.addEventListener('scroll', onScrollResize, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('resize', onScrollResize);
+      window.removeEventListener('scroll', onScrollResize, true);
+    };
+  }, [open]);
+
   const opts   = options.map(o => typeof o === 'string' ? { value: o, label: o } : o);
   const sel    = opts.find(o => o.value === value);
   const selColor = value === 'pass' ? '#10b981' : value === 'fail' ? '#ef4444' : '#f59e0b';
@@ -30,8 +56,8 @@ function CustomSelect({ value, onChange, options, T, isDark, disabled }) {
         <span>{sel?.label || value}</span>
         {!disabled && <FaChevronDown size={8} style={{ flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
       </button>
-      {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden', minWidth: 130 }}>
+      {open && coords && createPortal(
+        <div ref={menuRef} style={{ position: 'fixed', top: coords.top, left: coords.left, zIndex: 9999, minWidth: Math.max(coords.width, 130), background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden' }}>
           {opts.map(o => {
             const c = o.value === 'pass' ? '#10b981' : o.value === 'fail' ? '#ef4444' : '#f59e0b';
             return (
@@ -42,7 +68,8 @@ function CustomSelect({ value, onChange, options, T, isDark, disabled }) {
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -307,10 +334,13 @@ export default function GRN() {
   const [inboundData,         setInboundData]         = useState(null);
   const [deliveryNoteNumber,  setDeliveryNoteNumber]  = useState('');
   const [receivedBy,          setReceivedBy]          = useState('');
+  const [warehouses,          setWarehouses]          = useState([]);
+  const [warehouseId,         setWarehouseId]         = useState('');
   const [lineExtras,          setLineExtras]          = useState({});
   const [sendLoading,         setSendLoading]         = useState(false);
   const [confirmLoading,      setConfirmLoading]      = useState(false);
   const [confirmed,           setConfirmed]           = useState(false);
+  const [grnStatus,           setGrnStatus]           = useState('draft'); // draft|confirmed|rejected|billed
   const [linkedBill,          setLinkedBill]          = useState(null); // { id, billNumber } if bill already created
   const [toast,               setToast]               = useState(null);
   const [printPreview,        setPrintPreview]        = useState(false);
@@ -379,21 +409,38 @@ export default function GRN() {
           };
         });
         setLineExtras(extras);
-        if (['confirmed', 'stocked', 'invoiced', 'billed'].includes(d.status)) {
+        setGrnStatus(d.status || 'draft');
+        if (d.warehouseId) setWarehouseId(d.warehouseId);
+        if (['confirmed', 'stocked', 'invoiced', 'billed', 'rejected'].includes(d.status)) {
           setConfirmed(true);
           setSavedGRN({ id: d._id || d.id, grnNumber: d.grnNumber, total: d.total || 0 });
         }
-        // Check for linked bill via grnId or purchaseOrderId
+        // Check for THIS GRN's own bill (per-receipt billing — a sibling GRN on the
+        // same PO must NOT inherit this GRN's bill, and vice-versa). Match by grnId,
+        // never by purchaseOrderId.
         const grnIdStr = d._id || d.id || '';
-        api.get(`/api/bills/?purchaseOrderId=${d.purchaseOrderId}&limit=1`)
-          .then(r => {
-            const b = r.data?.data?.bills?.[0];
-            if (b) setLinkedBill({ id: b._id || b.id, billNumber: b.billNumber });
-          }).catch(() => {});
+        if (grnIdStr) {
+          api.get(`/api/bills/?grnId=${grnIdStr}&limit=1`)
+            .then(r => {
+              const b = r.data?.data?.bills?.[0];
+              setLinkedBill(b ? { id: b._id || b.id, billNumber: b.billNumber } : null);
+            }).catch(() => {});
+        }
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load warehouses for the receiving-warehouse picker; preselect the default.
+  useEffect(() => {
+    api.get('/api/warehouses/')
+      .then(r => {
+        const list = r.data?.data?.warehouses || r.data?.data || [];
+        setWarehouses(list);
+        setWarehouseId(prev => prev || (list.find(w => w.isDefault)?._id) || list[0]?._id || '');
+      })
+      .catch(() => {});
+  }, []);
 
   if (loading) return (
     <div style={{ minHeight: 'calc(100vh - 56px)', background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -433,10 +480,14 @@ export default function GRN() {
   const totalTax   = round2(taxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const grandTotal = round2(subTotal + totalTax);
 
+  const isRejected = grnStatus === 'rejected'; // every received unit failed QC → no stock added
+
   // 3-stage flow: 0=Draft, 1=Confirmed (stock updated), 2=Billed
   const stepIdx = linkedBill ? 2 : confirmed ? 1 : 0;
   const sm = linkedBill
     ? { color: '#3b82f6', dim: 'rgba(59,130,246,.12)',  label: 'Billed'     }
+    : isRejected
+    ? { color: '#ef4444', dim: 'rgba(239,68,68,.12)',  label: 'Rejected'   }
     : confirmed
     ? { color: '#10b981', dim: 'rgba(16,185,129,.12)', label: 'Confirmed'  }
     : { color: '#64748b', dim: 'rgba(100,116,139,.12)', label: 'Draft'     };
@@ -475,6 +526,8 @@ export default function GRN() {
           vendorId:           inboundData.vendorId || '',
           vendorName:         grn.vendor || '',
           vendorOrigin:       inboundData.vendorOrigin || '',
+          warehouseId:        warehouseId || undefined,
+          warehouseName:      warehouses.find(w => w._id === warehouseId)?.name || undefined,
           receiptDate:        new Date().toISOString(),
           deliveryNoteNumber: deliveryNoteNumber || undefined,
           receivedBy:         receivedBy || undefined,
@@ -507,6 +560,8 @@ export default function GRN() {
         // Existing draft GRN — save updated items (rejectedQty, qualityStatus) before confirming
         await api.patch(`/api/grns/${grnId}`, {
           notes: deliveryNoteNumber ? `Delivery Note: ${deliveryNoteNumber}` : undefined,
+          warehouseId:   warehouseId || undefined,
+          warehouseName: warehouses.find(w => w._id === warehouseId)?.name || undefined,
           items: items.map((i, idx) => {
             const ex = lineExtras[idx] || {};
             return {
@@ -528,10 +583,13 @@ export default function GRN() {
       }
 
       // Step 2: confirm — backend handles all stock + PO updates atomically
-      await api.post(`/api/grns/${grnId}/confirm`);
+      const confRes = await api.post(`/api/grns/${grnId}/confirm`);
+      const confData = confRes.data?.data || {};
 
       setConfirmed(true);
-      showToast(`GRN confirmed — stock updated.`, '✅');
+      setGrnStatus(confData.status || 'confirmed');
+      showToast(confRes.data?.message || 'GRN confirmed — stock updated.',
+        confData.status === 'rejected' ? '⛔' : '✅');
       // Update URL without re-mounting: replace history entry so Back goes to Inbound
       if (isNew && grnId) window.history.replaceState(null, '', `/Purchase/GRN/${grnId}`);
     } catch (err) {
@@ -706,7 +764,7 @@ export default function GRN() {
                     : confirmed ? <><FaCheckCircle size={11} /> Confirmed</>
                     : <><FaWarehouse size={11} /> Confirm Receipt</>}
                 </button>
-                {confirmed && !linkedBill && (
+                {confirmed && !linkedBill && grandTotal > 0 && (
                   <button className="grn-btn" onClick={handleCreateBill}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', boxShadow: '0 4px 14px rgba(59,130,246,.3)' }}>
                     <FaFileInvoiceDollar size={11} /> Create Bill
@@ -762,7 +820,8 @@ export default function GRN() {
                 {/* Contextual hint at each stage */}
                 <p style={{ fontSize: 11, color: T.textSec, margin: '12px 0 0', paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
                   {!confirmed && '→ Review items below, set rejected qty if any, then click Confirm Receipt to update stock.'}
-                  {confirmed && !linkedBill && '→ Stock has been updated. Click Create Bill to generate a vendor bill from this receipt.'}
+                  {confirmed && !linkedBill && isRejected && '→ All items failed quality inspection. No stock added and nothing to bill — the rejected qty stays open on the PO for re-supply.'}
+                  {confirmed && !linkedBill && !isRejected && grandTotal > 0 && '→ Stock has been updated. Click Create Bill to generate a vendor bill from this receipt.'}
                   {linkedBill && `→ Bill ${linkedBill.billNumber} has been created from this receipt.`}
                 </p>
               </div>
@@ -819,10 +878,18 @@ export default function GRN() {
                         <span style={{ fontSize: 12.5, color: T.textPri, fontWeight: 600, fontFamily: mono ? '"DM Mono",monospace' : 'inherit', textAlign: 'right' }}>{value}</span>
                       </div>
                     ))}
-                    {/* Delivery Note # and Received By */}
+                    {/* Receiving warehouse, Delivery Note # and Received By */}
                     {!confirmed && (
                       <>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, paddingTop: 4 }}>
+                          <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500, flexShrink: 0 }}>Receive into</span>
+                          <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}
+                            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.textPri, outline: 'none', width: 168 }}>
+                            {warehouses.length === 0 && <option value="">No warehouses</option>}
+                            {warehouses.map(w => <option key={w._id} value={w._id}>{w.name}{w.isDefault ? ' (default)' : ''}</option>)}
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500, flexShrink: 0 }}>Delivery Note #</span>
                           <input value={deliveryNoteNumber} onChange={(e) => setDeliveryNoteNumber(e.target.value)}
                             placeholder="Optional" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.textPri, fontFamily: "'DM Mono',monospace", outline: 'none', width: 160 }} />
@@ -863,7 +930,8 @@ export default function GRN() {
                     {items.length} {items.length === 1 ? 'item' : 'items'}
                   </span>
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: isDark ? 'rgba(255,255,255,.03)' : '#f8fafc', borderBottom: `1px solid ${T.border}` }}>
                       {[
@@ -971,6 +1039,7 @@ export default function GRN() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
 
               {/* Totals card (GRN-specific, not in Deliverynote) */}
@@ -1022,11 +1091,16 @@ export default function GRN() {
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, color: T.textSec, cursor: 'pointer' }}>
                   <FaArrowLeft size={11} /> Back to GRN List
                 </button>
-                {confirmed && !linkedBill && (
+                {confirmed && !linkedBill && grandTotal > 0 && (
                   <button className="grn-btn" onClick={handleCreateBill}
                     style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,.3)' }}>
                     <FaFileInvoiceDollar size={13} /> Create Bill →
                   </button>
+                )}
+                {confirmed && !linkedBill && grandTotal === 0 && (
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    All items rejected — nothing to bill.
+                  </span>
                 )}
                 {linkedBill && (
                   <button className="grn-btn" onClick={() => navigate('/Purchase/Bills')}

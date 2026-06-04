@@ -40,6 +40,57 @@ func pushInvoiceHistory(ctx context.Context, id primitive.ObjectID, action, user
 	)
 }
 
+// invoiceShouldDeductStock reports whether an invoice should reduce inventory itself:
+// a real (non-draft, non-proforma) invoice NOT generated from a Delivery Note (which
+// already deducted stock). Avoids double-deduct.
+func invoiceShouldDeductStock(inv models.Invoice) bool {
+	return inv.Status != "draft" && inv.Type != "proforma" && inv.LinkedDNID == "" && !inv.StockDeducted
+}
+
+// deductInvoiceStock reduces on-hand stock for each goods line carrying a stockId,
+// warehouse-aware (drains the default warehouse first) and writes a "sale" audit record.
+func deductInvoiceStock(ctx context.Context, inv models.Invoice) {
+	defWh, _ := defaultWarehouse(ctx, inv.OrgID)
+	for _, li := range inv.LineItems {
+		if li.StockID == "" || li.LineItemType == "expense" || li.Qty <= 0 {
+			continue
+		}
+		itemObjID, e := primitive.ObjectIDFromHex(li.StockID)
+		if e != nil {
+			continue
+		}
+		var stock models.Stock
+		if stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": inv.OrgID}).Decode(&stock) != nil {
+			continue
+		}
+		cur := 0.0
+		fmt.Sscanf(stock.Quantity, "%f", &cur)
+		newQty := cur - li.Qty
+		if newQty < 0 {
+			newQty = 0
+		}
+		whMap := deductWarehouses(seedWarehouseMap(stock.WarehouseStock, cur, defWh), defWh, li.Qty)
+		stockCollection.UpdateOne(ctx,
+			bson.M{"_id": itemObjID, "orgId": inv.OrgID},
+			bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()}},
+		)
+		adjustmentCollection.InsertOne(ctx, models.StockAdjustment{
+			ID:          primitive.NewObjectID(),
+			OrgID:       inv.OrgID,
+			ItemID:      li.StockID,
+			ItemName:    li.Desc,
+			Quantity:    li.Qty,
+			Type:        "decrease",
+			Reason:      "sale",
+			Reference:   inv.InvoiceNumber,
+			PreviousQty: cur,
+			NewQty:      newQty,
+			AdjustedAt:  time.Now(),
+			CreatedAt:   time.Now(),
+		})
+	}
+}
+
 func CreateInvoice() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -81,6 +132,10 @@ func CreateInvoice() gin.HandlerFunc {
 			inv.LineItems[i].ID = primitive.NewObjectID()
 		}
 
+		// Mark up-front whether this create will cut stock, so the flag persists and a
+		// later edit/finalize won't deduct again.
+		inv.StockDeducted = invoiceShouldDeductStock(inv)
+
 		_, err := invoiceCollection.InsertOne(ctx, inv)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create invoice", "error": err.Error()})
@@ -96,6 +151,11 @@ func CreateInvoice() gin.HandlerFunc {
 					{AccountCode: "4000", Credit: inv.Totals.Subtotal - inv.Totals.DiscountTotal},
 					{AccountCode: "2100", Credit: inv.Totals.TaxTotal},
 				})
+		}
+
+		// Direct invoice (no linked Delivery Note) reduces stock itself.
+		if invoiceShouldDeductStock(inv) {
+			deductInvoiceStock(ctx, inv)
 		}
 
 		action := "Invoice created"
@@ -369,12 +429,26 @@ func UpdateInvoice() gin.HandlerFunc {
 		if payload.Status != "draft" && existing.PublicToken == "" {
 			fields["publicToken"] = generatePublicToken()
 		}
+
+		// Draft → issued: a direct invoice (no linked DN) cuts stock now, the same as a
+		// freshly-issued invoice. Guarded by existing.StockDeducted so it runs once.
+		payload.OrgID = fmt.Sprintf("%v", orgID)
+		payload.StockDeducted = existing.StockDeducted
+		willDeduct := invoiceShouldDeductStock(payload)
+		if willDeduct {
+			fields["stockDeducted"] = true
+		}
+
 		update := bson.M{"$set": fields}
 
 		result, err := invoiceCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update)
 		if err != nil || result.MatchedCount == 0 {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update invoice"})
 			return
+		}
+
+		if willDeduct {
+			deductInvoiceStock(ctx, payload)
 		}
 
 		c.JSON(http.StatusOK, gin.H{

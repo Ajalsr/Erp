@@ -72,10 +72,20 @@ func CreateAdjustment() gin.HandlerFunc {
 			newQty = currentQty - adj.Quantity
 		}
 
+		// Per-warehouse breakdown: apply against the default warehouse (manual
+		// adjustments aren't warehouse-scoped yet).
+		defWh, _ := defaultWarehouse(ctx, orgIDStr)
+		whMap := seedWarehouseMap(stock.WarehouseStock, currentQty, defWh)
+		if adj.Type == "increase" {
+			whMap = addToWarehouse(whMap, defWh, adj.Quantity)
+		} else {
+			whMap = deductWarehouses(whMap, defWh, adj.Quantity)
+		}
+
 		// Update stock quantity
 		_, err = stockCollection.UpdateOne(ctx,
 			bson.M{"_id": itemObjID, "orgId": orgIDStr},
-			bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}},
+			bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()}},
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update stock"})

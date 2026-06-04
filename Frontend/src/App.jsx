@@ -21,7 +21,8 @@ import NewVendor from "./Components/NewVendor/NewVendor"
 import GRN from "./Components/Purchase/GRN"
 import GRNList from "./Components/Purchase/GRNList"
 import Inbound from "./Components/Purchase/Inbound"
-import PurchaseStock from "./Components/Purchase/Stock"
+import ReorderAlerts from "./Components/Inventory/ReorderAlerts"
+import BatchExpiry from "./Components/Inventory/BatchExpiry"
 import CreateOrganization from "./Components/Organization/CreateOrganization"
 import OrganizationSettings from "./Components/Organization/OrganizationSettings"
 import AcceptInvitation from "./Components/Organization/AcceptInvitation"
@@ -118,7 +119,8 @@ function App() {
             <Route path="/Purchase/GRN/new" element={<GRN />} />
             <Route path="/Purchase/GRN/:id" element={<GRN />} />
             <Route path="/Purchase/Inbound" element={<Inbound />} />
-            <Route path="/Purchase/Stock" element={<PurchaseStock />} />
+            <Route path="/Inventory/reorder-alerts" element={<ReorderAlerts />} />
+            <Route path="/Inventory/batch-expiry"   element={<BatchExpiry />} />
             <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
             <Route path="/Sales/Invoices" element={<Invoices />} />
             <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
