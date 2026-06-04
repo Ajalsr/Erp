@@ -17,9 +17,11 @@ const MENU = [
     { name: 'Price Lists',   route: '/Items/price-lists' },
   ]},
   { icon: MdInventory2,      label: 'Inventory',  tourKey: 'nav-inventory', subItems: [
-    { name: 'Stock Summary', route: '/Inventory/stock-summary' },
-    { name: 'Warehouses',    route: '/Inventory/warehouses' },
-    { name: 'Adjustments',   route: '/Inventory/adjustments' },
+    { name: 'Stock Summary',  route: '/Inventory/stock-summary' },
+    { name: 'Reorder Alerts', route: '/Inventory/reorder-alerts' },
+    { name: 'Batch & Expiry', route: '/Inventory/batch-expiry' },
+    { name: 'Warehouses',     route: '/Inventory/warehouses' },
+    { name: 'Adjustments',    route: '/Inventory/adjustments' },
   ]},
   { icon: HiShoppingCart,    label: 'Sales',      tourKey: 'nav-sales', subItems: [
     { name: 'Customers',          route: '/Sales/Customers' },
@@ -39,7 +41,6 @@ const MENU = [
      { name: 'Inbound',          route: '/Purchase/Inbound' },
     { name: 'GRN',              route: '/Purchase/GRN' },
      { name: 'Bills',            route: '/Purchase/Bills' },
-    { name: 'Stock',            route: '/Purchase/Stock' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
     { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
   ]},

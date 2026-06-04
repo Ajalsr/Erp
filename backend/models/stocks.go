@@ -34,6 +34,10 @@ type Stock struct {
 	OpeningStockRate string             `json:"opening_stock_rate" bson:"opening_stock_rate"`
 	ReorderPoint     string             `json:"reorder_point" bson:"reorder_point"`
 	Quantity         string             `json:"quantity" bson:"quantity"`
+	// Per-warehouse breakdown of on-hand qty (warehouseId → qty). The string Quantity
+	// above stays the authoritative TOTAL; this map is maintained in parallel so existing
+	// reads/writes keep working even if the breakdown is missing on legacy docs.
+	WarehouseStock   map[string]float64 `json:"warehouseStock,omitempty"   bson:"warehouseStock,omitempty"`
 	QuantityOrdered  float64            `json:"quantity_ordered,omitempty" bson:"quantity_ordered,omitempty"` // on open POs
 	QuantitySold     float64            `json:"quantity_sold,omitempty"    bson:"quantity_sold,omitempty"`    // on open SOs
 	OrgID            string             `json:"orgId,omitempty" bson:"orgId,omitempty"`

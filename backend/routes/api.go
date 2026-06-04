@@ -26,6 +26,7 @@ func StockRoutes(router *gin.Engine) {
 		stockRoutes.GET("/:id/availability", controllers.GetItemStockAvailability())
 		stockRoutes.PATCH("/:id/reduce", controllers.ReduceStock())
 		stockRoutes.PATCH("/:id/increase", controllers.IncreaseStock())
+		stockRoutes.POST("/backfill-warehouse", controllers.BackfillWarehouseStock())
 	}
 }
 
@@ -187,6 +188,7 @@ func GRNRoutes(router *gin.Engine) {
 		grnRoutes.POST("/", controllers.CreateGRN())
 		grnRoutes.GET("/", controllers.GetAllGRNs())
 		grnRoutes.GET("/stats", controllers.GetGRNStats())
+		grnRoutes.GET("/batches", controllers.GetGRNBatches())
 		grnRoutes.GET("/:id", controllers.GetGRNByID())
 		grnRoutes.PATCH("/:id", controllers.UpdateGRN())
 		grnRoutes.POST("/:id/confirm", controllers.ConfirmGRN())
@@ -338,6 +340,7 @@ func VendorCreditRoutes(router *gin.Engine) {
 		vcRoutes.GET("/stats", controllers.GetVendorCreditStats())
 		vcRoutes.GET("/:id", controllers.GetVendorCreditByID())
 		vcRoutes.POST("/:id/apply", controllers.ApplyVendorCredit())
+		vcRoutes.POST("/:id/unapply", controllers.UnapplyVendorCredit())
 		vcRoutes.PATCH("/:id/void", controllers.VoidVendorCredit())
 	}
 }

@@ -86,6 +86,7 @@ type Invoice struct {
 	Status        string             `json:"status"                    bson:"status"`
 	AmountPaid    float64            `json:"amountPaid"                bson:"amountPaid"`
 	BalanceDue    float64            `json:"balanceDue"                bson:"balanceDue"`
+	StockDeducted bool               `json:"stockDeducted,omitempty"   bson:"stockDeducted,omitempty"` // direct-invoice stock already cut
 	PublicToken   string             `json:"publicToken,omitempty"     bson:"publicToken,omitempty"`
 	Type                string   `json:"type,omitempty"               bson:"type,omitempty"` // "invoice" | "proforma"
 	ProformaConvertedTo       string `json:"proformaConvertedTo,omitempty"       bson:"proformaConvertedTo,omitempty"`

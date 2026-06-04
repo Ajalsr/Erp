@@ -13,6 +13,7 @@ import useWebSocket from "../../helper/useWebSocket";
 import debounce from "lodash/debounce";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import nexusToast from "../../helper/nexusToast";
 
 
 
@@ -337,23 +338,8 @@ const Customers = () => {
 
   const handleDocDownload = useCallback(async (url, name) => {
     if (!url) return;
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (isTauri) {
-      // In Tauri, blob + a.download is unreliable for PDFs (WKWebView intercepts).
-      // Open the proxy URL in the system browser instead — proxy sends
-      // Content-Disposition: attachment so the browser saves the file to disk.
-      // Proxy is public (no auth) so Safari can call it directly.
-      const base = import.meta.env.VITE_API_URL || "http://localhost:8080";
-      const proxyUrl = `${base}/api/documents/proxy?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(name || "document")}`;
-      try {
-        await window.__TAURI_INTERNALS__.invoke("plugin:shell|open", { path: proxyUrl });
-      } catch (e) {
-        console.error("shell.open failed:", e);
-        // Last resort: open direct Cloudinary URL in system browser
-        window.__TAURI_INTERNALS__.invoke("plugin:shell|open", { path: url }).catch(() => {});
-      }
-      return;
-    }
+    // Fetch through the backend proxy as a blob and save to disk via a hidden anchor.
+    // octet-stream forces a download (no inline open / no blank browser tab).
     try {
       const res  = await axiosInstance.get(
         `/api/documents/proxy?url=${encodeURIComponent(url)}`,
@@ -361,8 +347,7 @@ const Customers = () => {
       );
       const blob = res.data;
       if (!blob || blob.size === 0) throw new Error("empty");
-      const downloadBlob = new Blob([blob], { type: "application/octet-stream" });
-      const objectUrl = URL.createObjectURL(downloadBlob);
+      const objectUrl = URL.createObjectURL(new Blob([blob], { type: "application/octet-stream" }));
       const a = document.createElement("a");
       a.href = objectUrl;
       a.download = name || "document";
@@ -370,11 +355,9 @@ const Customers = () => {
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      nexusToast.success("Downloaded");
     } catch {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name || "document";
-      a.click();
+      nexusToast.error("Download failed");
     }
   }, []);
 

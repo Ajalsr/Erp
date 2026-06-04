@@ -19,6 +19,18 @@ const binariesDir = path.join(__dirname, '..', 'src-tauri', 'binaries')
 
 fs.mkdirSync(binariesDir, { recursive: true })
 
+// Embed backend/.env into the binary so the shipped sidecar is self-contained.
+// Decoded at runtime by loader.init() (set-only-if-missing, so real env still wins).
+const envPath = path.join(backendDir, '.env')
+let ldflags = ''
+if (fs.existsSync(envPath)) {
+  const envB64 = fs.readFileSync(envPath).toString('base64')
+  ldflags = `-X 'github.com/backend/loader.EnvBlob=${envB64}'`
+  console.log('Embedding backend/.env into binaries (self-contained mode)')
+} else {
+  console.warn('WARNING: backend/.env not found — binaries will have NO embedded config')
+}
+
 const targets = [
   {
     GOOS: 'darwin',
@@ -40,7 +52,10 @@ const targets = [
 for (const { GOOS, GOARCH, out } of targets) {
   console.log(`Building ${path.basename(out)} (${GOOS}/${GOARCH})...`)
   try {
-    execSync(`go build -o "${out}" .`, {
+    const buildCmd = ldflags
+      ? `go build -ldflags "${ldflags}" -o "${out}" .`
+      : `go build -o "${out}" .`
+    execSync(buildCmd, {
       cwd: backendDir,
       env: { ...process.env, GOOS, GOARCH, CGO_ENABLED: '0' },
       stdio: 'inherit',

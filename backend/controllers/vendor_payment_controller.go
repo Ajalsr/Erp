@@ -71,9 +71,12 @@ func CreateVendorPayment() gin.HandlerFunc {
 					newPaid    := b.AmountPaid + p.Amount
 					newBalance := b.Totals.GrandTotal - newPaid
 					if newBalance < 0 {
-						// Overpayment — excess goes to creditAvailable on vendor
+						// Overpayment — excess goes to creditAvailable on vendor.
+						// Cap amountPaid at the grand total so the bill never shows
+						// "Paid X of Y" with X > Y (the ledger stays balanced).
 						overpayment = -newBalance
 						newBalance  = 0
+						newPaid     = b.Totals.GrandTotal
 					}
 					newStatus := "partial"
 					if newBalance <= 0 {

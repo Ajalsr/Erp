@@ -331,6 +331,95 @@ const LineItems = ({ items }) => {
   );
 };
 
+/* ─── Product typeahead — search inventory or free-type a description ─────── */
+const ProductInput = ({ row, stockList, setItems }) => {
+  const T = useT();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const q = (row.desc || "").toLowerCase();
+  const matches = (q
+    ? stockList.filter(s => (s.name || "").toLowerCase().includes(q) || (s.item_code || "").toLowerCase().includes(q))
+    : stockList).slice(0, 8);
+  const pick = (s) => {
+    setItems(prev => prev.map(r => r.id === row.id
+      ? { ...r, desc: s.name || "", stockId: s._id, unitPrice: p(s.selling_price || s.sellingPrice || 0) || r.unitPrice, _stock: true }
+      : r));
+    setOpen(false);
+  };
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <input value={row.desc} placeholder="Search product or type description…"
+        onChange={e => { const v = e.target.value; setItems(prev => prev.map(r => r.id === row.id ? { ...r, desc: v, _stock: false, stockId: "" } : r)); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: 13, color: T.text, fontFamily: "inherit", padding: "4px 0" }} />
+      {row._stock && <span style={{ fontSize: 10, color: T.accent2, display: "block" }}>↗ inventory</span>}
+      {open && matches.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 60, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.18)", maxHeight: 240, overflowY: "auto", marginTop: 4 }}>
+          {matches.map(s => (
+            <button key={s._id} type="button" onClick={() => pick(s)}
+              style={{ width: "100%", textAlign: "left", padding: "8px 12px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "inherit", display: "flex", justifyContent: "space-between", gap: 8, color: T.text }}>
+              <span style={{ fontSize: 12.5 }}>{s.name}</span>
+              <span style={{ fontSize: 11, color: T.muted, fontFamily: "'DM Mono', monospace", whiteSpace: "nowrap" }}>{s.item_code || ""} · {p(s.quantity || 0)} in stock</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ─── Editable line items — direct-invoice mode (add/search products) ────── */
+const EditableLineItems = ({ items, setItems, stockList }) => {
+  const T = useT();
+  const upd = (id, field, val) => setItems(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
+  const remove = (id) => setItems(prev => prev.filter(r => r.id !== id));
+  const addRow = () => setItems(prev => [...prev, { id: uid(), desc: "", stockId: "", qty: 1, unitPrice: "", discount: 0, discountType: "fixed", taxRate: VAT_RATE, _stock: false }]);
+  const inp = { width: "100%", border: "none", background: "transparent", outline: "none", fontSize: 12, color: T.text, textAlign: "right", fontFamily: "'DM Mono', monospace", padding: "4px 0" };
+
+  return (
+    <div>
+      <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: T.surface2 }}>
+              {["Product / Description", "Qty", "Unit Price", "Disc", "Tax %", "Line Total", ""].map((h, i) => (
+                <th key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.muted, padding: "10px 8px", textAlign: (i > 0 && i < 6) ? "right" : "left", borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.length === 0 ? (
+              <tr><td colSpan={7} style={{ padding: "28px", textAlign: "center", color: T.muted, fontSize: 12 }}>No items — click “Add Item” below, then search a product or type a description.</td></tr>
+            ) : items.map(row => {
+              const { total } = calcLine(row);
+              return (
+                <tr key={row.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                  <td style={{ padding: "8px", minWidth: 200 }}><ProductInput row={row} stockList={stockList} setItems={setItems} /></td>
+                  <td style={{ padding: "8px", width: "8%" }}><input type="number" min="0" value={row.qty} onChange={e => upd(row.id, "qty", e.target.value)} style={inp} /></td>
+                  <td style={{ padding: "8px", width: "13%" }}><input type="number" min="0" value={row.unitPrice} onChange={e => upd(row.id, "unitPrice", e.target.value)} style={inp} /></td>
+                  <td style={{ padding: "8px", width: "10%" }}><input type="number" min="0" value={row.discount} onChange={e => upd(row.id, "discount", e.target.value)} style={inp} /></td>
+                  <td style={{ padding: "8px", width: "8%" }}><input type="number" min="0" max="100" value={row.taxRate} onChange={e => upd(row.id, "taxRate", e.target.value)} style={inp} /></td>
+                  <td style={{ padding: "8px", width: "12%", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: total > 0 ? T.text : T.muted }}>{total > 0 ? total.toFixed(2) : "—"}</td>
+                  <td style={{ padding: "8px", width: "36px", textAlign: "right" }}><button onClick={() => remove(row.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 14, lineHeight: 1 }}>✕</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <button onClick={addRow}
+        style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", border: `1.5px dashed ${T.border}`, borderRadius: 8, background: "transparent", color: T.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+        + Add Item
+      </button>
+    </div>
+  );
+};
+
 /* ─── Main Page ─────────────────────────────────────────────────────────── */
 const CreateInvoice = () => {
   const navigate  = useNavigate();
@@ -362,6 +451,14 @@ const CreateInvoice = () => {
   const [activeTab,     setActiveTab]     = useState(0);
   const [submitting,    setSubmitting]    = useState(false);
   const [draftId,       setDraftId]       = useState(null);
+  const [stockList,     setStockList]     = useState([]); // inventory items for the product picker
+
+  // Load inventory items for the direct-invoice product picker
+  useEffect(() => {
+    axiosInstance.get('/api/stocks/getitem')
+      .then(res => setStockList(res.data?.data || []))
+      .catch(() => {});
+  }, []);
 
   // Pre-fill form when editing an existing draft from the invoice list
   useEffect(() => {
@@ -784,14 +881,20 @@ const CreateInvoice = () => {
               </div>
 
               {activeTab === 0 && (
-                items.length === 0 ? (
-                  <div style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: "44px 24px", textAlign: "center" }}>
-                    <div style={{ fontSize: 36, marginBottom: 12 }}>📦</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 6 }}>No line items</div>
-                    <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>Items will be populated from the delivery note.</div>
-                  </div>
+                isFromDN ? (
+                  // From a delivery note → items are fixed (read-only).
+                  items.length === 0 ? (
+                    <div style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: "44px 24px", textAlign: "center" }}>
+                      <div style={{ fontSize: 36, marginBottom: 12 }}>📦</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 6 }}>No line items</div>
+                      <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>Items will be populated from the delivery note.</div>
+                    </div>
+                  ) : (
+                    <LineItems items={items} />
+                  )
                 ) : (
-                  <LineItems items={items} />
+                  // Direct invoice → add/search products and edit lines.
+                  <EditableLineItems items={items} setItems={setItems} stockList={stockList} />
                 )
               )}
 

@@ -304,7 +304,9 @@ func ReduceStock() gin.HandlerFunc {
 		}
 
 		newQty := currentQty - body.ReduceBy
-		update := bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}}
+		defWh, _ := defaultWarehouse(ctx, orgIDStr)
+		whMap := deductWarehouses(seedWarehouseMap(stock.WarehouseStock, currentQty, defWh), defWh, body.ReduceBy)
+		update := bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()}}
 		_, err = stockCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update stock quantity", "error": err.Error()})
@@ -358,7 +360,9 @@ func IncreaseStock() gin.HandlerFunc {
 		fmt.Sscanf(stock.Quantity, "%f", &currentQty)
 		newQty := currentQty + body.IncreaseBy
 
-		update := bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}}
+		defWh, _ := defaultWarehouse(ctx, orgIDStr)
+		whMap := addToWarehouse(seedWarehouseMap(stock.WarehouseStock, currentQty, defWh), defWh, body.IncreaseBy)
+		update := bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()}}
 		_, err = stockCollection.UpdateOne(ctx, bson.M{"_id": stock.ID, "orgId": orgIDStr}, update)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update stock quantity", "error": err.Error()})
@@ -369,6 +373,62 @@ func IncreaseStock() gin.HandlerFunc {
 			"status":  http.StatusOK,
 			"message": "Stock increased successfully",
 			"data":    gin.H{"previousQty": currentQty, "increasedBy": body.IncreaseBy, "newQty": newQty},
+		})
+	}
+}
+
+// BackfillWarehouseStock seeds the per-warehouse breakdown for legacy items: any stock
+// with no warehouseStock map gets its whole on-hand total parked in the default
+// warehouse. Idempotent — safe to run repeatedly. Run once after adding a warehouse.
+func BackfillWarehouseStock() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		defWh, defWhName := defaultWarehouse(ctx, orgIDStr)
+		if defWh == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "No warehouse found. Create a warehouse first."})
+			return
+		}
+
+		cursor, err := stockCollection.Find(ctx, bson.M{
+			"orgId": orgIDStr,
+			"$or": []bson.M{
+				{"warehouseStock": bson.M{"$exists": false}},
+				{"warehouseStock": bson.M{"$eq": bson.M{}}},
+				{"warehouseStock": nil},
+			},
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": 500, "message": "Failed to read stocks"})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var stocks []models.Stock
+		cursor.All(ctx, &stocks)
+
+		updated := 0
+		for _, s := range stocks {
+			qty := 0.0
+			fmt.Sscanf(s.Quantity, "%f", &qty)
+			if qty == 0 {
+				continue
+			}
+			stockCollection.UpdateOne(ctx,
+				bson.M{"_id": s.ID, "orgId": orgIDStr},
+				bson.M{"$set": bson.M{"warehouseStock": map[string]float64{defWh: qty}, "updated_at": time.Now()}},
+			)
+			updated++
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": fmt.Sprintf("Seeded %d item(s) into default warehouse '%s'", updated, defWhName),
+			"data":    gin.H{"updated": updated, "defaultWarehouse": defWhName},
 		})
 	}
 }

@@ -161,6 +161,12 @@ func CreateGRN() gin.HandlerFunc {
 // Called by ConfirmGRN. Separated so it can be tested or reused.
 func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 	stockCol := config.GetCollection(config.DB, "stocks")
+	// Resolve receiving warehouse: the GRN's chosen one, else the org default.
+	whID, _ := g.WarehouseID, g.WarehouseName
+	defWh, _ := defaultWarehouse(ctx, orgIDStr)
+	if whID == "" {
+		whID = defWh
+	}
 	for _, item := range g.Items {
 		if item.ItemID == "" {
 			continue
@@ -170,7 +176,8 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 			continue
 		}
 		var stockDoc struct {
-			Quantity string `bson:"quantity"`
+			Quantity       string             `bson:"quantity"`
+			WarehouseStock map[string]float64 `bson:"warehouseStock"`
 		}
 		if fetchErr := stockCol.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgIDStr}).Decode(&stockDoc); fetchErr == nil {
 			currentQty := 0.0
@@ -180,11 +187,19 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 				acceptedQty = 0
 			}
 			newQty := currentQty + acceptedQty
+			// Per-warehouse breakdown: seed legacy total into default, then credit the
+			// received warehouse. Total `quantity` stays authoritative.
+			whMap := seedWarehouseMap(stockDoc.WarehouseStock, currentQty, defWh)
+			whMap = addToWarehouse(whMap, whID, acceptedQty)
+			// Only clear the ACCEPTED qty from the on-order count. Rejected units were
+			// returned to the vendor, so they remain outstanding and must stay on-order
+			// (the vendor still owes a replacement). Using ReceivedQty here would wrongly
+			// mark rejected goods as fulfilled.
 			stockCol.UpdateOne(ctx,
 				bson.M{"_id": itemObjID, "orgId": orgIDStr},
 				bson.M{
-					"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()},
-					"$inc": bson.M{"quantity_ordered": -item.ReceivedQty},
+					"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()},
+					"$inc": bson.M{"quantity_ordered": -acceptedQty},
 				},
 			)
 			// Write audit record so item History tab shows this purchase
@@ -250,11 +265,19 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 
 	// Vendor history
 	if g.VendorID != "" {
+		totalRejected := 0.0
+		for _, it := range g.Items {
+			totalRejected += it.RejectedQty
+		}
+		details := fmt.Sprintf("Goods received via %s (PO: %s). Total: AED %.2f", g.GRNNumber, g.PONumber, g.Total)
+		if totalRejected > 0 {
+			details += fmt.Sprintf(" — %g unit(s) REJECTED on quality inspection (kept open on PO for re-supply).", totalRejected)
+		}
 		histEntry := bson.M{
 			"action":    "grn_received",
 			"timestamp": time.Now(),
 			"user":      g.CreatedBy,
-			"details":   fmt.Sprintf("Goods received via %s (PO: %s). Total: AED %.2f", g.GRNNumber, g.PONumber, g.Total),
+			"details":   details,
 		}
 		if vObjID, err := primitive.ObjectIDFromHex(g.VendorID); err == nil {
 			vendorCollection.UpdateOne(ctx,
@@ -289,19 +312,42 @@ func ConfirmGRN() gin.HandlerFunc {
 			return
 		}
 
-		// Mark confirmed first so PO status query counts this GRN
+		// Derive status from quality outcome:
+		//   confirmed          → at least some qty accepted into stock
+		//   rejected           → every received unit failed QC (nothing entered stock)
+		totalAccepted, totalRejected := 0.0, 0.0
+		for _, it := range g.Items {
+			acc := it.ReceivedQty - it.RejectedQty
+			if acc < 0 {
+				acc = 0
+			}
+			totalAccepted += acc
+			totalRejected += it.RejectedQty
+		}
+		newStatus := "confirmed"
+		if totalAccepted == 0 && totalRejected > 0 {
+			newStatus = "rejected"
+		}
+		hasRejections := totalRejected > 0
+
 		if _, err := grnCollection.UpdateOne(ctx,
 			bson.M{"_id": objID, "orgId": orgIDStr},
-			bson.M{"$set": bson.M{"status": "confirmed", "updatedAt": time.Now()}},
+			bson.M{"$set": bson.M{"status": newStatus, "hasRejections": hasRejections, "updatedAt": time.Now()}},
 		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": 500, "message": "Failed to confirm GRN"})
 			return
 		}
-		g.Status = "confirmed"
+		g.Status = newStatus
 
 		confirmGRNStock(ctx, g, orgIDStr)
 
-		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "GRN confirmed — stock updated", "data": gin.H{"grnNumber": g.GRNNumber}})
+		msg := "GRN confirmed — stock updated"
+		if newStatus == "rejected" {
+			msg = "GRN recorded — all items rejected on quality inspection (no stock added; qty kept open on PO)"
+		} else if hasRejections {
+			msg = "GRN confirmed — accepted items stocked; rejected qty kept open on PO"
+		}
+		c.JSON(http.StatusOK, gin.H{"status": 200, "message": msg, "data": gin.H{"grnNumber": g.GRNNumber, "status": newStatus, "hasRejections": hasRejections}})
 	}
 }
 
@@ -368,6 +414,63 @@ func GetAllGRNs() gin.HandlerFunc {
 	}
 }
 
+// GetGRNBatches flattens every confirmed/billed GRN line that carries a batch number
+// into a batch-tracking list (item, batch, expiry, accepted qty, source GRN/vendor).
+// Powers the Inventory → Batch & Expiry screen. Read-only; no schema change.
+func GetGRNBatches() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		// Only received stock counts (confirmed or billed), and only lines with a batch.
+		filter := bson.M{
+			"orgId":              orgIDStr,
+			"status":             bson.M{"$in": []string{"confirmed", "billed"}},
+			"items.batchNumber":  bson.M{"$nin": []interface{}{"", nil}},
+		}
+		opts := options.Find().SetSort(bson.D{{Key: "receiptDate", Value: -1}})
+		cursor, err := grnCollection.Find(ctx, filter, opts)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": 500, "message": "Failed to fetch batches"})
+			return
+		}
+		defer cursor.Close(ctx)
+
+		var grns []models.GRN
+		cursor.All(ctx, &grns)
+
+		batches := []gin.H{}
+		for _, g := range grns {
+			for _, it := range g.Items {
+				if it.BatchNumber == "" {
+					continue
+				}
+				accepted := it.ReceivedQty - it.RejectedQty
+				if accepted < 0 {
+					accepted = 0
+				}
+				batches = append(batches, gin.H{
+					"itemId":      it.ItemID,
+					"itemCode":    it.ItemCode,
+					"name":        it.Details,
+					"unit":        it.Unit,
+					"batchNumber": it.BatchNumber,
+					"expiryDate":  it.ExpiryDate,
+					"qty":         accepted,
+					"grnNumber":   g.GRNNumber,
+					"receiptDate": g.ReceiptDate,
+					"vendorName":  g.VendorName,
+				})
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "Batches retrieved", "data": gin.H{"batches": batches}})
+	}
+}
+
 func GetGRNStats() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -386,12 +489,14 @@ func GetGRNStats() gin.HandlerFunc {
 		total, _ := grnCollection.CountDocuments(ctx, base)
 		draft     := count(bson.M{"status": "draft"})
 		confirmed := count(bson.M{"status": "confirmed"})
+		rejected  := count(bson.M{"status": "rejected"})
 		billed    := count(bson.M{"status": "billed"})
 
 		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "GRN stats", "data": gin.H{
 			"total":     total,
 			"draft":     draft,
 			"confirmed": confirmed,
+			"rejected":  rejected,
 			"billed":    billed,
 		}})
 	}
@@ -412,9 +517,11 @@ func UpdateGRN() gin.HandlerFunc {
 		}
 
 		var body struct {
-			Status string           `json:"status"`
-			Notes  string           `json:"notes"`
-			Items  []models.GRNItem `json:"items"`
+			Status        string           `json:"status"`
+			Notes         string           `json:"notes"`
+			WarehouseID   string           `json:"warehouseId"`
+			WarehouseName string           `json:"warehouseName"`
+			Items         []models.GRNItem `json:"items"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": 400, "message": "Invalid request body"})
@@ -424,6 +531,10 @@ func UpdateGRN() gin.HandlerFunc {
 		set := bson.M{"updatedAt": time.Now()}
 		if body.Status != "" { set["status"] = body.Status }
 		if body.Notes != ""  { set["notes"]  = body.Notes  }
+		if body.WarehouseID != "" {
+			set["warehouseId"]   = body.WarehouseID
+			set["warehouseName"] = body.WarehouseName
+		}
 		if len(body.Items) > 0 {
 			// Recalculate item totals using accepted qty before saving
 			var g models.GRN

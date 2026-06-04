@@ -131,6 +131,9 @@ func GetAllBills() gin.HandlerFunc {
 		if poid := c.Query("purchaseOrderId"); poid != "" {
 			filter["purchaseOrderId"] = poid
 		}
+		if grnid := c.Query("grnId"); grnid != "" {
+			filter["grnId"] = grnid
+		}
 
 		total, _ := billCollection.CountDocuments(ctx, filter)
 
@@ -227,6 +230,22 @@ func UpdateBillStatus() gin.HandlerFunc {
 		if !validStatuses[body.Status] {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid status"})
 			return
+		}
+
+		// Guard: a settled bill (any payment or applied credit) cannot be voided —
+		// the payments/credits must be reversed first or the ledger goes out of balance.
+		if body.Status == "void" {
+			var existing models.Bill
+			if err := billCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr}).Decode(&existing); err == nil {
+				if existing.Status == "paid" || existing.AmountPaid > 0 {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"status":  http.StatusBadRequest,
+						"message": "Cannot void a bill that has payments or applied credits. Reverse them first.",
+						"code":    "BILL_SETTLED",
+					})
+					return
+				}
+			}
 		}
 
 		result, err := billCollection.UpdateOne(ctx,
