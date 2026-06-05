@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -123,22 +123,6 @@ const calcLineBase = (qty, rate, discount, discountType) => {
   if (discountType === 'percentage') return round2(base - base * (discount / 100));
   if (discountType === 'fixed')      return round2(Math.max(0, base - discount));
   return round2(base);
-};
-
-const buildTaxGroups = (items, taxRate) => {
-  const order = [], groups = {};
-  items.forEach(item => {
-    if (!item.rate || !item.quantity) return;
-    const base = calcLineBase(parseFloat(item.quantity)||0, parseFloat(item.rate)||0, parseFloat(item.discount)||0, item.discountType);
-    const key = item.rate;
-    if (!groups[key]) { groups[key] = { rate: item.rate, base: 0 }; order.push(key); }
-    groups[key].base = round2(groups[key].base + base);
-  });
-  return order.map(rate => ({
-    rate, taxRate: round2(taxRate * 100),
-    baseAmount: round2(groups[rate].base),
-    taxAmount:  round2(groups[rate].base * taxRate),
-  }));
 };
 
 /* ─── Field wrapper ───────────────────────────────────────────────── */
@@ -639,20 +623,35 @@ export default function Newpurchaseorders() {
 
   /* ── Computed totals ── */
   const effectiveTaxRate = getVendorTaxRate(selectedVendor?.origin);
+  const vatPct     = Math.round(effectiveTaxRate * 100);
 
+  // Goods use vendor-origin VAT. Each item may carry OPTIONAL freight, taxed at its OWN
+  // rate (UAE: local transport 5%, international 0%) — independent of vendor origin.
   const computedItems = items.map(item => {
     const qty  = parseFloat(item.quantity) || 0;
     const rate = parseFloat(item.rate)     || 0;
     const disc = parseFloat(item.discount) || 0;
     const base = calcLineBase(qty, rate, disc, item.discountType);
     const tax  = round2(base * effectiveTaxRate);
-    return { ...item, base, tax, amount: round2(base + tax) };
+    const freight    = parseFloat(item.freight) || 0;
+    const frtPct     = parseFloat(item.freightTaxRate) || 0;
+    const freightTax = round2(freight * frtPct / 100);
+    return { ...item, base, tax, freight, frtPct, freightTax, amount: round2(base + tax + freight + freightTax) };
   });
 
-  const vatPct     = Math.round(effectiveTaxRate * 100);
-  const taxGroups  = buildTaxGroups(computedItems, effectiveTaxRate);
-  const subTotal   = round2(computedItems.reduce((s, i) => s + i.base, 0));
-  const totalTax   = round2(taxGroups.reduce((s, g) => s + g.taxAmount, 0));
+  // Tax breakdown grouped by tax % (goods at origin rate + freight at its own rate)
+  const taxGroups = (() => {
+    const m = {}, order = [];
+    const add = (pct, b) => {
+      if (!b) return;
+      if (!(pct in m)) { m[pct] = { taxRate: pct, baseAmount: 0 }; order.push(pct); }
+      m[pct].baseAmount = round2(m[pct].baseAmount + b);
+    };
+    computedItems.forEach(i => { add(vatPct, i.base); if (i.freight > 0) add(i.frtPct, i.freight); });
+    return order.map(k => ({ taxRate: Number(k), baseAmount: m[k].baseAmount, taxAmount: round2(m[k].baseAmount * Number(k) / 100) }));
+  })();
+  const subTotal   = round2(computedItems.reduce((s, i) => s + i.base + i.freight, 0));
+  const totalTax   = round2(computedItems.reduce((s, i) => s + i.tax + i.freightTax, 0));
   const shipAmt    = round2(parseFloat(shipping)   || 0);
   const adjAmt     = round2(parseFloat(adjustment) || 0);
   const grandTotal = round2(subTotal + totalTax + shipAmt + adjAmt);
@@ -726,6 +725,7 @@ export default function Newpurchaseorders() {
         items: computedItems.filter(i => i.details && i.quantity > 0).map(i => ({
           itemId: i.itemId, details: i.details, quantity: parseFloat(i.quantity),
           rate: parseFloat(i.rate)||0, discount: parseFloat(i.discount)||0, discountType: i.discountType, unit: i.unit,
+          freight: parseFloat(i.freight)||0, freightTaxRate: (parseFloat(i.freight)||0) > 0 ? (parseFloat(i.freightTaxRate)||0) : 0,
         })),
         shippingCharges: shipAmt, adjustment: adjAmt, customerNotes, termsAndConditions: terms, status,
       };
@@ -889,8 +889,11 @@ export default function Newpurchaseorders() {
                 <tbody>
                   {items.map((item, index) => {
                     const comp = computedItems[index];
+                    const setF = (field, val) => { const u = [...items]; u[index][field] = val; setItems(u); };
+                    const showFreight = item.showFreight || item.freight;
                     return (
-                      <tr key={item.id}>
+                      <Fragment key={item.id}>
+                      <tr>
                         {/* Item details cell — SKU row always rendered to keep row height stable */}
                         <td>
                           <div ref={el => itemInputRefs.current[index] = el}>
@@ -901,10 +904,14 @@ export default function Newpurchaseorders() {
                               }}
                               onFocus={() => { setShowItemDropdown(index); if (!item.details) setSearchTerm(''); }}
                             />
-                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: T.textSec, visibility: item.sku ? 'visible' : 'hidden', height: 14 }}>
-                              <FaBarcode style={{ fontSize: 9, flexShrink: 0 }} />
-                              <span style={{ fontFamily: "'DM Mono',monospace" }}>{item.sku}</span>
-                              {item.unit && <span>· {item.unit}</span>}
+                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: T.textSec, height: 14 }}>
+                              {item.sku && <><FaBarcode style={{ fontSize: 9, flexShrink: 0 }} /><span style={{ fontFamily: "'DM Mono',monospace" }}>{item.sku}</span>{item.unit && <span>· {item.unit}</span>}</>}
+                              {!showFreight && (
+                                <button type="button" onClick={() => { setF('showFreight', true); if (item.freightTaxRate == null) setF('freightTaxRate', 5); }}
+                                  style={{ marginLeft: item.sku ? 8 : 0, background: 'none', border: 'none', cursor: 'pointer', color: '#f59e0b', fontSize: 10, fontWeight: 700, padding: 0 }}>
+                                  + freight
+                                </button>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -952,6 +959,23 @@ export default function Newpurchaseorders() {
                           </div>
                         </td>
                       </tr>
+                      {showFreight && (
+                        <tr style={{ background: isDark ? 'rgba(245,158,11,.05)' : '#fffdf7' }}>
+                          <td colSpan={6} style={{ padding: '8px 12px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>🚚 Freight for this item</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, fontFamily: "'DM Mono',monospace" }}>AED</span>
+                              <input type="number" value={item.freight || ''} onChange={e => setF('freight', e.target.value)} className="npo-dinp" placeholder="0.00" min="0" style={{ width: 90, textAlign: 'right' }} />
+                              <input type="number" value={item.freightTaxRate ?? 5} onChange={e => setF('freightTaxRate', e.target.value)} className="npo-dinp" min="0" max="100" style={{ width: 56, textAlign: 'right' }} />
+                              <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec }}>% tax</span>
+                              {comp?.freightTax > 0 && <span style={{ fontSize: 11, color: T.textSec }}>= tax {fmtAED(comp.freightTax)}</span>}
+                              <button type="button" onClick={() => { setF('freight', ''); setF('showFreight', false); }}
+                                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 11, fontWeight: 600 }}>remove freight</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                   {!hasItemsAdded && (
@@ -1029,25 +1053,20 @@ export default function Newpurchaseorders() {
             <div className="npo-sin">
               <div className="npo-stitle"><div className="npo-sicon" style={{ background: '#f59e0b18', color: '#f59e0b' }}><FaMoneyBillWave /></div>Tax Breakdown</div>
               <div className="npo-srow"><span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Sub Total</span><span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'DM Mono',monospace", color: T.textPri }}>{fmtAED(subTotal)}</span></div>
-              {taxGroups.length > 0 && vatPct === 0 && (
-                <div style={{ margin: '10px 0', padding: '10px 12px', background: isDark ? 'rgba(100,116,139,.06)' : '#f8fafc', borderRadius: 10, border: `1.5px solid ${isDark ? 'rgba(100,116,139,.2)' : '#e2e8f0'}` }}>
-                  <p style={{ fontSize: 11, fontWeight: 600, color: T.textSec, margin: 0 }}>VAT 0% — Exempt (Free Zone / Overseas)</p>
-                </div>
-              )}
-              {taxGroups.length > 0 && vatPct > 0 && (
+              {taxGroups.length > 0 && (
                 <div style={{ margin: '10px 0', padding: '10px 12px', background: isDark ? 'rgba(245,158,11,.06)' : '#fffbeb', borderRadius: 10, border: `1.5px solid ${isDark ? 'rgba(245,158,11,.2)' : '#fde68a'}` }}>
-                  <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: '#f59e0b', margin: '0 0 8px' }}>VAT {vatPct}% — Grouped by Rate</p>
+                  <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: '#f59e0b', margin: '0 0 8px' }}>VAT — Grouped by Rate</p>
                   {taxGroups.map((g, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: 7, marginBottom: i < taxGroups.length - 1 ? 4 : 0 }}>
                       <div>
-                        <p style={{ fontSize: 12, fontWeight: 600, color: T.textPri, margin: 0 }}>Rate AED {g.rate}</p>
-                        <p style={{ fontSize: 10, color: T.textSec, margin: '2px 0 0', fontFamily: "'DM Mono',monospace" }}>{fmtAED(g.baseAmount)} × {vatPct}%</p>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: T.textPri, margin: 0 }}>VAT {g.taxRate}%{g.taxRate === 0 ? ' — Exempt / Zero-rated' : ''}</p>
+                        <p style={{ fontSize: 10, color: T.textSec, margin: '2px 0 0', fontFamily: "'DM Mono',monospace" }}>{fmtAED(g.baseAmount)} × {g.taxRate}%</p>
                       </div>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#f59e0b', fontFamily: "'DM Mono',monospace" }}>{fmtAED(g.taxAmount)}</span>
                     </div>
                   ))}
                   <div style={{ borderTop: `1.5px solid ${isDark ? 'rgba(245,158,11,.25)' : '#fcd34d'}`, marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>Total VAT ({vatPct}%)</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>Total VAT</span>
                     <span style={{ fontSize: 13, fontWeight: 800, color: '#f59e0b', fontFamily: "'DM Mono',monospace" }}>{fmtAED(totalTax)}</span>
                   </div>
                 </div>

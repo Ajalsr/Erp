@@ -23,6 +23,10 @@ type GRNItem struct {
 	BaseAmount      float64            `json:"baseAmount"             bson:"baseAmount"`
 	TaxAmount       float64            `json:"taxAmount"              bson:"taxAmount"`
 	LineTotal       float64            `json:"lineTotal"              bson:"lineTotal"`
+	// Per-item freight carried from the PO — taxed at its own rate, prorated to received qty.
+	Freight          float64 `json:"freight,omitempty"          bson:"freight,omitempty"`
+	FreightTaxRate   float64 `json:"freightTaxRate,omitempty"   bson:"freightTaxRate,omitempty"`
+	FreightTaxAmount float64 `json:"freightTaxAmount,omitempty" bson:"freightTaxAmount,omitempty"`
 }
 
 type GRN struct {

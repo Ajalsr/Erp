@@ -370,7 +370,9 @@ export default function Purchaseorders() {
                   <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>
                   <DRow label="Shipping"      value={fmtAmt(selected.shippingCharges)} T={T}/>
                   <DRow label="Adjustment"    value={fmtAmt(selected.adjustment)} T={T}/>
-                  <DRow label={`VAT (${['free_zone','overseas'].includes((selected.vendorOrigin||'').toLowerCase().replace(/\s+/g,'_')) ? '0' : '5'}%)`} value={fmtAmt(selected.totalTax ?? selected.vat)} T={T}/>
+                  {(selected.taxGroups||[]).length > 0
+                    ? selected.taxGroups.map((g,i) => <DRow key={i} label={`VAT ${g.taxRate ?? g.rate}%${(g.taxRate ?? g.rate)===0 ? ' (zero-rated)' : ''}`} value={fmtAmt(g.taxAmount)} T={T}/>)
+                    : <DRow label={`VAT (${['free_zone','overseas'].includes((selected.vendorOrigin||'').toLowerCase().replace(/\s+/g,'_')) ? '0' : '5'}%)`} value={fmtAmt(selected.totalTax ?? selected.vat)} T={T}/>}
                   {selected.notes && (
                     <div style={{ marginTop:14, padding:12, background:T.surface2, border:`1px solid ${border}`, borderRadius:10 }}>
                       <p style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:T.textSec, margin:'0 0 6px' }}>Notes</p>
@@ -388,22 +390,41 @@ export default function Purchaseorders() {
                         <div key={i} style={{ border:`1.5px solid ${border}`, borderRadius:12, padding:'13px 15px', background:T.surface2 }}>
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                             <div>
-                              <p style={{ margin:0, fontSize:13, fontWeight:700, color:T.textPri }}>{item.itemName||item.name||item.itemId||'—'}</p>
-                              {item.details && <p style={{ margin:'2px 0 0', fontSize:11, color:T.textSec }}>{item.details}</p>}
+                              <p style={{ margin:0, fontSize:13, fontWeight:700, color:T.textPri }}>{item.details||item.itemName||item.name||'—'}</p>
+                              <p style={{ margin:'2px 0 0', fontSize:11, color:T.textSec, fontFamily:"'DM Mono',monospace" }}>base {fmtAmt(item.baseAmount)} + VAT {fmtAmt(item.taxAmount)}</p>
                             </div>
                             <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color:T.textPri }}>{fmtAmt(item.amount)}</span>
                           </div>
-                          <div style={{ display:'flex', gap:16 }}>
+                          <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
                             <span style={{ fontSize:11, color:T.textSec }}>Qty: <strong style={{ color:T.textPri }}>{item.quantity}</strong></span>
                             <span style={{ fontSize:11, color:T.textSec }}>Rate: <strong style={{ color:T.textPri, fontFamily:"'DM Mono',monospace" }}>AED {item.rate}</strong></span>
                             {item.discount>0 && <span style={{ fontSize:11, color:T.amber }}>Disc: {item.discountType==='fixed' ? `AED ${item.discount}` : `${item.discount}%`}</span>}
+                            {item.freight>0 && <span style={{ fontSize:11, color:'#f59e0b' }}>🚚 Freight: <strong>AED {item.freight}</strong> +{item.freightTaxRate||0}% VAT ({fmtAmt(item.freightTaxAmount)})</span>}
                           </div>
                         </div>
                       ))}
-                      <div style={{ display:'flex', justifyContent:'flex-end', padding:'12px 0 0', borderTop:`1px solid ${border}` }}>
-                        <div style={{ textAlign:'right' }}>
-                          <p style={{ margin:0, fontSize:11, color:T.textSec, fontWeight:600 }}>ORDER TOTAL</p>
-                          <p style={{ margin:'3px 0 0', fontFamily:"'DM Mono',monospace", fontSize:18, fontWeight:800, color:T.blue }}>{fmtAmt(selected.total)}</p>
+                      <div style={{ padding:'12px 4px 0', borderTop:`1px solid ${border}`, display:'flex', flexDirection:'column', gap:6 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between' }}>
+                          <span style={{ fontSize:12, color:T.textSec }}>Sub Total (excl. VAT)</span>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:700, color:T.textPri }}>{fmtAmt(selected.subTotal)}</span>
+                        </div>
+                        {(selected.taxGroups||[]).map((g,i) => (
+                          <div key={i} style={{ display:'flex', justifyContent:'space-between' }}>
+                            <span style={{ fontSize:12, color:T.textSec }}>VAT {g.taxRate ?? g.rate}%{(g.taxRate ?? g.rate)===0 ? ' (zero-rated)' : ''} on {fmtAmt(g.baseAmount)}</span>
+                            <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:700, color:'#f59e0b' }}>{fmtAmt(g.taxAmount)}</span>
+                          </div>
+                        ))}
+                        {!selected.taxGroups?.length && (selected.totalTax>0) && (
+                          <div style={{ display:'flex', justifyContent:'space-between' }}>
+                            <span style={{ fontSize:12, color:T.textSec }}>VAT</span>
+                            <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:700, color:'#f59e0b' }}>{fmtAmt(selected.totalTax)}</span>
+                          </div>
+                        )}
+                        {selected.shippingCharges>0 && <div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ fontSize:12, color:T.textSec }}>Shipping</span><span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color:T.textPri }}>{fmtAmt(selected.shippingCharges)}</span></div>}
+                        {selected.adjustment!==0 && selected.adjustment!=null && <div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ fontSize:12, color:T.textSec }}>Adjustment</span><span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color:T.textPri }}>{fmtAmt(selected.adjustment)}</span></div>}
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6, paddingTop:8, borderTop:`1.5px solid ${border}` }}>
+                          <span style={{ fontSize:13, fontWeight:800, color:T.textPri }}>ORDER TOTAL</span>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:18, fontWeight:800, color:T.blue }}>{fmtAmt(selected.total)}</span>
                         </div>
                       </div>
                     </div>

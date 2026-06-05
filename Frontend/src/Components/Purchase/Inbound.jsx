@@ -96,6 +96,8 @@ const transformPOsToItems = (poData, stockData) => {
           receiveQty:   remainingQty,   // default = remaining, not full ordered
           discount:     oi.discount || 0,
           discountType: oi.discountType || 'fixed',
+          freight:        oi.freight || 0,
+          freightTaxRate: oi.freightTaxRate || 0,
           status:       receivedQty > 0 ? "partial" : "pending",
           poStatus:     po.status,
         });
@@ -239,6 +241,8 @@ export default function Inbound() {
           receivedQty: i.receiveQty || 0,
           unit:        i.unit       || 'Pcs',
           rate:        parseFloat(i.costPrice || 0),
+          freight:        parseFloat(i.freight || 0),
+          freightTaxRate: parseFloat(i.freightTaxRate || 0),
         })),
       };
       const res = await axiosInstance.post('/api/grns/', payload);
@@ -271,13 +275,26 @@ export default function Inbound() {
   const handleReject = (id) => setItems(p => p.map(i => i._id === id ? { ...i, status: "rejected" } : i));
 
   // ── Derived stats ─────────────────────────────────────────────────
+  // Per-item freight, prorated to the qty being received now, taxed at its own rate.
+  const itemFreight = (i) => {
+    const ord  = parseFloat(i.orderedQty) || 0;
+    const frac = ord > 0 ? (i.receiveQty || 0) / ord : ((i.receiveQty || 0) > 0 ? 1 : 0);
+    const f    = round2((parseFloat(i.freight) || 0) * frac);
+    const pct  = parseFloat(i.freightTaxRate) || 0;
+    return { freight: f, freightTax: round2(f * pct / 100), frtPct: pct };
+  };
+
   const selItems       = items.filter(i => selectedIds.has(i._id));
   const totalQty       = selItems.reduce((s, i) => s + (i.receiveQty || 0), 0);
-  const subTotal       = round2(selItems.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0));
+  const goodsBase      = round2(selItems.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0));
+  const freightTotal     = round2(selItems.reduce((s, i) => s + itemFreight(i).freight, 0));
+  const freightTaxTotal  = round2(selItems.reduce((s, i) => s + itemFreight(i).freightTax, 0));
+  const subTotal       = round2(goodsBase + freightTotal);
   const selTaxRate       = vendorTaxRate(selItems[0]?.vendorOrigin);
   const selVatPct        = Math.round(selTaxRate * 100);
   const inboundTaxGroups = buildInboundTaxGroups(selItems, selTaxRate);
-  const totalTax         = round2(inboundTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
+  const goodsTax         = round2(inboundTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
+  const totalTax         = round2(goodsTax + freightTaxTotal);
   const totalValue     = round2(subTotal + totalTax);
   const zeroStock   = items.filter(i => i.stockOnHand === 0).length;
 
@@ -632,16 +649,19 @@ export default function Inbound() {
                       );
                     })()}
 
-                    {/* Line Total (incl. VAT) */}
+                    {/* Line Total (incl. VAT + freight) */}
                     {(() => {
                       const itemTaxRate = vendorTaxRate(item.vendorOrigin);
                       const lineBase  = round2((item.receiveQty || 0) * (item.costPrice || 0));
                       const lineVat   = round2(lineBase * itemTaxRate);
-                      const lineTotal = round2(lineBase + lineVat);
+                      const frt       = itemFreight(item);
+                      const lineTotal = round2(lineBase + lineVat + frt.freight + frt.freightTax);
                       return (
                         <td style={{ padding: "10px 10px", textAlign: "right" }}>
                           <p className="ob-jakarta" style={{ fontSize: "13px", fontWeight: "800", color: T.blue, margin: 0, fontFamily: "'DM Mono', monospace" }}>{fmtAED(lineTotal)}</p>
-                          <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>incl. VAT</p>
+                          {frt.freight > 0
+                            ? <p style={{ fontSize: "10px", color: "#f59e0b", margin: "1px 0 0" }}>🚚 frt {fmtAED(frt.freight)} +{frt.frtPct}%</p>
+                            : <p style={{ fontSize: "10px", color: T.textMuted, margin: "1px 0 0" }}>incl. VAT</p>}
                         </td>
                       );
                     })()}

@@ -123,7 +123,8 @@ func CreateGRN() gin.HandlerFunc {
 		}
 		taxRate := grnTaxRate(g.VendorOrigin)
 
-		// Recalculate totals server-side from items (use accepted qty = received - rejected)
+		// Recalculate totals server-side from items (use accepted qty = received - rejected).
+		// Per-item freight is prorated to the accepted fraction and taxed at its own rate.
 		subTotal := 0.0
 		totalTax := 0.0
 		for i, item := range g.Items {
@@ -133,16 +134,25 @@ func CreateGRN() gin.HandlerFunc {
 			}
 			base := acceptedQty * item.Rate
 			tax := base * taxRate
-			lineTotal := base + tax
+			frac := 0.0
+			if item.OrderedQty > 0 {
+				frac = acceptedQty / item.OrderedQty
+			} else if acceptedQty > 0 {
+				frac = 1
+			}
+			freight := round2(item.Freight * frac)
+			freightTax := round2(freight * item.FreightTaxRate / 100)
 			g.Items[i].BaseAmount = base
 			g.Items[i].TaxAmount = tax
-			g.Items[i].LineTotal = lineTotal
-			subTotal += base
-			totalTax += tax
+			g.Items[i].Freight = freight
+			g.Items[i].FreightTaxAmount = freightTax
+			g.Items[i].LineTotal = base + tax + freight + freightTax
+			subTotal += base + freight
+			totalTax += tax + freightTax
 		}
-		g.SubTotal = subTotal
-		g.TotalTax = totalTax
-		g.Total = subTotal + totalTax
+		g.SubTotal = round2(subTotal)
+		g.TotalTax = round2(totalTax)
+		g.Total = round2(subTotal + totalTax)
 
 		if _, err := grnCollection.InsertOne(ctx, g); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create GRN", "error": err.Error()})
@@ -546,16 +556,26 @@ func UpdateGRN() gin.HandlerFunc {
 					if accepted < 0 { accepted = 0 }
 					base := accepted * item.Rate
 					tax  := base * taxRate
+					frac := 0.0
+					if item.OrderedQty > 0 {
+						frac = accepted / item.OrderedQty
+					} else if accepted > 0 {
+						frac = 1
+					}
+					freight := round2(item.Freight * frac)
+					freightTax := round2(freight * item.FreightTaxRate / 100)
 					body.Items[i].BaseAmount = base
 					body.Items[i].TaxAmount  = tax
-					body.Items[i].LineTotal  = base + tax
-					subTotal += base
-					totalTax += tax
+					body.Items[i].Freight = freight
+					body.Items[i].FreightTaxAmount = freightTax
+					body.Items[i].LineTotal  = base + tax + freight + freightTax
+					subTotal += base + freight
+					totalTax += tax + freightTax
 				}
 				set["items"]    = body.Items
-				set["subTotal"] = subTotal
-				set["totalTax"] = totalTax
-				set["total"]    = subTotal + totalTax
+				set["subTotal"] = round2(subTotal)
+				set["totalTax"] = round2(totalTax)
+				set["total"]    = round2(subTotal + totalTax)
 			}
 		}
 
