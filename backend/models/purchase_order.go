@@ -25,9 +25,14 @@ type PurchaseOrderItem struct {
 	DiscountType string             `json:"discountType"     bson:"discountType"` // "percentage" | "fixed"
 	BaseAmount   float64            `json:"baseAmount"       bson:"baseAmount"`   // qty × rate − discount
 	TaxRate      float64            `json:"taxRate"          bson:"taxRate"`      // 5
-	TaxAmount    float64            `json:"taxAmount"        bson:"taxAmount"`    // baseAmount × 5%
-	Amount       float64            `json:"amount"           bson:"amount"`       // baseAmount + taxAmount
+	TaxAmount    float64            `json:"taxAmount"        bson:"taxAmount"`    // baseAmount × taxRate%
+	Amount       float64            `json:"amount"           bson:"amount"`       // base + tax + freight + freightTax
 	Unit         string             `json:"unit"             bson:"unit"`
+	// Optional per-item freight — taxed at its OWN rate (UAE: local 5%, international 0%),
+	// independent of the vendor-origin VAT applied to the goods.
+	Freight          float64 `json:"freight,omitempty"          bson:"freight,omitempty"`
+	FreightTaxRate   float64 `json:"freightTaxRate,omitempty"   bson:"freightTaxRate,omitempty"`
+	FreightTaxAmount float64 `json:"freightTaxAmount,omitempty" bson:"freightTaxAmount,omitempty"`
 }
 
 type PurchaseOrder struct {

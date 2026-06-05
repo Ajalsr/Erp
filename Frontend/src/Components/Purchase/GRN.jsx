@@ -389,6 +389,8 @@ export default function GRN() {
             receiveQty: i.receivedQty,
             unit:       i.unit,
             costPrice:  i.rate,
+            freight:        i.freight || 0,
+            freightTaxRate: i.freightTaxRate || 0,
             poId:       d.purchaseOrderId || '',
           })),
           note:             d.notes || '',
@@ -469,15 +471,25 @@ export default function GRN() {
   const grnNote    = inboundData.note || '';
   const taxRate    = vendorTaxRate(inboundData.vendorOrigin);
 
-  // Use accepted qty (received − rejected) for all totals
+  // Use accepted qty (received − rejected) for all totals. Per-item freight (from the PO)
+  // is prorated to the accepted fraction and taxed at its own rate.
   const itemsAccepted = items.map((item, idx) => {
     const rejected    = parseFloat(lineExtras[idx]?.rejectedQty || 0);
     const acceptedQty = Math.max(0, (item.receiveQty || 0) - rejected);
-    return { ...item, receiveQty: acceptedQty };
+    const ordered     = parseFloat(item.orderedQty) || 0;
+    const frac        = ordered > 0 ? acceptedQty / ordered : (acceptedQty > 0 ? 1 : 0);
+    const freight     = round2((parseFloat(item.freight) || 0) * frac);
+    const frtPct      = parseFloat(item.freightTaxRate) || 0;
+    const freightTax  = round2(freight * frtPct / 100);
+    return { ...item, receiveQty: acceptedQty, freightForReceipt: freight, frtPct, freightTax };
   });
-  const subTotal   = round2(itemsAccepted.reduce((s, i) => s + (i.receiveQty || 0) * parseFloat(i.costPrice || 0), 0));
-  const taxGroups  = buildTaxGroups(itemsAccepted, taxRate);
-  const totalTax   = round2(taxGroups.reduce((s, g) => s + g.taxAmount, 0));
+  const goodsBase  = round2(itemsAccepted.reduce((s, i) => s + (i.receiveQty || 0) * parseFloat(i.costPrice || 0), 0));
+  const freightTotal    = round2(itemsAccepted.reduce((s, i) => s + (i.freightForReceipt || 0), 0));
+  const freightTaxTotal = round2(itemsAccepted.reduce((s, i) => s + (i.freightTax || 0), 0));
+  const subTotal   = round2(goodsBase + freightTotal);
+  const taxGroups  = buildTaxGroups(itemsAccepted, taxRate); // goods VAT groups
+  const goodsTax   = round2(taxGroups.reduce((s, g) => s + g.taxAmount, 0));
+  const totalTax   = round2(goodsTax + freightTaxTotal);
   const grandTotal = round2(subTotal + totalTax);
 
   const isRejected = grnStatus === 'rejected'; // every received unit failed QC → no stock added
@@ -549,6 +561,8 @@ export default function GRN() {
               expiryDate:      ex.expiryDate || undefined,
               unit:            i.unit || 'Pcs',
               rate:            parseFloat(i.costPrice || 0),
+              freight:         parseFloat(i.freight || 0),
+              freightTaxRate:  parseFloat(i.freightTaxRate || 0),
             };
           }),
         };
@@ -577,6 +591,8 @@ export default function GRN() {
               expiryDate:      ex.expiryDate   || undefined,
               unit:            i.unit || 'Pcs',
               rate:            parseFloat(i.costPrice || 0),
+              freight:         parseFloat(i.freight || 0),
+              freightTaxRate:  parseFloat(i.freightTaxRate || 0),
             };
           }),
         });
@@ -611,20 +627,26 @@ export default function GRN() {
         vendorId:         inboundData.vendorId || '',
         vendorName:       grn.vendor || '',
         total:            savedGRN?.total || grandTotal,
-        items: items.map((i, idx) => {
-          const ex          = lineExtras[idx] || {};
-          const receivedQty = i.receiveQty || 0;
-          const rejectedQty = parseFloat(ex.rejectedQty || 0);
-          const acceptedQty = Math.max(0, receivedQty - rejectedQty);
-          return {
+        items: [
+          // Goods lines (accepted qty), at vendor-origin VAT
+          ...itemsAccepted.map((i) => ({
             description:  i.name,
-            qty:          acceptedQty,
+            qty:          i.receiveQty || 0,
             unitPrice:    parseFloat(i.costPrice || 0),
             taxRate:      Math.round(taxRate * 100),
             discount:     i.discount || 0,
             discountType: i.discountType || 'fixed',
-          };
-        }).filter(i => i.qty > 0), // skip fully rejected items
+          })).filter(i => i.qty > 0),
+          // Freight lines (prorated to received), each at its OWN tax rate
+          ...itemsAccepted.filter(i => (i.freightForReceipt || 0) > 0).map((i) => ({
+            description:  `Freight — ${i.name}`,
+            qty:          1,
+            unitPrice:    round2(i.freightForReceipt),
+            taxRate:      i.frtPct || 0,
+            discount:     0,
+            discountType: 'fixed',
+          })),
+        ],
       },
     });
   };
@@ -1050,14 +1072,26 @@ export default function GRN() {
                     <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>{fmtAED(subTotal)}</span>
                   </div>
 
-                  {taxGroups.length > 0 && (
+                  {(taxGroups.length > 0 || freightTotal > 0) && (
                     <div style={{ padding: '10px 0', borderBottom: `1px solid ${T.border}` }}>
                       {taxGroups.map((g, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: i < taxGroups.length - 1 ? 6 : 0 }}>
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                           <span style={{ fontSize: 11.5, color: T.textSec }}>VAT {Math.round(taxRate*100)}% on {fmtAED(g.baseAmount)}</span>
                           <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>{fmtAED(g.taxAmount)}</span>
                         </div>
                       ))}
+                      {freightTotal > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontSize: 11.5, color: '#f59e0b' }}>🚚 Freight (incl. in subtotal)</span>
+                          <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: T.textPri }}>{fmtAED(freightTotal)}</span>
+                        </div>
+                      )}
+                      {freightTaxTotal > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 11.5, color: T.textSec }}>Freight VAT</span>
+                          <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>{fmtAED(freightTaxTotal)}</span>
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -82,41 +82,43 @@ func calcLineBase(qty, rate, discount float64, discountType string) float64 {
 
 // buildTaxGroups groups lines by unit rate and computes VAT per group
 // This matches the display: all items at rate 750 → one group, rate 250 → another
+// buildTaxGroups summarises VAT by rate. Goods contribute their base at the vendor-origin
+// rate; each item's freight contributes its amount at the freight rate. Grouped by tax %
+// so a 0%-freight bucket shows separately from 5% goods.
 func buildTaxGroups(items []models.PurchaseOrderItem) []models.TaxGroup {
 	type groupAcc struct {
-		rate float64
-		base float64
+		taxRate float64
+		base    float64
 	}
-	// Use a slice to preserve insertion order
 	order := []float64{}
 	groups := map[float64]*groupAcc{}
+	add := func(taxRate, base float64) {
+		if base == 0 {
+			return
+		}
+		if _, ok := groups[taxRate]; !ok {
+			order = append(order, taxRate)
+			groups[taxRate] = &groupAcc{taxRate: taxRate}
+		}
+		groups[taxRate].base += base
+	}
 
 	for _, item := range items {
-		if _, exists := groups[item.Rate]; !exists {
-			order = append(order, item.Rate)
-			groups[item.Rate] = &groupAcc{rate: item.Rate}
+		add(item.TaxRate, item.BaseAmount)
+		if item.Freight > 0 {
+			add(item.FreightTaxRate, item.Freight)
 		}
-		groups[item.Rate].base += item.BaseAmount
 	}
 
 	result := make([]models.TaxGroup, 0, len(order))
 	for _, rate := range order {
 		g := groups[rate]
 		base := round2(g.base)
-		// use TaxRate stored on item (0 or 5)
-		itemTaxRate := 0.0
-		for _, item := range items {
-			if item.Rate == rate {
-				itemTaxRate = item.TaxRate
-				break
-			}
-		}
-		tax := round2(base * itemTaxRate / 100)
 		result = append(result, models.TaxGroup{
 			Rate:       rate,
-			TaxRate:    itemTaxRate,
+			TaxRate:    rate,
 			BaseAmount: base,
-			TaxAmount:  tax,
+			TaxAmount:  round2(base * rate / 100),
 		})
 	}
 	return result
@@ -162,33 +164,39 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 		for _, item := range req.Items {
 			base := calcLineBase(item.Quantity, item.Rate, item.Discount, item.DiscountType)
 			tax := round2(base * appliedTaxRate)
-			amount := round2(base + tax)
+			// Optional per-item freight, taxed at its OWN rate (independent of origin VAT).
+			freight := round2(item.Freight)
+			freightTax := round2(freight * item.FreightTaxRate / 100)
+			amount := round2(base + tax + freight + freightTax)
 
 			processedItems = append(processedItems, models.PurchaseOrderItem{
-				ID:           primitive.NewObjectID(),
-				ItemID:       item.ItemID,
-				Details:      item.Details,
-				Quantity:     item.Quantity,
-				Rate:         item.Rate,
-				Discount:     item.Discount,
-				DiscountType: item.DiscountType,
-				BaseAmount:   base,
-				TaxRate:      appliedTaxRate * 100,
-				TaxAmount:    tax,
-				Amount:       amount,
-				Unit:         item.Unit,
+				ID:               primitive.NewObjectID(),
+				ItemID:           item.ItemID,
+				Details:          item.Details,
+				Quantity:         item.Quantity,
+				Rate:             item.Rate,
+				Discount:         item.Discount,
+				DiscountType:     item.DiscountType,
+				BaseAmount:       base,
+				TaxRate:          appliedTaxRate * 100,
+				TaxAmount:        tax,
+				Amount:           amount,
+				Unit:             item.Unit,
+				Freight:          freight,
+				FreightTaxRate:   item.FreightTaxRate,
+				FreightTaxAmount: freightTax,
 			})
-			subTotal += base
+			subTotal += base + freight
 		}
 
 		subTotal = round2(subTotal)
 
-		// ── Build grouped tax breakdown ───────────────────────────────────
+		// ── Build grouped tax breakdown (goods at origin rate + freight at its rate) ──
 		taxGroups := buildTaxGroups(processedItems)
 		totalTax := round2(func() float64 {
 			t := 0.0
-			for _, g := range taxGroups {
-				t += g.TaxAmount
+			for _, it := range processedItems {
+				t += it.TaxAmount + it.FreightTaxAmount
 			}
 			return t
 		}())
