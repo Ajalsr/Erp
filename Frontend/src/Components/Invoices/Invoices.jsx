@@ -1346,6 +1346,13 @@ const Invoices = () => {
                         </>
                       )}
 
+                      {/* Preview & Print — bilingual tax-invoice layout */}
+                      <button
+                        onClick={() => navigate(`/Sales/Invoices/${selected._id}/print`)}
+                        style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", color: "#f59e0b", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
+                        🖨 Preview &amp; Print
+                      </button>
+
                       {/* Download PDF */}
                       <button
                         onClick={() => {

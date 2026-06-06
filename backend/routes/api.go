@@ -81,7 +81,9 @@ func InvoiceRoutes(router *gin.Engine) {
 	invRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
 	{
 		invRoutes.POST("", controllers.CreateInvoice())
+		invRoutes.POST("/", controllers.CreateInvoice())
 		invRoutes.GET("", controllers.GetAllInvoices())
+		invRoutes.GET("/", controllers.GetAllInvoices())
 		invRoutes.GET("/stats", controllers.GetInvoiceStats())
 		invRoutes.GET("/:id", controllers.GetInvoiceByID())
 		invRoutes.PUT("/:id", controllers.UpdateInvoice())

@@ -14,6 +14,7 @@ type Organization struct {
 	LetterheadImage     string             `bson:"letterheadImage,omitempty" json:"letterheadImage,omitempty"`       // base64 data-URL
 	LetterheadTopPad    int                `bson:"letterheadTopPad,omitempty" json:"letterheadTopPad,omitempty"`     // px to skip letterhead header
 	LetterheadBottomPad int                `bson:"letterheadBottomPad,omitempty" json:"letterheadBottomPad,omitempty"` // px to skip letterhead footer
+	StampImage          string             `bson:"stampImage,omitempty" json:"stampImage,omitempty"`                 // base64 data-URL — company seal/stamp
 	CreatedBy        string             `bson:"createdBy" json:"createdBy"`
 	CreatedAt        time.Time          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt        time.Time          `bson:"updatedAt" json:"updatedAt"`

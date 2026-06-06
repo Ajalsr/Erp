@@ -152,7 +152,7 @@ func CreateGRN() gin.HandlerFunc {
 		}
 		g.SubTotal = round2(subTotal)
 		g.TotalTax = round2(totalTax)
-		g.Total = round2(subTotal + totalTax)
+		g.Total = round2(subTotal + totalTax + g.ShippingCharges + g.Adjustment)
 
 		if _, err := grnCollection.InsertOne(ctx, g); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create GRN", "error": err.Error()})
@@ -527,11 +527,13 @@ func UpdateGRN() gin.HandlerFunc {
 		}
 
 		var body struct {
-			Status        string           `json:"status"`
-			Notes         string           `json:"notes"`
-			WarehouseID   string           `json:"warehouseId"`
-			WarehouseName string           `json:"warehouseName"`
-			Items         []models.GRNItem `json:"items"`
+			Status          string           `json:"status"`
+			Notes           string           `json:"notes"`
+			WarehouseID     string           `json:"warehouseId"`
+			WarehouseName   string           `json:"warehouseName"`
+			ShippingCharges *float64         `json:"shippingCharges"`
+			Adjustment      *float64         `json:"adjustment"`
+			Items           []models.GRNItem `json:"items"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": 400, "message": "Invalid request body"})
@@ -572,11 +574,19 @@ func UpdateGRN() gin.HandlerFunc {
 					subTotal += base + freight
 					totalTax += tax + freightTax
 				}
+				// Use incoming ship/adjust if provided, else keep stored
+				ship := g.ShippingCharges
+				adj  := g.Adjustment
+				if body.ShippingCharges != nil { ship = *body.ShippingCharges; set["shippingCharges"] = ship }
+				if body.Adjustment != nil      { adj  = *body.Adjustment;      set["adjustment"]      = adj  }
 				set["items"]    = body.Items
 				set["subTotal"] = round2(subTotal)
 				set["totalTax"] = round2(totalTax)
-				set["total"]    = round2(subTotal + totalTax)
+				set["total"]    = round2(subTotal + totalTax + ship + adj)
 			}
+		} else {
+			if body.ShippingCharges != nil { set["shippingCharges"] = *body.ShippingCharges }
+			if body.Adjustment != nil      { set["adjustment"]      = *body.Adjustment      }
 		}
 
 		result, err := grnCollection.UpdateOne(ctx,

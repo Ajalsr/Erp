@@ -63,6 +63,10 @@ const OrganizationSettings = () => {
   const [letterheadBottomPad, setLetterheadBottomPad] = useState(8)
   const [letterheadSaving, setLetterheadSaving] = useState(false)
   const letterheadInputRef = useRef(null)
+  // Stamp
+  const [stamp, setStamp] = useState('')
+  const [stampSaving, setStampSaving] = useState(false)
+  const stampInputRef = useRef(null)
 
   // Invite form
   const [inviteEmail, setInviteEmail] = useState('')
@@ -125,6 +129,7 @@ const OrganizationSettings = () => {
       setLetterhead(orgData?.letterheadImage || '')
       setLetterheadTopPad(orgData?.letterheadTopPad || 13)
       setLetterheadBottomPad(orgData?.letterheadBottomPad || 8)
+      setStamp(orgData?.stampImage || '')
       setMembers(membersData)
       setInvitations(invData)
       const me = membersData.find((m) => m.userId === user?.userId)
@@ -192,6 +197,39 @@ const OrganizationSettings = () => {
       toast.error('Failed to remove letterhead')
     } finally {
       setLetterheadSaving(false)
+    }
+  }
+
+  // ── Stamp (company seal) ──
+  const handleStampFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) { toast.error('Stamp must be under 2 MB'); return }
+    const reader = new FileReader()
+    reader.onload = (ev) => setStamp(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+  const handleStampSave = async () => {
+    setStampSaving(true)
+    try {
+      await axiosInstance.patch(`/api/organizations/${id}/stamp`, { stampImage: stamp })
+      toast.success('Stamp saved — will appear on delivery notes')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save stamp')
+    } finally {
+      setStampSaving(false)
+    }
+  }
+  const handleStampRemove = async () => {
+    setStamp('')
+    setStampSaving(true)
+    try {
+      await axiosInstance.patch(`/api/organizations/${id}/stamp`, { stampImage: '' })
+      toast.success('Stamp removed')
+    } catch {
+      toast.error('Failed to remove stamp')
+    } finally {
+      setStampSaving(false)
     }
   }
 
@@ -679,6 +717,47 @@ const OrganizationSettings = () => {
                       onClick={handleLetterheadRemove}
                       disabled={letterheadSaving}
                       style={{ padding: '9px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontFamily: 'Plus Jakarta Sans, sans-serif', opacity: letterheadSaving ? 0.6 : 1 }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Company Stamp / Seal ── */}
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
+              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 4px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+                Company Stamp / Seal
+              </h3>
+              <p style={{ color: textSec, fontSize: '12px', margin: '0 0 18px' }}>
+                Upload your company stamp (transparent PNG recommended, max 2 MB). It appears in the signature area of delivery notes.
+              </p>
+
+              {stamp ? (
+                <div style={{ marginBottom: 16, borderRadius: 10, overflow: 'hidden', border: `1px solid ${border}`, display: 'flex', justifyContent: 'center', background: '#fff', padding: 12 }}>
+                  <img src={stamp} alt="Stamp preview" style={{ maxHeight: 130, maxWidth: 200, objectFit: 'contain' }} />
+                </div>
+              ) : (
+                <div style={{ marginBottom: 16, borderRadius: 10, border: `2px dashed ${border}`, padding: '28px 0', textAlign: 'center', color: textSec, fontSize: 13 }}>
+                  No stamp uploaded yet
+                </div>
+              )}
+
+              <input ref={stampInputRef} type="file" accept="image/png,image/jpeg,image/jpg" style={{ display: 'none' }} onChange={handleStampFile} />
+
+              {canManage && (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button onClick={() => stampInputRef.current?.click()} style={{ ...btnStyle('ghost'), flex: 1 }}>
+                    {stamp ? '↑ Replace Stamp' : '↑ Upload Stamp'}
+                  </button>
+                  {stamp && (
+                    <button onClick={handleStampSave} disabled={stampSaving} style={{ ...btnStyle('primary'), flex: 1, opacity: stampSaving ? 0.6 : 1 }}>
+                      {stampSaving ? 'Saving…' : 'Save Stamp'}
+                    </button>
+                  )}
+                  {stamp && (
+                    <button onClick={handleStampRemove} disabled={stampSaving}
+                      style={{ padding: '9px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontFamily: 'Plus Jakarta Sans, sans-serif', opacity: stampSaving ? 0.6 : 1 }}>
                       Remove
                     </button>
                   )}
