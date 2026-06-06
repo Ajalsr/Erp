@@ -98,6 +98,9 @@ const transformPOsToItems = (poData, stockData) => {
           discountType: oi.discountType || 'fixed',
           freight:        oi.freight || 0,
           freightTaxRate: oi.freightTaxRate || 0,
+          poShipping:     parseFloat(po.shippingCharges || 0),
+          poAdjustment:   parseFloat(po.adjustment || 0),
+          poSubTotal:     parseFloat(po.subTotal || 0),
           status:       receivedQty > 0 ? "partial" : "pending",
           poStatus:     po.status,
         });
@@ -232,6 +235,8 @@ export default function Inbound() {
         receiptDate:      new Date().toISOString(),
         notes:            inboundNote,
         requiresApproval,
+        shippingCharges:  shipCharge,
+        adjustment:       adjustAmt,
         status:           'draft',
         items: sel.map(i => ({
           itemId:      i.itemId     || '',
@@ -295,7 +300,21 @@ export default function Inbound() {
   const inboundTaxGroups = buildInboundTaxGroups(selItems, selTaxRate);
   const goodsTax         = round2(inboundTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const totalTax         = round2(goodsTax + freightTaxTotal);
-  const totalValue     = round2(subTotal + totalTax);
+  // Header shipping + adjustment prorated by received-value fraction per PO (SAP/Odoo/Zoho standard).
+  // frac = (goods value being received now) / (PO subtotal). Full receipt → full charge.
+  const selPoIds         = [...new Set(selItems.map(i => i.poId))];
+  const proratePO = (field) => round2(selPoIds.reduce((sum, pid) => {
+    const poItems = selItems.filter(i => i.poId === pid);
+    const charge  = poItems[0]?.[field] || 0;
+    if (!charge) return sum;
+    const poSub   = poItems[0]?.poSubTotal || 0;
+    const recvVal = poItems.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0);
+    const frac    = poSub > 0 ? Math.min(1, recvVal / poSub) : 1;
+    return sum + charge * frac;
+  }, 0));
+  const shipCharge       = proratePO('poShipping');
+  const adjustAmt        = proratePO('poAdjustment');
+  const totalValue     = round2(subTotal + totalTax + shipCharge + adjustAmt);
   const zeroStock   = items.filter(i => i.stockOnHand === 0).length;
 
   // ── Pagination ────────────────────────────────────────────────────
@@ -487,6 +506,14 @@ export default function Inbound() {
           <input value={inboundNote} onChange={e => setInboundNote(e.target.value)}
             placeholder="Add receiving note (optional)…"
             style={{ flex: 1, minWidth: "200px", padding: "7px 12px", border: `1px solid ${T.border}`, borderRadius: "8px", fontSize: "12px", background: T.surface2, color: T.textPri, fontFamily: "inherit", outline: "none" }} />
+
+          {(shipCharge !== 0 || adjustAmt !== 0) && (
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 10px", background: isDark ? "rgba(59,130,246,0.08)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, borderRadius: "7px", whiteSpace: "nowrap" }}>
+              {shipCharge !== 0 && <span style={{ fontSize: "11px", color: T.blueLight, fontWeight: "600" }}>🚚 {fmtAED(shipCharge)}</span>}
+              {adjustAmt !== 0 && <span style={{ fontSize: "11px", color: T.blueLight, fontWeight: "600" }}>± {fmtAED(adjustAmt)}</span>}
+              <span style={{ fontSize: "9px", color: T.textSec }}>from PO</span>
+            </div>
+          )}
 
           {zeroStock > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "5px 10px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "7px" }}>
@@ -744,6 +771,8 @@ export default function Inbound() {
                   { label: "Items",       value: selectedIds.size },
                   { label: "Total Units", value: `${totalQty} pcs` },
                   { label: "Subtotal",    value: fmtAED(subTotal) },
+                  ...(shipCharge !== 0 ? [{ label: "Shipping", value: fmtAED(shipCharge) }] : []),
+                  ...(adjustAmt  !== 0 ? [{ label: "Adjustment", value: `${adjustAmt < 0 ? "−" : "+"}${fmtAED(Math.abs(adjustAmt))}` }] : []),
                 ].map(({ label, value }) => (
                   <div key={label}>
                     <p style={{ fontSize: "10px", color: T.textSec, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
