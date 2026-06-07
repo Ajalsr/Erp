@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { IoHome, IoChevronDown } from 'react-icons/io5'
+import { IoHome, IoChevronDown, IoSettingsOutline } from 'react-icons/io5'
 import { FaBoxOpen, FaCartArrowDown } from 'react-icons/fa'
 import { MdInventory2 } from 'react-icons/md'
 import { HiShoppingCart } from 'react-icons/hi'
@@ -8,22 +8,23 @@ import { TbReportAnalytics } from 'react-icons/tb'
 import { MdAccountBalance } from 'react-icons/md'
 import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
+import { usePermissions } from '../../helper/permissions'
 
 const MENU = [
   { icon: IoHome,            label: 'Home',      route: '/Home', tourKey: 'nav-home' },
-  { icon: FaBoxOpen,         label: 'Items',      tourKey: 'nav-items', subItems: [
+  { icon: FaBoxOpen,         label: 'Items',      mod: 'items',     tourKey: 'nav-items', subItems: [
     { name: 'Items',         route: '/Items/Items' },
     { name: 'Item Groups',   route: '/Items/item-groups' },
     { name: 'Price Lists',   route: '/Items/price-lists' },
   ]},
-  { icon: MdInventory2,      label: 'Inventory',  tourKey: 'nav-inventory', subItems: [
+  { icon: MdInventory2,      label: 'Inventory',  mod: 'inventory', tourKey: 'nav-inventory', subItems: [
     { name: 'Stock Summary',  route: '/Inventory/stock-summary' },
     { name: 'Reorder Alerts', route: '/Inventory/reorder-alerts' },
     { name: 'Batch & Expiry', route: '/Inventory/batch-expiry' },
     { name: 'Warehouses',     route: '/Inventory/warehouses' },
     { name: 'Adjustments',    route: '/Inventory/adjustments' },
   ]},
-  { icon: HiShoppingCart,    label: 'Sales',      tourKey: 'nav-sales', subItems: [
+  { icon: HiShoppingCart,    label: 'Sales',      mod: 'sales',     tourKey: 'nav-sales', subItems: [
     { name: 'Customers',          route: '/Sales/Customers' },
     { name: 'Enquiries',          route: '/Sales/Enquiries' },
     { name: 'Quotes',             route: '/Sales/Quotes' },
@@ -35,7 +36,7 @@ const MENU = [
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
     { name: 'Customer Advances',  route: '/Sales/AdvancePayments' },
   ]},
-  { icon: FaCartArrowDown,   label: 'Purchases',  tourKey: 'nav-purchases', subItems: [
+  { icon: FaCartArrowDown,   label: 'Purchases',  mod: 'purchases', tourKey: 'nav-purchases', subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors' },
     { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders' },
      { name: 'Inbound',          route: '/Purchase/Inbound' },
@@ -44,7 +45,7 @@ const MENU = [
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
     { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
   ]},
-  { icon: TbReportAnalytics, label: 'Reports',    tourKey: 'nav-reports', subItems: [
+  { icon: TbReportAnalytics, label: 'Reports',    mod: 'reports',   tourKey: 'nav-reports', subItems: [
     { name: 'Sales Report',          route: '/Reports/sales' },
     { name: 'Purchase Report',       route: '/Reports/purchases' },
     { name: 'Inventory Report',      route: '/Reports/inventory' },
@@ -54,10 +55,11 @@ const MENU = [
     { name: 'VAT Report',            route: '/Reports/vat' },
     { name: 'Vendor Aging',          route: '/Reports/vendor-aging' },
   ]},
-  { icon: MdAccountBalance,   label: 'Finance',   tourKey: 'nav-finance', subItems: [
+  { icon: MdAccountBalance,   label: 'Finance',   mod: 'finance',   tourKey: 'nav-finance', subItems: [
     { name: 'Chart of Accounts', route: '/Finance/Accounts' },
     { name: 'Trial Balance',     route: '/Reports/trial-balance' },
   ]},
+  { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },
 ]
 
 const Sidebar = ({ isCollapsed }) => {
@@ -65,6 +67,14 @@ const Sidebar = ({ isCollapsed }) => {
   const location    = useLocation()
   const user        = useAuthStore((s) => s.user)
   const isDark      = useThemeStore((s) => s.isDark)
+  const activeOrg   = useAuthStore((s) => s.activeOrg)
+  const orgId       = activeOrg?._id || user?.orgId || ''
+  const { canAny, canSettings } = usePermissions()
+  // Hide a section if the role has no access at all (no mod = always shown).
+  // Settings entry only for owner or roles granted Settings access.
+  const visibleMenu = MENU.filter(item =>
+    item.settings ? canSettings() : (!item.mod || canAny(item.mod))
+  )
 
   const D = {
     bg:                 isDark ? '#080d1a'                      : '#ffffff',
@@ -105,7 +115,9 @@ const Sidebar = ({ isCollapsed }) => {
 
   const isSubActive  = (route) => location.pathname.startsWith(route)
   const isMenuActive = (item) =>
-    item.route
+    item.settings
+      ? location.pathname.includes('/settings')
+      : item.route
       ? location.pathname === item.route
       : item.subItems?.some((s) => location.pathname.startsWith(s.route))
 
@@ -180,7 +192,7 @@ const Sidebar = ({ isCollapsed }) => {
 
         {/* Navigation */}
         <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-          {MENU.map((item) => {
+          {visibleMenu.map((item) => {
             const Icon   = item.icon
             const isOpen = openMenu === item.label
             const active = isMenuActive(item)
@@ -192,7 +204,8 @@ const Sidebar = ({ isCollapsed }) => {
                   title={isCollapsed ? item.label : ''}
                   data-tour={item.tourKey}
                   onClick={() => {
-                    if (hasSub) { if (!isCollapsed) setOpenMenu(isOpen ? null : item.label) }
+                    if (item.settings) { navigate(orgId ? `/organizations/${orgId}/settings` : '/Home') }
+                    else if (hasSub) { if (!isCollapsed) setOpenMenu(isOpen ? null : item.label) }
                     else navigate(item.route)
                   }}
                   className={`nx-nav-item ${active ? 'active' : ''}`}

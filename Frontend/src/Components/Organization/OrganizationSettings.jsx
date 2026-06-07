@@ -5,6 +5,7 @@ import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
 import toast from 'react-hot-toast'
 import axiosInstance from '../../helper/axiosInstance'
+import { PERM_MODULES, PERM_APPROVALS, PERM_CAPS, invalidatePermissions, usePermissions } from '../../helper/permissions'
 
 const ROLES = ['admin', 'member', 'viewer']
 
@@ -63,6 +64,15 @@ const OrganizationSettings = () => {
   const [letterheadBottomPad, setLetterheadBottomPad] = useState(8)
   const [letterheadSaving, setLetterheadSaving] = useState(false)
   const letterheadInputRef = useRef(null)
+
+  // Role permissions matrix
+  const [permCfg, setPermCfg] = useState({}) // { role: { modules:{}, approvals:{} } }
+  const [permSaving, setPermSaving] = useState(false)
+  // Custom roles (org-defined, assignable besides owner/admin)
+  const [customRoles, setCustomRoles] = useState(['member', 'viewer'])
+  const [newRoleName, setNewRoleName] = useState('')
+  const [rolesSaving, setRolesSaving] = useState(false)
+  const [selectedRole, setSelectedRole] = useState('member') // role being edited in the panel
 
   // Invite form
   const [inviteEmail, setInviteEmail] = useState('')
@@ -125,6 +135,8 @@ const OrganizationSettings = () => {
       setLetterhead(orgData?.letterheadImage || '')
       setLetterheadTopPad(orgData?.letterheadTopPad || 13)
       setLetterheadBottomPad(orgData?.letterheadBottomPad || 8)
+      setPermCfg(orgData?.rolePermissions || {})
+      setCustomRoles(orgData?.customRoles?.length ? orgData.customRoles : ['member', 'viewer'])
       setMembers(membersData)
       setInvitations(invData)
       const me = membersData.find((m) => m.userId === user?.userId)
@@ -139,6 +151,10 @@ const OrganizationSettings = () => {
   useEffect(() => { load() }, [load])
 
   const canManage = myRole === 'owner' || myRole === 'admin'
+  // Owner manages roles/permissions; granted roles can use other settings.
+  const isOwner = myRole === 'owner'
+  const { canSettings } = usePermissions()
+  const settingsAllowed = isOwner || canSettings()
 
   const handleSave = async () => {
     if (!orgName.trim()) { toast.error('Name is required'); return }
@@ -193,6 +209,69 @@ const OrganizationSettings = () => {
     } finally {
       setLetterheadSaving(false)
     }
+  }
+
+  // ── Role permissions ──
+  const defaultCapsFor = (role) => role === 'viewer' ? ['view'] : ['view', 'add', 'edit']
+  const moduleCapsOf = (role, mod) => {
+    const s = permCfg?.[role]?.modules?.[mod]
+    return Array.isArray(s) ? s : defaultCapsFor(role)
+  }
+  const hasModCap = (role, mod, cap) => moduleCapsOf(role, mod).includes(cap)
+  const toggleModCap = (role, mod, cap) => setPermCfg(p => {
+    const cur = Array.isArray(p?.[role]?.modules?.[mod]) ? p[role].modules[mod] : defaultCapsFor(role)
+    const next = cur.includes(cap) ? cur.filter(c => c !== cap) : [...cur, cap]
+    return { ...p, [role]: { ...(p[role] || {}), modules: { ...(p[role]?.modules || {}), [mod]: next } } }
+  })
+  const approvalOn = (role, key) => !!permCfg?.[role]?.approvals?.[key]
+  const toggleApproval = (role, key) => setPermCfg(p => ({
+    ...p,
+    [role]: { ...(p[role] || {}), approvals: { ...(p[role]?.approvals || {}), [key]: !p?.[role]?.approvals?.[key] } },
+  }))
+  const settingsGrant = (role) => !!permCfg?.[role]?.settings
+  const toggleSettingsGrant = (role) => setPermCfg(p => ({
+    ...p,
+    [role]: { ...(p[role] || {}), settings: !p?.[role]?.settings },
+  }))
+
+  const savePermissions = async () => {
+    setPermSaving(true)
+    try {
+      await axiosInstance.patch(`/api/organizations/${id}/role-permissions`, { rolePermissions: permCfg })
+      invalidatePermissions()
+      toast.success('Permissions saved')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save permissions')
+    } finally {
+      setPermSaving(false)
+    }
+  }
+
+  // ── Custom roles ──
+  const saveRoles = async (list) => {
+    setRolesSaving(true)
+    try {
+      const res = await axiosInstance.patch(`/api/organizations/${id}/roles`, { roles: list })
+      setCustomRoles(res.data?.data || list)
+      invalidatePermissions()
+      toast.success('Roles updated')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to update roles')
+    } finally {
+      setRolesSaving(false)
+    }
+  }
+  const addRole = () => {
+    const r = newRoleName.trim().toLowerCase()
+    if (!r) return
+    if (['owner', 'admin'].includes(r) || customRoles.includes(r)) { toast.error('Role already exists or is reserved'); return }
+    saveRoles([...customRoles, r])
+    setNewRoleName('')
+  }
+  const removeRole = (r) => {
+    if (customRoles.length <= 1) { toast.error('At least one role required'); return }
+    if (!window.confirm(`Remove role "${r}"? Members with this role keep it until reassigned.`)) return
+    saveRoles(customRoles.filter(x => x !== r))
   }
 
   const handleDelete = async () => {
@@ -306,6 +385,16 @@ const OrganizationSettings = () => {
     </div>
   )
 
+  // Access gate — only owner or roles granted Settings access.
+  if (!settingsAllowed) return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: bgPage, gap: 12 }}>
+      <div style={{ fontSize: 34 }}>🔒</div>
+      <div style={{ color: textPri, fontSize: 16, fontWeight: 700 }}>No access to Settings</div>
+      <div style={{ color: textSec, fontSize: 13 }}>Ask the organization owner to grant you Settings access.</div>
+      <button onClick={() => navigate('/Home')} style={{ marginTop: 8, padding: '8px 18px', borderRadius: 9, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Back to Home</button>
+    </div>
+  )
+
   return (
     <div style={{ background: bgPage, minHeight: '100%', padding: '28px 24px', fontFamily: '"Inter", "DM Sans", sans-serif' }}>
       <style>{`
@@ -337,7 +426,7 @@ const OrganizationSettings = () => {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: isDark ? 'rgba(255,255,255,0.04)' : '#f1f5f9', padding: '4px', borderRadius: '10px', width: 'fit-content' }}>
-          {['members', 'settings'].map((t) => (
+          {['members', 'permissions', 'settings'].map((t) => (
             <button
               key={t}
               className="os-tab"
@@ -386,7 +475,7 @@ const OrganizationSettings = () => {
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value)}
                   >
-                    {ROLES.map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
+                    {['admin', ...customRoles].map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
                   </select>
                   <button onClick={handleInvite} disabled={inviting} style={{ ...btnStyle('primary'), opacity: inviting ? 0.6 : 1 }}>
                     {inviting ? 'Sending...' : 'Send Invite'}
@@ -495,7 +584,7 @@ const OrganizationSettings = () => {
                         onChange={(e) => handleRoleChange(m.userId, e.target.value)}
                         disabled={roleChanging === m.userId}
                       >
-                        {ROLES.map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
+                        {['admin', ...customRoles].map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
                       </select>
                     ) : (
                       <RoleBadge role={m.role} />
@@ -570,6 +659,124 @@ const OrganizationSettings = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Permissions Tab — per-role module access + approvals ── */}
+        {tab === 'permissions' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: 860 }}>
+
+            {/* Manage roles */}
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
+              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Roles</h3>
+              <p style={{ color: textSec, fontSize: 12, margin: '0 0 16px' }}>Create your own roles. Owner &amp; Admin are built-in (full access).</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                {['owner', 'admin'].map(r => (
+                  <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 999, background: inputBg, border: `1px solid ${border}`, fontSize: 12, color: textSec, textTransform: 'capitalize' }}>{r} <span style={{ fontSize: 9, opacity: .7 }}>built-in</span></span>
+                ))}
+                {customRoles.map(r => (
+                  <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderRadius: 999, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)', fontSize: 12, color: '#60a5fa', textTransform: 'capitalize' }}>
+                    {r}
+                    {canManage && <button onClick={() => removeRole(r)} disabled={rolesSaving} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>}
+                  </span>
+                ))}
+              </div>
+              {canManage && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addRole()}
+                    placeholder="New role name (e.g. accountant)" maxLength={24}
+                    style={{ flex: 1, maxWidth: 280, padding: '8px 12px', borderRadius: 8, border: `1px solid ${inputBorder}`, background: inputBg, color: textPri, fontSize: 13, outline: 'none' }} />
+                  <button onClick={addRole} disabled={rolesSaving || !newRoleName.trim()} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Add Role</button>
+                </div>
+              )}
+            </div>
+
+            {/* Role-scoped access editor — pick a role, edit just that role */}
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
+              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Access Per Role</h3>
+              <p style={{ color: textSec, fontSize: 12, margin: '0 0 16px' }}>Pick a role to set its module access &amp; approvals. Owner &amp; Admin always have full access.</p>
+
+              {/* Role picker */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                {customRoles.map(r => {
+                  const on = (selectedRole === r) || (!customRoles.includes(selectedRole) && customRoles[0] === r)
+                  return (
+                    <button key={r} onClick={() => setSelectedRole(r)}
+                      style={{ padding: '7px 16px', borderRadius: 999, border: `1.5px solid ${on ? '#3b82f6' : border}`, background: on ? 'rgba(59,130,246,0.12)' : inputBg, color: on ? '#3b82f6' : textPri, fontSize: 13, fontWeight: on ? 700 : 500, cursor: 'pointer', textTransform: 'capitalize' }}>
+                      {r}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {(() => {
+                const role = customRoles.includes(selectedRole) ? selectedRole : customRoles[0]
+                if (!role) return null
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                    {/* Module access — independent View / Add / Edit capabilities */}
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Module Access</p>
+                      <p style={{ fontSize: 11, color: textSec, margin: '-4px 0 10px' }}>View = read · Add = create new · Edit = change existing. Combine freely; none ticked = no access.</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {PERM_MODULES.map(m => (
+                          <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg }}>
+                            <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>{m.label}</span>
+                            <div style={{ display: 'flex', gap: 10 }}>
+                              {PERM_CAPS.map(cap => {
+                                const on = hasModCap(role, m.key, cap)
+                                return (
+                                  <label key={cap} title={cap} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: canManage ? 'pointer' : 'default', fontSize: 11, fontWeight: 600, color: on ? '#3b82f6' : textSec, textTransform: 'capitalize' }}>
+                                    <input type="checkbox" checked={on} disabled={!canManage}
+                                      onChange={() => canManage && toggleModCap(role, m.key, cap)}
+                                      style={{ width: 14, height: 14, cursor: canManage ? 'pointer' : 'default' }} />
+                                    {cap}
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Approvals */}
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Approval Permissions</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {PERM_APPROVALS.map(a => (
+                          <label key={a.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg, cursor: canManage ? 'pointer' : 'default' }}>
+                            <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>{a.label}</span>
+                            <input type="checkbox" checked={approvalOn(role, a.key)} disabled={!canManage}
+                              onChange={() => canManage && toggleApproval(role, a.key)}
+                              style={{ width: 16, height: 16, cursor: canManage ? 'pointer' : 'default' }} />
+                          </label>
+                        ))}
+                      </div>
+
+                      {/* Settings access grant (owner-controlled) */}
+                      <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '18px 0 10px' }}>Settings Access</p>
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', border: `1px solid ${settingsGrant(role) ? '#3b82f6' : border}`, borderRadius: 10, background: inputBg, cursor: isOwner ? 'pointer' : 'default' }}>
+                        <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>Can open organization Settings</span>
+                        <input type="checkbox" checked={settingsGrant(role)} disabled={!isOwner}
+                          onChange={() => isOwner && toggleSettingsGrant(role)}
+                          style={{ width: 16, height: 16, cursor: isOwner ? 'pointer' : 'default' }} />
+                      </label>
+                      {!isOwner && <p style={{ fontSize: 11, color: textSec, margin: '6px 0 0' }}>Only the owner can grant Settings access.</p>}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {canManage && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={savePermissions} disabled={permSaving}
+                  style={{ padding: '9px 22px', borderRadius: 9, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: permSaving ? 'wait' : 'pointer' }}>
+                  {permSaving ? 'Saving…' : 'Save Permissions'}
+                </button>
               </div>
             )}
           </div>
