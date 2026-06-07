@@ -142,7 +142,6 @@ const OrganizationSettings = () => {
       setStamp(orgData?.stampImage || '')
       setPermCfg(orgData?.rolePermissions || {})
       setCustomRoles(orgData?.customRoles?.length ? orgData.customRoles : ['member', 'viewer'])
-      setStamp(orgData?.stampImage || '')
       setMembers(membersData)
       setInvitations(invData)
       const me = membersData.find((m) => m.userId === user?.userId)
@@ -311,39 +310,6 @@ const OrganizationSettings = () => {
     if (customRoles.length <= 1) { toast.error('At least one role required'); return }
     if (!window.confirm(`Remove role "${r}"? Members with this role keep it until reassigned.`)) return
     saveRoles(customRoles.filter(x => x !== r))
-  }
-
-  // ── Stamp (company seal) ──
-  const handleStampFile = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 2 * 1024 * 1024) { toast.error('Stamp must be under 2 MB'); return }
-    const reader = new FileReader()
-    reader.onload = (ev) => setStamp(ev.target.result)
-    reader.readAsDataURL(file)
-  }
-  const handleStampSave = async () => {
-    setStampSaving(true)
-    try {
-      await axiosInstance.patch(`/api/organizations/${id}/stamp`, { stampImage: stamp })
-      toast.success('Stamp saved — will appear on delivery notes')
-    } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to save stamp')
-    } finally {
-      setStampSaving(false)
-    }
-  }
-  const handleStampRemove = async () => {
-    setStamp('')
-    setStampSaving(true)
-    try {
-      await axiosInstance.patch(`/api/organizations/${id}/stamp`, { stampImage: '' })
-      toast.success('Stamp removed')
-    } catch {
-      toast.error('Failed to remove stamp')
-    } finally {
-      setStampSaving(false)
-    }
   }
 
   const handleDelete = async () => {
