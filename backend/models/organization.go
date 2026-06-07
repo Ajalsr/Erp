@@ -6,6 +6,17 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// RolePerm holds one role's access config:
+//   Modules:   moduleKey → "none" | "view" | "edit"   (absent = inherit default)
+//   Approvals: approvalKey → bool                       (e.g. po, grn, bill, payment)
+type RolePerm struct {
+	// Modules: moduleKey → capability list, any of "view" | "add" | "edit".
+	// Empty/absent list = no access. Capabilities are independent (add ≠ edit).
+	Modules   map[string][]string `bson:"modules,omitempty"   json:"modules,omitempty"`
+	Approvals map[string]bool     `bson:"approvals,omitempty" json:"approvals,omitempty"`
+	Settings  bool                `bson:"settings,omitempty"  json:"settings,omitempty"` // may open org Settings
+}
+
 // Organization represents a workspace/team that users belong to
 type Organization struct {
 	ID               primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
@@ -14,6 +25,11 @@ type Organization struct {
 	LetterheadImage     string             `bson:"letterheadImage,omitempty" json:"letterheadImage,omitempty"`       // base64 data-URL
 	LetterheadTopPad    int                `bson:"letterheadTopPad,omitempty" json:"letterheadTopPad,omitempty"`     // px to skip letterhead header
 	LetterheadBottomPad int                `bson:"letterheadBottomPad,omitempty" json:"letterheadBottomPad,omitempty"` // px to skip letterhead footer
+	// Per-role access matrix: role → permissions. Owner/admin always full (not stored).
+	RolePermissions map[string]RolePerm `bson:"rolePermissions,omitempty" json:"rolePermissions,omitempty"`
+	// CustomRoles: org-defined assignable roles (besides built-in owner/admin).
+	// Empty on legacy orgs → falls back to ["member","viewer"].
+	CustomRoles []string `bson:"customRoles,omitempty" json:"customRoles,omitempty"`
 	CreatedBy        string             `bson:"createdBy" json:"createdBy"`
 	CreatedAt        time.Time          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt        time.Time          `bson:"updatedAt" json:"updatedAt"`
