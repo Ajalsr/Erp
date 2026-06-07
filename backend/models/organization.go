@@ -3,8 +3,57 @@ package models
 import (
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsontype"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+// ModuleCaps is a role's capability list for one module ("view"/"add"/"edit").
+// It tolerates the legacy storage format where a module mapped to a single
+// string ("none"|"view"|"edit") instead of an array, so old org documents
+// still decode instead of failing the whole query.
+type ModuleCaps []string
+
+func (mc *ModuleCaps) UnmarshalBSONValue(t bsontype.Type, data []byte) error {
+	switch t {
+	case bsontype.Array:
+		var arr []string
+		if err := bson.UnmarshalValue(t, data, &arr); err != nil {
+			return err
+		}
+		*mc = arr
+	case bsontype.String:
+		var s string
+		if err := bson.UnmarshalValue(t, data, &s); err != nil {
+			return err
+		}
+		// Legacy single-value form → expand to the new capability list.
+		switch s {
+		case "edit":
+			*mc = ModuleCaps{"view", "add", "edit"}
+		case "view":
+			*mc = ModuleCaps{"view"}
+		default: // "none" / "" → no access
+			*mc = ModuleCaps{}
+		}
+	case bsontype.Null, bsontype.Undefined:
+		*mc = nil
+	default:
+		*mc = nil
+	}
+	return nil
+}
+
+// RolePerm holds one role's access config:
+//   Modules:   moduleKey → capability list (legacy: single string)
+//   Approvals: approvalKey → bool                       (e.g. po, grn, bill, payment)
+type RolePerm struct {
+	// Modules: moduleKey → capability list, any of "view" | "add" | "edit".
+	// Empty/absent list = no access. Capabilities are independent (add ≠ edit).
+	Modules   map[string]ModuleCaps `bson:"modules,omitempty"   json:"modules,omitempty"`
+	Approvals map[string]bool       `bson:"approvals,omitempty" json:"approvals,omitempty"`
+	Settings  bool                  `bson:"settings,omitempty"  json:"settings,omitempty"` // may open org Settings
+}
 
 // Organization represents a workspace/team that users belong to
 type Organization struct {
@@ -15,6 +64,11 @@ type Organization struct {
 	LetterheadTopPad    int                `bson:"letterheadTopPad,omitempty" json:"letterheadTopPad,omitempty"`     // px to skip letterhead header
 	LetterheadBottomPad int                `bson:"letterheadBottomPad,omitempty" json:"letterheadBottomPad,omitempty"` // px to skip letterhead footer
 	StampImage          string             `bson:"stampImage,omitempty" json:"stampImage,omitempty"`                 // base64 data-URL — company seal/stamp
+	// Per-role access matrix: role → permissions. Owner/admin always full (not stored).
+	RolePermissions map[string]RolePerm `bson:"rolePermissions,omitempty" json:"rolePermissions,omitempty"`
+	// CustomRoles: org-defined assignable roles (besides built-in owner/admin).
+	// Empty on legacy orgs → falls back to ["member","viewer"].
+	CustomRoles []string `bson:"customRoles,omitempty" json:"customRoles,omitempty"`
 	CreatedBy        string             `bson:"createdBy" json:"createdBy"`
 	CreatedAt        time.Time          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt        time.Time          `bson:"updatedAt" json:"updatedAt"`

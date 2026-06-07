@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/backend/config"
@@ -40,6 +41,47 @@ func getMemberRole(ctx context.Context, orgID primitive.ObjectID, userID string)
 
 func isAdminOrOwner(role string) bool {
 	return role == "owner" || role == "admin"
+}
+
+// canManageSettings reports whether a user may open/edit org Settings.
+// Owner always; other roles only if granted the Settings flag. (Admin is NOT auto-granted.)
+func canManageSettings(ctx context.Context, orgID primitive.ObjectID, userID string) bool {
+	role, isMember := getMemberRole(ctx, orgID, userID)
+	if !isMember {
+		return false
+	}
+	if role == "owner" {
+		return true
+	}
+	var org models.Organization
+	if orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&org) == nil {
+		if rp, ok := org.RolePermissions[role]; ok {
+			return rp.Settings
+		}
+	}
+	return false
+}
+
+// effectiveCustomRoles returns the org's assignable non-admin roles, defaulting to
+// member/viewer for legacy orgs that never customised them.
+func effectiveCustomRoles(org models.Organization) []string {
+	if len(org.CustomRoles) > 0 {
+		return org.CustomRoles
+	}
+	return []string{"member", "viewer"}
+}
+
+// isAssignableRole reports whether role can be assigned to a member (admin + custom roles).
+func isAssignableRole(org models.Organization, role string) bool {
+	if role == "admin" {
+		return true
+	}
+	for _, r := range effectiveCustomRoles(org) {
+		if r == role {
+			return true
+		}
+	}
+	return false
 }
 
 // POST /api/organizations
@@ -146,7 +188,10 @@ func GetUserOrganizations() gin.HandlerFunc {
 		defer cursor.Close(ctx)
 
 		var members []models.OrgMember
-		cursor.All(ctx, &members)
+		if err := cursor.All(ctx, &members); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
+			return
+		}
 
 		if len(members) == 0 {
 			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": []interface{}{}})
@@ -168,7 +213,10 @@ func GetUserOrganizations() gin.HandlerFunc {
 		defer orgCursor.Close(ctx)
 
 		var orgs []models.Organization
-		orgCursor.All(ctx, &orgs)
+		if err := orgCursor.All(ctx, &orgs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
+			return
+		}
 
 		type OrgWithRole struct {
 			models.Organization
@@ -216,6 +264,8 @@ func GetOrganization() gin.HandlerFunc {
 			"letterheadTopPad":    org.LetterheadTopPad,
 			"letterheadBottomPad": org.LetterheadBottomPad,
 			"stampImage":          org.StampImage,
+			"rolePermissions":     org.RolePermissions,
+			"customRoles":         effectiveCustomRoles(org),
 			"createdBy":           org.CreatedBy,
 			"createdAt":           org.CreatedAt,
 			"role":                role,
@@ -236,9 +286,8 @@ func UpdateOrganization() gin.HandlerFunc {
 			return
 		}
 
-		role, isMember := getMemberRole(ctx, orgID, userID.(string))
-		if !isMember || !isAdminOrOwner(role) {
-			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admins and owners can update the organization"})
+		if !canManageSettings(ctx, orgID, userID.(string)) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You don't have access to organization settings"})
 			return
 		}
 
@@ -350,9 +399,10 @@ func InviteMember() gin.HandlerFunc {
 			return
 		}
 
-		validRoles := map[string]bool{"admin": true, "member": true, "viewer": true}
-		if !validRoles[input.Role] {
-			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid role. Must be admin, member, or viewer"})
+		var invOrg models.Organization
+		orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&invOrg)
+		if !isAssignableRole(invOrg, input.Role) {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid role for this organization"})
 			return
 		}
 
@@ -441,9 +491,10 @@ func UpdateMemberRole() gin.HandlerFunc {
 			return
 		}
 
-		validRoles := map[string]bool{"admin": true, "member": true, "viewer": true}
-		if !validRoles[input.Role] {
-			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid role. Must be admin, member, or viewer"})
+		var valOrg models.Organization
+		orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&valOrg)
+		if !isAssignableRole(valOrg, input.Role) {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid role for this organization"})
 			return
 		}
 
@@ -743,9 +794,8 @@ func UpdateLetterhead() gin.HandlerFunc {
 			return
 		}
 
-		role, isMember := getMemberRole(ctx, orgID, userID.(string))
-		if !isMember || !isAdminOrOwner(role) {
-			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admins and owners can update the letterhead"})
+		if !canManageSettings(ctx, orgID, userID.(string)) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You don't have access to organization settings"})
 			return
 		}
 
@@ -811,6 +861,201 @@ func UpdateStamp() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Stamp updated"})
+	}
+}
+
+// PATCH /api/organizations/:id/role-permissions — set per-role module access + approvals
+func UpdateRolePermissions() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		userID, _ := c.Get("userId")
+		orgID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid org ID"})
+			return
+		}
+
+		role, isMember := getMemberRole(ctx, orgID, userID.(string))
+		if !isMember || role != "owner" {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only the owner can manage permissions"})
+			return
+		}
+
+		var input struct {
+			RolePermissions map[string]models.RolePerm `json:"rolePermissions"`
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
+			return
+		}
+
+		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
+			"rolePermissions": input.RolePermissions,
+			"updatedAt":       time.Now(),
+		}})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update permissions"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Permissions updated", "data": input.RolePermissions})
+	}
+}
+
+// PATCH /api/organizations/:id/roles — define the org's assignable custom roles
+func UpdateCustomRoles() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		userID, _ := c.Get("userId")
+		orgID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid org ID"})
+			return
+		}
+
+		role, isMember := getMemberRole(ctx, orgID, userID.(string))
+		if !isMember || role != "owner" {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only the owner can manage roles"})
+			return
+		}
+
+		var input struct {
+			Roles []string `json:"roles"`
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
+			return
+		}
+
+		// Normalise: trim, lowercase, dedupe, drop reserved/empty.
+		seen := map[string]bool{}
+		clean := []string{}
+		for _, r := range input.Roles {
+			r = strings.ToLower(strings.TrimSpace(r))
+			if r == "" || r == "owner" || r == "admin" || seen[r] {
+				continue
+			}
+			seen[r] = true
+			clean = append(clean, r)
+		}
+		if len(clean) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "At least one custom role is required"})
+			return
+		}
+
+		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
+			"customRoles": clean,
+			"updatedAt":   time.Now(),
+		}})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update roles"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Roles updated", "data": clean})
+	}
+}
+
+// ── Permission resolution (server-side enforcement helpers) ───────────────────
+
+// defaultModuleCaps returns the fallback capabilities for a role when nothing is stored.
+func defaultModuleCaps(role string) []string {
+	switch role {
+	case "owner", "admin", "member":
+		return []string{"view", "add", "edit"}
+	case "viewer":
+		return []string{"view"}
+	default:
+		return []string{}
+	}
+}
+
+// resolveModuleCaps returns the effective capability list for a user on a module.
+func resolveModuleCaps(ctx context.Context, orgID primitive.ObjectID, userID, module string) []string {
+	role, isMember := getMemberRole(ctx, orgID, userID)
+	if !isMember {
+		return []string{}
+	}
+	if isAdminOrOwner(role) {
+		return []string{"view", "add", "edit"} // owners/admins always full
+	}
+	var org models.Organization
+	if orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&org) == nil {
+		if rp, ok := org.RolePermissions[role]; ok {
+			if caps, ok2 := rp.Modules[module]; ok2 {
+				return caps // stored (may be empty = no access)
+			}
+		}
+	}
+	return defaultModuleCaps(role)
+}
+
+func hasCap(caps []string, action string) bool {
+	for _, c := range caps {
+		if c == action {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveApproval reports whether a user's role may perform an approval action.
+func resolveApproval(ctx context.Context, orgID primitive.ObjectID, userID, key string) bool {
+	role, isMember := getMemberRole(ctx, orgID, userID)
+	if !isMember {
+		return false
+	}
+	if isAdminOrOwner(role) {
+		return true
+	}
+	var org models.Organization
+	if orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&org) == nil {
+		if rp, ok := org.RolePermissions[role]; ok {
+			return rp.Approvals[key]
+		}
+	}
+	return false
+}
+
+// RequireModule is gin middleware enforcing module access. level = "view" | "edit".
+// orgId comes from the RequireOrg middleware (c.Get("orgId")).
+func RequireModule(module, level string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		orgIDVal, _ := c.Get("orgId")
+		userIDVal, _ := c.Get("userId")
+		orgID, err := primitive.ObjectIDFromHex(fmt.Sprintf("%v", orgIDVal))
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"status": 403, "message": "No organization context"})
+			return
+		}
+		caps := resolveModuleCaps(ctx, orgID, fmt.Sprintf("%v", userIDVal), module)
+		if !hasCap(caps, level) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"status": 403, "message": "You don't have permission for this action", "code": "NO_PERMISSION"})
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireApproval is gin middleware enforcing an approval right (e.g. "po", "bill").
+func RequireApproval(key string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		orgIDVal, _ := c.Get("orgId")
+		userIDVal, _ := c.Get("userId")
+		orgID, err := primitive.ObjectIDFromHex(fmt.Sprintf("%v", orgIDVal))
+		if err != nil || !resolveApproval(ctx, orgID, fmt.Sprintf("%v", userIDVal), key) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"status": 403, "message": "You don't have approval permission", "code": "NO_APPROVAL"})
+			return
+		}
+		c.Next()
 	}
 }
 
