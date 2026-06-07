@@ -20,7 +20,6 @@ func OrgRoutes(router *gin.Engine) {
 		orgRoutes.PATCH("/:id/stamp", controllers.UpdateStamp())
 		orgRoutes.PATCH("/:id/role-permissions", controllers.UpdateRolePermissions())
 		orgRoutes.PATCH("/:id/roles", controllers.UpdateCustomRoles())
-		orgRoutes.PATCH("/:id/stamp", controllers.UpdateStamp())
 
 		// Members
 		orgRoutes.GET("/:id/members", controllers.GetOrgMembers())
