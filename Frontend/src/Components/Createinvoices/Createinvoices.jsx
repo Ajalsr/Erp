@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore from "../../store/useThemeStore";
+import nexusToast from "../../helper/nexusToast";
 
 /* ─── Theme ─────────────────────────────────────────────────────────────── */
 const getT = (isDark) => isDark ? {
@@ -726,8 +727,12 @@ const CreateInvoice = () => {
           invoiceNumber: resolvedNumber,
         }),
       ].filter(Boolean));
+      nexusToast.success(invoiceDocType === "proforma" ? "Proforma saved" : "Invoice issued");
       navigate("/Sales/Invoices");
-    } catch (err) { console.error(err); } finally { setSubmitting(false); }
+    } catch (err) {
+      console.error(err);
+      nexusToast.error(err.response?.data?.message || "Failed to issue invoice");
+    } finally { setSubmitting(false); }
   };
 
   const handleSaveDraft = async () => {
@@ -749,9 +754,13 @@ const CreateInvoice = () => {
           invoiceNumber: resolvedNumber,
         });
       }
+      nexusToast.success("Draft saved");
       navigate("/Sales/Invoices");
     }
-    catch (err) { console.error(err); } finally { setSubmitting(false); }
+    catch (err) {
+      console.error(err);
+      nexusToast.error(err.response?.data?.message || "Failed to save draft");
+    } finally { setSubmitting(false); }
   };
 
   const STATUS_OPTS = [

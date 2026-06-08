@@ -6,6 +6,7 @@ import useThemeStore from '../../store/useThemeStore'
 import useTourStore from '../../store/useTourStore'
 import useOrganization from '../../helper/useOrganization'
 import useNotifications from '../../helper/useNotifications'
+import { clearPermissions } from '../../helper/permissions'
 
 const PAGE_TITLES = {
   '/Home': 'Dashboard',
@@ -251,7 +252,7 @@ const Navbar = ({ onToggleSidebar }) => {
   const { title, parent } = getPageInfo(location.pathname)
   const initials = (user?.userId || 'U').charAt(0).toUpperCase()
 
-  const handleSignOut = () => { clearAuth(); navigate('/') }
+  const handleSignOut = () => { clearPermissions(); clearAuth(); navigate('/') }
 
   useEffect(() => {
     const handler = (e) => {

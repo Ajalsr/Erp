@@ -4,11 +4,12 @@ import {
   FaPlus, FaTimes, FaSearch, FaFileAlt,
   FaChevronLeft, FaChevronRight, FaEdit, FaTrash,
   FaCheckCircle, FaTimesCircle, FaBoxOpen, FaFileInvoice,
-  FaCopy, FaPaperPlane, FaExchangeAlt, FaLink, FaDownload,
+  FaCopy, FaPaperPlane, FaExchangeAlt, FaLink, FaDownload, FaPrint,
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
+import { usePermissions } from "../../helper/permissions";
 
 const STATUSES = [
   { key: "all",       label: "All" },
@@ -53,6 +54,8 @@ const STAT_CARDS = [
 
 export default function Quotes() {
   const navigate  = useNavigate();
+  const { can, canEditRecord, canViewRecord } = usePermissions();
+  const canExport = can("quotes", "export");
   const isDark    = useThemeStore(s => s.isDark);
   const T         = getTheme(isDark);
 
@@ -166,7 +169,7 @@ export default function Quotes() {
       setSelected(prev => prev?._id === q._id ? { ...prev, status: newStatus } : prev);
       load();
     } catch (e) {
-      nexusToast.error("Failed to update status");
+      nexusToast.error(e.response?.data?.message || "Failed to update status");
     }
   }
 
@@ -212,6 +215,7 @@ export default function Quotes() {
                 </p>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
+                {canExport && (
                 <button
                   onClick={exportQuotesCSV}
                   style={{
@@ -223,6 +227,7 @@ export default function Quotes() {
                   }}>
                   <FaDownload size={11} /> Export CSV
                 </button>
+                )}
                 <button
                   onClick={() => navigate("/Sales/Quotes/Create")}
                   style={{
@@ -400,7 +405,11 @@ export default function Quotes() {
                       <tr
                         key={q._id}
                         className={`qt-row${isActive ? " active" : ""}`}
-                        onClick={() => setSelected(isActive ? null : q)}
+                        onClick={() => {
+                          if (isActive) { setSelected(null); return; }
+                          if (!canViewRecord("quotes", q.createdBy)) { nexusToast.error("You can only open quotes you created"); return; }
+                          setSelected(q);
+                        }}
                         style={{ borderBottom: idx < filtered.length - 1 ? `1px solid ${T.border}` : "none" }}>
 
                         {/* Quote # */}
@@ -675,6 +684,15 @@ export default function Quotes() {
                 <Section label="Actions">
                   <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
 
+                    {/* Preview & Print — in-app HTML render */}
+                    <ActionBtn
+                      onClick={() => navigate(`/Sales/Quotes/${selected._id}/print`)}
+                      icon={<FaPrint />}
+                      label="Preview & Print"
+                      color="#f59e0b" glow="rgba(245,158,11,0.15)"
+                      outline
+                    />
+
                     {/* PDF download */}
                     <ActionBtn
                       onClick={() => {
@@ -700,7 +718,7 @@ export default function Quotes() {
                       outline
                     />
 
-                    {selected.status === "draft" && (
+                    {selected.status === "draft" && canEditRecord("quotes", selected.createdBy) && (
                       <ActionBtn
                         onClick={() => navigate("/Sales/Quotes/Create", { state: { edit: selected } })}
                         icon={<FaEdit />}
@@ -786,7 +804,7 @@ export default function Quotes() {
                       outline
                     />
 
-                    {selected.status !== "converted" && (
+                    {selected.status !== "converted" && canEditRecord("quotes", selected.createdBy) && (
                       <ActionBtn
                         onClick={() => handleDelete(selected)}
                         icon={<FaTrash />}

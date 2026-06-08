@@ -6,6 +6,7 @@ import { format, addDays, addMonths, isSameDay } from "date-fns";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
+import { usePermissions } from "../../helper/permissions";
 import CreditNotes from "../CreditNotes/CreditNotes";
 import "react-datepicker/dist/react-datepicker.css";
 
@@ -606,6 +607,8 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
 const Invoices = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { can } = usePermissions();
+  const canExport = can("invoices", "export");
   const isDark = useThemeStore((s) => s.isDark);
   const T = buildTheme(isDark);
 
@@ -1050,10 +1053,12 @@ const Invoices = () => {
 
           {/* Actions */}
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+            {canExport && (
             <button onClick={exportInvoicesCSV} style={{ ...inputStyle, padding: "7px 14px", cursor: "pointer", fontSize: 13, transition: ".15s" }}
               onMouseEnter={e => e.currentTarget.style.borderColor = T.subtle}
               onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
             >Export CSV</button>
+            )}
             <button
               onClick={() => navigate("/Sales/Createinvoices")}
               style={{ padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none", transition: ".15s" }}
@@ -1067,7 +1072,7 @@ const Invoices = () => {
         {selectedIds.size > 0 && (
           <div style={{ margin: "12px 28px 0", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", background: isDark ? "rgba(245,158,11,0.08)" : "#fffbeb", border: `1px solid rgba(245,158,11,0.3)`, borderRadius: 9 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>{selectedIds.size} selected</span>
-            <button onClick={bulkExportCSV} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit" }}>Export CSV</button>
+            {canExport && <button onClick={bulkExportCSV} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit" }}>Export CSV</button>}
             <button onClick={bulkSend} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.accent, border: "none", color: "#0a0e1a", fontFamily: "inherit" }}>📧 Send Selected</button>
             <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 7, fontSize: 12, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.muted, fontFamily: "inherit" }}>✕ Clear</button>
           </div>

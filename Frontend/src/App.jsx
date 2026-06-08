@@ -57,6 +57,7 @@ import CreditNotes from "./Components/CreditNotes/CreditNotes"
 import PublicInvoice from "./Components/Invoices/PublicInvoice"
 import Quotes from "./Components/Quotes/Quotes"
 import CreateQuote from "./Components/Quotes/CreateQuote"
+import QuotePrint from "./Components/Quotes/QuotePrint"
 import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
 
 function App() {
@@ -153,6 +154,7 @@ function App() {
             <Route path="/Sales/CreditNotes"        element={<CreditNotes />} />
             <Route path="/Sales/Quotes"             element={<Quotes />} />
             <Route path="/Sales/Quotes/new"         element={<CreateQuote />} />
+            <Route path="/Sales/Quotes/:id/print"   element={<QuotePrint />} />
             <Route path="/Sales/Quotes/:id"         element={<CreateQuote />} />
           </Route>
 

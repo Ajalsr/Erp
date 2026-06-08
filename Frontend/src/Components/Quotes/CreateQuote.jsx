@@ -59,9 +59,111 @@ const Inp = ({ style, ...r }) => {
   const T = useT(); const f = useFF();
   return <input style={{ background: T.input, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", transition: "border-color .15s", ...style }} {...f} {...r} />;
 };
-const Sel = ({ style, children, ...r }) => {
+/* ─── Custom dropdown (themed, portal — never clipped) ───────────────────── */
+const CustomSelect = ({ value, onChange, options, placeholder = "Select", style, disabled }) => {
   const T = useT();
-  return <select style={{ background: T.input, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", cursor: "pointer", ...style }} {...r}>{children}</select>;
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState(null);
+  const btnRef = useRef(null);
+  const sel = options.find(o => o.value === value);
+  const measure = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setCoords({ top: r.bottom + 4, left: r.left, width: r.width }); };
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => { if (!btnRef.current?.contains(e.target)) setOpen(false); };
+    const reposition = () => setOpen(false);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("scroll", reposition, true); window.removeEventListener("resize", reposition); };
+  }, [open]);
+  return (
+    <>
+      <button type="button" ref={btnRef} disabled={disabled}
+        onClick={() => { if (disabled) return; measure(); setOpen(o => !o); }}
+        style={{ background: T.input, border: `1px solid ${open ? `${T.accent}88` : T.border}`, color: sel ? T.text : T.muted, fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 7, outline: "none", cursor: disabled ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, width: "100%", textAlign: "left", ...style }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.label : placeholder}</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0, opacity: .6, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+      {open && coords && createPortal(
+        <div style={{ position: "fixed", top: coords.top, left: coords.left, width: Math.max(coords.width, 90), zIndex: 9999, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: T.shadow, padding: 4, maxHeight: 240, overflowY: "auto", animation: "qPop .12s ease" }}>
+          {options.map(o => (
+            <div key={o.value} onMouseDown={() => { onChange(o.value); setOpen(false); }}
+              style={{ padding: "8px 10px", borderRadius: 6, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", color: o.value === value ? T.accent : T.text, background: o.value === value ? `${T.accent}14` : "transparent", fontWeight: o.value === value ? 600 : 400 }}
+              onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = T.surface2; }}
+              onMouseLeave={e => { if (o.value !== value) e.currentTarget.style.background = "transparent"; }}>
+              {o.label}
+            </div>
+          ))}
+        </div>, document.body)}
+    </>
+  );
+};
+
+/* ─── Custom date picker (themed calendar popover) ───────────────────────── */
+const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const CustomDate = ({ value, onChange, style, placeholder = "Select date" }) => {
+  const T = useT();
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState(null);
+  const btnRef = useRef(null);
+  const parsed = value ? new Date(value + "T00:00:00") : null;
+  const [view, setView] = useState(parsed || new Date());
+  const measure = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setCoords({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 248) }); };
+  useEffect(() => {
+    if (!open) return;
+    setView(parsed || new Date());
+    const close = (e) => { if (!btnRef.current?.contains(e.target)) setOpen(false); };
+    const reposition = () => setOpen(false);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("scroll", reposition, true); window.removeEventListener("resize", reposition); };
+  }, [open]); // eslint-disable-line
+  const y = view.getFullYear(), m = view.getMonth();
+  const first = new Date(y, m, 1).getDay();
+  const days = new Date(y, m + 1, 0).getDate();
+  const cells = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
+  const isSel = (d) => parsed && parsed.getFullYear() === y && parsed.getMonth() === m && parsed.getDate() === d;
+  const isToday = (d) => { const t = new Date(); return t.getFullYear() === y && t.getMonth() === m && t.getDate() === d; };
+  const navBtn = { width: 26, height: 26, borderRadius: 7, border: `1px solid ${T.border}`, background: T.input, color: T.text, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 };
+  return (
+    <>
+      <button type="button" ref={btnRef}
+        onClick={() => { measure(); setOpen(o => !o); }}
+        style={{ background: T.input, border: `1px solid ${open ? `${T.accent}88` : T.border}`, color: parsed ? T.text : T.muted, fontFamily: "inherit", fontSize: 13, padding: "9px 12px", borderRadius: 7, outline: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%", textAlign: "left", ...style }}>
+        <span>{parsed ? `${String(parsed.getDate()).padStart(2, "0")} ${MONTHS_FULL[parsed.getMonth()].slice(0, 3)} ${parsed.getFullYear()}` : placeholder}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, opacity: .55 }}><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+      </button>
+      {open && coords && createPortal(
+        <div style={{ position: "fixed", top: coords.top, left: coords.left, width: 248, zIndex: 9999, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 11, boxShadow: T.shadow, padding: 12, animation: "qPop .12s ease" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <button type="button" style={navBtn} onClick={() => setView(new Date(y, m - 1, 1))}>‹</button>
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{MONTHS_FULL[m]} {y}</span>
+            <button type="button" style={navBtn} onClick={() => setView(new Date(y, m + 1, 1))}>›</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2, marginBottom: 4 }}>
+            {DOW.map(d => <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: T.muted, padding: "2px 0" }}>{d}</div>)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+            {cells.map((d, i) => d === null
+              ? <div key={i} />
+              : <button key={i} type="button"
+                  onClick={() => { onChange(ymd(new Date(y, m, d))); setOpen(false); }}
+                  style={{ aspectRatio: "1", borderRadius: 7, border: isToday(d) && !isSel(d) ? `1px solid ${T.accent}88` : "1px solid transparent", background: isSel(d) ? T.accent : "transparent", color: isSel(d) ? "#fff" : T.text, fontSize: 12, fontWeight: isSel(d) ? 700 : 500, cursor: "pointer" }}
+                  onMouseEnter={e => { if (!isSel(d)) e.currentTarget.style.background = T.surface2; }}
+                  onMouseLeave={e => { if (!isSel(d)) e.currentTarget.style.background = "transparent"; }}>
+                  {d}
+                </button>)}
+          </div>
+          <button type="button" onClick={() => { onChange(ymd(new Date())); setOpen(false); }}
+            style={{ marginTop: 10, width: "100%", padding: "7px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.input, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            Today
+          </button>
+        </div>, document.body)}
+    </>
+  );
 };
 const Tex = ({ style, ...r }) => {
   const T = useT(); const f = useFF();
@@ -315,20 +417,18 @@ const LineRow = ({ item, onChange, onRemove, isOnly }) => {
         <Inp type="number" min="0.01" step="0.01" value={item.qty} onChange={e => set("qty", e.target.value)} style={{ textAlign: "right" }} />
       </td>
       <td style={{ padding: "6px 4px", width: 70 }}>
-        <Sel value={item.unit} onChange={e => set("unit", e.target.value)}>
-          {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
-        </Sel>
+        <CustomSelect value={item.unit} onChange={v => set("unit", v)}
+          options={UNIT_OPTIONS.map(u => ({ value: u, label: u }))} />
       </td>
       <td style={{ padding: "6px 4px", width: 100 }}>
         <Inp type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => set("unitPrice", e.target.value)} style={{ textAlign: "right" }} />
       </td>
-      <td style={{ padding: "6px 4px", width: 100 }}>
-        <div style={{ display: "flex", gap: 3 }}>
-          <Inp type="number" min="0" value={item.discount} onChange={e => set("discount", e.target.value)} style={{ textAlign: "right" }} />
-          <Sel value={item.discountType} onChange={e => set("discountType", e.target.value)} style={{ width: 50, padding: "8px 4px" }}>
-            <option value="percentage">%</option>
-            <option value="fixed">AED</option>
-          </Sel>
+      <td style={{ padding: "6px 4px", width: 165, minWidth: 165 }}>
+        <div style={{ display: "flex", gap: 4, alignItems: "stretch" }}>
+          <Inp type="number" min="0" value={item.discount} onChange={e => set("discount", e.target.value)} style={{ textAlign: "right", flex: 1, minWidth: 0, padding: "8px 8px" }} />
+          <CustomSelect value={item.discountType} onChange={v => set("discountType", v)}
+            options={[{ value: "percentage", label: "%" }, { value: "fixed", label: "AED" }]}
+            style={{ width: 64, flexShrink: 0 }} />
         </div>
       </td>
       <td style={{ padding: "6px 4px", width: 62 }}>
@@ -506,6 +606,7 @@ export default function CreateQuote() {
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
     * { box-sizing: border-box; }
     body { margin: 0; }
+    @keyframes qPop { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: ${isDark ? "rgba(255,255,255,0.11)" : "rgba(0,0,0,0.13)"}; border-radius: 999px; }
@@ -527,6 +628,9 @@ export default function CreateQuote() {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <Btn v="ghost" onClick={() => navigate("/Sales/Quotes")} disabled={saving}>Cancel</Btn>
+            {isEdit && prefill?._id && (
+              <Btn v="outline" onClick={() => navigate(`/Sales/Quotes/${prefill._id}/print`)} disabled={saving}>🖨 Preview &amp; Print</Btn>
+            )}
             <Btn v="outline" onClick={() => submit("draft")} disabled={saving}>{saving ? "Saving…" : "Save Draft"}</Btn>
             <Btn v="primary" onClick={() => submit("sent")} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
           </div>
@@ -610,20 +714,18 @@ export default function CreateQuote() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 16 }}>
               <Field label="Quote Date">
-                <Inp type="date" value={quoteDate} onChange={e => setQuoteDate(e.target.value)} />
+                <CustomDate value={quoteDate} onChange={setQuoteDate} />
               </Field>
               <Field label="Valid Until">
-                <Inp type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} />
+                <CustomDate value={validUntil} onChange={setValidUntil} placeholder="Select date" />
               </Field>
               <Field label="Currency">
-                <Sel value={currency} onChange={e => setCurrency(e.target.value)}>
-                  {["AED","USD","EUR","GBP","SAR","INR"].map(c => <option key={c}>{c}</option>)}
-                </Sel>
+                <CustomSelect value={currency} onChange={setCurrency}
+                  options={["AED","USD","EUR","GBP","SAR","INR"].map(c => ({ value: c, label: c }))} />
               </Field>
               <Field label="Payment Terms">
-                <Sel value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)}>
-                  {["Due on Receipt","Net 15","Net 30","Net 60","End of Month","30 Days PDC"].map(t => <option key={t}>{t}</option>)}
-                </Sel>
+                <CustomSelect value={paymentTerms} onChange={setPaymentTerms}
+                  options={["Due on Receipt","Net 15","Net 30","Net 60","End of Month","30 Days PDC"].map(t => ({ value: t, label: t }))} />
               </Field>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>

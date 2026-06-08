@@ -19,7 +19,7 @@ func AuthRoutes(router *gin.Engine) {
 
 func StockRoutes(router *gin.Engine) {
 	stockRoutes := router.Group("/api/stocks")
-	stockRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	stockRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("items"))
 	{
 		stockRoutes.GET("/getitem", controllers.GetAllStocks())
 		stockRoutes.POST("/additem", controllers.AddItem())
@@ -32,7 +32,7 @@ func StockRoutes(router *gin.Engine) {
 
 func CustomerRoutes(router *gin.Engine) {
 	custRoutes := router.Group("/api/customers")
-	custRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	custRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("customers"))
 
 	custRoutes.POST("/addcustomers", controllers.AddCustomers())
 	custRoutes.GET("/getcustomers", controllers.GetAllCustomers())
@@ -58,7 +58,7 @@ func CustomerRoutes(router *gin.Engine) {
 
 func SaleOrderRoutes(router *gin.Engine) {
 	salesOrderRoutes := router.Group("/api/sales-orders")
-	salesOrderRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	salesOrderRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("sales_orders"))
 	{
 		salesOrderRoutes.POST("/", controllers.CreateSalesOrder())
 		salesOrderRoutes.GET("/getsaleorder", controllers.GetAllSalesOrders())
@@ -78,7 +78,7 @@ func InvoiceRoutes(router *gin.Engine) {
 	router.GET("/api/invoices/public/:token", controllers.GetPublicInvoice())
 
 	invRoutes := router.Group("/api/invoices")
-	invRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	invRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("invoices"))
 	{
 		invRoutes.POST("", controllers.CreateInvoice())
 		invRoutes.POST("/", controllers.CreateInvoice())
@@ -101,7 +101,7 @@ func InvoiceRoutes(router *gin.Engine) {
 
 func QuoteRoutes(router *gin.Engine) {
 	qRoutes := router.Group("/api/quotes")
-	qRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	qRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("quotes"))
 	{
 		qRoutes.POST("/", controllers.CreateQuote())
 		qRoutes.GET("/", controllers.GetAllQuotes())
@@ -118,7 +118,7 @@ func QuoteRoutes(router *gin.Engine) {
 
 func CreditNoteRoutes(router *gin.Engine) {
 	cnRoutes := router.Group("/api/credit-notes")
-	cnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	cnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("credit_notes"))
 	{
 		cnRoutes.POST("", controllers.CreateCreditNote())
 		cnRoutes.GET("", controllers.GetAllCreditNotes())
@@ -136,7 +136,7 @@ func CreditNoteRoutes(router *gin.Engine) {
 
 func DebitNoteRoutes(router *gin.Engine) {
 	dnRoutes := router.Group("/api/debit-notes")
-	dnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	dnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("debit_notes"))
 	{
 		dnRoutes.POST("", controllers.CreateDebitNote())
 		dnRoutes.GET("", controllers.GetAllDebitNotes())
@@ -162,7 +162,7 @@ func DocumentRoutes(router *gin.Engine) {
 
 func DashboardRoutes(router *gin.Engine) {
 	dashRoutes := router.Group("/api/dashboard")
-	dashRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	dashRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("dashboard"))
 	{
 		dashRoutes.GET("/activity-feed", controllers.GetActivityFeed())
 	}
@@ -170,7 +170,7 @@ func DashboardRoutes(router *gin.Engine) {
 
 func PurchaseOrderRoutes(router *gin.Engine) {
 	poRoutes := router.Group("/api/purchase-orders")
-	poRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	poRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("purchase_orders"))
 	{
 		poRoutes.POST("/", controllers.CreatePurchaseOrder())
 		poRoutes.GET("/getorders", controllers.GetAllPurchaseOrders())
@@ -185,7 +185,7 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 
 func GRNRoutes(router *gin.Engine) {
 	grnRoutes := router.Group("/api/grns")
-	grnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	grnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("grns"))
 	{
 		grnRoutes.POST("/", controllers.CreateGRN())
 		grnRoutes.GET("/", controllers.GetAllGRNs())
@@ -200,7 +200,7 @@ func GRNRoutes(router *gin.Engine) {
 
 func PaymentRoutes(router *gin.Engine) {
 	pmtRoutes := router.Group("/api/payments")
-	pmtRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	pmtRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("payments"))
 	{
 		pmtRoutes.POST("/", controllers.CreatePayment())
 		pmtRoutes.GET("/", controllers.GetAllPayments())
@@ -212,7 +212,7 @@ func PaymentRoutes(router *gin.Engine) {
 
 func VendorRoutes(router *gin.Engine) {
 	vendorRoutes := router.Group("/api/vendors")
-	vendorRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	vendorRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("vendors"))
 	{
 		vendorRoutes.POST("/", controllers.CreateVendor())
 		vendorRoutes.GET("/", controllers.GetAllVendors())
@@ -227,7 +227,7 @@ func VendorRoutes(router *gin.Engine) {
 
 func BillRoutes(router *gin.Engine) {
 	billRoutes := router.Group("/api/bills")
-	billRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	billRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("bills"))
 	{
 		billRoutes.POST("/", controllers.CreateBill())
 		billRoutes.GET("/", controllers.GetAllBills())
@@ -241,7 +241,7 @@ func BillRoutes(router *gin.Engine) {
 
 func VendorPaymentRoutes(router *gin.Engine) {
 	vpRoutes := router.Group("/api/vendor-payments")
-	vpRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	vpRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("vendor_payments"))
 	{
 		vpRoutes.POST("/", controllers.CreateVendorPayment())
 		vpRoutes.GET("/", controllers.GetAllVendorPayments())
@@ -253,7 +253,7 @@ func VendorPaymentRoutes(router *gin.Engine) {
 
 func WarehouseRoutes(router *gin.Engine) {
 	wRoutes := router.Group("/api/warehouses")
-	wRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	wRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("warehouses"))
 	{
 		wRoutes.POST("/", controllers.CreateWarehouse())
 		wRoutes.GET("/", controllers.GetAllWarehouses())
@@ -265,7 +265,7 @@ func WarehouseRoutes(router *gin.Engine) {
 
 func AdjustmentRoutes(router *gin.Engine) {
 	adjRoutes := router.Group("/api/inventory/adjustments")
-	adjRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	adjRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("adjustments"))
 	{
 		adjRoutes.POST("/", controllers.CreateAdjustment())
 		adjRoutes.GET("/", controllers.GetAllAdjustments())
@@ -274,7 +274,7 @@ func AdjustmentRoutes(router *gin.Engine) {
 
 func ItemGroupRoutes(router *gin.Engine) {
 	igRoutes := router.Group("/api/item-groups")
-	igRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	igRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("item_groups"))
 	{
 		igRoutes.POST("/", controllers.CreateItemGroup())
 		igRoutes.GET("/", controllers.GetAllItemGroups())
@@ -286,7 +286,7 @@ func ItemGroupRoutes(router *gin.Engine) {
 
 func PriceListRoutes(router *gin.Engine) {
 	plRoutes := router.Group("/api/price-lists")
-	plRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	plRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("price_lists"))
 	{
 		plRoutes.POST("/", controllers.CreatePriceList())
 		plRoutes.GET("/", controllers.GetAllPriceLists())
@@ -298,7 +298,7 @@ func PriceListRoutes(router *gin.Engine) {
 
 func AccountRoutes(router *gin.Engine) {
 	accRoutes := router.Group("/api/accounts")
-	accRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	accRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("accounts"))
 	{
 		accRoutes.POST("/", controllers.CreateAccount())
 		accRoutes.POST("/seed", controllers.SeedDefaultAccounts())
@@ -314,7 +314,7 @@ func AccountRoutes(router *gin.Engine) {
 
 func JournalEntryRoutes(router *gin.Engine) {
 	jeRoutes := router.Group("/api/journal-entries")
-	jeRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	jeRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("journal_entries"))
 	{
 		jeRoutes.POST("/", controllers.CreateManualJournalEntry())
 		jeRoutes.GET("/", controllers.GetJournalEntries())
@@ -324,7 +324,7 @@ func JournalEntryRoutes(router *gin.Engine) {
 
 func AdvancePaymentRoutes(router *gin.Engine) {
 	advRoutes := router.Group("/api/advance-payments")
-	advRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	advRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("advance_payments"))
 	{
 		advRoutes.POST("/", controllers.CreateAdvancePayment())
 		advRoutes.GET("/", controllers.GetAdvancePayments())
@@ -335,7 +335,7 @@ func AdvancePaymentRoutes(router *gin.Engine) {
 
 func VendorCreditRoutes(router *gin.Engine) {
 	vcRoutes := router.Group("/api/vendor-credits")
-	vcRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	vcRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("vendor_credits"))
 	{
 		vcRoutes.POST("/", controllers.CreateVendorCredit())
 		vcRoutes.GET("/", controllers.GetAllVendorCredits())
@@ -349,7 +349,7 @@ func VendorCreditRoutes(router *gin.Engine) {
 
 func DeliveryNoteRoutes(router *gin.Engine) {
 	dnRoutes := router.Group("/api/delivery-notes")
-	dnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	dnRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("delivery_notes"))
 	{
 		dnRoutes.POST("/", controllers.CreateDeliveryNote())
 		dnRoutes.GET("/", controllers.GetAllDeliveryNotes())
@@ -362,7 +362,7 @@ func DeliveryNoteRoutes(router *gin.Engine) {
 
 func EnquiryRoutes(router *gin.Engine) {
 	enqRoutes := router.Group("/api/enquiries")
-	enqRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	enqRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("enquiries"))
 	{
 		enqRoutes.POST("/", controllers.CreateEnquiry())
 		enqRoutes.GET("/", controllers.GetAllEnquiries())
@@ -375,7 +375,7 @@ func EnquiryRoutes(router *gin.Engine) {
 
 func ReportsRoutes(router *gin.Engine) {
 	rptRoutes := router.Group("/api/reports")
-	rptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	rptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("reports"))
 	{
 		rptRoutes.GET("/vat", controllers.GetVATReport())
 		rptRoutes.GET("/vendor-aging", controllers.GetVendorAging())
