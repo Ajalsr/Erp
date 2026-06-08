@@ -8,6 +8,18 @@ import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import CsvImportModal from "../common/CsvImportModal";
+
+const ITEM_IMPORT_FIELDS = [
+  { key: "name",          label: "Name",          aliases: ["item name", "product", "product name"], required: true },
+  { key: "item_code",     label: "SKU",           aliases: ["sku", "item code", "code"] },
+  { key: "unit",          label: "Unit",          aliases: ["unit", "uom"] },
+  { key: "selling_price", label: "Selling Price", aliases: ["price", "sell price", "selling price", "rate"] },
+  { key: "cost_price",    label: "Cost Price",    aliases: ["cost", "cost price", "buy price"] },
+  { key: "brand",         label: "Brand",         aliases: ["brand"] },
+  { key: "manufacturer",  label: "Manufacturer",  aliases: ["manufacturer", "maker"] },
+  { key: "upc",           label: "UPC",           aliases: ["upc", "barcode"] },
+];
 
 /* ─── Utilities ─────────────────────────────────────────────────────── */
 const fmtN = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 0 });
@@ -44,6 +56,7 @@ const thumbGrad = (name) => {
 ══════════════════════════════════════════════════════════════════════════ */
 export default function Item() {
   const { handleGetItem, data, loading, error } = useGetItem();
+  const [showImport, setShowImport] = useState(false);
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
@@ -247,6 +260,16 @@ export default function Item() {
       style={{height:"calc(100vh - 56px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <style>{css}</style>
 
+      <CsvImportModal
+        open={showImport}
+        onClose={()=>setShowImport(false)}
+        onComplete={handleGetItem}
+        title="Import Items"
+        fields={ITEM_IMPORT_FIELDS}
+        endpoint="/api/stocks/import"
+        payloadKey="items"
+      />
+
       {/* ══ PAGE HEAD ═══════════════════════════════════════════════════ */}
       <div style={{background:surface,borderBottom:`1px solid ${border}`,padding:"12px 22px 8px",display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
         <div>
@@ -257,7 +280,7 @@ export default function Item() {
           <button className="inv-btn" style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
             <FaArrowDown size={11}/> Export
           </button>
-          <button className="inv-btn" style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
+          <button className="inv-btn" onClick={()=>setShowImport(true)} style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
             <FaArrowUp size={11}/> Import
           </button>
           <button className="inv-btn" onClick={()=>navigate("/Items/Items/New")}

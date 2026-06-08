@@ -235,8 +235,8 @@ func GetVendorStats() gin.HandlerFunc {
 		pipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{"orgId": orgID}}},
 			{{Key: "$group", Value: bson.M{
-				"_id":                nil,
-				"totalPayable":       bson.M{"$sum": "$outstandingPayable"},
+				"_id":          nil,
+				"totalPayable": bson.M{"$sum": "$outstandingPayable"},
 			}}},
 		}
 		cursor, _ := vendorCollection.Aggregate(ctx, pipeline)
@@ -360,6 +360,76 @@ func GetVendorTransactions() gin.HandlerFunc {
 				"purchaseOrders": pos,
 				"grns":           grns,
 			},
+		})
+	}
+}
+
+// POST /api/vendors/import — bulk-create vendors from parsed CSV rows.
+// Body: { "vendors": [ { displayName, companyName, email, phone, ... }, ... ] }.
+func ImportVendors() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		var body struct {
+			Vendors []models.Vendor `json:"vendors"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+		if len(body.Vendors) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "No rows to import"})
+			return
+		}
+		if len(body.Vendors) > 5000 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Too many rows — import up to 5000 at a time"})
+			return
+		}
+
+		orgIDStr := fmt.Sprintf("%v", mustGet(c, "orgId"))
+		userIDStr := fmt.Sprintf("%v", mustGet(c, "userId"))
+		imported := 0
+		type rowErr struct {
+			Row     int    `json:"row"`
+			Message string `json:"message"`
+		}
+		errors := []rowErr{}
+
+		for i, v := range body.Vendors {
+			if v.DisplayName == "" {
+				v.DisplayName = v.CompanyName
+			}
+			if v.DisplayName == "" {
+				errors = append(errors, rowErr{Row: i + 1, Message: "missing display name / company name"})
+				continue
+			}
+			now := time.Now()
+			v.ID = primitive.NewObjectID()
+			v.OrgID = orgIDStr
+			v.CreatedBy = userIDStr
+			v.CreatedAt = now
+			v.UpdatedAt = now
+			if v.VendorCode == "" {
+				v.VendorCode = generateVendorCode()
+			}
+			if v.VendorType == "" {
+				v.VendorType = "business"
+			}
+			if v.Status == "" {
+				v.Status = "active"
+			}
+			if _, err := vendorCollection.InsertOne(ctx, v); err != nil {
+				errors = append(errors, rowErr{Row: i + 1, Message: "insert failed"})
+				continue
+			}
+			imported++
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": fmt.Sprintf("Imported %d of %d vendors", imported, len(body.Vendors)),
+			"data":    gin.H{"imported": imported, "failed": len(errors), "errors": errors},
 		})
 	}
 }

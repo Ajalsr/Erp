@@ -23,6 +23,7 @@ func StockRoutes(router *gin.Engine) {
 	{
 		stockRoutes.GET("/getitem", controllers.GetAllStocks())
 		stockRoutes.POST("/additem", controllers.AddItem())
+		stockRoutes.POST("/import", controllers.ImportItems())
 		stockRoutes.GET("/:id/availability", controllers.GetItemStockAvailability())
 		stockRoutes.PATCH("/:id/reduce", controllers.ReduceStock())
 		stockRoutes.PATCH("/:id/increase", controllers.IncreaseStock())
@@ -35,6 +36,7 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("customers"))
 
 	custRoutes.POST("/addcustomers", controllers.AddCustomers())
+	custRoutes.POST("/import", controllers.ImportCustomers())
 	custRoutes.GET("/getcustomers", controllers.GetAllCustomers())
 	custRoutes.GET("/search", controllers.SearchCustomers())
 	custRoutes.GET("/suggestions", controllers.GetCustomerSuggestions())
@@ -215,6 +217,7 @@ func VendorRoutes(router *gin.Engine) {
 	vendorRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("vendors"))
 	{
 		vendorRoutes.POST("/", controllers.CreateVendor())
+		vendorRoutes.POST("/import", controllers.ImportVendors())
 		vendorRoutes.GET("/", controllers.GetAllVendors())
 		vendorRoutes.GET("/stats", controllers.GetVendorStats())
 		vendorRoutes.GET("/search", controllers.SearchVendors())
@@ -322,6 +325,17 @@ func JournalEntryRoutes(router *gin.Engine) {
 	}
 }
 
+func BankReconciliationRoutes(router *gin.Engine) {
+	brRoutes := router.Group("/api/bank-reconciliation")
+	brRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("accounts"))
+	{
+		brRoutes.GET("/transactions", controllers.GetBankTransactions())
+		brRoutes.POST("/toggle", controllers.ToggleBankClearing())
+		brRoutes.POST("/", controllers.CreateBankReconciliation())
+		brRoutes.GET("/", controllers.GetBankReconciliations())
+	}
+}
+
 func AdvancePaymentRoutes(router *gin.Engine) {
 	advRoutes := router.Group("/api/advance-payments")
 	advRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("advance_payments"))
@@ -379,5 +393,8 @@ func ReportsRoutes(router *gin.Engine) {
 	{
 		rptRoutes.GET("/vat", controllers.GetVATReport())
 		rptRoutes.GET("/vendor-aging", controllers.GetVendorAging())
+		rptRoutes.GET("/profit-loss", controllers.GetProfitAndLoss())
+		rptRoutes.GET("/balance-sheet", controllers.GetBalanceSheet())
+		rptRoutes.GET("/cash-flow", controllers.GetCashFlow())
 	}
 }

@@ -55,9 +55,14 @@ const MENU = [
     { name: 'VAT Report',            route: '/Reports/vat',                  mod: 'reports' },
     { name: 'Vendor Aging',          route: '/Reports/vendor-aging',         mod: 'reports' },
   ]},
-  { icon: MdAccountBalance,   label: 'Finance',   mods: ['accounts','journal_entries'], tourKey: 'nav-finance', subItems: [
-    { name: 'Chart of Accounts', route: '/Finance/Accounts',     mod: 'accounts' },
-    { name: 'Trial Balance',     route: '/Reports/trial-balance',mod: 'accounts' },
+  { icon: MdAccountBalance,   label: 'Finance',   mods: ['accounts','journal_entries','reports'], tourKey: 'nav-finance', subItems: [
+    { name: 'Chart of Accounts', route: '/Finance/Accounts',       mod: 'accounts' },
+    { name: 'Journal Entries',   route: '/Finance/JournalEntries', mod: 'journal_entries' },
+    { name: 'Bank Reconciliation', route: '/Finance/BankReconciliation', mod: 'accounts' },
+    { name: 'Trial Balance',     route: '/Reports/trial-balance',  mod: 'accounts' },
+    { name: 'Profit & Loss',     route: '/Reports/profit-loss',  mod: 'reports' },
+    { name: 'Balance Sheet',     route: '/Reports/balance-sheet',mod: 'reports' },
+    { name: 'Cash Flow',         route: '/Reports/cash-flow',    mod: 'reports' },
   ]},
   { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },
 ]

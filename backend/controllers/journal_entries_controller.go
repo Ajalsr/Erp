@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"time"
@@ -54,6 +55,14 @@ func autoJE(orgID, refType, refID, reference, date, description string, lines []
 			continue
 		}
 		acc := getSysAccount(ctx, orgID, l.AccountCode)
+		// Account code not found → posting this line would create an orphan
+		// pointing at the zero ObjectID, silently corrupting the ledger
+		// (unbalanced once aggregated). Abort the whole entry instead.
+		if acc.ID.IsZero() {
+			log.Printf("autoJE: skipped %s entry for org %s — account code %q not found; no journal posted",
+				refType, orgID, l.AccountCode)
+			return
+		}
 		jeLines = append(jeLines, models.JournalLine{
 			AccountID:   acc.ID.Hex(),
 			AccountCode: acc.AccountCode,

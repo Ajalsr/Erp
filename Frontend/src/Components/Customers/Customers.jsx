@@ -5,8 +5,20 @@ import {
   FaEnvelope, FaPhone, FaDownload,
   FaUsers, FaCheckCircle, FaClock, FaCreditCard,
   FaChevronLeft, FaChevronRight, FaBoxOpen, FaEdit,
-  FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaCalendarAlt, FaSync, FaEye
+  FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaCalendarAlt, FaSync, FaEye, FaFileImport
 } from "react-icons/fa";
+import CsvImportModal from "../common/CsvImportModal";
+
+const CUSTOMER_IMPORT_FIELDS = [
+  { key: "customerDisplayName", label: "Display Name", aliases: ["name", "customer name", "display name"], required: false },
+  { key: "companyName",         label: "Company",      aliases: ["company", "company name"] },
+  { key: "customerEmail",       label: "Email",        aliases: ["email", "e-mail"] },
+  { key: "customerPhone",       label: "Phone",        aliases: ["phone", "telephone"] },
+  { key: "mobile",              label: "Mobile",       aliases: ["mobile", "cell"] },
+  { key: "streetAddress",       label: "Address",      aliases: ["address", "street", "street address"] },
+  { key: "city",                label: "City",         aliases: ["city"] },
+  { key: "country",             label: "Country",      aliases: ["country"] },
+];
 import { useNavigate } from "react-router-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
 import useWebSocket from "../../helper/useWebSocket";
@@ -388,6 +400,8 @@ const Customers = () => {
       .catch(() => {});
   }, []);
 
+  const [showImport, setShowImport] = useState(false);
+
   const handleRefresh = useCallback(() => {
     handleGetCustomers();
     loadInvoiceMap();
@@ -481,6 +495,7 @@ const Customers = () => {
           <div style={{ display: "flex", gap: "6px" }}>
             {[
               { label: "Refresh", icon: <FaSync size={11} />,    onClick: handleRefresh },
+              { label: "Import",  icon: <FaFileImport size={11} />, onClick: () => setShowImport(true) },
               { label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport },
             ].map(btn => (
               <button key={btn.label} title={btn.label} onClick={btn.onClick}
@@ -494,6 +509,16 @@ const Customers = () => {
             </button>
           </div>
         </div>
+
+        <CsvImportModal
+          open={showImport}
+          onClose={() => setShowImport(false)}
+          onComplete={handleRefresh}
+          title="Import Customers"
+          fields={CUSTOMER_IMPORT_FIELDS}
+          endpoint="/api/customers/import"
+          payloadKey="customers"
+        />
 
         {/* ── STAT CARDS ── */}
         <div style={{ display: "grid", gridTemplateColumns: selectedItem ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: "12px", marginBottom: "16px" }}>
