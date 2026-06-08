@@ -17,6 +17,7 @@ func OrgRoutes(router *gin.Engine) {
 		orgRoutes.PUT("/:id", controllers.UpdateOrganization())
 		orgRoutes.DELETE("/:id", controllers.DeleteOrganization())
 		orgRoutes.PATCH("/:id/letterhead", controllers.UpdateLetterhead())
+		orgRoutes.PATCH("/:id/stamp", controllers.UpdateStamp())
 		orgRoutes.PATCH("/:id/role-permissions", controllers.UpdateRolePermissions())
 		orgRoutes.PATCH("/:id/roles", controllers.UpdateCustomRoles())
 

@@ -398,6 +398,8 @@ export default function GRN() {
           vendorId:         d.vendorId || '',
           vendorOrigin:     d.vendorOrigin || 'mainland',
           purchaseOrderId:  d.purchaseOrderId || '',
+          shippingCharges:  d.shippingCharges || 0,
+          adjustment:       d.adjustment || 0,
         });
         // Restore per-line extras (rejected qty, quality, batch, expiry) from saved GRN
         const extras = {};
@@ -426,6 +428,30 @@ export default function GRN() {
             .then(r => {
               const b = r.data?.data?.bills?.[0];
               setLinkedBill(b ? { id: b._id || b.id, billNumber: b.billNumber } : null);
+            }).catch(() => {});
+        }
+        // Fallback: old GRNs created before shipping/adjustment inheritance — pull from PO,
+        // prorated by this receipt's goods value ÷ PO subtotal.
+        const hasCharges = (d.shippingCharges || 0) !== 0 || (d.adjustment || 0) !== 0;
+        if (!hasCharges && d.purchaseOrderId) {
+          api.get(`/api/purchase-orders/${d.purchaseOrderId}`)
+            .then(r => {
+              const po = r.data?.data || r.data;
+              if (!po) return;
+              const poShip = parseFloat(po.shippingCharges || 0);
+              const poAdj  = parseFloat(po.adjustment || 0);
+              const poSub  = parseFloat(po.subTotal || 0);
+              if (poShip === 0 && poAdj === 0) return;
+              const recvVal = (d.items || []).reduce((s, i) => {
+                const acc = Math.max(0, (i.receivedQty || 0) - (i.rejectedQty || 0));
+                return s + acc * (i.rate || 0);
+              }, 0);
+              const frac = poSub > 0 ? Math.min(1, recvVal / poSub) : 1;
+              setInboundData(prev => prev ? {
+                ...prev,
+                shippingCharges: round2(poShip * frac),
+                adjustment:      round2(poAdj * frac),
+              } : prev);
             }).catch(() => {});
         }
       })
@@ -490,7 +516,9 @@ export default function GRN() {
   const taxGroups  = buildTaxGroups(itemsAccepted, taxRate); // goods VAT groups
   const goodsTax   = round2(taxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const totalTax   = round2(goodsTax + freightTaxTotal);
-  const grandTotal = round2(subTotal + totalTax);
+  const shipCharge = round2(parseFloat(inboundData?.shippingCharges) || 0);
+  const adjustAmt  = round2(parseFloat(inboundData?.adjustment) || 0);
+  const grandTotal = round2(subTotal + totalTax + shipCharge + adjustAmt);
 
   const isRejected = grnStatus === 'rejected'; // every received unit failed QC → no stock added
 
@@ -545,6 +573,8 @@ export default function GRN() {
           receivedBy:         receivedBy || undefined,
           notes:              grnNote,
           requiresApproval:   inboundData.requiresApproval || false,
+          shippingCharges:    shipCharge,
+          adjustment:         adjustAmt,
           status:             'draft',
           items: items.map((i, idx) => {
             const ex = lineExtras[idx] || {};
@@ -576,6 +606,8 @@ export default function GRN() {
           notes: deliveryNoteNumber ? `Delivery Note: ${deliveryNoteNumber}` : undefined,
           warehouseId:   warehouseId || undefined,
           warehouseName: warehouses.find(w => w._id === warehouseId)?.name || undefined,
+          shippingCharges: shipCharge,
+          adjustment:      adjustAmt,
           items: items.map((i, idx) => {
             const ex = lineExtras[idx] || {};
             return {
@@ -626,9 +658,13 @@ export default function GRN() {
         purchaseOrderId:  inboundData.purchaseOrderId || items[0]?.poId || '',
         vendorId:         inboundData.vendorId || '',
         vendorName:       grn.vendor || '',
+        vendorOrigin:     inboundData.vendorOrigin || '',
         total:            savedGRN?.total || grandTotal,
+        // Header charges — shown in a small box on the bill, NOT as line items
+        shippingCharges:  round2(shipCharge),
+        adjustment:       round2(adjustAmt),
         items: [
-          // Goods lines (accepted qty), at vendor-origin VAT
+          // Goods lines (accepted qty), at vendor-origin VAT — freight kept on the same line
           ...itemsAccepted.map((i) => ({
             description:  i.name,
             qty:          i.receiveQty || 0,
@@ -636,16 +672,9 @@ export default function GRN() {
             taxRate:      Math.round(taxRate * 100),
             discount:     i.discount || 0,
             discountType: i.discountType || 'fixed',
+            freight:      round2(i.freightForReceipt || 0),
+            freightTaxRate: i.frtPct || 0,
           })).filter(i => i.qty > 0),
-          // Freight lines (prorated to received), each at its OWN tax rate
-          ...itemsAccepted.filter(i => (i.freightForReceipt || 0) > 0).map((i) => ({
-            description:  `Freight — ${i.name}`,
-            qty:          1,
-            unitPrice:    round2(i.freightForReceipt),
-            taxRate:      i.frtPct || 0,
-            discount:     0,
-            discountType: 'fixed',
-          })),
         ],
       },
     });
@@ -1090,6 +1119,23 @@ export default function GRN() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontSize: 11.5, color: T.textSec }}>Freight VAT</span>
                           <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>{fmtAED(freightTaxTotal)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {(shipCharge !== 0 || adjustAmt !== 0) && (
+                    <div style={{ padding: '10px 0', borderBottom: `1px solid ${T.border}` }}>
+                      {shipCharge !== 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: adjustAmt !== 0 ? 6 : 0 }}>
+                          <span style={{ fontSize: 11.5, color: T.textSec }}>🚚 Shipping Charges</span>
+                          <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: T.textPri }}>{fmtAED(shipCharge)}</span>
+                        </div>
+                      )}
+                      {adjustAmt !== 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 11.5, color: T.textSec }}>± Adjustment</span>
+                          <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: adjustAmt < 0 ? '#ef4444' : T.textPri }}>{adjustAmt < 0 ? '−' : '+'}{fmtAED(Math.abs(adjustAmt))}</span>
                         </div>
                       )}
                     </div>

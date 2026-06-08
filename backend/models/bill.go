@@ -14,16 +14,20 @@ type BillLineItem struct {
 	TaxRate     float64            `json:"taxRate"       bson:"taxRate"`
 	Discount    float64            `json:"discount"      bson:"discount"`
 	DiscountAmt float64            `json:"discountAmt"   bson:"discountAmt"`
+	Freight        float64         `json:"freight"        bson:"freight"`
+	FreightTaxRate float64         `json:"freightTaxRate" bson:"freightTaxRate"`
 	TaxAmt      float64            `json:"taxAmt"        bson:"taxAmt"`
 	Subtotal    float64            `json:"subtotal"      bson:"subtotal"`
 	Total       float64            `json:"total"         bson:"total"`
 }
 
 type BillTotals struct {
-	Subtotal      float64 `json:"subtotal"      bson:"subtotal"`
-	DiscountTotal float64 `json:"discountTotal" bson:"discountTotal"`
-	TaxTotal      float64 `json:"taxTotal"      bson:"taxTotal"`
-	GrandTotal    float64 `json:"grandTotal"    bson:"grandTotal"`
+	Subtotal      float64 `json:"subtotal"        bson:"subtotal"`
+	DiscountTotal float64 `json:"discountTotal"   bson:"discountTotal"`
+	TaxTotal      float64 `json:"taxTotal"        bson:"taxTotal"`
+	Shipping      float64 `json:"shipping"        bson:"shipping"`
+	Adjustment    float64 `json:"adjustment"      bson:"adjustment"`
+	GrandTotal    float64 `json:"grandTotal"      bson:"grandTotal"`
 }
 
 type Bill struct {

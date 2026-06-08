@@ -449,6 +449,8 @@ export default function Bills() {
       <div class="tot"><table>
         <tr><td>Subtotal</td><td style="text-align:right">${fmtAED(b.totals?.subtotal)}</td></tr>
         <tr><td>VAT</td><td style="text-align:right">${fmtAED(b.totals?.taxTotal)}</td></tr>
+        ${(b.totals?.shipping || 0) !== 0 ? `<tr><td>Shipping Charges</td><td style="text-align:right">${fmtAED(b.totals.shipping)}</td></tr>` : ""}
+        ${(b.totals?.adjustment || 0) !== 0 ? `<tr><td>Adjustment</td><td style="text-align:right">${fmtAED(b.totals.adjustment)}</td></tr>` : ""}
         <tr><td><strong>Grand Total</strong></td><td style="text-align:right"><strong>${fmtAED(b.totals?.grandTotal)}</strong></td></tr>
         <tr><td>Paid</td><td style="text-align:right">${fmtAED(b.amountPaid)}</td></tr>
         <tr><td><strong>Balance Due</strong></td><td style="text-align:right"><strong>${fmtAED(b.balanceDue)}</strong></td></tr>
@@ -664,6 +666,12 @@ export default function Bills() {
                     <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
                       <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: T.blueLight }}>{b.billNumber}</span>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 999, background: sc.bg, color: sc.color }}>{sc.label}</span>
+                      {b.threeWayMatchStatus === "mismatch" && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "rgba(245,158,11,0.12)", color: "#d97706", border: "1px solid rgba(245,158,11,0.3)" }}>⚠ 3-Way Mismatch</span>
+                      )}
+                      {b.threeWayMatchStatus === "matched" && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "rgba(16,185,129,0.12)", color: "#059669", border: "1px solid rgba(16,185,129,0.25)" }}>✓ 3-Way Matched</span>
+                      )}
                     </div>
                     <p style={{ fontFamily: "Sora, sans-serif", fontSize: 15, fontWeight: 800, color: T.textPri, margin: 0 }}>{b.vendorName || "—"}</p>
                   </div>
@@ -771,6 +779,8 @@ export default function Bills() {
                       ] : []),
                       { label: "Subtotal (excl. VAT)", value: fmtAED(b.totals?.subtotal) },
                       { label: "VAT",                  value: fmtAED(b.totals?.taxTotal) },
+                      ...((b.totals?.shipping || 0) !== 0 ? [{ label: "🚚 Shipping Charges", value: fmtAED(b.totals?.shipping) }] : []),
+                      ...((b.totals?.adjustment || 0) !== 0 ? [{ label: "± Adjustment", value: `${(b.totals?.adjustment || 0) < 0 ? "−" : "+"}${fmtAED(Math.abs(b.totals?.adjustment || 0))}` }] : []),
                       { label: "Grand Total",          value: fmtAED(b.totals?.grandTotal), bold: true },
                       { label: "Amount Paid",          value: fmtAED(b.amountPaid), green: true },
                       { label: "Balance Due",          value: fmtAED(b.balanceDue), red: (b.balanceDue || 0) > 0 },

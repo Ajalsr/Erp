@@ -47,6 +47,8 @@ type GRN struct {
 	RequiresApproval   bool               `json:"requiresApproval"       bson:"requiresApproval"`
 	SubTotal           float64            `json:"subTotal"               bson:"subTotal"`
 	TotalTax           float64            `json:"totalTax"               bson:"totalTax"`
+	ShippingCharges    float64            `json:"shippingCharges"        bson:"shippingCharges"`
+	Adjustment         float64            `json:"adjustment"             bson:"adjustment"`
 	Total              float64            `json:"total"                  bson:"total"`
 	Status             string             `json:"status"                 bson:"status"` // draft | confirmed | rejected | billed
 	HasRejections      bool               `json:"hasRejections"          bson:"hasRejections"` // any line failed QC (partial accept)
