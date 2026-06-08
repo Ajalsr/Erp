@@ -153,6 +153,8 @@ export default function DeliveryNote() {
   const [loading,          setLoading]          = useState(true);
   const [notFound,         setNotFound]         = useState(false);
   const [letterhead,       setLetterhead]       = useState('');
+  const [orgName,          setOrgName]          = useState('');
+  const [stamp,            setStamp]            = useState('');
   const [letterheadTopPct, setLetterheadTopPct] = useState(13);
   const [letterheadBotPct, setLetterheadBotPct] = useState(8);
   const [topPadPx,         setTopPadPx]         = useState(0);
@@ -184,6 +186,8 @@ export default function DeliveryNote() {
         setLetterhead(d.letterheadImage || '');
         setLetterheadTopPct(d.letterheadTopPad || 13);
         setLetterheadBotPct(d.letterheadBottomPad || 8);
+        setOrgName(d.name || d.companyName || '');
+        setStamp(d.stampImage || '');
       })
       .catch(() => {});
   }, [activeOrg]);
@@ -298,6 +302,7 @@ export default function DeliveryNote() {
     { label: 'Delivery Dt',       value: note.date || today(),          mono: false },
     { label: 'Cust PO No',        value: note.custPoNo        || '—',   mono: true  },
     { label: 'Cust PO Dt',        value: note.custPoDate      || '—',   mono: false },
+    ...((note.salesDivision || orgName) ? [{ label: 'Sales Divn', value: note.salesDivision || orgName, mono: false }] : []),
     { label: 'Sales Emp',         value: note.salesperson     || '—',   mono: false },
     { label: 'Sale Order Ref.',   value: note.orderNumber     || '—',   mono: true  },
     { label: 'Delivery Location', value: note.deliveryLocation || '—',  mono: false },
@@ -457,7 +462,13 @@ export default function DeliveryNote() {
               ))}
             </div>
           </div>
-          <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 24, position: 'relative' }}>
+            {/* Company stamp overlay — like a physical seal */}
+            {stamp && (
+              <img src={stamp} alt="Company stamp"
+                style={{ position: 'absolute', right: 24, top: 8, width: 110, height: 110, objectFit: 'contain', opacity: 0.9, pointerEvents: 'none',
+                  WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact', transform: 'rotate(-8deg)' }} />
+            )}
             <div>
               <p style={{ fontSize: 10, fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>DO Prepared By</p>
               <SignaturePad storageKey={`dn_sig_prepared_${note._id}`} />

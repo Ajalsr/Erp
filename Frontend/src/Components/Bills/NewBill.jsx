@@ -5,6 +5,20 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
 
+// Normalise vendor origin variants → canonical form for RCM logic
+const normOrigin = (o) => {
+  const s = String(o || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (s.includes('free')) return 'free_zone';
+  if (s === 'overseas')   return 'overseas';
+  return 'mainland';
+};
+const rcmForOrigin = (o) => {
+  const n = normOrigin(o);
+  if (n === 'overseas')  return { rcm: true, type: 'import' };
+  if (n === 'free_zone') return { rcm: true, type: 'designated_zone' };
+  return { rcm: false, type: '' };
+};
+
 // ── Custom dropdown — replaces native <select> ───────────────────────────────
 function CustomSelect({ value, onChange, options, placeholder = 'Select…', T, isDark, style = {} }) {
   const [open, setOpen] = useState(false);
@@ -48,7 +62,7 @@ const RCM_TYPES     = [
   { value: 'domestic_rcm',    label: 'Domestic RCM' },
 ];
 
-const emptyLine = () => ({ description: '', qty: 1, unitPrice: '', taxRate: 5, discount: 0, discountType: 'fixed', gross: 0, discAmt: 0, subtotal: 0, taxAmt: 0, total: 0 });
+const emptyLine = () => ({ description: '', qty: 1, unitPrice: '', taxRate: 5, discount: 0, discountType: 'fixed', freight: 0, freightTaxRate: 0, gross: 0, discAmt: 0, subtotal: 0, taxAmt: 0, total: 0 });
 
 function calcLine(line) {
   const qty   = parseFloat(line.qty)       || 0;
@@ -58,9 +72,13 @@ function calcLine(line) {
   const discAmt = line.discountType === 'percentage'
     ? round2(gross * disc / 100)
     : round2(disc);
-  const subtotal = round2(Math.max(0, gross - discAmt));
+  // Allow negative lines (e.g. adjustment); only clamp discount over-reach on positive lines
+  const subtotal = round2(gross >= 0 ? Math.max(0, gross - discAmt) : gross - discAmt);
   const taxAmt   = round2(subtotal * (parseFloat(line.taxRate) / 100 || 0));
-  return { ...line, gross, discAmt, subtotal, taxAmt, total: round2(subtotal + taxAmt) };
+  // Per-line freight, taxed at its own rate
+  const freight    = round2(parseFloat(line.freight) || 0);
+  const freightTax = round2(freight * (parseFloat(line.freightTaxRate) / 100 || 0));
+  return { ...line, gross, discAmt, subtotal, taxAmt, freight, freightTax, total: round2(subtotal + taxAmt + freight + freightTax) };
 }
 
 export default function NewBill() {
@@ -93,14 +111,37 @@ export default function NewBill() {
   const [grnNumber,        setGrnNumber]        = useState(pre.grnNumber       || '');
   const [grnId,            setGrnId]            = useState(pre.grnId           || '');
   const [notes,          setNotes]          = useState('');
+  const [shippingCharge, setShippingCharge] = useState(pre.shippingCharges != null ? String(pre.shippingCharges) : '');
+  const [adjustment,     setAdjustment]     = useState(pre.adjustment      != null ? String(pre.adjustment)      : '');
   const [lines, setLines] = useState(() => {
     if (pre.items?.length) return pre.items.map(calcLine);
     return [emptyLine()];
   });
 
+  // 3-way match reference — snapshot of GRN-received qty + total at creation time
+  const fromGRN = !!pre.fromGRN;
+  const refQtyTotal   = round2((pre.items || []).reduce((s, i) => s + (parseFloat(i.qty) || 0), 0));
+  const refGrandTotal = round2(parseFloat(pre.total) || 0);
+
   // Vendor search
   const [vendorSearch,  setVendorSearch]  = useState(pre.vendorName || '');
   const [vendorResults, setVendorResults] = useState([]);
+
+  // Auto-set RCM for pre-filled vendor (GRN/new flow, not edit — edit keeps stored RCM)
+  useEffect(() => {
+    if (isEdit || !pre.vendorId) return;
+    if (pre.vendorOrigin) {
+      const r = rcmForOrigin(pre.vendorOrigin);
+      setRcmApplicable(r.rcm); setRcmType(r.type);
+      return;
+    }
+    axiosInstance.get(`/api/vendors/${pre.vendorId}`).then(res => {
+      const v = res.data?.data || res.data || {};
+      const r = rcmForOrigin(v.origin);
+      setRcmApplicable(r.rcm); setRcmType(r.type);
+      if (!vendorTrn && v.trn) setVendorTrn(v.trn);
+    }).catch(() => {});
+  }, []); // eslint-disable-line
 
   useEffect(() => {
     if (!vendorSearch.trim() || vendorId) { setVendorResults([]); return; }
@@ -136,6 +177,8 @@ export default function NewBill() {
       setGrnNumber(b.grnNumber || '');
       setGrnId(b.grnId || '');
       setNotes(b.notes || '');
+      setShippingCharge(b.totals?.shipping   != null ? String(b.totals.shipping)   : '');
+      setAdjustment(b.totals?.adjustment != null ? String(b.totals.adjustment) : '');
       if (b.lineItems?.length) {
         setLines(b.lineItems.map(li => calcLine({
           description:  li.description || '',
@@ -144,6 +187,8 @@ export default function NewBill() {
           taxRate:      li.taxRate ?? 0,
           discount:     li.discount || 0,
           discountType: li.discountType || 'fixed',
+          freight:      li.freight || 0,
+          freightTaxRate: li.freightTaxRate || 0,
         })));
       }
       setLoadedEdit(true);
@@ -172,15 +217,27 @@ export default function NewBill() {
 
   const grossTotal    = round2(lines.reduce((s, l) => s + (l.gross   || 0), 0));
   const discountTotal = round2(lines.reduce((s, l) => s + (l.discAmt || 0), 0));
-  const subtotal      = round2(lines.reduce((s, l) => s + (l.subtotal || 0), 0));
-  const taxTotal      = round2(lines.reduce((s, l) => s + (l.taxAmt  || 0), 0));
-  const grandTotal    = round2(subtotal + taxTotal);
+  const freightTotal  = round2(lines.reduce((s, l) => s + (l.freight || 0), 0));
+  const freightTaxTot = round2(lines.reduce((s, l) => s + (l.freightTax || 0), 0));
+  const subtotal      = round2(lines.reduce((s, l) => s + (l.subtotal || 0), 0) + freightTotal);
+  const taxTotal      = round2(lines.reduce((s, l) => s + (l.taxAmt  || 0), 0) + freightTaxTot);
+  const shipAmt       = round2(parseFloat(shippingCharge) || 0);
+  const adjAmt        = round2(parseFloat(adjustment) || 0);
+  const grandTotal    = round2(subtotal + taxTotal + shipAmt + adjAmt);
+
+  // 3-way match: compare current bill vs GRN reference (qty + value)
+  const curQtyTotal   = round2(lines.reduce((s, l) => s + (parseFloat(l.qty) || 0), 0));
+  const qtyOver       = fromGRN && curQtyTotal > refQtyTotal + 0.001;
+  const TOLERANCE     = 0.01; // 1% price tolerance, SAP-style
+  const priceVariance = fromGRN && refGrandTotal > 0 && Math.abs(grandTotal - refGrandTotal) > refGrandTotal * TOLERANCE;
+  const matchStatus   = (qtyOver || priceVariance) ? 'mismatch' : 'matched';
 
   const handleSubmit = async () => {
     if (!vendorId) { nexusToast.error('Vendor is required'); return; }
     if (!lines.some((l) => l.description && parseFloat(l.qty) > 0)) {
       nexusToast.error('Add at least one line item'); return;
     }
+    // 3-way match is warn-only — banner already surfaces the variance; status stored on the bill.
     setSaving(true);
     try {
       const payload = {
@@ -210,11 +267,14 @@ export default function NewBill() {
           discount:     parseFloat(l.discount)  || 0,
           discountType: l.discountType || 'fixed',
           discountAmt:  l.discAmt || 0,
+          freight:        l.freight || 0,
+          freightTaxRate: parseFloat(l.freightTaxRate) || 0,
           taxAmt:       l.taxAmt,
           subtotal:     l.subtotal,
           total:        l.total,
         })),
-        totals: { grossTotal, discountTotal, subtotal, taxTotal, grandTotal },
+        totals: { grossTotal, discountTotal, subtotal, taxTotal, shipping: shipAmt, adjustment: adjAmt, grandTotal },
+        threeWayMatchStatus: fromGRN ? matchStatus : 'na',
       };
       if (isEdit) {
         await axiosInstance.put(`/api/bills/${id}`, payload);
@@ -261,6 +321,25 @@ export default function NewBill() {
           </div>
         </div>
 
+        {/* 3-way match banner */}
+        {fromGRN && (
+          <div style={{ ...sec, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10,
+            background: matchStatus === 'mismatch' ? (isDark ? 'rgba(245,158,11,.08)' : '#fffbeb') : (isDark ? 'rgba(16,185,129,.08)' : '#f0fdf4'),
+            borderColor: matchStatus === 'mismatch' ? (isDark ? 'rgba(245,158,11,.3)' : '#fde68a') : (isDark ? 'rgba(16,185,129,.3)' : '#bbf7d0') }}>
+            <span style={{ fontSize: 16 }}>{matchStatus === 'mismatch' ? '⚠️' : '✅'}</span>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: matchStatus === 'mismatch' ? '#d97706' : '#059669', margin: 0 }}>
+                3-Way Match: {matchStatus === 'mismatch' ? 'Mismatch vs GRN' : 'Matched'}
+              </p>
+              <p style={{ fontSize: 11, color: T.textSec, margin: '2px 0 0' }}>
+                {qtyOver       && <span>Billed qty {curQtyTotal} &gt; received {refQtyTotal}. </span>}
+                {priceVariance && <span>Bill total {grandTotal.toFixed(2)} vs GRN {refGrandTotal.toFixed(2)}. </span>}
+                {matchStatus === 'matched' && <span>Qty {curQtyTotal} = received {refQtyTotal}, total within tolerance.</span>}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Vendor + header */}
         <div style={sec}>
           <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 700, color: T.textPri, margin: '0 0 16px' }}>Bill Details</p>
@@ -278,13 +357,9 @@ export default function NewBill() {
                       setVendorSearch(v.displayName || v.companyName || '');
                       setVendorTrn(v.trn || '');
                       setVendorResults([]);
-                      if (v.origin === 'free_zone' || v.origin === 'overseas') {
-                        setRcmApplicable(true);
-                        setRcmType(v.origin === 'overseas' ? 'import' : 'designated_zone');
-                      } else {
-                        setRcmApplicable(false);
-                        setRcmType('');
-                      }
+                      const r = rcmForOrigin(v.origin);
+                      setRcmApplicable(r.rcm);
+                      setRcmType(r.type);
                     }}
                       style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}` }}
                       onMouseEnter={(e) => e.currentTarget.style.background = T.surface2}
@@ -420,6 +495,11 @@ export default function NewBill() {
                           AED {(line.gross || 0).toFixed(2)}
                         </p>
                       )}
+                      {(line.freight || 0) > 0 && (
+                        <p style={{ fontSize: 10, color: '#f59e0b', margin: '2px 0 0', fontFamily: "'DM Mono',monospace" }}>
+                          🚚 frt AED {(line.freight || 0).toFixed(2)}{line.freightTaxRate > 0 ? ` +${line.freightTaxRate}%` : ''}
+                        </p>
+                      )}
                     </td>
                     {/* Delete */}
                     <td style={{ padding: '8px 6px', textAlign: 'center' }}>
@@ -457,9 +537,28 @@ export default function NewBill() {
             <span style={{ fontSize: 13, color: T.textSec }}>Subtotal (excl. VAT)</span>
             <span style={{ fontSize: 13, fontWeight: 600, color: T.textPri, fontFamily: "'DM Mono', monospace" }}>AED {subtotal.toFixed(2)}</span>
           </div>
+          {freightTotal > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
+              <span style={{ fontSize: 13, color: '#f59e0b' }}>🚚 Freight (incl. in subtotal)</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.textPri, fontFamily: "'DM Mono', monospace" }}>AED {freightTotal.toFixed(2)}</span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontSize: 13, color: T.textSec }}>VAT (5%)</span>
+            <span style={{ fontSize: 13, color: T.textSec }}>VAT</span>
             <span style={{ fontSize: 13, fontWeight: 600, color: T.textPri, fontFamily: "'DM Mono', monospace" }}>AED {taxTotal.toFixed(2)}</span>
+          </div>
+          {/* Shipping + Adjustment — editable header charges */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
+            <span style={{ fontSize: 13, color: T.textSec }}>🚚 Shipping Charges</span>
+            <input type="number" min="0" step="any" value={shippingCharge} onChange={(e) => setShippingCharge(e.target.value)}
+              placeholder="0.00"
+              style={{ width: 110, padding: '5px 8px', border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 13, background: T.surface2, color: T.textPri, fontFamily: "'DM Mono', monospace", outline: 'none', textAlign: 'right' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
+            <span style={{ fontSize: 13, color: T.textSec }}>± Adjustment</span>
+            <input type="number" step="any" value={adjustment} onChange={(e) => setAdjustment(e.target.value)}
+              placeholder="0.00"
+              style={{ width: 110, padding: '5px 8px', border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 13, background: T.surface2, color: T.textPri, fontFamily: "'DM Mono', monospace", outline: 'none', textAlign: 'right' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', marginTop: 4 }}>
             <span style={{ fontSize: 15, fontWeight: 800, color: T.textPri }}>Grand Total</span>

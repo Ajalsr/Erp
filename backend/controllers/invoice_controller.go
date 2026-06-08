@@ -27,6 +27,75 @@ func generatePublicToken() string {
 
 var invoiceCollection *mongo.Collection = config.GetCollection(config.DB, "invoices")
 
+// resolveAccountCode turns a stored account reference (Mongo _id OR raw code) into its accountCode.
+// Returns "" if empty or not found.
+func resolveAccountCode(ctx context.Context, orgID, ref string) string {
+	if ref == "" {
+		return ""
+	}
+	accountsCol := config.GetCollection(config.DB, "accounts")
+	// Try as ObjectID first (dropdown stores _id)
+	if oid, err := primitive.ObjectIDFromHex(ref); err == nil {
+		var a models.Account
+		if accountsCol.FindOne(ctx, bson.M{"_id": oid, "orgId": orgID}).Decode(&a) == nil && a.AccountCode != "" {
+			return a.AccountCode
+		}
+	}
+	// Fallback: maybe it's already an account code
+	var a models.Account
+	if accountsCol.FindOne(ctx, bson.M{"accountCode": ref, "orgId": orgID}).Decode(&a) == nil {
+		return a.AccountCode
+	}
+	return ""
+}
+
+// buildInvoiceJELines posts revenue to each line item's own sales account (falling back
+// to the default Sales Revenue 4000). Keeps DR (AR) = CR (revenue + VAT) balanced.
+func buildInvoiceJELines(inv models.Invoice) []jeLineInput {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	// Group net revenue by account code
+	revByAcct := map[string]float64{}
+	for _, li := range inv.LineItems {
+		net := li.Subtotal
+		if net == 0 {
+			net = li.Qty*li.UnitPrice - li.DiscAmt
+		}
+		if net == 0 {
+			continue
+		}
+		acct := "4000" // default Sales Revenue
+		if li.StockID != "" {
+			if itemObjID, e := primitive.ObjectIDFromHex(li.StockID); e == nil {
+				var stock models.Stock
+				if stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": inv.OrgID}).Decode(&stock) == nil {
+					if code := resolveAccountCode(ctx, inv.OrgID, stock.SalesAccount); code != "" {
+						acct = code
+					}
+				}
+			}
+		}
+		revByAcct[acct] += net
+	}
+
+	lines := []jeLineInput{
+		{AccountCode: "1100", Debit: inv.Totals.GrandTotal}, // DR Accounts Receivable
+	}
+	revTotal := 0.0
+	for acct, amt := range revByAcct {
+		lines = append(lines, jeLineInput{AccountCode: acct, Credit: round2(amt)})
+		revTotal += amt
+	}
+	// Safety: if rounding leaves a gap vs (GrandTotal - Tax), drop it into default revenue
+	expectedRev := inv.Totals.GrandTotal - inv.Totals.TaxTotal
+	if diff := round2(expectedRev - revTotal); diff != 0 {
+		lines = append(lines, jeLineInput{AccountCode: "4000", Credit: diff})
+	}
+	lines = append(lines, jeLineInput{AccountCode: "2100", Credit: inv.Totals.TaxTotal}) // CR VAT Payable
+	return lines
+}
+
 // pushInvoiceHistory appends a history entry to the invoice document.
 func pushInvoiceHistory(ctx context.Context, id primitive.ObjectID, action, user, note string) {
 	invoiceCollection.UpdateOne(ctx,
@@ -142,15 +211,11 @@ func CreateInvoice() gin.HandlerFunc {
 			return
 		}
 
-		// Journal entry: DR Accounts Receivable / CR Sales Revenue + CR VAT Payable
+		// Journal entry: DR Accounts Receivable / CR Sales Revenue (per item's sales account) + CR VAT Payable
 		if inv.Status != "draft" && inv.Totals.GrandTotal > 0 {
+			lines := buildInvoiceJELines(inv)
 			go autoJE(inv.OrgID, "invoice", inv.ID.Hex(), inv.InvoiceNumber, inv.IssueDate,
-				"Invoice raised - "+inv.InvoiceNumber,
-				[]jeLineInput{
-					{AccountCode: "1100", Debit: inv.Totals.GrandTotal},
-					{AccountCode: "4000", Credit: inv.Totals.Subtotal - inv.Totals.DiscountTotal},
-					{AccountCode: "2100", Credit: inv.Totals.TaxTotal},
-				})
+				"Invoice raised - "+inv.InvoiceNumber, lines)
 		}
 
 		// Direct invoice (no linked Delivery Note) reduces stock itself.

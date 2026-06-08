@@ -23,6 +23,23 @@ const SM = {
 const fmtAED = (n) =>
   `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Fallback total for old GRNs missing a stored `total`: sum line totals,
+// else accepted-qty × rate, plus any stored header shipping/adjustment.
+const grnDisplayTotal = (g) => {
+  if (g.total) return g.total;
+  const items = g.items || [];
+  let sum = items.reduce((s, i) => {
+    if (i.lineTotal) return s + i.lineTotal;
+    const acc = Math.max(0, (i.receivedQty || 0) - (i.rejectedQty || 0));
+    const base = acc * (i.rate || 0);
+    const tax  = (i.taxAmount != null) ? i.taxAmount : 0;
+    const frt  = (i.freight || 0) + (i.freightTaxAmount || 0);
+    return s + base + tax + frt;
+  }, 0);
+  sum += (g.shippingCharges || 0) + (g.adjustment || 0);
+  return sum;
+};
+
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
@@ -211,7 +228,7 @@ export default function GRNList() {
                       <span style={{ fontSize: 13, fontWeight: 700, color: text }}>{(g.items || []).length}</span>
                     </td>
                     <td style={{ padding: "13px 16px", textAlign: "center" }}>
-                      <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: text }}>{g.total ? fmtAED(g.total) : "—"}</span>
+                      <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: text }}>{(() => { const t = grnDisplayTotal(g); return t > 0 ? fmtAED(t) : "—"; })()}</span>
                     </td>
                     <td style={{ padding: "13px 16px", textAlign: "center" }}>
                       <span style={{ padding: "3px 11px", borderRadius: 20, fontSize: 11, fontWeight: 700, color: s.color, background: s.dim, whiteSpace: "nowrap" }}>

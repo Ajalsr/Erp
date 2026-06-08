@@ -27,6 +27,7 @@ import CreateOrganization from "./Components/Organization/CreateOrganization"
 import OrganizationSettings from "./Components/Organization/OrganizationSettings"
 import AcceptInvitation from "./Components/Organization/AcceptInvitation"
 import Invoices from "./Components/Invoices/Invoices"
+import InvoicePrint from "./Components/Invoices/InvoicePrint"
 import Createinvoices from "./Components/Createinvoices/Createinvoices"
 import PaymentsReceived from "./Components/PaymentsReceived/PaymentsReceived"
 import AdvancePayments from "./Components/AdvancePayments/AdvancePayments"
@@ -123,6 +124,7 @@ function App() {
             <Route path="/Inventory/batch-expiry"   element={<BatchExpiry />} />
             <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
             <Route path="/Sales/Invoices" element={<Invoices />} />
+            <Route path="/Sales/Invoices/:id/print" element={<InvoicePrint />} />
             <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
             <Route path="/Sales/PaymentsReceived" element={<PaymentsReceived />} />
             <Route path="/Sales/AdvancePayments"   element={<AdvancePayments />} />

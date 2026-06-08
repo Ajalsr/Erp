@@ -196,7 +196,10 @@ func GetUserOrganizations() gin.HandlerFunc {
 		defer cursor.Close(ctx)
 
 		var members []models.OrgMember
-		cursor.All(ctx, &members)
+		if err := cursor.All(ctx, &members); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
+			return
+		}
 
 		if len(members) == 0 {
 			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": []interface{}{}})
@@ -218,7 +221,10 @@ func GetUserOrganizations() gin.HandlerFunc {
 		defer orgCursor.Close(ctx)
 
 		var orgs []models.Organization
-		orgCursor.All(ctx, &orgs)
+		if err := orgCursor.All(ctx, &orgs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
+			return
+		}
 
 		type OrgWithRole struct {
 			models.Organization
@@ -265,6 +271,7 @@ func GetOrganization() gin.HandlerFunc {
 			"letterheadImage":     org.LetterheadImage,
 			"letterheadTopPad":    org.LetterheadTopPad,
 			"letterheadBottomPad": org.LetterheadBottomPad,
+			"stampImage":          org.StampImage,
 			"rolePermissions":     org.RolePermissions,
 			"customRoles":         effectiveCustomRoles(org),
 			"createdBy":           org.CreatedBy,
@@ -822,6 +829,46 @@ func UpdateLetterhead() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Letterhead updated"})
+	}
+}
+
+// PATCH /api/organizations/:id/stamp
+func UpdateStamp() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		userID, _ := c.Get("userId")
+		orgID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid org ID"})
+			return
+		}
+
+		role, isMember := getMemberRole(ctx, orgID, userID.(string))
+		if !isMember || !isAdminOrOwner(role) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admins and owners can update the stamp"})
+			return
+		}
+
+		var input struct {
+			StampImage string `json:"stampImage"`
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
+			return
+		}
+
+		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
+			"stampImage": input.StampImage,
+			"updatedAt":  time.Now(),
+		}})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update stamp"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Stamp updated"})
 	}
 }
 

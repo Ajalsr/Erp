@@ -70,7 +70,8 @@ func CreateBill() gin.HandlerFunc {
 			go autoJE(b.OrgID, "bill", b.ID.Hex(), b.BillNumber, b.BillDate,
 				"Bill received - "+b.BillNumber,
 				[]jeLineInput{
-					{AccountCode: "5000", Debit: b.Totals.Subtotal - b.Totals.DiscountTotal},
+					// COGS = everything except recoverable VAT (goods + freight + shipping + adjustment)
+					{AccountCode: "5000", Debit: b.Totals.GrandTotal - b.Totals.TaxTotal},
 					{AccountCode: "5500", Debit: b.Totals.TaxTotal},
 					{AccountCode: "2000", Credit: b.Totals.GrandTotal},
 				})
