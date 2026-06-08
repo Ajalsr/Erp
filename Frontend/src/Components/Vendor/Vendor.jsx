@@ -8,8 +8,22 @@ import {
   FaSortAmountDown, FaSortAmountUp, FaExternalLinkAlt, FaSync,
   FaGlobe, FaTag, FaTruck, FaIdCard, FaBoxOpen,
 } from "react-icons/fa";
+import { FaFileImport } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import CsvImportModal from "../common/CsvImportModal";
+
+const VENDOR_IMPORT_FIELDS = [
+  { key: "displayName",   label: "Display Name", aliases: ["name", "vendor name", "display name"], required: false },
+  { key: "companyName",   label: "Company",      aliases: ["company", "company name"] },
+  { key: "email",         label: "Email",        aliases: ["email", "e-mail"] },
+  { key: "phone",         label: "Phone",        aliases: ["phone", "telephone"] },
+  { key: "mobile",        label: "Mobile",       aliases: ["mobile", "cell"] },
+  { key: "trn",           label: "TRN",          aliases: ["trn", "tax registration"] },
+  { key: "streetAddress", label: "Address",      aliases: ["address", "street"] },
+  { key: "city",          label: "City",         aliases: ["city"] },
+  { key: "country",       label: "Country",      aliases: ["country"] },
+];
 import debounce from "lodash/debounce";
 import axiosInstance from "../../helper/axiosInstance";
 
@@ -177,6 +191,7 @@ const Vendors = () => {
   const [searchTerm,        setSearchTerm]        = useState("");
   const [isSearchFocused,   setIsSearchFocused]   = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
+  const [showImport, setShowImport] = useState(false);
   const [selectedStatus,    setSelectedStatus]    = useState("all");
   const [sortBy,            setSortBy]            = useState("name");
   const [sortOrder,         setSortOrder]         = useState("asc");
@@ -358,6 +373,7 @@ const Vendors = () => {
             <div style={{ display: "flex", gap: "6px" }}>
               {[
                 { label: "Refresh", icon: <FaSync size={11} />,    onClick: loadVendors },
+                { label: "Import",  icon: <FaFileImport size={11} />, onClick: () => setShowImport(true) },
                 { label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport },
               ].map(btn => (
                 <button key={btn.label} title={btn.label} onClick={btn.onClick}
@@ -371,6 +387,16 @@ const Vendors = () => {
               </button>
             </div>
           </div>
+
+          <CsvImportModal
+            open={showImport}
+            onClose={() => setShowImport(false)}
+            onComplete={loadVendors}
+            title="Import Vendors"
+            fields={VENDOR_IMPORT_FIELDS}
+            endpoint="/api/vendors/import"
+            payloadKey="vendors"
+          />
 
           {/* Stat cards */}
           <div style={{ display: "grid", gridTemplateColumns: selectedItem ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: "12px", marginBottom: "16px" }}>

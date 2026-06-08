@@ -23,7 +23,7 @@ const Login = () => {
       setInputs({ userId: '', password: '' })
       // If an invite (or any page) redirected here, go back there after login
       const redirectTo = searchParams.get('redirect')
-      setTimeout(() => navigate(redirectTo ? decodeURIComponent(redirectTo) : '/Home'), 1200)
+      navigate(redirectTo ? decodeURIComponent(redirectTo) : '/Home')
     } catch (error) {
       toast.error(error?.error || 'Sign in failed')
     } finally {

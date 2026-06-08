@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/utils"
 	"github.com/backend/ws"
 
 	"github.com/gin-gonic/gin"
@@ -1217,6 +1219,106 @@ func GetCustomerStatement() gin.HandlerFunc {
 				"closingBalance": balance,
 				"lines":          lines,
 			},
+		})
+	}
+}
+
+// POST /api/customers/import — bulk-create customers from parsed CSV rows.
+// Body: { "customers": [ { customerDisplayName, companyName, customerEmail, ... }, ... ] }.
+// Each row reuses the same validation/defaults as AddCustomers; codes are
+// generated sequentially. Returns per-row results so the UI can show which
+// rows failed without aborting the whole import.
+func ImportCustomers() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		var body struct {
+			Customers []models.Customer `json:"customers"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+		if len(body.Customers) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "No rows to import"})
+			return
+		}
+		if len(body.Customers) > 5000 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Too many rows — import up to 5000 at a time"})
+			return
+		}
+
+		orgIDStr := fmt.Sprintf("%v", mustGet(c, "orgId"))
+		userIDStr := fmt.Sprintf("%v", mustGet(c, "userId"))
+
+		imported := 0
+		type rowErr struct {
+			Row     int    `json:"row"`
+			Message string `json:"message"`
+		}
+		errors := []rowErr{}
+
+		for i, cust := range body.Customers {
+			// Display name falls back to company name, then first+last.
+			if cust.CustomerDisplayName == "" {
+				if cust.CompanyName != "" {
+					cust.CustomerDisplayName = cust.CompanyName
+				} else if name := strings.TrimSpace(cust.FirstName + " " + cust.LastName); name != "" {
+					cust.CustomerDisplayName = name
+				}
+			}
+			if cust.CustomerDisplayName == "" {
+				errors = append(errors, rowErr{Row: i + 1, Message: "missing display name / company name"})
+				continue
+			}
+			if cust.CustomerEmail != "" && !utils.IsValidEmail(cust.CustomerEmail) {
+				errors = append(errors, rowErr{Row: i + 1, Message: "invalid email: " + cust.CustomerEmail})
+				continue
+			}
+
+			code, err := generateCustomerCodeContinuous(ctx, orgIDStr)
+			if err != nil {
+				errors = append(errors, rowErr{Row: i + 1, Message: "could not generate code"})
+				continue
+			}
+
+			now := time.Now()
+			cust.ID = primitive.NewObjectID()
+			cust.CustomerCode = code
+			cust.OrgID = orgIDStr
+			cust.CreatedBy = userIDStr
+			cust.CreatedAt = now
+			cust.UpdatedAt = now
+			if cust.Status == "" {
+				cust.Status = "active"
+			}
+			if cust.CustomerType == "" {
+				cust.CustomerType = "business"
+			}
+			for j := range cust.ContactPersons {
+				if cust.ContactPersons[j].ID.IsZero() {
+					cust.ContactPersons[j].ID = primitive.NewObjectID()
+					cust.ContactPersons[j].CreatedAt = now
+					cust.ContactPersons[j].UpdatedAt = now
+				}
+			}
+
+			if _, err := customersCollection.InsertOne(ctx, cust); err != nil {
+				errors = append(errors, rowErr{Row: i + 1, Message: "insert failed"})
+				continue
+			}
+			imported++
+		}
+
+		if imported > 0 {
+			ws.GlobalHub.Broadcast(ws.Event{Type: "customers_updated", Action: "import"})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": fmt.Sprintf("Imported %d of %d customers", imported, len(body.Customers)),
+			"data":    gin.H{"imported": imported, "failed": len(errors), "errors": errors},
 		})
 	}
 }

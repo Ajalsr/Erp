@@ -109,9 +109,9 @@ func GetItemStockAvailability() gin.HandlerFunc {
 		soCol := config.GetCollection(config.DB, "sales_orders")
 		pipeline := []bson.M{
 			{"$match": bson.M{
-				"orgId":          orgIDStr,
-				"status":         bson.M{"$in": []string{"open", "confirmed", "approved", "processing", "shipped"}},
-				"items.itemId":   itemIDStr,
+				"orgId":        orgIDStr,
+				"status":       bson.M{"$in": []string{"open", "confirmed", "approved", "processing", "shipped"}},
+				"items.itemId": itemIDStr,
 			}},
 			{"$unwind": "$items"},
 			{"$match": bson.M{"items.itemId": itemIDStr}},
@@ -162,15 +162,15 @@ func GetItemStockAvailability() gin.HandlerFunc {
 		dnCol := config.GetCollection(config.DB, "delivery_notes")
 		dnPipeline := []bson.M{
 			{"$match": bson.M{
-				"orgId":           orgIDStr,
-				"status":          bson.M{"$in": []string{"draft", "confirmed"}},
-				"items.itemId":    itemIDStr,
+				"orgId":        orgIDStr,
+				"status":       bson.M{"$in": []string{"draft", "confirmed"}},
+				"items.itemId": itemIDStr,
 			}},
 			{"$unwind": "$items"},
 			{"$match": bson.M{"items.itemId": itemIDStr}},
 			{"$group": bson.M{
-				"_id":  nil,
-				"qty":  bson.M{"$sum": "$items.quantity"},
+				"_id": nil,
+				"qty": bson.M{"$sum": "$items.quantity"},
 			}},
 		}
 		dnCur, err3 := dnCol.Aggregate(ctx, dnPipeline)
@@ -429,6 +429,62 @@ func BackfillWarehouseStock() gin.HandlerFunc {
 			"status":  http.StatusOK,
 			"message": fmt.Sprintf("Seeded %d item(s) into default warehouse '%s'", updated, defWhName),
 			"data":    gin.H{"updated": updated, "defaultWarehouse": defWhName},
+		})
+	}
+}
+
+// POST /api/items/import — bulk-create stock items from parsed CSV rows.
+// Body: { "items": [ { name, item_code, unit, selling_price, ... }, ... ] }.
+func ImportItems() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		var body struct {
+			Items []models.Stock `json:"items"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+		if len(body.Items) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "No rows to import"})
+			return
+		}
+		if len(body.Items) > 5000 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Too many rows — import up to 5000 at a time"})
+			return
+		}
+
+		orgIDStr := fmt.Sprintf("%v", mustGet(c, "orgId"))
+		imported := 0
+		type rowErr struct {
+			Row     int    `json:"row"`
+			Message string `json:"message"`
+		}
+		errors := []rowErr{}
+
+		for i, it := range body.Items {
+			if it.Name == "" {
+				errors = append(errors, rowErr{Row: i + 1, Message: "missing item name"})
+				continue
+			}
+			now := time.Now()
+			it.ID = primitive.NewObjectID()
+			it.OrgID = orgIDStr
+			it.CreatedAt = now
+			it.UpdatedAt = now
+			if _, err := stockCollection.InsertOne(ctx, it); err != nil {
+				errors = append(errors, rowErr{Row: i + 1, Message: "insert failed"})
+				continue
+			}
+			imported++
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": fmt.Sprintf("Imported %d of %d items", imported, len(body.Items)),
+			"data":    gin.H{"imported": imported, "failed": len(errors), "errors": errors},
 		})
 	}
 }
