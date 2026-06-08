@@ -99,6 +99,8 @@ func GetAllQuotes() gin.HandlerFunc {
 		if customerId := c.Query("customerId"); customerId != "" {
 			filter["customerId"] = customerId
 		}
+		// Record scope is "show all, lock others": the list shows every record; access
+		// to details/edit/delete is restricted per-record (see GetQuoteByID/Update/Delete).
 
 		total, _ := quoteCollection.CountDocuments(ctx, filter)
 
@@ -156,6 +158,11 @@ func GetQuoteByID() gin.HandlerFunc {
 			} else {
 				c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to retrieve quote"})
 			}
+			return
+		}
+		// Record scope: "own" roles may only open quotes they created.
+		if uid, _, ownOnly := recordScope(c, "quotes"); ownOnly && q.CreatedBy != uid {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only view your own quotes"})
 			return
 		}
 
@@ -216,6 +223,11 @@ func UpdateQuote() gin.HandlerFunc {
 		var existing models.Quote
 		if err := quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+		// Record scope: when the caller's scope is "own", only the creator may edit.
+		if uid, _, ownOnly := recordScope(c, "quotes"); ownOnly && existing.CreatedBy != uid {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only edit quotes you created"})
 			return
 		}
 		if existing.Status == "converted" {
@@ -499,6 +511,11 @@ func DeleteQuote() gin.HandlerFunc {
 		var existing models.Quote
 		if err := quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+		// Record scope: when the caller's scope is "own", only the creator may delete.
+		if uid, _, ownOnly := recordScope(c, "quotes"); ownOnly && existing.CreatedBy != uid {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only delete quotes you created"})
 			return
 		}
 		if existing.Status == "converted" {

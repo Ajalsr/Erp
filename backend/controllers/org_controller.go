@@ -44,13 +44,13 @@ func isAdminOrOwner(role string) bool {
 }
 
 // canManageSettings reports whether a user may open/edit org Settings.
-// Owner always; other roles only if granted the Settings flag. (Admin is NOT auto-granted.)
+// Owner + admin always; other roles only if granted the Settings flag.
 func canManageSettings(ctx context.Context, orgID primitive.ObjectID, userID string) bool {
 	role, isMember := getMemberRole(ctx, orgID, userID)
 	if !isMember {
 		return false
 	}
-	if role == "owner" {
+	if role == "owner" || role == "admin" {
 		return true
 	}
 	var org models.Organization
@@ -69,6 +69,56 @@ func effectiveCustomRoles(org models.Organization) []string {
 		return org.CustomRoles
 	}
 	return []string{"member", "viewer"}
+}
+
+// scopeForModule returns "all" | "own" record visibility for a role on a module.
+// owner/admin always "all"; absent config defaults to "all".
+func scopeForModule(ctx context.Context, orgID primitive.ObjectID, role, module string) string {
+	if role == "owner" || role == "admin" {
+		return "all"
+	}
+	var org models.Organization
+	if orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&org) == nil {
+		if rp, ok := org.RolePermissions[role]; ok {
+			if rp.Scope[module] == "own" {
+				return "own"
+			}
+		}
+	}
+	return "all"
+}
+
+// recordScope resolves the caller's role and whether they are restricted to their
+// own records for the module. Reads orgId/userId from the gin context (set by
+// Authenticate + RequireOrg). ownOnly is always false for owner/admin.
+func recordScope(c *gin.Context, module string) (userID, role string, ownOnly bool) {
+	uid, _ := c.Get("userId")
+	userID, _ = uid.(string)
+	oid, _ := c.Get("orgId")
+	orgIDStr, _ := oid.(string)
+	orgID, err := primitive.ObjectIDFromHex(orgIDStr)
+	if err != nil {
+		return userID, "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	role, ok := getMemberRole(ctx, orgID, userID)
+	if !ok {
+		return userID, "", false
+	}
+	if role == "owner" || role == "admin" {
+		return userID, role, false
+	}
+	return userID, role, scopeForModule(ctx, orgID, role, module) == "own"
+}
+
+// canModifyRecord reports whether the caller may edit/delete a record created by
+// createdBy. owner/admin always may; otherwise only the original creator.
+func canModifyRecord(role, userID, createdBy string) bool {
+	if role == "owner" || role == "admin" {
+		return true
+	}
+	return createdBy != "" && createdBy == userID
 }
 
 // isAssignableRole reports whether role can be assigned to a member (admin + custom roles).
@@ -181,14 +231,6 @@ func GetUserOrganizations() gin.HandlerFunc {
 			"userId": userIDStr,
 			"status": "active",
 		})
-		var results []bson.M
-
-		if err := cursor.All(ctx, &results); err != nil {
-			log.Println(err)
-			return
-		}
-
-		fmt.Printf("%+v\n", results)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
 			return

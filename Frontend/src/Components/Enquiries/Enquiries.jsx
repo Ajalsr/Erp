@@ -13,6 +13,7 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
 import useGetCustomers from "../../helper/useGetCustomers";
+import { usePermissions } from "../../helper/permissions";
 
 const STATUSES = [
   { key: "all",       label: "All" },
@@ -471,6 +472,12 @@ export default function Enquiries() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const navigate = useNavigate();
+  const { can, canViewRecord } = usePermissions();
+  // View-only roles browse the table but cannot open the detail drawer.
+  // Detail needs more than view (add/edit/delete) + record scope. owner/admin always.
+  const canOpenDetail = (enq) =>
+    canViewRecord("enquiries", enq?.createdBy) &&
+    (can("enquiries", "add") || can("enquiries", "edit") || can("enquiries", "delete"));
 
   const [enquiries,    setEnquiries]    = useState([]);
   const [stats,        setStats]        = useState({});
@@ -535,7 +542,7 @@ export default function Enquiries() {
 
   const [creatingCustomer, setCreatingCustomer] = useState(false);
 
-  const openDrawer = (enq) => { setSelected(enq); setDrawerOpen(true); setDrawerTab("overview"); setEditing(false); };
+  const openDrawer = (enq) => { if (!canOpenDetail(enq)) return; setSelected(enq); setDrawerOpen(true); setDrawerTab("overview"); setEditing(false); };
   const closeDrawer = () => { setDrawerOpen(false); setSelected(null); setEditing(false); };
 
   const handleCreateCustomer = async () => {
@@ -750,8 +757,8 @@ export default function Enquiries() {
                 </thead>
                 <tbody>
                   {enquiries.map((enq) => (
-                    <tr key={enq._id} className="enq-row" onClick={() => openDrawer(enq)}
-                      style={{ cursor: "pointer", transition: "background .12s" }}>
+                    <tr key={enq._id} className={canOpenDetail(enq) ? "enq-row" : ""} onClick={() => canOpenDetail(enq) && openDrawer(enq)}
+                      style={{ cursor: canOpenDetail(enq) ? "pointer" : "default", transition: "background .12s" }}>
                       <td style={tdS}>
                         <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: T.blue }}>{enq.enquiryNumber}</span>
                       </td>

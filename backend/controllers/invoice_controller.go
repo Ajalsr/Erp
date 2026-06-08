@@ -371,6 +371,11 @@ func GetInvoiceByID() gin.HandlerFunc {
 			}
 			return
 		}
+		// Record scope: "own" roles may only open invoices they created.
+		if uid, _, ownOnly := recordScope(c, "invoices"); ownOnly && inv.CreatedBy != uid {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only view invoices you created"})
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Invoice retrieved successfully", "data": inv})
 	}
@@ -458,6 +463,11 @@ func UpdateInvoice() gin.HandlerFunc {
 		err = invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Invoice not found"})
+			return
+		}
+		// Record scope: when the caller's scope is "own", only the creator may edit.
+		if uid, _, ownOnly := recordScope(c, "invoices"); ownOnly && existing.CreatedBy != uid {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only edit invoices you created"})
 			return
 		}
 		if existing.Status != "draft" {

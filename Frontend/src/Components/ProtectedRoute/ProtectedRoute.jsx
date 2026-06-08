@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import useAuthStore from '../../store/useAuthStore'
+import { clearPermissions } from '../../helper/permissions'
 
 // Decode JWT expiry without a library
 const getTokenExpiry = (token) => {
@@ -36,6 +37,7 @@ const ProtectedRoute = ({ children }) => {
           fontWeight: '500',
         },
       })
+      clearPermissions()
       clearAuth()
     }
   }, [isExpired, isAuthenticated, clearAuth])

@@ -12,52 +12,52 @@ import { usePermissions } from '../../helper/permissions'
 
 const MENU = [
   { icon: IoHome,            label: 'Home',      route: '/Home', tourKey: 'nav-home' },
-  { icon: FaBoxOpen,         label: 'Items',      mod: 'items',     tourKey: 'nav-items', subItems: [
-    { name: 'Items',         route: '/Items/Items' },
-    { name: 'Item Groups',   route: '/Items/item-groups' },
-    { name: 'Price Lists',   route: '/Items/price-lists' },
+  { icon: FaBoxOpen,         label: 'Items',      mods: ['items','item_groups','price_lists'], tourKey: 'nav-items', subItems: [
+    { name: 'Items',         route: '/Items/Items',        mod: 'items' },
+    { name: 'Item Groups',   route: '/Items/item-groups',  mod: 'item_groups' },
+    { name: 'Price Lists',   route: '/Items/price-lists',  mod: 'price_lists' },
   ]},
-  { icon: MdInventory2,      label: 'Inventory',  mod: 'inventory', tourKey: 'nav-inventory', subItems: [
-    { name: 'Stock Summary',  route: '/Inventory/stock-summary' },
-    { name: 'Reorder Alerts', route: '/Inventory/reorder-alerts' },
-    { name: 'Batch & Expiry', route: '/Inventory/batch-expiry' },
-    { name: 'Warehouses',     route: '/Inventory/warehouses' },
-    { name: 'Adjustments',    route: '/Inventory/adjustments' },
+  { icon: MdInventory2,      label: 'Inventory',  mods: ['items','warehouses','adjustments'], tourKey: 'nav-inventory', subItems: [
+    { name: 'Stock Summary',  route: '/Inventory/stock-summary',  mod: 'items' },
+    { name: 'Reorder Alerts', route: '/Inventory/reorder-alerts', mod: 'items' },
+    { name: 'Batch & Expiry', route: '/Inventory/batch-expiry',   mod: 'items' },
+    { name: 'Warehouses',     route: '/Inventory/warehouses',     mod: 'warehouses' },
+    { name: 'Adjustments',    route: '/Inventory/adjustments',    mod: 'adjustments' },
   ]},
-  { icon: HiShoppingCart,    label: 'Sales',      mod: 'sales',     tourKey: 'nav-sales', subItems: [
-    { name: 'Customers',          route: '/Sales/Customers' },
-    { name: 'Enquiries',          route: '/Sales/Enquiries' },
-    { name: 'Quotes',             route: '/Sales/Quotes' },
-    { name: 'Sales Orders',       route: '/Sales/Salesorders' },
-    { name: 'Outbound',           route: '/Sales/Outbound' },
-    { name: 'Delivery Notes',     route: '/Sales/Deliverynote' },
-    { name: 'Invoices',           route: '/Sales/Invoices' },
-    { name: 'Credit Notes',       route: '/Sales/CreditNotes' },
-    { name: 'Payments Received',  route: '/Sales/PaymentsReceived' },
-    { name: 'Customer Advances',  route: '/Sales/AdvancePayments' },
+  { icon: HiShoppingCart,    label: 'Sales',      mods: ['customers','enquiries','quotes','sales_orders','delivery_notes','invoices','credit_notes','payments','advance_payments'], tourKey: 'nav-sales', subItems: [
+    { name: 'Customers',          route: '/Sales/Customers',        mod: 'customers' },
+    { name: 'Enquiries',          route: '/Sales/Enquiries',        mod: 'enquiries' },
+    { name: 'Quotes',             route: '/Sales/Quotes',           mod: 'quotes' },
+    { name: 'Sales Orders',       route: '/Sales/Salesorders',      mod: 'sales_orders' },
+    { name: 'Outbound',           route: '/Sales/Outbound',         mod: 'delivery_notes' },
+    { name: 'Delivery Notes',     route: '/Sales/Deliverynote',     mod: 'delivery_notes' },
+    { name: 'Invoices',           route: '/Sales/Invoices',         mod: 'invoices' },
+    { name: 'Credit Notes',       route: '/Sales/CreditNotes',      mod: 'credit_notes' },
+    { name: 'Payments Received',  route: '/Sales/PaymentsReceived', mod: 'payments' },
+    { name: 'Customer Advances',  route: '/Sales/AdvancePayments',  mod: 'advance_payments' },
   ]},
-  { icon: FaCartArrowDown,   label: 'Purchases',  mod: 'purchases', tourKey: 'nav-purchases', subItems: [
-    { name: 'Vendors',          route: '/Purchase/Vendors' },
-    { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders' },
-     { name: 'Inbound',          route: '/Purchase/Inbound' },
-    { name: 'GRN',              route: '/Purchase/GRN' },
-     { name: 'Bills',            route: '/Purchase/Bills' },
-    { name: 'Vendor Credits',   route: '/Purchase/VendorCredits' },
-    { name: 'Payments Made',    route: '/Purchase/PaymentsMade' },
+  { icon: FaCartArrowDown,   label: 'Purchases',  mods: ['vendors','purchase_orders','grns','bills','vendor_credits','vendor_payments'], tourKey: 'nav-purchases', subItems: [
+    { name: 'Vendors',          route: '/Purchase/Vendors',       mod: 'vendors' },
+    { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders',mod: 'purchase_orders' },
+    { name: 'Inbound',          route: '/Purchase/Inbound',       mod: 'grns' },
+    { name: 'GRN',              route: '/Purchase/GRN',           mod: 'grns' },
+    { name: 'Bills',            route: '/Purchase/Bills',         mod: 'bills' },
+    { name: 'Vendor Credits',   route: '/Purchase/VendorCredits', mod: 'vendor_credits' },
+    { name: 'Payments Made',    route: '/Purchase/PaymentsMade',  mod: 'vendor_payments' },
   ]},
-  { icon: TbReportAnalytics, label: 'Reports',    mod: 'reports',   tourKey: 'nav-reports', subItems: [
-    { name: 'Sales Report',          route: '/Reports/sales' },
-    { name: 'Purchase Report',       route: '/Reports/purchases' },
-    { name: 'Inventory Report',      route: '/Reports/inventory' },
-    { name: 'AR Aging',              route: '/Reports/aging' },
-    { name: 'Customer Statement',    route: '/Reports/customer-statement' },
-    { name: 'Statement of Account',  route: '/Reports/statement-of-account' },
-    { name: 'VAT Report',            route: '/Reports/vat' },
-    { name: 'Vendor Aging',          route: '/Reports/vendor-aging' },
+  { icon: TbReportAnalytics, label: 'Reports',    mods: ['reports'], tourKey: 'nav-reports', subItems: [
+    { name: 'Sales Report',          route: '/Reports/sales',                mod: 'reports' },
+    { name: 'Purchase Report',       route: '/Reports/purchases',            mod: 'reports' },
+    { name: 'Inventory Report',      route: '/Reports/inventory',            mod: 'reports' },
+    { name: 'AR Aging',              route: '/Reports/aging',                mod: 'reports' },
+    { name: 'Customer Statement',    route: '/Reports/customer-statement',   mod: 'reports' },
+    { name: 'Statement of Account',  route: '/Reports/statement-of-account', mod: 'reports' },
+    { name: 'VAT Report',            route: '/Reports/vat',                  mod: 'reports' },
+    { name: 'Vendor Aging',          route: '/Reports/vendor-aging',         mod: 'reports' },
   ]},
-  { icon: MdAccountBalance,   label: 'Finance',   mod: 'finance',   tourKey: 'nav-finance', subItems: [
-    { name: 'Chart of Accounts', route: '/Finance/Accounts' },
-    { name: 'Trial Balance',     route: '/Reports/trial-balance' },
+  { icon: MdAccountBalance,   label: 'Finance',   mods: ['accounts','journal_entries'], tourKey: 'nav-finance', subItems: [
+    { name: 'Chart of Accounts', route: '/Finance/Accounts',     mod: 'accounts' },
+    { name: 'Trial Balance',     route: '/Reports/trial-balance',mod: 'accounts' },
   ]},
   { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },
 ]
@@ -69,11 +69,15 @@ const Sidebar = ({ isCollapsed }) => {
   const isDark      = useThemeStore((s) => s.isDark)
   const activeOrg   = useAuthStore((s) => s.activeOrg)
   const orgId       = activeOrg?._id || user?.orgId || ''
-  const { canAny, canSettings } = usePermissions()
-  // Hide a section if the role has no access at all (no mod = always shown).
-  // Settings entry only for owner or roles granted Settings access.
+  const { canAny, canAnyOf, canSettings } = usePermissions()
+  // Show a section only when it leads somewhere: for sections with sub-items, at least
+  // one sub-item must be permitted (so granting a module with no page — e.g.
+  // journal_entries — never shows an empty section). Sections without sub-items use
+  // their mods list; Settings only for owner / roles granted Settings access.
   const visibleMenu = MENU.filter(item =>
-    item.settings ? canSettings() : (!item.mod || canAny(item.mod))
+    item.settings ? canSettings()
+    : item.subItems ? item.subItems.some(s => !s.mod || canAny(s.mod))
+    : (!item.mods || canAnyOf(item.mods))
   )
 
   const D = {
@@ -228,7 +232,7 @@ const Sidebar = ({ isCollapsed }) => {
                 {!isCollapsed && hasSub && (
                   <div style={{ overflow: 'hidden', maxHeight: isOpen ? '400px' : 0, transition: 'max-height 0.25s ease' }}>
                     <div style={{ paddingLeft: '16px', paddingRight: '4px', paddingTop: '2px', paddingBottom: '4px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                      {item.subItems.map((sub) => (
+                      {item.subItems.filter((sub) => !sub.mod || canAny(sub.mod)).map((sub) => (
                         <button key={sub.name} onClick={() => navigate(sub.route)}
                           className={`nx-sub ${isSubActive(sub.route) ? 'active' : ''}`}
                           style={subBtnStyle}>

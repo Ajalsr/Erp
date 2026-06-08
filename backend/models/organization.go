@@ -48,11 +48,17 @@ func (mc *ModuleCaps) UnmarshalBSONValue(t bsontype.Type, data []byte) error {
 //   Modules:   moduleKey → capability list (legacy: single string)
 //   Approvals: approvalKey → bool                       (e.g. po, grn, bill, payment)
 type RolePerm struct {
-	// Modules: moduleKey → capability list, any of "view" | "add" | "edit".
+	// Modules: moduleKey → capability list, any of
+	//   "view" | "add" | "edit" | "delete" | "export".
 	// Empty/absent list = no access. Capabilities are independent (add ≠ edit).
+	// Enforced server-side by middlewares.RequireModule.
 	Modules   map[string]ModuleCaps `bson:"modules,omitempty"   json:"modules,omitempty"`
 	Approvals map[string]bool       `bson:"approvals,omitempty" json:"approvals,omitempty"`
 	Settings  bool                  `bson:"settings,omitempty"  json:"settings,omitempty"` // may open org Settings
+	// Scope: moduleKey → record visibility, "all" | "own". Absent/"" = "all".
+	// "own" limits list/read to records the user created (Odoo record-rule style).
+	// owner/admin always "all". Enforced per-controller via scopeForModule.
+	Scope map[string]string `bson:"scope,omitempty" json:"scope,omitempty"`
 }
 
 // Organization represents a workspace/team that users belong to

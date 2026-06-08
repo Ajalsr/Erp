@@ -10,7 +10,7 @@ import useOrganization from '../helper/useOrganization'
 import useAuthStore from '../store/useAuthStore'
 
 export default function Layout() {
-  const [sidebarToggle, setSidebarToggle] = useState(true)
+  const [sidebarToggle, setSidebarToggle] = useState(false)
   const [orgLoading, setOrgLoading] = useState(true)
   const isDark = useThemeStore((s) => s.isDark)
   const navigate = useNavigate()

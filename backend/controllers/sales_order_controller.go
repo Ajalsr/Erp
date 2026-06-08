@@ -432,6 +432,9 @@ func GetAllSalesOrders() gin.HandlerFunc {
 			}
 		}
 
+		// Record scope is "show all, lock others": list shows every order; access to
+		// details/edit/delete is restricted per-record (see GetByID/Update/Delete).
+
 		total, err := salesOrdersCollection.CountDocuments(ctx, filter)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to count sales orders", "error": err.Error()})
@@ -533,6 +536,11 @@ func GetSalesOrderByID() gin.HandlerFunc {
 			} else {
 				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve sales order", "error": err.Error()})
 			}
+			return
+		}
+		// Record scope: "own" roles may only open orders they created.
+		if uid, _, ownOnly := recordScope(c, "sales_orders"); ownOnly && salesOrder.CreatedBy != uid {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only view your own sales orders"})
 			return
 		}
 
@@ -810,6 +818,11 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			}
 			return
 		}
+		// Record scope: when the caller's scope is "own", only the creator may edit.
+		if uid, _, ownOnly := recordScope(c, "sales_orders"); ownOnly && existingOrder.CreatedBy != uid {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only edit orders you created"})
+			return
+		}
 
 		setFields := bson.M{"updatedAt": time.Now()}
 
@@ -1018,6 +1031,11 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			} else {
 				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to retrieve sales order", "error": err.Error()})
 			}
+			return
+		}
+		// Record scope: when the caller's scope is "own", only the creator may delete.
+		if uid, _, ownOnly := recordScope(c, "sales_orders"); ownOnly && existingOrder.CreatedBy != uid {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only delete orders you created"})
 			return
 		}
 

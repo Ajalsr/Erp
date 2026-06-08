@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import useOrganization from '../../helper/useOrganization'
 import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
-import toast from 'react-hot-toast'
+import nexusToast from '../../helper/nexusToast'
 import axiosInstance from '../../helper/axiosInstance'
 import { PERM_MODULES, PERM_APPROVALS, PERM_CAPS, invalidatePermissions, usePermissions } from '../../helper/permissions'
 
@@ -29,6 +30,78 @@ const RoleBadge = ({ role }) => {
       fontWeight: '600',
       textTransform: 'capitalize',
     }}>{role}</span>
+  )
+}
+
+// One-click role presets for the Permissions matrix. Each sets module → capability
+// list; scope is reset to "all" (empty) so reports/dashboards see org-wide data.
+// Approvals & Settings-access are intentionally left untouched on apply.
+const _V = ['view'], _VE = ['view', 'export'], _FULL = ['view', 'add', 'edit', 'export']
+const ROLE_TEMPLATES = [
+  {
+    key: 'accountant', label: 'Accountant', desc: 'Read finance & reports, export — no edits',
+    modules: {
+      customers: _VE, invoices: _VE, credit_notes: _VE, payments: _VE, advance_payments: _V,
+      vendors: _VE, bills: _VE, vendor_payments: _V, vendor_credits: _V, accounts: _VE, reports: _VE,
+    },
+  },
+  {
+    key: 'sales', label: 'Sales Rep', desc: 'Manage the sales cycle',
+    modules: {
+      items: _V, customers: _FULL, enquiries: _FULL, quotes: _FULL, sales_orders: _FULL,
+      delivery_notes: ['view', 'add'], invoices: _FULL, credit_notes: _V,
+      payments: ['view', 'add'], advance_payments: ['view', 'add'], reports: _V,
+    },
+  },
+  {
+    key: 'purchaser', label: 'Purchaser', desc: 'Manage the purchasing cycle',
+    modules: {
+      items: _V, vendors: _FULL, purchase_orders: _FULL, grns: _FULL, bills: _FULL,
+      vendor_credits: _V, vendor_payments: ['view', 'add'], reports: _V,
+    },
+  },
+  {
+    key: 'readonly', label: 'Read-Only', desc: 'View everything, change nothing',
+    modules: PERM_MODULES.reduce((a, m) => { a[m.key] = _V; return a }, {}),
+  },
+]
+
+// Themed dropdown (portal popover so it never clips inside the scrollable matrix).
+const CustomSelect = ({ value, options, onChange, disabled, colors: c }) => {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState(null)
+  const ref = useRef(null)
+  const sel = options.find(o => o.value === value)
+  const measure = () => { const r = ref.current?.getBoundingClientRect(); if (r) setPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 84) }) }
+  useEffect(() => {
+    if (!open) return
+    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    const reposition = () => setOpen(false)
+    window.addEventListener('mousedown', close)
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('scroll', reposition, true); window.removeEventListener('resize', reposition) }
+  }, [open])
+  return (
+    <>
+      <button type="button" ref={ref} disabled={disabled}
+        onClick={() => { if (disabled) return; measure(); setOpen(o => !o) }}
+        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 66, fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, border: `1px solid ${open ? c.accent : c.border}`, background: c.inputBg, color: c.textPri, cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+        <span>{sel?.label || ''}</span>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ flexShrink: 0, opacity: .6, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+      {open && pos && createPortal(
+        <div style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, zIndex: 99999, background: c.bgCard, border: `1px solid ${c.border}`, borderRadius: 8, boxShadow: c.shadow, padding: 4 }}>
+          {options.map(o => (
+            <div key={o.value} onMouseDown={() => { onChange(o.value); setOpen(false) }}
+              style={{ padding: '6px 10px', borderRadius: 5, fontSize: 12, fontWeight: o.value === value ? 700 : 500, cursor: 'pointer', color: o.value === value ? c.accent : c.textPri, background: o.value === value ? c.accentSoft : 'transparent' }}
+              onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = c.inputBg }}
+              onMouseLeave={e => { if (o.value !== value) e.currentTarget.style.background = 'transparent' }}>
+              {o.label}
+            </div>
+          ))}
+        </div>, document.body)}
+    </>
   )
 }
 
@@ -78,15 +151,6 @@ const OrganizationSettings = () => {
   const [rolesSaving, setRolesSaving] = useState(false)
   const [selectedRole, setSelectedRole] = useState('member') // role being edited in the panel
 
-  // Role permissions matrix
-  const [permCfg, setPermCfg] = useState({}) // { role: { modules:{}, approvals:{} } }
-  const [permSaving, setPermSaving] = useState(false)
-  // Custom roles (org-defined, assignable besides owner/admin)
-  const [customRoles, setCustomRoles] = useState(['member', 'viewer'])
-  const [newRoleName, setNewRoleName] = useState('')
-  const [rolesSaving, setRolesSaving] = useState(false)
-  const [selectedRole, setSelectedRole] = useState('member') // role being edited in the panel
-
   // Invite form
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
@@ -95,6 +159,18 @@ const OrganizationSettings = () => {
 
   // Role change
   const [roleChanging, setRoleChanging] = useState(null)
+
+  // Custom confirm modal — replaces native window.confirm.
+  // { title, message, confirmLabel, danger, onConfirm }
+  const [confirmState, setConfirmState] = useState(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  const askConfirm = (opts) => setConfirmState(opts)
+  const runConfirm = async () => {
+    const fn = confirmState?.onConfirm
+    setConfirmBusy(true)
+    try { if (fn) await fn() }
+    finally { setConfirmBusy(false); setConfirmState(null) }
+  }
 
   // Salutations
   const [salutations, setSalutations]       = useState(['Mr.', 'Mrs.', 'Ms.', 'Miss', 'Dr.'])
@@ -112,8 +188,8 @@ const OrganizationSettings = () => {
     try {
       await axiosInstance.put('/api/org/settings', { salutations: list })
       setSalutations(list)
-      toast.success('Salutations saved')
-    } catch { toast.error('Failed to save salutations') }
+      nexusToast.success('Salutations saved')
+    } catch { nexusToast.error('Failed to save salutations') }
     finally { setSavingSalutations(false) }
   }
 
@@ -126,13 +202,20 @@ const OrganizationSettings = () => {
 
   const removeSalutation = (s) => saveSalutations(salutations.filter(x => x !== s))
 
-  const bgPage = isDark ? '#080d1a' : '#f1f5f9'
-  const bgCard = isDark ? '#0c1220' : '#ffffff'
-  const border  = isDark ? 'rgba(255,255,255,0.07)' : '#e2e8f0'
-  const textPri = isDark ? '#e2e8f0' : '#0f172a'
-  const textSec = isDark ? '#64748b' : '#94a3b8'
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc'
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'
+  // Design tokens — mirror the Organization Settings reference palette.
+  const accent       = isDark ? '#5d8bff' : '#2f6bf6'
+  const accentFg     = isDark ? '#0a0c12' : '#ffffff'
+  const accentSoft   = isDark ? 'rgba(93,139,255,0.14)' : 'rgba(47,107,246,0.10)'
+  const accentLine   = isDark ? 'rgba(93,139,255,0.30)' : 'rgba(47,107,246,0.22)'
+  const bgPage       = isDark ? '#08090c' : '#f5f6f8'
+  const bgCard       = isDark ? '#101218' : '#ffffff'
+  const bgInset      = isDark ? '#181b22' : '#f3f4f6'
+  const border       = isDark ? 'rgba(255,255,255,0.075)' : '#e7e8ec'
+  const textPri      = isDark ? '#e9ebf0' : '#16181d'
+  const textSec      = isDark ? '#939aa7' : '#5d6370'
+  const inputBg      = isDark ? '#181b22' : '#f3f4f6'
+  const inputBorder  = isDark ? 'rgba(255,255,255,0.13)' : '#e7e8ec'
+  const shadowSm     = isDark ? '0 1px 2px rgba(0,0,0,0.4)' : '0 1px 2px rgba(16,18,24,0.04)'
 
   const load = useCallback(async () => {
     try {
@@ -156,7 +239,7 @@ const OrganizationSettings = () => {
       const me = membersData.find((m) => m.userId === user?.userId)
       setMyRole(me?.role || orgData?.role || '')
     } catch (err) {
-      toast.error('Failed to load organization data')
+      nexusToast.error('Failed to load organization data')
     } finally {
       setLoading(false)
     }
@@ -171,15 +254,15 @@ const OrganizationSettings = () => {
   const settingsAllowed = isOwner || canSettings()
 
   const handleSave = async () => {
-    if (!orgName.trim()) { toast.error('Name is required'); return }
+    if (!orgName.trim()) { nexusToast.error('Name is required'); return }
     setSaving(true)
     try {
       await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim() })
       if (activeOrg?._id === id) setActiveOrg({ ...activeOrg, name: orgName.trim() })
-      toast.success('Organization updated')
+      nexusToast.success('Organization updated')
       load()
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Update failed')
+      nexusToast.error(err?.response?.data?.message || 'Update failed')
     } finally {
       setSaving(false)
     }
@@ -188,7 +271,7 @@ const OrganizationSettings = () => {
   const handleLetterheadFile = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 3 * 1024 * 1024) { toast.error('Image must be under 3 MB'); return }
+    if (file.size > 3 * 1024 * 1024) { nexusToast.error('Image must be under 3 MB'); return }
     const reader = new FileReader()
     reader.onload = (ev) => setLetterhead(ev.target.result)
     reader.readAsDataURL(file)
@@ -202,9 +285,9 @@ const OrganizationSettings = () => {
         letterheadTopPad,
         letterheadBottomPad,
       })
-      toast.success('Letterhead saved — will appear on all delivery notes')
+      nexusToast.success('Letterhead saved — will appear on all delivery notes')
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to save letterhead')
+      nexusToast.error(err?.response?.data?.message || 'Failed to save letterhead')
     } finally {
       setLetterheadSaving(false)
     }
@@ -217,9 +300,9 @@ const OrganizationSettings = () => {
       await axiosInstance.patch(`/api/organizations/${id}/letterhead`, { letterheadImage: '', letterheadTopPad: 13, letterheadBottomPad: 8 })
       setLetterheadTopPad(13)
       setLetterheadBottomPad(8)
-      toast.success('Letterhead removed')
+      nexusToast.success('Letterhead removed')
     } catch {
-      toast.error('Failed to remove letterhead')
+      nexusToast.error('Failed to remove letterhead')
     } finally {
       setLetterheadSaving(false)
     }
@@ -229,7 +312,7 @@ const OrganizationSettings = () => {
   const handleStampFile = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { toast.error('Stamp must be under 2 MB'); return }
+    if (file.size > 2 * 1024 * 1024) { nexusToast.error('Stamp must be under 2 MB'); return }
     const reader = new FileReader()
     reader.onload = (ev) => setStamp(ev.target.result)
     reader.readAsDataURL(file)
@@ -238,9 +321,9 @@ const OrganizationSettings = () => {
     setStampSaving(true)
     try {
       await axiosInstance.patch(`/api/organizations/${id}/stamp`, { stampImage: stamp })
-      toast.success('Stamp saved — will appear on delivery notes')
+      nexusToast.success('Stamp saved — will appear on delivery notes')
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to save stamp')
+      nexusToast.error(err?.response?.data?.message || 'Failed to save stamp')
     } finally {
       setStampSaving(false)
     }
@@ -250,16 +333,19 @@ const OrganizationSettings = () => {
     setStampSaving(true)
     try {
       await axiosInstance.patch(`/api/organizations/${id}/stamp`, { stampImage: '' })
-      toast.success('Stamp removed')
+      nexusToast.success('Stamp removed')
     } catch {
-      toast.error('Failed to remove stamp')
+      nexusToast.error('Failed to remove stamp')
     } finally {
       setStampSaving(false)
     }
   }
 
   // ── Role permissions ──
-  const defaultCapsFor = (role) => role === 'viewer' ? ['view'] : ['view', 'add', 'edit']
+  // Mirror backend middlewares.defaultModuleCaps: read-only default. member/viewer
+  // get view; custom roles get nothing. add/edit/delete/export need explicit grant.
+  const defaultCapsFor = (role) =>
+    (role === 'member' || role === 'viewer') ? ['view'] : []
   const moduleCapsOf = (role, mod) => {
     const s = permCfg?.[role]?.modules?.[mod]
     return Array.isArray(s) ? s : defaultCapsFor(role)
@@ -270,6 +356,12 @@ const OrganizationSettings = () => {
     const next = cur.includes(cap) ? cur.filter(c => c !== cap) : [...cur, cap]
     return { ...p, [role]: { ...(p[role] || {}), modules: { ...(p[role]?.modules || {}), [mod]: next } } }
   })
+  // Record scope per module: 'all' (default) or 'own' (only records the user created).
+  const scopeOf = (role, mod) => permCfg?.[role]?.scope?.[mod] === 'own' ? 'own' : 'all'
+  const setScope = (role, mod, val) => setPermCfg(p => ({
+    ...p,
+    [role]: { ...(p[role] || {}), scope: { ...(p[role]?.scope || {}), [mod]: val } },
+  }))
   const approvalOn = (role, key) => !!permCfg?.[role]?.approvals?.[key]
   const toggleApproval = (role, key) => setPermCfg(p => ({
     ...p,
@@ -286,9 +378,9 @@ const OrganizationSettings = () => {
     try {
       await axiosInstance.patch(`/api/organizations/${id}/role-permissions`, { rolePermissions: permCfg })
       invalidatePermissions()
-      toast.success('Permissions saved')
+      nexusToast.success('Permissions saved')
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to save permissions')
+      nexusToast.error(err?.response?.data?.message || 'Failed to save permissions')
     } finally {
       setPermSaving(false)
     }
@@ -301,9 +393,9 @@ const OrganizationSettings = () => {
       const res = await axiosInstance.patch(`/api/organizations/${id}/roles`, { roles: list })
       setCustomRoles(res.data?.data || list)
       invalidatePermissions()
-      toast.success('Roles updated')
+      nexusToast.success('Roles updated')
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to update roles')
+      nexusToast.error(err?.response?.data?.message || 'Failed to update roles')
     } finally {
       setRolesSaving(false)
     }
@@ -311,29 +403,60 @@ const OrganizationSettings = () => {
   const addRole = () => {
     const r = newRoleName.trim().toLowerCase()
     if (!r) return
-    if (['owner', 'admin'].includes(r) || customRoles.includes(r)) { toast.error('Role already exists or is reserved'); return }
+    if (['owner', 'admin'].includes(r) || customRoles.includes(r)) { nexusToast.error('Role already exists or is reserved'); return }
     saveRoles([...customRoles, r])
+    // New role defaults every module record-scope to 'own' (least-privilege). Persists on Save Permissions.
+    const ownScope = Object.fromEntries(PERM_MODULES.map(m => [m.key, 'own']))
+    setPermCfg(p => ({ ...p, [r]: { ...(p[r] || {}), scope: { ...(p[r]?.scope || {}), ...ownScope } } }))
+    setSelectedRole(r)
     setNewRoleName('')
   }
+  // Apply a preset to the currently-selected role. Replaces module access + resets
+  // scope to "all"; keeps approvals/settings. Persists only after Save Permissions.
+  const applyTemplate = (tpl) => {
+    const role = customRoles.includes(selectedRole) ? selectedRole : customRoles[0]
+    if (!role) { nexusToast.error('Add a role first'); return }
+    askConfirm({
+      title: `Apply "${tpl.label}" template`,
+      message: `Replace ${role}'s module access with the ${tpl.label} preset? Approvals & Settings access stay as-is. Click Save Permissions afterwards to persist.`,
+      confirmLabel: 'Apply template',
+      onConfirm: () => {
+        setPermCfg(p => ({ ...p, [role]: { ...(p[role] || {}), modules: { ...tpl.modules }, scope: {} } }))
+        nexusToast.success(`${tpl.label} template applied to "${role}" — review, then Save Permissions`)
+      },
+    })
+  }
   const removeRole = (r) => {
-    if (customRoles.length <= 1) { toast.error('At least one role required'); return }
-    if (!window.confirm(`Remove role "${r}"? Members with this role keep it until reassigned.`)) return
-    saveRoles(customRoles.filter(x => x !== r))
+    if (customRoles.length <= 1) { nexusToast.error('At least one role required'); return }
+    askConfirm({
+      title: 'Remove role',
+      message: `Remove role "${r}"? Members with this role keep it until reassigned.`,
+      confirmLabel: 'Remove role',
+      danger: true,
+      onConfirm: () => saveRoles(customRoles.filter(x => x !== r)),
+    })
   }
 
-  const handleDelete = async () => {
-    if (!window.confirm(`Delete "${org?.name}"? This cannot be undone.`)) return
-    try {
-      await deleteOrganization(id)
-      toast.success('Organization deleted')
-      navigate('/Home')
-    } catch (err) {
-      toast.error(err?.response?.data?.message || 'Delete failed')
-    }
+  const handleDelete = () => {
+    askConfirm({
+      title: 'Delete organization',
+      message: `Delete "${org?.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete organization',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await deleteOrganization(id)
+          nexusToast.success('Organization deleted')
+          navigate('/Home')
+        } catch (err) {
+          nexusToast.error(err?.response?.data?.message || 'Delete failed')
+        }
+      },
+    })
   }
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim()) { toast.error('Email is required'); return }
+    if (!inviteEmail.trim()) { nexusToast.error('Email is required'); return }
     setInviting(true)
     try {
       const res = await inviteMember(id, { email: inviteEmail.trim(), role: inviteRole })
@@ -342,12 +465,12 @@ const OrganizationSettings = () => {
         const link = `${window.location.origin}/invitations/accept?token=${token}`
         setInviteLink(link)
       }
-      toast.success(`Invitation sent to ${inviteEmail.trim()}`)
+      nexusToast.success(`Invitation sent to ${inviteEmail.trim()}`)
       setInviteEmail('')
       setInviteRole('member')
       load()
     } catch (err) {
-      toast.error(err?.response?.data?.error || err?.response?.data?.message || 'Failed to send invitation')
+      nexusToast.error(err?.response?.data?.error || err?.response?.data?.message || 'Failed to send invitation')
     } finally {
       setInviting(false)
     }
@@ -357,35 +480,49 @@ const OrganizationSettings = () => {
     setRoleChanging(userId)
     try {
       await updateMemberRole(id, userId, newRole)
-      toast.success('Role updated')
+      nexusToast.success('Role updated')
       load()
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to update role')
+      nexusToast.error(err?.response?.data?.message || 'Failed to update role')
     } finally {
       setRoleChanging(null)
     }
   }
 
-  const handleRemove = async (userId, name) => {
-    if (!window.confirm(`Remove ${name} from this organization?`)) return
-    try {
-      await removeMember(id, userId)
-      toast.success('Member removed')
-      load()
-    } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to remove member')
-    }
+  const handleRemove = (userId, name) => {
+    askConfirm({
+      title: 'Remove member',
+      message: `Remove ${name} from this organization?`,
+      confirmLabel: 'Remove member',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await removeMember(id, userId)
+          nexusToast.success('Member removed')
+          load()
+        } catch (err) {
+          nexusToast.error(err?.response?.data?.message || 'Failed to remove member')
+        }
+      },
+    })
   }
 
-  const handleCancelInvite = async (invitationId, invitedUserId) => {
-    if (!window.confirm(`Cancel invitation for ${invitedUserId}?`)) return
-    try {
-      await cancelInvitation(id, invitationId)
-      toast.success('Invitation cancelled')
-      load()
-    } catch (err) {
-      toast.error('Failed to cancel invitation')
-    }
+  const handleCancelInvite = (invitationId, invitedUserId) => {
+    askConfirm({
+      title: 'Cancel invitation',
+      message: `Cancel invitation for ${invitedUserId}?`,
+      confirmLabel: 'Cancel invitation',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await cancelInvitation(id, invitationId)
+          nexusToast.success('Invitation cancelled')
+          load()
+        } catch (err) {
+          nexusToast.error('Failed to cancel invitation')
+        }
+      },
+    })
   }
 
   const inputStyle = {
@@ -411,8 +548,8 @@ const OrganizationSettings = () => {
     fontFamily: 'inherit',
     transition: 'all 0.15s',
     ...(variant === 'primary' && {
-      background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-      color: '#fff',
+      background: accent,
+      color: accentFg,
     }),
     ...(variant === 'danger' && {
       background: 'rgba(239,68,68,0.12)',
@@ -420,7 +557,7 @@ const OrganizationSettings = () => {
       border: '1px solid rgba(239,68,68,0.2)',
     }),
     ...(variant === 'ghost' && {
-      background: isDark ? 'rgba(255,255,255,0.05)' : '#f1f5f9',
+      background: bgInset,
       color: textSec,
       border: `1px solid ${border}`,
     }),
@@ -438,18 +575,19 @@ const OrganizationSettings = () => {
       <div style={{ fontSize: 34 }}>🔒</div>
       <div style={{ color: textPri, fontSize: 16, fontWeight: 700 }}>No access to Settings</div>
       <div style={{ color: textSec, fontSize: 13 }}>Ask the organization owner to grant you Settings access.</div>
-      <button onClick={() => navigate('/Home')} style={{ marginTop: 8, padding: '8px 18px', borderRadius: 9, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Back to Home</button>
+      <button onClick={() => navigate('/Home')} style={{ marginTop: 8, padding: '8px 18px', borderRadius: 9, border: 'none', background: accent, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Back to Home</button>
     </div>
   )
 
   return (
-    <div style={{ background: bgPage, minHeight: '100%', padding: '28px 24px', fontFamily: '"Inter", "DM Sans", sans-serif' }}>
+    <div style={{ background: bgPage, minHeight: '100%', padding: '28px 24px', fontFamily: '"Hanken Grotesk", system-ui, sans-serif' }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,450;0,500;0,600;0,700;0,800&family=JetBrains+Mono:wght@400;500;600&display=swap');
         .os-select { appearance: none; -webkit-appearance: none; }
-        .os-select option { background: #0f172a; color: #e2e8f0; }
-        .os-row:hover { background: ${isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc'} !important; }
+        .os-select option { background: ${bgCard}; color: ${textPri}; }
+        .os-row:hover { background: ${bgInset} !important; }
         .os-tab { cursor: pointer; transition: all 0.15s; }
+        .os-card { transition: border-color .2s ease, box-shadow .2s ease; }
       `}</style>
 
       <div style={{ maxWidth: '860px', margin: '0 auto' }}>
@@ -462,7 +600,7 @@ const OrganizationSettings = () => {
             </svg>
           </button>
           <div>
-            <h1 style={{ color: textPri, fontSize: '18px', fontWeight: '700', margin: 0, fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <h1 style={{ color: textPri, fontSize: '18px', fontWeight: '700', margin: 0, fontFamily: 'inherit' }}>
               {org?.name}
             </h1>
             <p style={{ color: textSec, fontSize: '12px', margin: '2px 0 0' }}>
@@ -472,7 +610,7 @@ const OrganizationSettings = () => {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: isDark ? 'rgba(255,255,255,0.04)' : '#f1f5f9', padding: '4px', borderRadius: '10px', width: 'fit-content' }}>
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: bgInset, padding: '4px', borderRadius: '10px', width: 'fit-content', border: `1px solid ${border}` }}>
           {['members', 'permissions', 'settings'].map((t) => (
             <button
               key={t}
@@ -484,11 +622,11 @@ const OrganizationSettings = () => {
                 border: 'none',
                 cursor: 'pointer',
                 fontSize: '13px',
-                fontWeight: '500',
+                fontWeight: tab === t ? '600' : '500',
                 fontFamily: 'inherit',
-                background: tab === t ? (isDark ? '#1e293b' : '#ffffff') : 'transparent',
-                color: tab === t ? textPri : textSec,
-                boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+                background: tab === t ? bgCard : 'transparent',
+                color: tab === t ? accent : textSec,
+                boxShadow: tab === t ? shadowSm : 'none',
                 textTransform: 'capitalize',
               }}
             >{t}</button>
@@ -501,8 +639,8 @@ const OrganizationSettings = () => {
 
             {/* Invite form */}
             {canManage && (
-              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '20px' }}>
-                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 14px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '20px', boxShadow: shadowSm }}>
+                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 14px', fontFamily: 'inherit' }}>
                   Invite Member
                 </h3>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
@@ -552,7 +690,7 @@ const OrganizationSettings = () => {
                         onFocus={(e) => e.target.select()}
                       />
                       <button
-                        onClick={() => { navigator.clipboard.writeText(inviteLink); toast.success('Link copied!') }}
+                        onClick={() => { navigator.clipboard.writeText(inviteLink); nexusToast.success('Link copied!') }}
                         style={{ ...btnStyle('ghost'), whiteSpace: 'nowrap', fontSize: '12px' }}
                       >
                         Copy
@@ -573,9 +711,9 @@ const OrganizationSettings = () => {
             )}
 
             {/* Members list */}
-            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', overflow: 'hidden' }}>
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', overflow: 'hidden', boxShadow: shadowSm }}>
               <div style={{ padding: '16px 20px', borderBottom: `1px solid ${border}` }}>
-                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: 0, fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: 0, fontFamily: 'inherit' }}>
                   Members ({members.length})
                 </h3>
               </div>
@@ -594,12 +732,12 @@ const OrganizationSettings = () => {
                 >
                   <div style={{
                     width: '36px', height: '36px', borderRadius: '10px',
-                    background: 'rgba(59,130,246,0.12)',
-                    border: '1px solid rgba(59,130,246,0.2)',
+                    background: accentSoft,
+                    border: `1px solid ${accentLine}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0,
                   }}>
-                    <span style={{ color: '#60a5fa', fontSize: '13px', fontWeight: '700', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+                    <span style={{ color: accent, fontSize: '13px', fontWeight: '700', fontFamily: 'inherit' }}>
                       {m.userId.charAt(0).toUpperCase()}
                     </span>
                   </div>
@@ -661,9 +799,9 @@ const OrganizationSettings = () => {
 
             {/* Pending invitations */}
             {invitations.length > 0 && (
-              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', overflow: 'hidden' }}>
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', overflow: 'hidden', boxShadow: shadowSm }}>
                 <div style={{ padding: '16px 20px', borderBottom: `1px solid ${border}` }}>
-                  <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: 0, fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+                  <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: 0, fontFamily: 'inherit' }}>
                     Pending Invitations ({invitations.length})
                   </h3>
                 </div>
@@ -687,7 +825,7 @@ const OrganizationSettings = () => {
                           onClick={() => {
                             const link = `${window.location.origin}/invitations/accept?token=${inv.token}`
                             navigator.clipboard.writeText(link)
-                            toast.success('Invite link copied!')
+                            nexusToast.success('Invite link copied!')
                           }}
                           title="Copy invite link"
                           style={{ ...btnStyle('ghost'), padding: '6px 12px', fontSize: '12px' }}
@@ -716,7 +854,7 @@ const OrganizationSettings = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: 860 }}>
 
             {/* Manage roles */}
-            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
               <h3 style={{ color: textPri, fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Roles</h3>
               <p style={{ color: textSec, fontSize: 12, margin: '0 0 16px' }}>Create your own roles. Owner &amp; Admin are built-in (full access).</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
@@ -724,7 +862,7 @@ const OrganizationSettings = () => {
                   <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 999, background: inputBg, border: `1px solid ${border}`, fontSize: 12, color: textSec, textTransform: 'capitalize' }}>{r} <span style={{ fontSize: 9, opacity: .7 }}>built-in</span></span>
                 ))}
                 {customRoles.map(r => (
-                  <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderRadius: 999, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)', fontSize: 12, color: '#60a5fa', textTransform: 'capitalize' }}>
+                  <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderRadius: 999, background: accentSoft, border: `1px solid ${accentLine}`, fontSize: 12, color: accent, textTransform: 'capitalize' }}>
                     {r}
                     {canManage && <button onClick={() => removeRole(r)} disabled={rolesSaving} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>}
                   </span>
@@ -735,13 +873,13 @@ const OrganizationSettings = () => {
                   <input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addRole()}
                     placeholder="New role name (e.g. accountant)" maxLength={24}
                     style={{ flex: 1, maxWidth: 280, padding: '8px 12px', borderRadius: 8, border: `1px solid ${inputBorder}`, background: inputBg, color: textPri, fontSize: 13, outline: 'none' }} />
-                  <button onClick={addRole} disabled={rolesSaving || !newRoleName.trim()} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Add Role</button>
+                  <button onClick={addRole} disabled={rolesSaving || !newRoleName.trim()} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: accent, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Add Role</button>
                 </div>
               )}
             </div>
 
             {/* Role-scoped access editor — pick a role, edit just that role */}
-            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
               <h3 style={{ color: textPri, fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>Access Per Role</h3>
               <p style={{ color: textSec, fontSize: 12, margin: '0 0 16px' }}>Pick a role to set its module access &amp; approvals. Owner &amp; Admin always have full access.</p>
 
@@ -751,12 +889,26 @@ const OrganizationSettings = () => {
                   const on = (selectedRole === r) || (!customRoles.includes(selectedRole) && customRoles[0] === r)
                   return (
                     <button key={r} onClick={() => setSelectedRole(r)}
-                      style={{ padding: '7px 16px', borderRadius: 999, border: `1.5px solid ${on ? '#3b82f6' : border}`, background: on ? 'rgba(59,130,246,0.12)' : inputBg, color: on ? '#3b82f6' : textPri, fontSize: 13, fontWeight: on ? 700 : 500, cursor: 'pointer', textTransform: 'capitalize' }}>
+                      style={{ padding: '7px 16px', borderRadius: 999, border: `1.5px solid ${on ? accent : border}`, background: on ? accentSoft : inputBg, color: on ? accent : textPri, fontSize: 13, fontWeight: on ? 700 : 500, cursor: 'pointer', textTransform: 'capitalize' }}>
                       {r}
                     </button>
                   )
                 })}
               </div>
+
+              {/* Quick templates — one-click presets for the selected role */}
+              {canManage && customRoles.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 20, padding: '12px 14px', borderRadius: 10, background: inputBg, border: `1px dashed ${border}` }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: textSec, marginRight: 4 }}>Quick template:</span>
+                  {ROLE_TEMPLATES.map(tpl => (
+                    <button key={tpl.key} onClick={() => applyTemplate(tpl)} title={tpl.desc}
+                      style={{ padding: '6px 13px', borderRadius: 999, border: `1px solid ${accentLine}`, background: accentSoft, color: accent, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      {tpl.label}
+                    </button>
+                  ))}
+                  <span style={{ fontSize: 11, color: textSec, marginLeft: 'auto' }}>Fills the matrix below — review &amp; Save.</span>
+                </div>
+              )}
 
               {(() => {
                 const role = customRoles.includes(selectedRole) ? selectedRole : customRoles[0]
@@ -766,23 +918,37 @@ const OrganizationSettings = () => {
                     {/* Module access — independent View / Add / Edit capabilities */}
                     <div>
                       <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Module Access</p>
-                      <p style={{ fontSize: 11, color: textSec, margin: '-4px 0 10px' }}>View = read · Add = create new · Edit = change existing. Combine freely; none ticked = no access.</p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {PERM_MODULES.map(m => (
-                          <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg }}>
-                            <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>{m.label}</span>
-                            <div style={{ display: 'flex', gap: 10 }}>
-                              {PERM_CAPS.map(cap => {
-                                const on = hasModCap(role, m.key, cap)
-                                return (
-                                  <label key={cap} title={cap} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: canManage ? 'pointer' : 'default', fontSize: 11, fontWeight: 600, color: on ? '#3b82f6' : textSec, textTransform: 'capitalize' }}>
-                                    <input type="checkbox" checked={on} disabled={!canManage}
-                                      onChange={() => canManage && toggleModCap(role, m.key, cap)}
-                                      style={{ width: 14, height: 14, cursor: canManage ? 'pointer' : 'default' }} />
-                                    {cap}
-                                  </label>
-                                )
-                              })}
+                      <p style={{ fontSize: 11, color: textSec, margin: '-4px 0 10px' }}>View = read · Add = create · Edit = change · Delete = remove · Export = download/print. Combine freely; none ticked = no access. Scope = which records are visible (All / Own only).</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        {[...new Set(PERM_MODULES.map(m => m.group))].map(group => (
+                          <div key={group}>
+                            <p style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: '.08em', margin: '0 0 6px' }}>{group}</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {PERM_MODULES.filter(m => m.group === group).map(m => (
+                                <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg }}>
+                                  <span style={{ fontSize: 13, color: textPri, fontWeight: 500, minWidth: 120 }}>{m.label}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    {PERM_CAPS.map(cap => {
+                                      const on = hasModCap(role, m.key, cap)
+                                      return (
+                                        <label key={cap} title={cap} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: canManage ? 'pointer' : 'default', fontSize: 11, fontWeight: 600, color: on ? accent : textSec, textTransform: 'capitalize' }}>
+                                          <input type="checkbox" checked={on} disabled={!canManage}
+                                            onChange={() => canManage && toggleModCap(role, m.key, cap)}
+                                            style={{ width: 14, height: 14, cursor: canManage ? 'pointer' : 'default' }} />
+                                          {cap}
+                                        </label>
+                                      )
+                                    })}
+                                    <CustomSelect
+                                      value={scopeOf(role, m.key)}
+                                      options={[{ value: 'all', label: 'All' }, { value: 'own', label: 'Own' }]}
+                                      onChange={(v) => canManage && setScope(role, m.key, v)}
+                                      disabled={!canManage}
+                                      colors={{ border, inputBg, textPri, accent, accentSoft, bgCard, shadow: shadowSm }}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         ))}
@@ -805,7 +971,7 @@ const OrganizationSettings = () => {
 
                       {/* Settings access grant (owner-controlled) */}
                       <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '18px 0 10px' }}>Settings Access</p>
-                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', border: `1px solid ${settingsGrant(role) ? '#3b82f6' : border}`, borderRadius: 10, background: inputBg, cursor: isOwner ? 'pointer' : 'default' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', border: `1px solid ${settingsGrant(role) ? accent : border}`, borderRadius: 10, background: inputBg, cursor: isOwner ? 'pointer' : 'default' }}>
                         <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>Can open organization Settings</span>
                         <input type="checkbox" checked={settingsGrant(role)} disabled={!isOwner}
                           onChange={() => isOwner && toggleSettingsGrant(role)}
@@ -821,7 +987,7 @@ const OrganizationSettings = () => {
             {canManage && (
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={savePermissions} disabled={permSaving}
-                  style={{ padding: '9px 22px', borderRadius: 9, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: permSaving ? 'wait' : 'pointer' }}>
+                  style={{ padding: '9px 22px', borderRadius: 9, border: 'none', background: accent, color: '#fff', fontSize: 13, fontWeight: 700, cursor: permSaving ? 'wait' : 'pointer' }}>
                   {permSaving ? 'Saving…' : 'Save Permissions'}
                 </button>
               </div>
@@ -832,8 +998,8 @@ const OrganizationSettings = () => {
         {/* ── Settings Tab ── */}
         {tab === 'settings' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
-              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 18px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 18px', fontFamily: 'inherit' }}>
                 General Settings
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -871,8 +1037,8 @@ const OrganizationSettings = () => {
             </div>
 
             {/* ── Letterhead ── */}
-            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
-              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 4px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 4px', fontFamily: 'inherit' }}>
                 Document Letterhead
               </h3>
               <p style={{ color: textSec, fontSize: '12px', margin: '0 0 18px' }}>
@@ -932,7 +1098,7 @@ const OrganizationSettings = () => {
                     <button
                       onClick={handleLetterheadRemove}
                       disabled={letterheadSaving}
-                      style={{ padding: '9px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontFamily: 'Plus Jakarta Sans, sans-serif', opacity: letterheadSaving ? 0.6 : 1 }}>
+                      style={{ padding: '9px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontFamily: 'inherit', opacity: letterheadSaving ? 0.6 : 1 }}>
                       Remove
                     </button>
                   )}
@@ -941,8 +1107,8 @@ const OrganizationSettings = () => {
             </div>
 
             {/* ── Company Stamp / Seal ── */}
-            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
-              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 4px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 4px', fontFamily: 'inherit' }}>
                 Company Stamp / Seal
               </h3>
               <p style={{ color: textSec, fontSize: '12px', margin: '0 0 18px' }}>
@@ -973,7 +1139,7 @@ const OrganizationSettings = () => {
                   )}
                   {stamp && (
                     <button onClick={handleStampRemove} disabled={stampSaving}
-                      style={{ padding: '9px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontFamily: 'Plus Jakarta Sans, sans-serif', opacity: stampSaving ? 0.6 : 1 }}>
+                      style={{ padding: '9px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontFamily: 'inherit', opacity: stampSaving ? 0.6 : 1 }}>
                       Remove
                     </button>
                   )}
@@ -983,8 +1149,8 @@ const OrganizationSettings = () => {
 
             {/* Salutations */}
             {canManage && (
-              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
-                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 6px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 6px', fontFamily: 'inherit' }}>
                   Salutations
                 </h3>
                 <p style={{ color: textSec, fontSize: '12px', margin: '0 0 14px' }}>
@@ -992,7 +1158,7 @@ const OrganizationSettings = () => {
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
                   {salutations.map(s => (
-                    <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '999px', background: isDark ? 'rgba(59,130,246,0.12)' : '#eff6ff', border: `1px solid ${isDark ? 'rgba(59,130,246,0.25)' : '#bfdbfe'}`, fontSize: '13px', fontWeight: '600', color: isDark ? '#60a5fa' : '#1d4ed8' }}>
+                    <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '999px', background: accentSoft, border: `1px solid ${accentLine}`, fontSize: '13px', fontWeight: '600', color: accent }}>
                       {s}
                       <button onClick={() => removeSalutation(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 0 0 2px', fontSize: '13px', lineHeight: 1, display: 'flex', alignItems: 'center', opacity: 0.7 }}>×</button>
                     </span>
@@ -1014,8 +1180,8 @@ const OrganizationSettings = () => {
             )}
 
             {/* Role reference */}
-            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px' }}>
-              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 14px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 14px', fontFamily: 'inherit' }}>
                 Role Permissions
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1025,7 +1191,7 @@ const OrganizationSettings = () => {
                   { role: 'member', desc: 'Can access all data, create and edit records.' },
                   { role: 'viewer', desc: 'Read-only access to all organization data.' },
                 ].map(({ role, desc }) => (
-                  <div key={role} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc', border: `1px solid ${border}` }}>
+                  <div key={role} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: bgInset, border: `1px solid ${border}` }}>
                     <RoleBadge role={role} />
                     <p style={{ color: textSec, fontSize: '12px', margin: 0, lineHeight: 1.5 }}>{desc}</p>
                   </div>
@@ -1036,7 +1202,7 @@ const OrganizationSettings = () => {
             {/* Danger zone */}
             {myRole === 'owner' && (
               <div style={{ background: bgCard, border: '1px solid rgba(239,68,68,0.2)', borderRadius: '14px', padding: '22px' }}>
-                <h3 style={{ color: '#f87171', fontSize: '14px', fontWeight: '600', margin: '0 0 8px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+                <h3 style={{ color: '#f87171', fontSize: '14px', fontWeight: '600', margin: '0 0 8px', fontFamily: 'inherit' }}>
                   Danger Zone
                 </h3>
                 <p style={{ color: textSec, fontSize: '12px', margin: '0 0 14px' }}>
@@ -1050,6 +1216,38 @@ const OrganizationSettings = () => {
           </div>
         )}
       </div>
+
+      {/* Custom confirm modal */}
+      {confirmState && (
+        <div
+          onClick={() => !confirmBusy && setConfirmState(null)}
+          style={{ position: 'fixed', inset: 0, background: isDark ? 'rgba(0,0,0,0.55)' : 'rgba(20,22,28,0.32)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20, animation: 'os-fade-in 0.12s ease' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 400, background: bgCard, border: `1px solid ${border}`, borderRadius: 16, boxShadow: shadowSm, padding: '22px 22px 18px', animation: 'os-pop 0.14s ease', fontFamily: 'inherit' }}
+          >
+            <h3 style={{ color: textPri, fontSize: 16, fontWeight: 700, margin: '0 0 8px' }}>{confirmState.title}</h3>
+            <p style={{ color: textSec, fontSize: 13, lineHeight: 1.55, margin: '0 0 20px' }}>{confirmState.message}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setConfirmState(null)} disabled={confirmBusy}
+                style={{ padding: '8px 16px', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: confirmBusy ? 'default' : 'pointer', fontFamily: 'inherit', background: bgInset, color: textSec, border: `1px solid ${border}` }}>
+                Cancel
+              </button>
+              <button onClick={runConfirm} disabled={confirmBusy}
+                style={{ padding: '8px 16px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: confirmBusy ? 'wait' : 'pointer', fontFamily: 'inherit', border: 'none',
+                  background: confirmState.danger ? '#dc2f3c' : accent, color: '#fff', opacity: confirmBusy ? 0.7 : 1 }}>
+                {confirmBusy ? 'Working…' : (confirmState.confirmLabel || 'Confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes os-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes os-pop { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: none; } }
+      `}</style>
     </div>
   )
 }

@@ -260,7 +260,7 @@ export default function DeliveryNote() {
       await api.patch(`/api/delivery-notes/${note._id}/status`, { status: 'dispatched' });
       setNote((p) => ({ ...p, status: 'dispatched' }));
       showToast('Dispatch confirmed — stock updated!', '✅');
-    } catch { showToast('Failed to confirm dispatch.', '❌'); }
+    } catch (e) { showToast(e.response?.data?.message || 'Failed to confirm dispatch.', '❌'); }
     finally { setConfirmLoading(false); }
   };
 
@@ -271,7 +271,7 @@ export default function DeliveryNote() {
       await api.patch(`/api/delivery-notes/${note._id}/status`, { status: 'delivered' });
       setNote((p) => ({ ...p, status: 'delivered', deliveredAt: new Date().toISOString() }));
       showToast('Marked as delivered!', '✅');
-    } catch { showToast('Failed to update status.', '❌'); }
+    } catch (e) { showToast(e.response?.data?.message || 'Failed to update status.', '❌'); }
     finally { setDeliverLoading(false); }
   };
 
