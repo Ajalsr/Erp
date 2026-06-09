@@ -8,6 +8,7 @@ import {
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
 
@@ -107,6 +108,7 @@ export default function Quotes() {
   }, [page, status]);
 
   useEffect(() => { load(); }, [load]);
+  useRealtime(['quotes_updated','invoices_updated','sales_orders_updated','enquiries_updated'], load);
 
   const filtered = search
     ? quotes.filter(q =>

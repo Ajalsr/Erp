@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 
 const RANGES = [
   { label: "This Week",    value: "week"    },
@@ -19,11 +20,11 @@ const RANGES = [
 ];
 
 const fmtM = (n) =>
-  `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `${baseCurrency()} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtK = (n) => {
-  if (n >= 1_000_000) return `AED ${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `AED ${(n / 1_000).toFixed(1)}K`;
-  return `AED ${parseFloat(n || 0).toFixed(0)}`;
+  if (n >= 1_000_000) return `${baseCurrency()} ${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000)     return `${baseCurrency()} ${(n / 1_000).toFixed(1)}K`;
+  return `${baseCurrency()} ${parseFloat(n || 0).toFixed(0)}`;
 };
 const fmtD = (d) =>
   d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -47,6 +48,7 @@ const BILL_STATUS_COLOR = {
 };
 
 export default function PurchaseReport() {
+  useBaseCurrency();
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
 

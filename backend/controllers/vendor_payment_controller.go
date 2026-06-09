@@ -60,6 +60,10 @@ func CreateVendorPayment() gin.HandlerFunc {
 			p.Date = time.Now().Format("2006-01-02")
 		}
 
+		// Bill currency + frozen rate, captured for the FX-aware payment JE below.
+		billCurrency := ""
+		billRate := 1.0
+
 		// ── 1. Apply to linked bill ──────────────────────────────────────────
 		overpayment := 0.0
 		if p.BillID != "" {
@@ -68,6 +72,10 @@ func CreateVendorPayment() gin.HandlerFunc {
 				var b models.Bill
 				err = billCollection.FindOne(ctx, bson.M{"_id": billObjID, "orgId": orgIDStr}).Decode(&b)
 				if err == nil {
+					billCurrency = b.Currency
+					if b.ExchangeRate > 0 {
+						billRate = b.ExchangeRate
+					}
 					newPaid    := b.AmountPaid + p.Amount
 					newBalance := b.Totals.GrandTotal - newPaid
 					if newBalance < 0 {
@@ -130,13 +138,11 @@ func CreateVendorPayment() gin.HandlerFunc {
 			return
 		}
 
-		// Journal entry: DR Accounts Payable / CR Bank/Cash
+		// Journal entry: DR Accounts Payable / CR Bank/Cash, in base currency, with
+		// realised FX gain/loss when the payment-date rate differs from the bill's.
 		go autoJE(p.OrgID, "vendor_payment", p.ID.Hex(), p.PaymentNumber, p.Date,
 			"Vendor payment - "+p.BillNumber,
-			[]jeLineInput{
-				{AccountCode: "2000", Debit: p.Amount},
-				{AccountCode: "1001", Credit: p.Amount},
-			})
+			buildVendorPaymentJE(ctx, p.OrgID, "1001", p.Amount, billCurrency, billRate, p.Date))
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,

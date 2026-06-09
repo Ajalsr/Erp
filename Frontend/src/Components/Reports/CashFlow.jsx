@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { FaMoneyBillWave, FaFilter } from 'react-icons/fa';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { useBaseCurrency, baseCurrency } from '../../helper/currency';
 
 const fmt = v => Number(v || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const signed = v => `${v < 0 ? '-' : ''}AED ${fmt(Math.abs(v || 0))}`;
+const signed = v => `${v < 0 ? '-' : ''}${baseCurrency()} ${fmt(Math.abs(v || 0))}`;
 
 export default function CashFlow() {
+  useBaseCurrency();
   const isDark = useThemeStore(s => s.isDark);
   const T = { ...getTheme(isDark), isDark };
 

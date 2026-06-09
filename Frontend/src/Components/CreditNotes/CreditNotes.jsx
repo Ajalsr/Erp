@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft, FaChevronRight, FaBan, FaCheck } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 
 /* ─── Refund payment mode config ────────────────────────────────────────── */
@@ -626,6 +627,7 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useRealtime(['credit_notes_updated','invoices_updated'], load);
 
   // Load all customers once on mount
   useEffect(() => {

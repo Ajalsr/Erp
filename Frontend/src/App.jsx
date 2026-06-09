@@ -29,6 +29,7 @@ import AcceptInvitation from "./Components/Organization/AcceptInvitation"
 import Invoices from "./Components/Invoices/Invoices"
 import InvoicePrint from "./Components/Invoices/InvoicePrint"
 import Createinvoices from "./Components/Createinvoices/Createinvoices"
+import RecurringInvoices from "./Components/RecurringInvoices/RecurringInvoices"
 import PaymentsReceived from "./Components/PaymentsReceived/PaymentsReceived"
 import AdvancePayments from "./Components/AdvancePayments/AdvancePayments"
 import Bills from "./Components/Bills/Bills"
@@ -51,6 +52,7 @@ import Accounts from "./Components/Accounts/Accounts"
 import NewAccount from "./Components/NewAccount/NewAccount"
 import JournalEntries from "./Components/Finance/JournalEntries"
 import BankReconciliation from "./Components/Finance/BankReconciliation"
+import ExchangeRates from "./Components/Finance/ExchangeRates"
 import ItemGroups from "./Components/ItemGroups/ItemGroups"
 import PriceLists from "./Components/PriceLists/PriceLists"
 import NewPriceList from "./Components/NewPriceList/NewPriceList"
@@ -132,6 +134,7 @@ function App() {
             <Route path="/Sales/Invoices" element={<Invoices />} />
             <Route path="/Sales/Invoices/:id/print" element={<InvoicePrint />} />
             <Route path="/Sales/Createinvoices" element={<Createinvoices />} />
+            <Route path="/Sales/RecurringInvoices" element={<RecurringInvoices />} />
             <Route path="/Sales/PaymentsReceived" element={<PaymentsReceived />} />
             <Route path="/Sales/AdvancePayments"   element={<AdvancePayments />} />
             <Route path="/Purchase/Bills" element={<Bills />} />
@@ -155,6 +158,7 @@ function App() {
             <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
             <Route path="/Finance/JournalEntries"  element={<JournalEntries />} />
             <Route path="/Finance/BankReconciliation" element={<BankReconciliation />} />
+            <Route path="/Finance/ExchangeRates" element={<ExchangeRates />} />
             <Route path="/Items/item-groups"        element={<ItemGroups />} />
             <Route path="/Items/price-lists"        element={<PriceLists />} />
             <Route path="/Items/price-lists/new"    element={<NewPriceList />} />

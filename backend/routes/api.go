@@ -387,6 +387,52 @@ func EnquiryRoutes(router *gin.Engine) {
 	}
 }
 
+// RecurringInvoiceRoutes — templates that auto-generate invoices on a schedule.
+// Gated by the invoices module (a recurring profile is just an invoice factory).
+func RecurringInvoiceRoutes(router *gin.Engine) {
+	riRoutes := router.Group("/api/recurring-invoices")
+	riRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("invoices"))
+	{
+		riRoutes.POST("/", controllers.CreateRecurringInvoice())
+		riRoutes.GET("/", controllers.GetAllRecurringInvoices())
+		riRoutes.GET("/:id", controllers.GetRecurringInvoiceByID())
+		riRoutes.PUT("/:id", controllers.UpdateRecurringInvoice())
+		riRoutes.PATCH("/:id/status", controllers.UpdateRecurringInvoiceStatus())
+		riRoutes.POST("/:id/run", controllers.RunRecurringInvoiceNow())
+		riRoutes.DELETE("/:id", controllers.DeleteRecurringInvoice())
+	}
+}
+
+// ExchangeRateRoutes — manual FX quotes powering multi-currency conversion to the
+// org base currency. Reads are open to any org member (invoice/bill forms and the
+// dashboard need the base currency + rate); only creating a rate needs the accounts
+// module (finance setup).
+func ExchangeRateRoutes(router *gin.Engine) {
+	fxRead := router.Group("/api/exchange-rates")
+	fxRead.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		fxRead.GET("/", controllers.GetExchangeRates())
+		fxRead.GET("/latest", controllers.GetLatestRate())
+	}
+
+	fxWrite := router.Group("/api/exchange-rates")
+	fxWrite.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("accounts"))
+	{
+		fxWrite.POST("/", controllers.CreateExchangeRate())
+	}
+}
+
+// SearchRoutes — cross-module global search. Gated only by org membership; each
+// result category is filtered by the caller's view permission inside the handler.
+func SearchRoutes(router *gin.Engine) {
+	searchRoutes := router.Group("/api/search")
+	searchRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		searchRoutes.GET("", controllers.GlobalSearch())
+		searchRoutes.GET("/", controllers.GlobalSearch())
+	}
+}
+
 func ReportsRoutes(router *gin.Engine) {
 	rptRoutes := router.Group("/api/reports")
 	rptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("reports"))

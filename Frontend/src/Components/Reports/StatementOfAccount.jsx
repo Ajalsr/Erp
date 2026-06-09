@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { FaFileAlt, FaPrint, FaChevronDown, FaChevronLeft, FaChevronRight, FaCalendarAlt } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 
 const fmt = (n) =>
   Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -223,6 +224,7 @@ function CustomerDropdown({ value, onChange, customers, T }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function StatementOfAccount() {
+  useBaseCurrency();
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const printRef = useRef(null);
@@ -416,7 +418,7 @@ export default function StatementOfAccount() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {[["Date","l"],["Reference","l"],["Description","l"],["Debit (AED)","r"],["Credit (AED)","r"],["Balance (AED)","r"]].map(([h, a]) => (
+                    {[["Date","l"],["Reference","l"],["Description","l"],[`Debit (${baseCurrency()})`,"r"],[`Credit (${baseCurrency()})`,"r"],[`Balance (${baseCurrency()})`,"r"]].map(([h, a]) => (
                       <th key={h} className={a === "r" ? "num" : ""} style={{
                         padding: "10px 12px", textAlign: a === "r" ? "right" : "left",
                         fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em",

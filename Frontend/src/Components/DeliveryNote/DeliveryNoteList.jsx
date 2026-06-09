@@ -6,6 +6,7 @@ import {
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 
 const STATUSES = [
   { key: "all",        label: "All",         color: "#64748b", dim: "rgba(100,116,139,.12)" },
@@ -60,6 +61,7 @@ export default function DeliveryNoteList() {
   }, [page, statusFilter, search]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
+  useRealtime(['delivery_notes_updated','sales_orders_updated'], () => { fetchNotes(); fetchStats(); });
   useEffect(() => { fetchNotes(); }, [fetchNotes]);
 
   const css = `

@@ -11,6 +11,7 @@ import { format, addDays, addMonths, addYears, isSameDay } from "date-fns";
 import "react-datepicker/dist/react-datepicker.css";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 import useGetCustomers from "../../helper/useGetCustomers";
 import { usePermissions } from "../../helper/permissions";
@@ -538,6 +539,7 @@ export default function Enquiries() {
   }, []);
 
   useEffect(() => { loadEnquiries(); }, [loadEnquiries]);
+  useRealtime(['enquiries_updated','quotes_updated'], () => { loadEnquiries(); loadStats(); });
   useEffect(() => { loadStats(); }, [loadStats]);
 
   const [creatingCustomer, setCreatingCustomer] = useState(false);

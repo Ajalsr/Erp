@@ -434,6 +434,8 @@ const CreateInvoice = () => {
   const [issueDate,     setIssueDate]     = useState(today());
   const [dueDate,       setDueDate]       = useState(net30());
   const [currency,      setCurrency]      = useState("AED");
+  const [baseCurrency,  setBaseCurrency]  = useState("AED");
+  const [exchangeRate,  setExchangeRate]  = useState(1);
   const [terms,         setTerms]         = useState("Net 30");
   const [customerId,    setCustomerId]    = useState("");
   const [custName,      setCustName]      = useState("");
@@ -460,6 +462,23 @@ const CreateInvoice = () => {
       .then(res => setStockList(res.data?.data || []))
       .catch(() => {});
   }, []);
+
+  // Load org base currency once; default a new invoice to it.
+  useEffect(() => {
+    axiosInstance.get('/api/exchange-rates/').then((r) => {
+      const base = r.data?.baseCurrency || 'AED';
+      setBaseCurrency(base);
+      setCurrency((c) => (c === 'AED' ? base : c));
+    }).catch(() => {});
+  }, []);
+
+  // Resolve the txn→base rate whenever currency or issue date changes.
+  useEffect(() => {
+    if (!currency || currency === baseCurrency) { setExchangeRate(1); return; }
+    axiosInstance.get('/api/exchange-rates/latest', { params: { from: currency, date: issueDate } })
+      .then((r) => setExchangeRate(r.data?.rate > 0 ? r.data.rate : 1))
+      .catch(() => setExchangeRate(1));
+  }, [currency, baseCurrency, issueDate]);
 
   // Pre-fill form when editing an existing draft from the invoice list
   useEffect(() => {
@@ -674,7 +693,7 @@ const CreateInvoice = () => {
     const dnId    = prefill.dnId;
     const dnNumber = prefill.dnNumber || "";
     return {
-      invoiceNumber, issueDate, dueDate, currency, paymentTerms: terms,
+      invoiceNumber, issueDate, dueDate, currency, exchangeRate, paymentTerms: terms,
       from:      { name: fromName, address: fromAddr, trn: fromTrn },
       billTo:    { name: custName, address: custAddr, trn: custTrn },
       customerId,
@@ -834,8 +853,13 @@ const CreateInvoice = () => {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Field label="Currency">
                   <Sel value={currency} onChange={e => setCurrency(e.target.value)}>
-                    {["AED — UAE Dirham","USD — US Dollar","EUR — Euro","GBP — British Pound","SAR — Saudi Riyal"].map(c => <option key={c}>{c}</option>)}
+                    {[["AED","AED — UAE Dirham"],["USD","USD — US Dollar"],["EUR","EUR — Euro"],["GBP","GBP — British Pound"],["SAR","SAR — Saudi Riyal"]].map(([code,label]) => <option key={code} value={code}>{label}</option>)}
                   </Sel>
+                  {currency && currency !== baseCurrency && (
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>
+                      1 {currency} = {Number(exchangeRate).toLocaleString("en-AE", { maximumFractionDigits: 6 })} {baseCurrency} · books in {baseCurrency} ({baseCurrency} {Number(totals.grandTotal * exchangeRate).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                    </div>
+                  )}
                 </Field>
                 <Field label="Payment Terms">
                   <Sel value={terms} onChange={e => { if (!isFromDN) setTerms(e.target.value); }} disabled={isFromDN} style={isFromDN ? { opacity: 0.7, cursor: "not-allowed" } : {}}>

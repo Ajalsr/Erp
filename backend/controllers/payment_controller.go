@@ -57,6 +57,157 @@ func CreatePayment() gin.HandlerFunc {
 			p.Date = time.Now().Format("2006-01-02")
 		}
 
+		// ── Multi-invoice allocation path ────────────────────────────────────
+		// One received amount split across several invoices (FIFO-filled on the
+		// client, editable). Any amount beyond all allocated invoices becomes credit
+		// on the customer's account (Customer Advances), never a credit note.
+		if len(p.Allocations) > 0 {
+			type jePart struct {
+				ccy    string
+				rate   float64
+				amount float64
+			}
+			var parts []jePart
+			var totalApplied float64
+			custID := p.CustomerID
+
+			for i := range p.Allocations {
+				al := p.Allocations[i]
+				invObjID, err := primitive.ObjectIDFromHex(al.InvoiceID)
+				if err != nil {
+					continue
+				}
+				var inv models.Invoice
+				if invoiceCollection.FindOne(ctx, bson.M{"_id": invObjID, "orgId": orgID}).Decode(&inv) != nil {
+					continue
+				}
+				if inv.Type == "proforma" {
+					continue
+				}
+				bal := inv.Totals.GrandTotal - inv.AmountPaid
+				if bal < 0 {
+					bal = 0
+				}
+				applied := al.Amount
+				if applied > bal {
+					applied = bal // never over-apply a single invoice
+				}
+				if applied <= 0 {
+					continue
+				}
+				newPaid := inv.AmountPaid + applied
+				newBalance := inv.Totals.GrandTotal - newPaid
+				if newBalance < 0 {
+					newBalance = 0
+				}
+				newStatus := "partial"
+				if newBalance <= 0 {
+					newStatus = "paid"
+				}
+				invoiceCollection.UpdateOne(ctx, bson.M{"_id": invObjID, "orgId": orgID}, bson.M{"$set": bson.M{
+					"amountPaid": newPaid,
+					"balanceDue": newBalance,
+					"status":     newStatus,
+					"updatedAt":  time.Now(),
+				}})
+
+				pushInvoiceHistory(ctx, invObjID,
+					"Payment received",
+					p.CreatedBy,
+					fmt.Sprintf("%.2f via %s (%s)", applied, p.PaymentMode, p.PaymentNumber))
+
+				rate := 1.0
+				if inv.ExchangeRate > 0 {
+					rate = inv.ExchangeRate
+				}
+				parts = append(parts, jePart{ccy: inv.Currency, rate: rate, amount: applied})
+				p.Allocations[i].Amount = applied
+				p.Allocations[i].InvoiceNumber = inv.InvoiceNumber
+				totalApplied += applied
+				if custID == "" {
+					custID = inv.CustomerID
+				}
+			}
+
+			totalApplied = round2(totalApplied)
+			excess := round2(p.Amount - totalApplied)
+			if excess < 0 {
+				excess = 0
+			}
+			p.CustomerID = custID
+			p.ExcessCredit = excess
+			p.InvoiceID = ""
+			p.InvoiceNumber = ""
+
+			// Customer: applied portion reduces AR; excess becomes credit on account.
+			if custID != "" {
+				custFilter := bson.M{"orgId": orgID}
+				if oid, e := primitive.ObjectIDFromHex(custID); e == nil {
+					custFilter["_id"] = oid
+				} else {
+					custFilter["_id"] = custID
+				}
+				inc := bson.M{"outstanding_balance": -totalApplied}
+				if excess > 0 {
+					inc["unused_credits"] = excess
+				}
+				customersCollection.UpdateOne(ctx, custFilter, bson.M{
+					"$inc": inc,
+					"$push": bson.M{"history": bson.M{
+						"action":    "payment_received",
+						"timestamp": time.Now(),
+						"user":      p.CreatedBy,
+						"details": bson.M{
+							"amount":        p.Amount,
+							"paymentNumber": p.PaymentNumber,
+							"invoicesPaid":  len(parts),
+							"excessCredit":  excess,
+							"paymentMode":   p.PaymentMode,
+							"reference":     p.Reference,
+						},
+					}},
+					"$set": bson.M{"updated_at": time.Now()},
+				})
+			}
+
+			if _, err := paymentCollection.InsertOne(ctx, p); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to record payment", "error": err.Error()})
+				return
+			}
+
+			// GL: one balanced entry per invoice (DR Bank / CR AR + FX gain/loss),
+			// plus the excess as DR Bank / CR Customer Advances (2400).
+			for _, pt := range parts {
+				lines := buildPaymentReceiptJE(ctx, p.OrgID, "1001", pt.amount, pt.ccy, pt.rate, p.Date)
+				go autoJE(p.OrgID, "payment", p.ID.Hex(), p.PaymentNumber, p.Date,
+					"Payment received - "+p.PaymentNumber, lines)
+			}
+			if excess > 0 {
+				go autoJE(p.OrgID, "payment", p.ID.Hex(), p.PaymentNumber, p.Date,
+					"Customer advance (overpayment) - "+p.PaymentNumber,
+					[]jeLineInput{
+						{AccountCode: "1001", Debit: excess},
+						{AccountCode: "2400", Credit: excess},
+					})
+			}
+
+			c.JSON(http.StatusCreated, gin.H{
+				"status":  http.StatusCreated,
+				"message": "Payment recorded successfully",
+				"data": gin.H{
+					"id":            p.ID.Hex(),
+					"paymentNumber": p.PaymentNumber,
+					"applied":       totalApplied,
+					"excessCredit":  excess,
+				},
+			})
+			return
+		}
+
+		// Invoice currency + frozen rate, captured for the FX-aware payment JE below.
+		invCurrency := ""
+		invRate := 1.0
+
 		// ── 1. Apply payment to invoice (if invoiceId provided) ──────────────
 		if p.InvoiceID != "" {
 			invObjID, err := primitive.ObjectIDFromHex(p.InvoiceID)
@@ -64,6 +215,10 @@ func CreatePayment() gin.HandlerFunc {
 				var inv models.Invoice
 				err = invoiceCollection.FindOne(ctx, bson.M{"_id": invObjID, "orgId": orgID}).Decode(&inv)
 				if err == nil {
+					invCurrency = inv.Currency
+					if inv.ExchangeRate > 0 {
+						invRate = inv.ExchangeRate
+					}
 					if inv.Type == "proforma" {
 						c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "Cannot record payment against a proforma invoice"})
 						return
@@ -134,13 +289,11 @@ func CreatePayment() gin.HandlerFunc {
 			return
 		}
 
-		// Journal entry: DR Bank/Cash / CR Accounts Receivable
+		// Journal entry: DR Bank/Cash / CR Accounts Receivable, in base currency, with
+		// realised FX gain/loss when the payment-date rate differs from the invoice's.
 		go autoJE(p.OrgID, "payment", p.ID.Hex(), p.PaymentNumber, p.Date,
 			"Payment received - "+p.InvoiceNumber,
-			[]jeLineInput{
-				{AccountCode: "1001", Debit: p.Amount},
-				{AccountCode: "1100", Credit: p.Amount},
-			})
+			buildPaymentReceiptJE(ctx, p.OrgID, "1001", p.Amount, invCurrency, invRate, p.Date))
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
@@ -162,8 +315,14 @@ func GetAllPayments() gin.HandlerFunc {
 		if cid := c.Query("customerId"); cid != "" {
 			filter["customerId"] = cid
 		}
-		if iid := c.Query("invoiceId"); iid != "" {
-			filter["invoiceId"] = iid
+		invoiceFilterID := c.Query("invoiceId")
+		if invoiceFilterID != "" {
+			// A multi-invoice payment links invoices via allocations[], not the top-level
+			// invoiceId — match both so the invoice's Payments tab finds it.
+			filter["$or"] = []bson.M{
+				{"invoiceId": invoiceFilterID},
+				{"allocations.invoiceId": invoiceFilterID},
+			}
 		}
 
 		total, _ := paymentCollection.CountDocuments(ctx, filter)
@@ -183,6 +342,21 @@ func GetAllPayments() gin.HandlerFunc {
 		}
 		if payments == nil {
 			payments = []models.Payment{}
+		}
+
+		// When listing a single invoice's payments, surface the portion applied to THAT
+		// invoice (its allocation) rather than the full multi-invoice receipt amount.
+		if invoiceFilterID != "" {
+			for i := range payments {
+				for _, al := range payments[i].Allocations {
+					if al.InvoiceID == invoiceFilterID {
+						payments[i].Amount = al.Amount
+						payments[i].InvoiceID = al.InvoiceID
+						payments[i].InvoiceNumber = al.InvoiceNumber
+						break
+					}
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{

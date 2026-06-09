@@ -32,6 +32,7 @@ const MENU = [
     { name: 'Outbound',           route: '/Sales/Outbound',         mod: 'delivery_notes' },
     { name: 'Delivery Notes',     route: '/Sales/Deliverynote',     mod: 'delivery_notes' },
     { name: 'Invoices',           route: '/Sales/Invoices',         mod: 'invoices' },
+    { name: 'Recurring Invoices', route: '/Sales/RecurringInvoices', mod: 'invoices' },
     { name: 'Credit Notes',       route: '/Sales/CreditNotes',      mod: 'credit_notes' },
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived', mod: 'payments' },
     { name: 'Customer Advances',  route: '/Sales/AdvancePayments',  mod: 'advance_payments' },
@@ -59,6 +60,7 @@ const MENU = [
     { name: 'Chart of Accounts', route: '/Finance/Accounts',       mod: 'accounts' },
     { name: 'Journal Entries',   route: '/Finance/JournalEntries', mod: 'journal_entries' },
     { name: 'Bank Reconciliation', route: '/Finance/BankReconciliation', mod: 'accounts' },
+    { name: 'Exchange Rates',    route: '/Finance/ExchangeRates',   mod: 'accounts' },
     { name: 'Trial Balance',     route: '/Reports/trial-balance',  mod: 'accounts' },
     { name: 'Profit & Loss',     route: '/Reports/profit-loss',  mod: 'reports' },
     { name: 'Balance Sheet',     route: '/Reports/balance-sheet',mod: 'reports' },
@@ -214,7 +216,16 @@ const Sidebar = ({ isCollapsed }) => {
                   data-tour={item.tourKey}
                   onClick={() => {
                     if (item.settings) { navigate(orgId ? `/organizations/${orgId}/settings` : '/Home') }
-                    else if (hasSub) { if (!isCollapsed) setOpenMenu(isOpen ? null : item.label) }
+                    else if (hasSub) {
+                      // Expanded rail: toggle the section. Collapsed rail (no room to
+                      // expand): jump straight to the first sub-item the role can open,
+                      // so a collapsed parent is never a dead click.
+                      if (!isCollapsed) setOpenMenu(isOpen ? null : item.label)
+                      else {
+                        const first = item.subItems.find((sub) => !sub.mod || canAny(sub.mod))
+                        if (first) navigate(first.route)
+                      }
+                    }
                     else navigate(item.route)
                   }}
                   className={`nx-nav-item ${active ? 'active' : ''}`}

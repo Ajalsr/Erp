@@ -4,6 +4,7 @@ import DatePicker from "react-datepicker";
 import { format, addDays, addMonths, isSameDay } from "date-fns";
 import useThemeStore from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import "react-datepicker/dist/react-datepicker.css";
 
 const buildTheme = (isDark) => ({
@@ -420,16 +421,20 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   const [loading,      setLoading]      = useState(false);
   const [custOpen,     setCustOpen]     = useState(false);
   const [custSearch,   setCustSearch]   = useState("");
-  const [selectedInv,  setSelectedInv]  = useState(null);
   const [unusedCredit, setUnusedCredit] = useState(0);
   const [applyingCredit, setApplyingCredit] = useState(false);
+  const [alloc,   setAlloc]   = useState({});      // invoiceId -> amount string
+  const [touched, setTouched] = useState(false);   // user manually edited the split
 
   const [form, setForm] = useState({
-    customerId: "", customerName: "", invoiceId: "", invoiceNumber: "",
+    customerId: "", customerName: "",
     amount: "", date: new Date().toISOString().split("T")[0],
     paymentMode: "Bank Transfer", details: {}, notes: "",
   });
   const [errors, setErrors] = useState({});
+
+  const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const balanceOf = (inv) => Math.max(0, (inv.totals?.grandTotal ?? 0) - (inv.amountPaid ?? 0));
 
   useEffect(() => {
     axiosInstance.get("/api/customers/getcustomers")
@@ -438,16 +443,40 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   }, []);
 
   useEffect(() => {
-    if (!form.customerId) { setInvoices([]); setSelectedInv(null); return; }
+    if (!form.customerId) { setInvoices([]); setAlloc({}); setTouched(false); return; }
     setInvLoading(true);
-    axiosInstance.get(`/api/invoices?customerId=${form.customerId}&limit=50`)
+    axiosInstance.get(`/api/invoices?customerId=${form.customerId}&limit=100`)
       .then(r => {
         const all = r.data?.data?.invoices || [];
-        setInvoices(all.filter(i => i.status !== "paid" && i.status !== "void" && i.type !== "proforma"));
+        const open = all
+          .filter(i => i.status !== "paid" && i.status !== "void" && i.type !== "proforma" && balanceOf(i) > 0)
+          .sort((a, b) => new Date(a.issueDate || a.createdAt || 0) - new Date(b.issueDate || b.createdAt || 0)); // FIFO: oldest first
+        setInvoices(open);
       })
       .catch(() => {})
       .finally(() => setInvLoading(false));
   }, [form.customerId]);
+
+  // FIFO auto-split: fill oldest invoices first until the received amount runs out.
+  const autoAllocate = useCallback((amt) => {
+    let rem = amt; const next = {};
+    for (const inv of invoices) {
+      const bal = balanceOf(inv);
+      if (rem <= 0 || bal <= 0) continue;
+      const a = Math.min(rem, bal);
+      next[inv._id] = a.toFixed(2);
+      rem = r2(rem - a);
+    }
+    return next;
+  }, [invoices]);
+
+  // Re-run auto-split when amount or invoices change, unless the user edited a split.
+  useEffect(() => {
+    if (touched) return;
+    const amt = parseFloat(form.amount) || 0;
+    if (!amt || invoices.length === 0) { setAlloc({}); return; }
+    setAlloc(autoAllocate(amt));
+  }, [form.amount, invoices, touched, autoAllocate]);
 
   const filteredCustomers = useMemo(() => {
     const q = custSearch.toLowerCase();
@@ -460,53 +489,53 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   }, [customers, custSearch]);
 
   const selectCustomer = (c) => {
-    setForm(f => ({ ...f, customerId: c._id, customerName: c.customerDisplayName || c.companyName || "", invoiceId: "", invoiceNumber: "", amount: "" }));
+    setForm(f => ({ ...f, customerId: c._id, customerName: c.customerDisplayName || c.companyName || "", amount: "" }));
     setCustSearch(c.customerDisplayName || c.companyName || "");
     setCustOpen(false);
-    setSelectedInv(null);
+    setAlloc({}); setTouched(false);
     setUnusedCredit(c.unused_credits || 0);
   };
 
+  const setAllocFor = (invId, val) => {
+    setTouched(true);
+    setAlloc(a => ({ ...a, [invId]: val }));
+  };
+  const resetAuto = () => setTouched(false); // re-run FIFO auto-split
+
+  // Apply the customer's existing credit wallet to their oldest open invoice.
   const handleApplyCredit = async () => {
-    if (!form.customerId || !form.invoiceId || !selectedInv) return;
-    const applyAmt = Math.min(unusedCredit, balanceDue);
+    const target = invoices[0];
+    if (!form.customerId || !target) return;
+    const applyAmt = Math.min(unusedCredit, balanceOf(target));
     if (applyAmt <= 0) return;
     setApplyingCredit(true);
     try {
       const res = await axiosInstance.post(`/api/customers/${form.customerId}/apply-credit`, {
-        invoiceId: form.invoiceId,
-        amount: applyAmt,
+        invoiceId: target._id, amount: applyAmt,
       });
       setUnusedCredit(res.data?.remainingCredit ?? 0);
-      onSaved();
-      onClose();
+      onSaved(); onClose();
     } catch (err) {
       setErrors({ submit: err.response?.data?.message || "Failed to apply credit" });
-    } finally {
-      setApplyingCredit(false);
-    }
+    } finally { setApplyingCredit(false); }
   };
 
-  const selectInvoice = (inv) => {
-    const balance = Math.max(0, (inv.totals?.grandTotal ?? 0) - (inv.amountPaid ?? 0));
-    setSelectedInv(inv);
-    setForm(f => ({ ...f, invoiceId: inv._id, invoiceNumber: inv.invoiceNumber || "", amount: balance.toFixed(2) }));
-  };
-
-  // Live balance calculation — always derive from grandTotal - amountPaid
-  // (never trust stored balanceDue: Go returns 0 for unset float64, ?? won't catch it)
-  const enteredAmt  = parseFloat(form.amount) || 0;
-  const invTotal    = selectedInv ? (selectedInv.totals?.grandTotal ?? 0) : 0;
-  const alreadyPaid = selectedInv ? (selectedInv.amountPaid ?? 0) : 0;
-  const balanceDue  = selectedInv ? Math.max(0, invTotal - alreadyPaid) : 0;
-  const remaining   = selectedInv ? Math.max(0, balanceDue - enteredAmt) : 0;
-  const overpay     = selectedInv && enteredAmt > balanceDue;
+  // Derived totals across the allocation grid.
+  const enteredAmt       = parseFloat(form.amount) || 0;
+  const totalAllocated   = r2(Object.values(alloc).reduce((s, v) => s + (parseFloat(v) || 0), 0));
+  const excess           = Math.max(0, r2(enteredAmt - totalAllocated));
+  const overAllocated    = totalAllocated > enteredAmt + 0.001;
 
   const validate = () => {
     const e = {};
     if (!form.customerId) e.customerId = "Select a customer";
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) e.amount = "Enter a valid amount";
+    if (!enteredAmt || enteredAmt <= 0) e.amount = "Enter a valid amount";
     if (!form.date) e.date = "Select a date";
+    if (overAllocated) e.amount = "Allocated more than the amount received";
+    for (const inv of invoices) {
+      const a = parseFloat(alloc[inv._id]) || 0;
+      if (a > balanceOf(inv) + 0.001) { e.amount = `Allocation for ${inv.invoiceNumber} exceeds its balance`; break; }
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -515,11 +544,19 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
     if (!validate()) return;
     setLoading(true);
     try {
+      const allocations = invoices
+        .map(i => ({ invoiceId: i._id, invoiceNumber: i.invoiceNumber, amount: r2(parseFloat(alloc[i._id]) || 0) }))
+        .filter(a => a.amount > 0);
       await axiosInstance.post("/api/payments/", {
-        ...form,
-        amount:         Number(form.amount),
-        reference:      getPrimaryRef(form.paymentMode, form.details),
+        customerId:   form.customerId,
+        customerName: form.customerName,
+        amount:       Number(enteredAmt),
+        date:         form.date,
+        paymentMode:  form.paymentMode,
+        reference:    getPrimaryRef(form.paymentMode, form.details),
         paymentDetails: form.details,
+        notes:        form.notes,
+        allocations,
       });
       onSaved(); onClose();
     } catch (err) {
@@ -636,14 +673,34 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
             )}
           </div>
 
-          {/* ── Invoice selection ── */}
+          {/* ── Amount received ── */}
           <div>
-            <label style={lbl}>
-              Invoice
-              <span style={{ textTransform: "none", fontWeight: 400, letterSpacing: 0, marginLeft: 6, color: T.subtle }}>
-                (optional — select to auto-fill balance)
-              </span>
-            </label>
+            <label style={lbl}>Amount Received (AED) <span style={{ color: "#ef4444" }}>*</span></label>
+            <input
+              style={{
+                ...inp, fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 600,
+                borderColor: errors.amount ? "#ef4444" : excess > 0 ? "#f59e0b" : T.inputBdr,
+                boxShadow: excess > 0 ? "0 0 0 3px rgba(245,158,11,.15)" : "none",
+              }}
+              type="number" min="0" step="0.01" placeholder="0.00"
+              value={form.amount}
+              onChange={e => { setTouched(false); setForm(f => ({ ...f, amount: e.target.value })); }}
+            />
+            {errors.amount && <div style={errTxt}>{errors.amount}</div>}
+          </div>
+
+          {/* ── Invoice allocation (FIFO auto-split, editable) ── */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <label style={{ ...lbl, marginBottom: 0 }}>Apply to Invoices</label>
+              {invoices.length > 0 && (
+                <button type="button" onClick={resetAuto}
+                  style={{ background: "none", border: `1px solid ${T.border}`, color: T.accent, borderRadius: 7, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                  ⟲ Auto-split (FIFO)
+                </button>
+              )}
+            </div>
+
             {!form.customerId ? (
               <div style={{ padding: "12px 14px", background: T.surface2, border: `1px dashed ${T.border}`, borderRadius: 9, color: T.muted, fontSize: 12, textAlign: "center" }}>
                 Select a customer first to see their invoices
@@ -654,58 +711,73 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
               </div>
             ) : invoices.length === 0 ? (
               <div style={{ padding: "12px 14px", background: T.surface2, border: `1px dashed ${T.border}`, borderRadius: 9, color: T.muted, fontSize: 12, textAlign: "center" }}>
-                No outstanding invoices for this customer
+                No outstanding invoices — the full amount records as customer credit.
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 7, maxHeight: 200, overflowY: "auto" }}>
-                {/* "No invoice" option */}
-                <div
-                  className={`pmt-inv-card${!form.invoiceId ? " selected" : ""}`}
-                  onClick={() => { setSelectedInv(null); setForm(f => ({ ...f, invoiceId: "", invoiceNumber: "", amount: "" })); }}
-                  style={{
-                    padding: "10px 13px", borderRadius: 9, cursor: "pointer",
-                    border: `1.5px solid ${!form.invoiceId ? T.accent : T.border}`,
-                    background: !form.invoiceId ? "rgba(245,158,11,.06)" : T.surface2,
-                    fontSize: 12, color: T.muted, transition: "all .12s",
-                  }}>
-                  — General payment (not linked to a specific invoice) —
-                </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, maxHeight: 230, overflowY: "auto" }}>
                 {invoices.map(inv => {
-                  const tot  = inv.totals?.grandTotal ?? 0;
-                  const paid = inv.amountPaid ?? 0;
-                  const bal  = Math.max(0, tot - paid);
-                  const pct  = tot > 0 ? Math.min(100, (paid / tot) * 100) : 0;
-                  const sel  = form.invoiceId === inv._id;
+                  const bal  = balanceOf(inv);
+                  const a    = parseFloat(alloc[inv._id]) || 0;
+                  const full = a > 0 && a >= bal - 0.001;
+                  const part = a > 0 && a < bal - 0.001;
+                  const dt   = new Date(inv.issueDate || inv.createdAt || 0);
                   return (
-                    <div key={inv._id}
-                      className={`pmt-inv-card${sel ? " selected" : ""}`}
-                      onClick={() => selectInvoice(inv)}
-                      style={{
-                        padding: "11px 13px", borderRadius: 9, cursor: "pointer",
-                        border: `1.5px solid ${sel ? T.accent : T.border}`,
-                        background: sel ? "rgba(245,158,11,.06)" : T.surface2,
-                        transition: "all .12s",
-                      }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-                        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: sel ? T.accent : T.text }}>
-                          {inv.invoiceNumber}
-                        </span>
-                        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#ef4444" }}>
-                          AED {bal.toFixed(2)} due
-                        </span>
+                    <div key={inv._id} style={{
+                      display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center",
+                      padding: "10px 12px", borderRadius: 9,
+                      border: `1.5px solid ${a > 0 ? T.accent : T.border}`,
+                      background: a > 0 ? "rgba(245,158,11,.06)" : T.surface2,
+                    }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700, color: T.text }}>{inv.invoiceNumber}</span>
+                          {full && <span style={{ fontSize: 9, fontWeight: 700, color: "#10b981", background: "rgba(16,185,129,.12)", padding: "1px 6px", borderRadius: 20 }}>FULL</span>}
+                          {part && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "rgba(245,158,11,.12)", padding: "1px 6px", borderRadius: 20 }}>PARTIAL</span>}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.muted, marginTop: 3 }}>
+                          {isNaN(dt) ? "" : dt.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" })} · Balance AED {bal.toFixed(2)}
+                        </div>
                       </div>
-                      {/* Progress bar */}
-                      <div style={{ height: 4, background: T.border, borderRadius: 2, overflow: "hidden", marginBottom: 6 }}>
-                        <div style={{ height: "100%", width: `${pct}%`, background: T.accent2, borderRadius: 2, transition: "width .3s" }} />
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.muted }}>
-                        <span>Total: AED {tot.toFixed(2)}</span>
-                        <span style={{ color: T.accent2 }}>Paid: AED {paid.toFixed(2)}</span>
-                        <span style={{ color: "#ef4444" }}>Due: AED {bal.toFixed(2)}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, color: T.muted }}>AED</span>
+                        <input type="number" min="0" step="0.01" value={alloc[inv._id] ?? ""}
+                          onChange={e => setAllocFor(inv._id, e.target.value)}
+                          style={{ ...inp, width: 110, padding: "7px 9px", fontFamily: "'DM Mono', monospace", fontSize: 12, textAlign: "right" }} />
                       </div>
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Allocation totals */}
+            {enteredAmt > 0 && (
+              <div style={{ marginTop: 10, padding: "12px 14px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10 }}>
+                {[
+                  { label: "Amount Received",       val: enteredAmt,     color: T.text },
+                  { label: "Allocated to Invoices", val: totalAllocated, color: T.accent },
+                ].map(({ label, val, color }) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
+                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color }}>AED {val.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{excess > 0 ? "Excess → Credit" : "Unallocated"}</span>
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color: excess > 0 ? "#f59e0b" : (overAllocated ? "#ef4444" : T.accent2) }}>
+                    AED {(enteredAmt - totalAllocated).toFixed(2)}
+                  </span>
+                </div>
+                {overAllocated && (
+                  <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.3)", borderRadius: 7, fontSize: 11, color: "#ef4444", textAlign: "center", fontWeight: 600 }}>
+                    ⚠ Allocated more than received — reduce a split
+                  </div>
+                )}
+                {excess > 0 && !overAllocated && (
+                  <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(245,158,11,.12)", border: "1px solid rgba(245,158,11,.3)", borderRadius: 7, fontSize: 11, color: "#f59e0b", textAlign: "center", fontWeight: 600 }}>
+                    ⚠ AED {excess.toFixed(2)} exceeds all invoices — recorded as customer credit (advance)
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -725,10 +797,10 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
                   AED {unusedCredit.toFixed(2)}
                 </div>
                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                  {form.invoiceId ? `Will apply AED ${Math.min(unusedCredit, balanceDue).toFixed(2)} to this invoice` : "Select an invoice to apply credit"}
+                  {invoices[0] ? `Apply AED ${Math.min(unusedCredit, balanceOf(invoices[0])).toFixed(2)} to ${invoices[0].invoiceNumber}` : "No open invoice to apply to"}
                 </div>
               </div>
-              {form.invoiceId && balanceDue > 0 && (
+              {invoices[0] && (
                 <button
                   onClick={handleApplyCredit}
                   disabled={applyingCredit}
@@ -743,66 +815,6 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
               )}
             </div>
           )}
-
-          {/* ── Amount breakdown card ── */}
-          <div>
-            <label style={lbl}>Amount Received (AED) <span style={{ color: "#ef4444" }}>*</span></label>
-            <input
-              style={{
-                ...inp, fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 600,
-                borderColor: errors.amount ? "#ef4444" : overpay ? "#f59e0b" : T.inputBdr,
-                boxShadow: overpay ? "0 0 0 3px rgba(245,158,11,.15)" : "none",
-              }}
-              type="number" min="0" step="0.01" placeholder="0.00"
-              value={form.amount}
-              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-            />
-            {errors.amount && <div style={errTxt}>{errors.amount}</div>}
-
-            {/* Live breakdown — only show when invoice is selected */}
-            {selectedInv && enteredAmt > 0 && (
-              <div style={{
-                marginTop: 10, padding: "13px 15px",
-                background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10,
-              }}>
-                {[
-                  { label: "Invoice Total",     val: `AED ${invTotal.toFixed(2)}`,    color: T.text },
-                  { label: "Already Paid",      val: `AED ${alreadyPaid.toFixed(2)}`, color: T.accent2 },
-                  { label: "Balance Due",       val: `AED ${balanceDue.toFixed(2)}`,  color: "#ef4444" },
-                  { label: "This Payment",      val: `AED ${enteredAmt.toFixed(2)}`,  color: T.accent },
-                ].map(({ label, val, color }) => (
-                  <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
-                    <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
-                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color }}>{val}</span>
-                  </div>
-                ))}
-                {/* Remaining after */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, marginTop: 2 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>
-                    {overpay ? "Excess Payment" : "Remaining After"}
-                  </span>
-                  <span style={{
-                    fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700,
-                    color: overpay ? "#f59e0b" : remaining === 0 ? T.accent2 : "#ef4444",
-                  }}>
-                    {overpay
-                      ? `+AED ${(enteredAmt - balanceDue).toFixed(2)}`
-                      : `AED ${remaining.toFixed(2)}`}
-                  </span>
-                </div>
-                {remaining === 0 && !overpay && (
-                  <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(16,185,129,.12)", border: "1px solid rgba(16,185,129,.3)", borderRadius: 7, fontSize: 11, color: "#10b981", textAlign: "center", fontWeight: 600 }}>
-                    ✓ This payment will fully settle the invoice
-                  </div>
-                )}
-                {overpay && (
-                  <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(245,158,11,.12)", border: "1px solid rgba(245,158,11,.3)", borderRadius: 7, fontSize: 11, color: "#f59e0b", textAlign: "center", fontWeight: 600 }}>
-                    ⚠ Amount exceeds balance due — excess will be recorded as credit
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
 
           {/* ── Date + Mode row ── */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -921,6 +933,7 @@ const PaymentsReceived = () => {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useRealtime(['payments_updated','invoices_updated','advance_payments_updated'], load);
 
   const filtered = useMemo(() => {
     let data = [...payments];

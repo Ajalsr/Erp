@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { FaBook, FaPlus, FaTimes, FaTrash, FaChevronDown, FaChevronRight } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import axiosInstance from '../../helper/axiosInstance';
+import useRealtime from '../../helper/useRealtime';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { useBaseCurrency, baseCurrency } from '../../helper/currency';
 
 const fmt = v => Number(v || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const REFTYPE_COLOR = {
@@ -12,6 +14,7 @@ const REFTYPE_COLOR = {
 const emptyLine = () => ({ accountId: '', accountCode: '', accountName: '', debit: '', credit: '', description: '' });
 
 export default function JournalEntries() {
+  useBaseCurrency();
   const isDark = useThemeStore(s => s.isDark);
   const T = { ...getTheme(isDark), isDark };
 
@@ -41,6 +44,7 @@ export default function JournalEntries() {
   }, [startDate, endDate]);
 
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
+  useRealtime(['journal_entries_updated','invoices_updated','bills_updated','payments_updated','vendor_payments_updated'], fetchEntries);
   useEffect(() => {
     axiosInstance.get('/api/accounts/?limit=500')
       .then(res => setAccounts(res.data?.data?.accounts ?? []))
@@ -217,7 +221,7 @@ export default function JournalEntries() {
             {/* Totals */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px 28px', gap: 8, marginTop: 14, padding: '12px 0', borderTop: `2px solid ${T.border}` }}>
               <span style={{ fontSize: 13, fontWeight: 800, color: T.textPri, alignSelf: 'center' }}>
-                Totals {balanced ? <span style={{ color: '#10b981', fontSize: 11 }}>✓ balanced</span> : <span style={{ color: '#ef4444', fontSize: 11 }}>✕ out by AED {fmt(Math.abs(totalDebit - totalCredit))}</span>}
+                Totals {balanced ? <span style={{ color: '#10b981', fontSize: 11 }}>✓ balanced</span> : <span style={{ color: '#ef4444', fontSize: 11 }}>✕ out by {baseCurrency()} {fmt(Math.abs(totalDebit - totalCredit))}</span>}
               </span>
               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 800, color: T.textPri, textAlign: 'right' }}>{fmt(totalDebit)}</span>
               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 800, color: T.textPri, textAlign: 'right' }}>{fmt(totalCredit)}</span>

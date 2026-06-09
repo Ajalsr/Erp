@@ -9,6 +9,8 @@ import { useNavigate } from "react-router-dom";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
+import { useBaseCurrency, baseCurrency } from "../../helper/currency";
+import useRealtime from "../../helper/useRealtime";
 
 const STATUS_CFG = {
   draft:   { color: "#94a3b8", bg: "rgba(100,116,139,0.1)", label: "Draft"   },
@@ -67,7 +69,11 @@ const getPrimaryRef = (mode, d = {}) => {
 
 const LIMIT = 10;
 
-const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// money() prints in the given currency (a bill's own currency); fmtAED falls back to
+// the org base currency for org-level aggregates (stats). Bill detail/print shadow
+// fmtAED with the bill's currency so every figure follows the document.
+const money   = (n, ccy) => `${ccy || baseCurrency()} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtAED  = (n) => money(n);
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
 /* ── Portal helper: anchor a popup under a trigger, escape overflow:auto ── */
@@ -203,6 +209,7 @@ function CustomDate({ value, onChange, T, isDark, placeholder = "Select date…"
 }
 
 export default function Bills() {
+  useBaseCurrency();
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
@@ -249,6 +256,19 @@ export default function Bills() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  // Live cross-client updates: refresh the list and re-sync the open bill (paid/balance/status).
+  const selectedRef = useRef(null);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  const onRealtime = useCallback(() => {
+    load();
+    const openId = selectedRef.current?._id;
+    if (openId) {
+      axiosInstance.get(`/api/bills/${openId}`)
+        .then((res) => { if (res.data?.data) setSelected(res.data.data); })
+        .catch(() => {});
+    }
+  }, [load]);
+  useRealtime(['bills_updated','vendor_payments_updated','debit_notes_updated','vendor_credits_updated','grns_updated','purchase_orders_updated'], onRealtime);
 
   /* ── Load payments + debit notes when drawer opens ── */
   useEffect(() => {
@@ -430,6 +450,7 @@ export default function Bills() {
   /* ── Print bill ── */
   const handlePrintBill = () => {
     const b = selected;
+    const fmtAED = (n) => money(n, b.currency); // print in the bill's own currency
     const rows = (b.lineItems || []).map(li =>
       `<tr><td>${li.description || ""}</td><td style="text-align:right">${li.qty || 0}</td><td style="text-align:right">${fmtAED(li.unitPrice)}</td><td style="text-align:right">${li.taxRate || 0}%</td><td style="text-align:right">${fmtAED(li.total)}</td></tr>`
     ).join("");
@@ -591,9 +612,9 @@ export default function Bills() {
                     <td style={{ padding: "12px 16px", fontWeight: 600, color: T.textPri }}>{b.vendorName || "—"}</td>
                     <td style={{ padding: "12px 16px", color: T.textSec, fontSize: 12 }}>{fmtDate(b.billDate)}</td>
                     <td style={{ padding: "12px 16px", color: T.textSec, fontSize: 12 }}>{fmtDate(b.dueDate)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: T.textPri }}>{fmtAED(b.totals?.grandTotal)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#10b981" }}>{fmtAED(b.amountPaid)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: (b.balanceDue || 0) > 0 ? "#ef4444" : "#10b981" }}>{fmtAED(b.balanceDue)}</td>
+                    <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: T.textPri }}>{money(b.totals?.grandTotal, b.currency)}</td>
+                    <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#10b981" }}>{money(b.amountPaid, b.currency)}</td>
+                    <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: (b.balanceDue || 0) > 0 ? "#ef4444" : "#10b981" }}>{money(b.balanceDue, b.currency)}</td>
                     <td style={{ padding: "12px 16px" }}>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 999, background: sc.bg, color: sc.color }}>{sc.label}</span>
                     </td>
@@ -643,6 +664,7 @@ export default function Bills() {
       {/* ── Detail Drawer ── */}
       {drawerOpen && selected && (() => {
         const b      = selected;
+        const fmtAED = (n) => money(n, b.currency); // detail shows the bill's own currency
         const sc     = STATUS_CFG[b.status] || STATUS_CFG.open;
         const grand  = b.totals?.grandTotal || 0;
         const paidPct= grand > 0 ? Math.min(100, ((b.amountPaid || 0) / grand) * 100) : 0;
@@ -978,14 +1000,14 @@ export default function Bills() {
                     <p style={{ fontFamily: "Sora, sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>Record Payment</p>
                     <button onClick={() => setPayModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 2 }}><FaTimes size={13} /></button>
                   </div>
-                  <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 16px" }}>{selected.billNumber} · {selected.vendorName} · Balance {fmtAED(selected.balanceDue)}</p>
+                  <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 16px" }}>{selected.billNumber} · {selected.vendorName} · Balance {money(selected.balanceDue, selected.currency)}</p>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     <div style={{ gridColumn: "1 / -1" }}>
-                      <label style={lbl}>Amount (AED) *</label>
+                      <label style={lbl}>Amount ({selected.currency || baseCurrency()}) *</label>
                       <input type="number" min="0.01" step="0.01" value={payForm.amount}
                         onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
-                        placeholder={`Balance: ${fmtAED(selected.balanceDue)}`} style={inp} />
+                        placeholder={`Balance: ${money(selected.balanceDue, selected.currency)}`} style={inp} />
                     </div>
                     <div>
                       <label style={lbl}>Payment Mode *</label>

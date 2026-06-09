@@ -6,6 +6,7 @@ import DatePicker from "react-datepicker";
 import { format, isSameDay, addDays, addMonths } from "date-fns";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 import "react-datepicker/dist/react-datepicker.css";
 
@@ -925,6 +926,7 @@ export default function PaymentsMade() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useRealtime(['vendor_payments_updated','bills_updated','vendor_credits_updated'], load);
 
   // Pre-fill from URL params (from Bills "Record Payment" button)
   useEffect(() => {

@@ -26,6 +26,7 @@ const VENDOR_IMPORT_FIELDS = [
 ];
 import debounce from "lodash/debounce";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 
 // ─── CustomSelect ────────────────────────────────────────────────
 const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWidth = 120 }) => {
@@ -213,6 +214,7 @@ const Vendors = () => {
   }, []);
 
   useEffect(() => { loadVendors(); }, [loadVendors]);
+  useRealtime(['vendors_updated','bills_updated','vendor_payments_updated'], loadVendors);
 
   // Keep selectedItem in sync when list re-fetches
   useEffect(() => {

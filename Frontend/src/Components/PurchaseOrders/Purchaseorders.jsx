@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useAuthStore from '../../store/useAuthStore';
 import axiosInstance from '../../helper/axiosInstance';
+import useRealtime from '../../helper/useRealtime';
 import nexusToast from '../../helper/nexusToast';
 
 const STATUS_CFG = {
@@ -112,6 +113,7 @@ export default function Purchaseorders() {
   }, []);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
+  useRealtime(['purchase_orders_updated','grns_updated','bills_updated'], () => { fetchOrders(); fetchStats(); });
   useEffect(() => { fetchStats();  }, [fetchStats]);
 
   const openDrawer  = (o) => { setSelected(o); setDrawer(true); setActiveTab('overview'); setLinkedGRNs([]); setPoBills([]); setApproving(false); setConverting(false); };

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -302,6 +303,7 @@ var defaultAccountSeeds = []seedDef{
 	{"4000", "Sales Revenue",          "income",    "operating_revenue", "credit", true,  false},
 	{"4100", "Other Income",           "income",    "other_income",      "credit", false, false},
 	{"4200", "Discount Received",      "income",    "other_income",      "credit", false, false},
+	{"4300", "Foreign Exchange Gain",  "income",    "other_income",      "credit", true,  false},
 	{"5000", "Cost of Goods Sold",     "expense",   "direct_expense",    "debit",  true,  false},
 	{"5100", "Salaries & Wages",       "expense",   "operating_expense", "debit",  false, false},
 	{"5200", "Rent Expense",           "expense",   "operating_expense", "debit",  false, false},
@@ -310,6 +312,7 @@ var defaultAccountSeeds = []seedDef{
 	{"5500", "VAT Input",              "expense",   "direct_expense",    "debit",  true,  false},
 	{"5600", "Bank Charges",           "expense",   "operating_expense", "debit",  false, false},
 	{"5700", "Discount Given",         "expense",   "operating_expense", "debit",  false, false},
+	{"5800", "Foreign Exchange Loss",  "expense",   "operating_expense", "debit",  true,  false},
 }
 
 // seedDefaultAccountsForOrg is the reusable core — called on org creation and from the HTTP handler.
@@ -340,6 +343,56 @@ func seedDefaultAccountsForOrg(ctx context.Context, orgID, createdBy string) (se
 		}
 	}
 	return
+}
+
+// EnsureFXAccounts backfills the FX gain/loss accounts (4300/5800) into every org
+// that already has a chart of accounts. Idempotent — runs once at startup so existing
+// orgs can record foreign-currency payments without manually re-seeding. Orgs with no
+// chart yet are skipped (they'll get the full seed, FX included, on first use).
+func EnsureFXAccounts(ctx context.Context) {
+	orgIDs, err := accountCollection.Distinct(ctx, "orgId", bson.M{})
+	if err != nil {
+		log.Printf("EnsureFXAccounts: distinct orgIds failed: %v", err)
+		return
+	}
+
+	fxCodes := map[string]bool{"4300": true, "5800": true}
+	added := 0
+	for _, oid := range orgIDs {
+		orgID, ok := oid.(string)
+		if !ok || orgID == "" {
+			continue
+		}
+		for _, d := range defaultAccountSeeds {
+			if !fxCodes[d.Code] {
+				continue
+			}
+			if accountCollection.FindOne(ctx, bson.M{"orgId": orgID, "accountCode": d.Code}).Err() == nil {
+				continue // already present
+			}
+			a := models.Account{
+				ID:            primitive.NewObjectID(),
+				OrgID:         orgID,
+				AccountCode:   d.Code,
+				AccountName:   d.Name,
+				AccountType:   d.Type,
+				SubType:       d.SubType,
+				NormalBalance: d.NormalBalance,
+				IsSystem:      d.IsSystem,
+				IsBankAccount: d.IsBankAccount,
+				Status:        "active",
+				CreatedBy:     "system",
+				CreatedAt:     time.Now(),
+				UpdatedAt:     time.Now(),
+			}
+			if _, err := accountCollection.InsertOne(ctx, a); err == nil {
+				added++
+			}
+		}
+	}
+	if added > 0 {
+		log.Printf("EnsureFXAccounts: added %d FX gain/loss accounts across %d orgs", added, len(orgIDs))
+	}
 }
 
 // SeedDefaultAccounts HTTP handler — idempotent, skips existing codes.

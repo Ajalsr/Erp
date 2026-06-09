@@ -40,6 +40,9 @@ func runDueDateChecks() {
 
 	// Expire quotes whose validUntil date has passed
 	processExpiredQuotes(ctx, todayStr)
+
+	// Generate invoices for recurring profiles whose next run date has arrived
+	processRecurringInvoices(ctx, todayStr)
 }
 
 func processDueSoon(ctx context.Context, threeDaysStr string) {

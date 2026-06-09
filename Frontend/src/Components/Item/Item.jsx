@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import CsvImportModal from "../common/CsvImportModal";
 
 const ITEM_IMPORT_FIELDS = [
@@ -75,6 +76,7 @@ export default function Item() {
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { handleGetItem(); }, [handleGetItem]);
+  useRealtime(['stocks_updated','grns_updated','adjustments_updated'], handleGetItem);
 
   useEffect(() => {
     if (!selectedItem?._id) { setAvailability({}); return; }

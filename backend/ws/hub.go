@@ -12,6 +12,7 @@ type Event struct {
 	Type    string      `json:"type"`             // e.g. "customers_updated", "notification"
 	Action  string      `json:"action,omitempty"` // "create" | "update" | "delete"
 	ID      string      `json:"id,omitempty"`
+	OrgID   string      `json:"orgId,omitempty"`  // scopes data events to one org (clients filter)
 	Payload interface{} `json:"payload,omitempty"` // arbitrary data for typed events
 }
 

@@ -111,6 +111,9 @@ export default function NewBill() {
   const [grnNumber,        setGrnNumber]        = useState(pre.grnNumber       || '');
   const [grnId,            setGrnId]            = useState(pre.grnId           || '');
   const [notes,          setNotes]          = useState('');
+  const [currency,       setCurrency]       = useState('AED');
+  const [baseCurrency,   setBaseCurrency]   = useState('AED');
+  const [exchangeRate,   setExchangeRate]   = useState(1);
   const [shippingCharge, setShippingCharge] = useState(pre.shippingCharges != null ? String(pre.shippingCharges) : '');
   const [adjustment,     setAdjustment]     = useState(pre.adjustment      != null ? String(pre.adjustment)      : '');
   const [lines, setLines] = useState(() => {
@@ -177,6 +180,8 @@ export default function NewBill() {
       setGrnNumber(b.grnNumber || '');
       setGrnId(b.grnId || '');
       setNotes(b.notes || '');
+      if (b.currency) setCurrency(b.currency);
+      if (b.exchangeRate > 0) setExchangeRate(b.exchangeRate);
       setShippingCharge(b.totals?.shipping   != null ? String(b.totals.shipping)   : '');
       setAdjustment(b.totals?.adjustment != null ? String(b.totals.adjustment) : '');
       if (b.lineItems?.length) {
@@ -204,6 +209,23 @@ export default function NewBill() {
     d.setDate(d.getDate() + (days[payTerms] ?? 30));
     setDueDate(d.toISOString().slice(0, 10));
   }, [billDate, payTerms]);
+
+  // Load org base currency once; default a new bill to it.
+  useEffect(() => {
+    axiosInstance.get('/api/exchange-rates/').then((r) => {
+      const base = r.data?.baseCurrency || 'AED';
+      setBaseCurrency(base);
+      if (!isEdit) setCurrency((c) => (c === 'AED' ? base : c));
+    }).catch(() => {});
+  }, []); // eslint-disable-line
+
+  // Resolve the txn→base rate whenever currency or bill date changes.
+  useEffect(() => {
+    if (!currency || currency === baseCurrency) { setExchangeRate(1); return; }
+    axiosInstance.get('/api/exchange-rates/latest', { params: { from: currency, date: billDate } })
+      .then((r) => setExchangeRate(r.data?.rate > 0 ? r.data.rate : 1))
+      .catch(() => setExchangeRate(1));
+  }, [currency, baseCurrency, billDate]);
 
   const updateLine = (idx, field, val) => {
     setLines((prev) => {
@@ -248,6 +270,8 @@ export default function NewBill() {
         billDate,
         accountingDate: accountingDate || undefined,
         dueDate,
+        currency,
+        exchangeRate,
         paymentTerms:   payTerms,
         placeOfSupply:  placeOfSupply  || undefined,
         rcmApplicable,
@@ -386,6 +410,21 @@ export default function NewBill() {
             <div>
               <label style={lbl}>Accounting Date</label>
               <input type="date" value={accountingDate} onChange={(e) => setAccountingDate(e.target.value)} style={inp} />
+            </div>
+            <div>
+              <label style={lbl}>Currency</label>
+              <input
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
+                maxLength={3}
+                placeholder={baseCurrency}
+                style={{ ...inp, textTransform: 'uppercase' }}
+              />
+              {currency && currency !== baseCurrency && (
+                <span style={{ display: 'block', fontSize: 11, color: T.textSec, marginTop: 4 }}>
+                  1 {currency} = {Number(exchangeRate).toLocaleString('en-AE', { maximumFractionDigits: 6 })} {baseCurrency} · books in {baseCurrency}
+                </span>
+              )}
             </div>
             <div>
               <label style={lbl}>Vendor Ref (Invoice #)</label>

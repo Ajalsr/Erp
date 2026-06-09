@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { useBaseCurrency, baseCurrency } from '../../helper/currency';
 
 const fmt = (n) =>
   Number(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -16,6 +17,7 @@ const BUCKETS = [
 ];
 
 export default function VendorAging() {
+  useBaseCurrency();
   const isDark  = useThemeStore((s) => s.isDark);
   const T       = getTheme(isDark);
   const [data,    setData]    = useState(null);
@@ -85,7 +87,7 @@ export default function VendorAging() {
               <div key={b.key} style={{ background: T.surface, border: `1px solid ${T.border}`, borderTop: `3px solid ${b.color}`, borderRadius: 12, padding: '14px 16px' }}>
                 <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, margin: '0 0 6px' }}>{b.label}</p>
                 <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 15, fontWeight: 700, color: b.color, margin: 0 }}>
-                  AED {fmt(data.summary[b.key])}
+                  {baseCurrency()} {fmt(data.summary[b.key])}
                 </p>
               </div>
             ))}
@@ -122,7 +124,7 @@ export default function VendorAging() {
                       <td style={{ padding: '11px 16px', fontWeight: 600, color: T.textPri || T.text }}>{r.vendorName}</td>
                       {BUCKETS.map((b) => (
                         <td key={b.key} style={{ ...tdStyle(), color: r[b.key] > 0 ? b.color : T.textSec, fontWeight: b.bold ? 700 : 400 }}>
-                          {r[b.key] > 0 ? `AED ${fmt(r[b.key])}` : '—'}
+                          {r[b.key] > 0 ? `${baseCurrency()} ${fmt(r[b.key])}` : '—'}
                         </td>
                       ))}
                     </tr>
@@ -132,7 +134,7 @@ export default function VendorAging() {
                     <td style={{ padding: '12px 16px', fontWeight: 800, fontSize: 13, color: T.textPri || T.text }}>TOTAL</td>
                     {BUCKETS.map((b) => (
                       <td key={b.key} style={{ ...tdStyle(), fontWeight: 800, color: b.color }}>
-                        AED {fmt(data.summary[b.key])}
+                        {baseCurrency()} {fmt(data.summary[b.key])}
                       </td>
                     ))}
                   </tr>

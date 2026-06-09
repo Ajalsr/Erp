@@ -6,6 +6,7 @@ import {
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 
 const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -300,6 +301,7 @@ export default function VendorCredits() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useRealtime(['vendor_credits_updated','bills_updated','debit_notes_updated'], load);
 
   const filtered   = credits.filter(c => {
     if (filterStatus !== "all" && c.status !== filterStatus) return false;

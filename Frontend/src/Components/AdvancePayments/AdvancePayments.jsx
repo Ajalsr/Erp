@@ -4,6 +4,7 @@ import DatePicker from "react-datepicker";
 import { format, addDays, addMonths, isSameDay } from "date-fns";
 import useThemeStore from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 import "react-datepicker/dist/react-datepicker.css";
 
@@ -278,6 +279,7 @@ export default function AdvancePayments() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useRealtime(['advance_payments_updated','invoices_updated','payments_updated'], load);
   useEffect(() => {
     axiosInstance.get("/api/customers/getcustomers")
       .then(r => setCustomers(r.data?.data ?? []))

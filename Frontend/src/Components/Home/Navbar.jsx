@@ -7,6 +7,20 @@ import useTourStore from '../../store/useTourStore'
 import useOrganization from '../../helper/useOrganization'
 import useNotifications from '../../helper/useNotifications'
 import { clearPermissions } from '../../helper/permissions'
+import axiosInstance from '../../helper/axiosInstance'
+
+// ── Global search result types → icon, label, and the route to open ──
+// Keys match the backend SearchResult.type (search_controller.go).
+const RESULT_TYPES = {
+  customer:       { label: 'Customer',       color: '#3b82f6', route: (r) => `/Sales/Customers/edit/${r.id}` },
+  item:           { label: 'Item',           color: '#8b5cf6', route: ()  => `/Items/Items` },
+  invoice:        { label: 'Invoice',        color: '#10b981', route: (r) => `/Sales/Invoices/${r.id}/print` },
+  sales_order:    { label: 'Sales Order',    color: '#0ea5e9', route: (r) => `/Sales/Salesorders/Newsalesorders/${r.id}` },
+  quote:          { label: 'Quote',          color: '#f59e0b', route: (r) => `/Sales/Quotes/${r.id}` },
+  vendor:         { label: 'Vendor',         color: '#ec4899', route: (r) => `/Purchase/Vendors/Edit/${r.id}` },
+  bill:           { label: 'Bill',           color: '#ef4444', route: (r) => `/Purchase/Bills/Edit/${r.id}` },
+  purchase_order: { label: 'Purchase Order', color: '#f97316', route: ()  => `/Purchase/Purchaseorders` },
+}
 
 const PAGE_TITLES = {
   '/Home': 'Dashboard',
@@ -15,9 +29,16 @@ const PAGE_TITLES = {
   '/Items/price-lists': 'Price Lists',
   '/Inventory/stock-summary': 'Stock Summary',
   '/Inventory/warehouses': 'Warehouses',
+  '/Inventory/reorder-alerts': 'Reorder Alerts',
+  '/Inventory/batch-expiry': 'Batch & Expiry',
+  '/Inventory/adjustments': 'Adjustments',
   '/Sales/Customers': 'Customers',
+  '/Sales/Enquiries': 'Enquiries',
+  '/Sales/Quotes': 'Quotes',
   '/Sales/Salesorders': 'Sales Orders',
   '/Sales/Invoices': 'Invoices',
+  '/Sales/Createinvoices': 'New Invoice',
+  '/Sales/RecurringInvoices': 'Recurring Invoices',
   '/Sales/Deliverynote': 'Delivery Notes',
   '/Sales/Outbound': 'Outbound',
   '/Sales/PaymentsReceived': 'Payments Received',
@@ -31,6 +52,22 @@ const PAGE_TITLES = {
   '/Purchase/Bills': 'Bills',
   '/Purchase/PaymentsMade': 'Payments Made',
   '/Purchase/VendorCredits': 'Vendor Credits',
+  '/Reports/sales': 'Sales Report',
+  '/Reports/purchases': 'Purchase Report',
+  '/Reports/inventory': 'Inventory Report',
+  '/Reports/aging': 'AR Aging',
+  '/Reports/customer-statement': 'Customer Statement',
+  '/Reports/statement-of-account': 'Statement of Account',
+  '/Reports/vat': 'VAT Report',
+  '/Reports/vendor-aging': 'Vendor Aging',
+  '/Reports/trial-balance': 'Trial Balance',
+  '/Reports/profit-loss': 'Profit & Loss',
+  '/Reports/balance-sheet': 'Balance Sheet',
+  '/Reports/cash-flow': 'Cash Flow',
+  '/Finance/Accounts': 'Chart of Accounts',
+  '/Finance/JournalEntries': 'Journal Entries',
+  '/Finance/BankReconciliation': 'Bank Reconciliation',
+  '/Finance/ExchangeRates': 'Exchange Rates',
 }
 
 const BREADCRUMB_PARENTS = {
@@ -39,6 +76,7 @@ const BREADCRUMB_PARENTS = {
   '/Items': 'Items',
   '/Inventory': 'Inventory',
   '/Reports': 'Reports',
+  '/Finance': 'Finance',
 }
 
 const getPageInfo = (pathname) => {
@@ -233,8 +271,15 @@ const Navbar = ({ onToggleSidebar }) => {
   const [notifOpen,     setNotifOpen]     = useState(false)
   const [searchFocused, setSearchFocused] = useState(false)
   const [searchVal,     setSearchVal]     = useState('')
+  const [results,       setResults]       = useState([])
+  const [searchOpen,    setSearchOpen]    = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [activeIdx,     setActiveIdx]     = useState(-1)
   const dropdownRef = useRef(null)
   const notifRef    = useRef(null)
+  const searchRef   = useRef(null)
+  const inputRef    = useRef(null)
+  const searchSeq   = useRef(0)
   const navigate    = useNavigate()
   const location    = useLocation()
 
@@ -254,10 +299,64 @@ const Navbar = ({ onToggleSidebar }) => {
 
   const handleSignOut = () => { clearPermissions(); clearAuth(); navigate('/') }
 
+  // ── Global search: debounced fetch, stale-response guard ──────────
+  useEffect(() => {
+    const q = searchVal.trim()
+    if (q.length < 2) { setResults([]); setSearchOpen(false); setSearchLoading(false); return }
+    setSearchLoading(true)
+    const seq = ++searchSeq.current
+    const t = setTimeout(() => {
+      axiosInstance.get('/api/search', { params: { q } })
+        .then((r) => {
+          if (seq !== searchSeq.current) return       // a newer query already fired
+          setResults(r.data?.results || [])
+          setActiveIdx(-1)
+          setSearchOpen(true)
+        })
+        .catch(() => { if (seq === searchSeq.current) setResults([]) })
+        .finally(() => { if (seq === searchSeq.current) setSearchLoading(false) })
+    }, 250)
+    return () => clearTimeout(t)
+  }, [searchVal])
+
+  const closeSearch = () => { setSearchOpen(false); setActiveIdx(-1) }
+
+  const selectResult = (r) => {
+    if (!r) return
+    const meta = RESULT_TYPES[r.type]
+    if (meta) navigate(meta.route(r))
+    setSearchVal('')
+    setResults([])
+    closeSearch()
+    inputRef.current?.blur()
+  }
+
+  const onSearchKeyDown = (e) => {
+    if (e.key === 'Escape') { closeSearch(); inputRef.current?.blur(); return }
+    if (!searchOpen || results.length === 0) return
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx((i) => (i + 1) % results.length) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx((i) => (i - 1 + results.length) % results.length) }
+    else if (e.key === 'Enter') { e.preventDefault(); selectResult(results[activeIdx >= 0 ? activeIdx : 0]) }
+  }
+
+  // ── Cmd/Ctrl+K focuses the search from anywhere ───────────────────
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   useEffect(() => {
     const handler = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false)
       if (notifRef.current    && !notifRef.current.contains(e.target))    setNotifOpen(false)
+      if (searchRef.current   && !searchRef.current.contains(e.target))   closeSearch()
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -364,17 +463,19 @@ const Navbar = ({ onToggleSidebar }) => {
         </div>
 
         {/* ── Center search ── */}
-        <div data-tour="navbar-search" style={{ flex: 1, maxWidth: '420px', margin: '0 16px', position: 'relative' }}>
+        <div ref={searchRef} data-tour="navbar-search" style={{ flex: 1, maxWidth: '420px', margin: '0 16px', position: 'relative' }}>
           <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"
             style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: D.textSec, pointerEvents: 'none', flexShrink: 0 }}>
             <circle cx="11" cy="11" r="8" strokeWidth="2"/><path strokeLinecap="round" strokeWidth="2" d="M21 21l-4.35-4.35"/>
           </svg>
           <input
+            ref={inputRef}
             value={searchVal}
             onChange={e => setSearchVal(e.target.value)}
-            onFocus={() => setSearchFocused(true)}
+            onFocus={() => { setSearchFocused(true); if (results.length) setSearchOpen(true) }}
             onBlur={() => setSearchFocused(false)}
-            placeholder="Search across Nexus…"
+            onKeyDown={onSearchKeyDown}
+            placeholder="Search across Nexus…   (Ctrl+K)"
             style={{
               width: '100%', height: '32px',
               padding: '0 32px 0 32px',
@@ -388,10 +489,58 @@ const Navbar = ({ onToggleSidebar }) => {
             }}
           />
           {searchVal && (
-            <button onClick={() => setSearchVal('')}
+            <button onClick={() => { setSearchVal(''); setResults([]); closeSearch() }}
               style={{ position: 'absolute', right: '9px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: D.textSec, padding: 0, lineHeight: 1, fontSize: '14px' }}>
               ×
             </button>
+          )}
+
+          {/* Results dropdown */}
+          {searchOpen && searchVal.trim().length >= 2 && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+              background: D.dropdownBg, border: `1px solid ${D.dropdownBorder}`,
+              borderRadius: '12px', boxShadow: D.dropdownShadow, overflow: 'hidden',
+              zIndex: 50, maxHeight: '420px', overflowY: 'auto',
+            }}>
+              {searchLoading && results.length === 0 && (
+                <div style={{ padding: '14px 16px', fontSize: '12px', color: D.textSec }}>Searching…</div>
+              )}
+              {!searchLoading && results.length === 0 && (
+                <div style={{ padding: '14px 16px', fontSize: '12px', color: D.textSec }}>No matches for “{searchVal.trim()}”.</div>
+              )}
+              {results.map((r, i) => {
+                const meta = RESULT_TYPES[r.type] || { label: r.type, color: D.textSec }
+                const active = i === activeIdx
+                return (
+                  <button
+                    key={`${r.type}-${r.id}-${i}`}
+                    onMouseEnter={() => setActiveIdx(i)}
+                    onMouseDown={(e) => { e.preventDefault(); selectResult(r) }}
+                    style={{
+                      width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px',
+                      padding: '9px 14px', background: active ? D.itemHoverBg : 'transparent',
+                      border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: D.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.title || '—'}
+                      </span>
+                      {r.subtitle && (
+                        <span style={{ display: 'block', fontSize: '11px', color: D.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.subtitle}
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ fontSize: '10px', fontWeight: 600, color: meta.color, textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0 }}>
+                      {meta.label}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           )}
         </div>
 

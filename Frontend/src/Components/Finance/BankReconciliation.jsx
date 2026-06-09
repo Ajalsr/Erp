@@ -3,10 +3,12 @@ import { FaUniversity, FaCheckCircle, FaSync } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { useBaseCurrency, baseCurrency } from '../../helper/currency';
 
 const fmt = v => Number(v || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function BankReconciliation() {
+  useBaseCurrency();
   const isDark = useThemeStore(s => s.isDark);
   const T = { ...getTheme(isDark), isDark };
   const today = new Date().toISOString().slice(0, 10);
@@ -140,7 +142,7 @@ export default function BankReconciliation() {
         <span style={{ fontSize: 12, fontWeight: 600, color: isBalanced ? '#10b981' : '#ef4444' }}>
           {stmtBalance === '' ? 'Enter the statement ending balance, then tick transactions that appear on your statement.'
             : isBalanced ? 'Balanced — cleared transactions match the statement. Ready to reconcile.'
-            : `Off by AED ${fmt(Math.abs(difference))} — tick/untick transactions until the difference is zero.`}
+            : `Off by ${baseCurrency()} ${fmt(Math.abs(difference))} — tick/untick transactions until the difference is zero.`}
         </span>
         <button onClick={finish} disabled={!isBalanced || saving}
           style={{ padding: '8px 18px', background: isBalanced ? '#10b981' : T.border, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: !isBalanced || saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>

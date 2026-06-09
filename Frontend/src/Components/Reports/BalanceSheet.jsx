@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { FaBalanceScale, FaFilter } from 'react-icons/fa';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { useBaseCurrency, baseCurrency } from '../../helper/currency';
 
 const fmt = v => Number(v || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function BalanceSheet() {
+  useBaseCurrency();
   const isDark = useThemeStore(s => s.isDark);
   const T = { ...getTheme(isDark), isDark };
 
@@ -73,7 +75,7 @@ export default function BalanceSheet() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 10, marginBottom: 20, border: '1px solid', background: data.balanced ? (isDark ? 'rgba(16,185,129,0.08)' : '#f0fdf4') : (isDark ? 'rgba(239,68,68,0.08)' : '#fef2f2'), borderColor: data.balanced ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)' }}>
           <span style={{ fontSize: 16 }}>{data.balanced ? '✓' : '✕'}</span>
           <span style={{ fontSize: 12, fontWeight: 600, color: data.balanced ? '#10b981' : '#ef4444' }}>
-            {data.balanced ? 'Balanced — Assets equal Liabilities plus Equity' : `Out of balance by AED ${fmt(Math.abs((data.totalAssets ?? 0) - (data.totalLiabEquity ?? 0)))}`}
+            {data.balanced ? 'Balanced — Assets equal Liabilities plus Equity' : `Out of balance by ${baseCurrency()} ${fmt(Math.abs((data.totalAssets ?? 0) - (data.totalLiabEquity ?? 0)))}`}
           </span>
         </div>
       )}
