@@ -1,6 +1,7 @@
 import axios from 'axios'
 import useAuthStore from '../store/useAuthStore'
 import nexusToast from './nexusToast'
+import { seedPermissions } from './permissions'
 
 const useLogin = () => {
   const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
@@ -9,9 +10,12 @@ const useLogin = () => {
   const handleSignin = async (inputs) => {
     try {
       const response = await axios.post(`${BASE_URL}/api/auth/signin`, inputs)
-      const { data, token } = response.data
+      const { data, token, organizations } = response.data
 
-      setAuth(token, data)
+      setAuth(token, data, organizations)
+      // Prime the perms cache so the sidebar renders the right menu immediately,
+      // before any GET /api/organizations/:id resolves.
+      seedPermissions(organizations, data?.userId)
       nexusToast.success('Signed in successfully!')
 
       return response.data

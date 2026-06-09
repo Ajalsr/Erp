@@ -11,7 +11,10 @@ import useAuthStore from '../store/useAuthStore'
 
 export default function Layout() {
   const [sidebarToggle, setSidebarToggle] = useState(false)
-  const [orgLoading, setOrgLoading] = useState(true)
+  // Only show the full-screen gate when we have NO org info yet (first login).
+  // On a refresh/return the active org is restored from sessionStorage, so render
+  // the app immediately and refresh orgs in the background — no blank "Loading...".
+  const [orgLoading, setOrgLoading] = useState(() => !useAuthStore.getState().activeOrg)
   const isDark = useThemeStore((s) => s.isDark)
   const navigate = useNavigate()
 

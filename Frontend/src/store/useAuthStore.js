@@ -25,10 +25,17 @@ const useAuthStore = create(
       unreadCount: 0,
 
       // Actions
-      setAuth: (token, user) => set({
-        token,
-        user,
-        isAuthenticated: true,
+      // Seed orgs from the signin response (when provided) so the app skips the
+      // separate GET /api/organizations fetch on first load — no post-login gate.
+      setAuth: (token, user, organizations) => set(() => {
+        const orgs = Array.isArray(organizations) ? organizations : []
+        return {
+          token,
+          user,
+          isAuthenticated: true,
+          organizations: orgs,
+          activeOrg: orgs.length > 0 ? orgs[0] : null,
+        }
       }),
 
       clearAuth: () => set({

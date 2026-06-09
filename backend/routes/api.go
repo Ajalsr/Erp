@@ -167,6 +167,7 @@ func DashboardRoutes(router *gin.Engine) {
 	dashRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("dashboard"))
 	{
 		dashRoutes.GET("/activity-feed", controllers.GetActivityFeed())
+		dashRoutes.GET("/summary", controllers.GetDashboardSummary())
 	}
 }
 
