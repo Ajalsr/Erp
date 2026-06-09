@@ -2,14 +2,15 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { FaDownload, FaSync, FaChevronDown, FaCheck, FaTrophy, FaCoins, FaReceipt, FaHashtag, FaUsers, FaBoxOpen, FaChartLine } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 
 const fmtMoney = (n) =>
-  `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `${baseCurrency()} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtK = (n) => {
   const v = parseFloat(n || 0);
-  if (v >= 1000000) return `AED ${(v / 1000000).toFixed(1)}M`;
-  if (v >= 1000)    return `AED ${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k`;
-  return `AED ${v.toFixed(0)}`;
+  if (v >= 1000000) return `${baseCurrency()} ${(v / 1000000).toFixed(1)}M`;
+  if (v >= 1000)    return `${baseCurrency()} ${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k`;
+  return `${baseCurrency()} ${v.toFixed(0)}`;
 };
 const fmtKbare = (n) => {
   const v = parseFloat(n || 0);
@@ -219,6 +220,7 @@ function FeedRow({ type, who, what, amt, dir, time, isDark }) {
 
 // ── Main component ────────────────────────────────────────────────────
 export default function SalesReport() {
+  useBaseCurrency();
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
   const accent = "#6366f1";

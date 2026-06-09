@@ -30,15 +30,18 @@ const useOrganization = () => {
     return orgs
   }
 
-  const getOrganization = async (id) => {
-    const res = await axios.get(`${BASE_URL}/api/organizations/${id}`, authHeaders())
+  const getOrganization = async (id, withImages = false) => {
+    // withImages pulls the heavy letterhead/stamp blobs (Settings only). Default off so
+    // routine fetches stay light and fast.
+    const url = `${BASE_URL}/api/organizations/${id}${withImages ? '?withImages=true' : ''}`
+    const res = await axios.get(url, authHeaders())
     return res.data.data
   }
 
-  const updateOrganization = async (id, { name, description }) => {
+  const updateOrganization = async (id, { name, description, baseCurrency }) => {
     const res = await axios.put(
       `${BASE_URL}/api/organizations/${id}`,
-      { name, description },
+      { name, description, baseCurrency },
       authHeaders()
     )
     return res.data

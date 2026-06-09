@@ -375,6 +375,9 @@ func ConvertQuoteToInvoice() gin.HandlerFunc {
 			UpdatedAt:   time.Now(),
 		}
 
+		// Multi-currency: freeze the txn→base rate + base totals carried from the quote.
+		applyInvoiceFX(ctx, &inv)
+
 		if _, err := invoiceCollection.InsertOne(ctx, inv); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create invoice from quote"})
 			return

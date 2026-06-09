@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import useAuthStore from "../../store/useAuthStore";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useGetDashboardStats from "../../helper/useGetDashboardStats";
+import axiosInstance from "../../helper/axiosInstance";
 
 /* ─── Sparkline ──────────────────────────────────────────────────── */
 const Spark = ({ data, color, h = 38 }) => {
@@ -34,11 +35,16 @@ const Spark = ({ data, color, h = 38 }) => {
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 
+// Reporting currency for the dashboard. Module-level so the existing fmtAED call
+// sites need no new arg; Dashboard sets it from the org base currency and re-renders,
+// so every formatted figure picks up the new code.
+let DASH_CCY = "AED";
+
 const fmtAED = (n, compact = false) => {
   const v = Number(n || 0);
-  if (compact && v >= 1_000_000) return `AED ${(v / 1_000_000).toFixed(1)}M`;
-  if (compact && v >= 1_000)     return `AED ${(v / 1_000).toFixed(1)}K`;
-  return `AED ${v.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (compact && v >= 1_000_000) return `${DASH_CCY} ${(v / 1_000_000).toFixed(1)}M`;
+  if (compact && v >= 1_000)     return `${DASH_CCY} ${(v / 1_000).toFixed(1)}K`;
+  return `${DASH_CCY} ${v.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-AE");
@@ -85,6 +91,16 @@ export default function Dashboard() {
 
   const [time, setTime] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
+
+  // Reporting currency: dashboard figures are GL-derived (base currency). Pull the
+  // org base currency and feed the module-level formatter, then re-render.
+  const [, setCcyTick] = useState(0);
+  useEffect(() => {
+    axiosInstance.get("/api/exchange-rates/").then((r) => {
+      const base = r.data?.baseCurrency || "AED";
+      if (base !== DASH_CCY) { DASH_CCY = base; setCcyTick((t) => t + 1); }
+    }).catch(() => {});
+  }, []);
 
   const {
     totalCustomers, activeCustomers, pendingCustomers, todayNewCustomers,

@@ -59,22 +59,26 @@ func CreateBill() gin.HandlerFunc {
 		b.AmountPaid = 0
 		b.BalanceDue = b.Totals.GrandTotal
 
+		// Multi-currency: freeze the txn→base rate and compute base totals, so the GL
+		// posts in base currency and reports stay single-currency.
+		fxRate := applyBillFX(ctx, &b)
+
 		// Insert bill
 		if _, err := billCollection.InsertOne(ctx, b); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create bill", "error": err.Error()})
 			return
 		}
 
-		// Journal entry: DR COGS + DR VAT Input / CR Accounts Payable
+		// Journal entry: DR COGS + DR VAT Input / CR Accounts Payable (posted in base currency)
 		if b.Status != "draft" && b.Totals.GrandTotal > 0 {
 			go autoJE(b.OrgID, "bill", b.ID.Hex(), b.BillNumber, b.BillDate,
 				"Bill received - "+b.BillNumber,
-				[]jeLineInput{
+				scaleJELines([]jeLineInput{
 					// COGS = everything except recoverable VAT (goods + freight + shipping + adjustment)
 					{AccountCode: "5000", Debit: b.Totals.GrandTotal - b.Totals.TaxTotal},
 					{AccountCode: "5500", Debit: b.Totals.TaxTotal},
 					{AccountCode: "2000", Credit: b.Totals.GrandTotal},
-				})
+				}, fxRate))
 		}
 
 		// Mark linked GRN as billed

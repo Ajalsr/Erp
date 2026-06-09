@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 
 const fmt = (n) =>
-  `AED ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `${baseCurrency()} ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const BUCKETS = [
   { key: "current", label: "Current",   color: "#10b981", glow: "rgba(16,185,129,0.15)" },
@@ -25,6 +26,7 @@ const CUST_COLS = [
 ];
 
 export default function AgingReport() {
+  useBaseCurrency();
   const navigate = useNavigate();
   const isDark   = useThemeStore((s) => s.isDark);
   const T        = getTheme(isDark);

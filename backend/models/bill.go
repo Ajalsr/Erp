@@ -68,6 +68,13 @@ type Bill struct {
 	LineItems []BillLineItem `json:"lineItems" bson:"lineItems"`
 	Totals    BillTotals     `json:"totals"    bson:"totals"`
 
+	// Multi-currency: txn currency + rate frozen at posting; BaseTotals is Totals
+	// converted to org base currency (what the GL is posted in).
+	Currency     string     `json:"currency,omitempty"     bson:"currency,omitempty"`
+	ExchangeRate float64    `json:"exchangeRate,omitempty" bson:"exchangeRate,omitempty"`
+	BaseCurrency string     `json:"baseCurrency,omitempty" bson:"baseCurrency,omitempty"`
+	BaseTotals   BillTotals `json:"baseTotals,omitempty"   bson:"baseTotals,omitempty"`
+
 	// Payment tracking
 	AmountPaid float64 `json:"amountPaid" bson:"amountPaid"`
 	BalanceDue float64 `json:"balanceDue" bson:"balanceDue"`

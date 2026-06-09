@@ -4,6 +4,7 @@ import ReactDOM from "react-dom";
 import DatePicker from "react-datepicker";
 import { format, addDays, addMonths, isSameDay } from "date-fns";
 import axiosInstance from "../../helper/axiosInstance";
+import useRealtime from "../../helper/useRealtime";
 import useThemeStore from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
@@ -662,6 +663,10 @@ const Invoices = () => {
   const [advApplyAmt, setAdvApplyAmt] = useState("");
   const [advApplying, setAdvApplying] = useState(false);
 
+  /* customer's unused-credit wallet (from overpayments / voided invoices) */
+  const [availCredit, setAvailCredit] = useState(0);
+  const [creditApplying, setCreditApplying] = useState(false);
+
   const handleApplyAdvance = async () => {
     if (!advToApply || !selected) { nexusToast.error("Select an advance"); return; }
     const adv = availAdvances.find(a => a._id === advToApply);
@@ -683,6 +688,28 @@ const Invoices = () => {
       nexusToast.error(e.response?.data?.message || "Failed to apply advance");
     } finally { setAdvApplying(false); }
   };
+
+  // Apply the customer's unused-credit wallet to this invoice (min of credit + balance).
+  const handleApplyCredit = async () => {
+    if (!selected?.customerId) return;
+    const cap = Math.min(availCredit, selected.balance ?? 0);
+    if (cap <= 0) { nexusToast.error("No applicable credit"); return; }
+    setCreditApplying(true);
+    try {
+      const r = await axiosInstance.post(`/api/customers/${selected.customerId}/apply-credit`, {
+        invoiceId: selected._id, amount: cap,
+      });
+      nexusToast.success(r.data?.message || "Credit applied");
+      setAvailCredit(r.data?.remainingCredit ?? Math.max(0, availCredit - cap));
+      loadInvoices();
+      const invId = selected._id;
+      axiosInstance.get(`/api/invoices/${invId}`).then(res => { const f = res.data?.data; if (f) setSelected(toRow(f)); }).catch(() => {});
+      axiosInstance.get(`/api/payments/?invoiceId=${invId}`).then(res => setLinkedPayments(res.data?.data?.payments || [])).catch(() => {});
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Failed to apply credit");
+    } finally { setCreditApplying(false); }
+  };
+
   const openCreditNote = (inv) => setCnPrefill({
     customerId:    inv.customerId,
     customerName:  inv.customer,
@@ -702,6 +729,21 @@ const Invoices = () => {
   /* drawer */
   const [selected,       setSelected]      = useState(null);
   const [drawerTab,      setDrawerTab]     = useState("overview");
+
+  // Live updates from other clients: refresh the list and, if a detail drawer is open,
+  // re-fetch that invoice so its paid/balance/status update without a manual reload.
+  const selectedRef = useRef(null);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  const onRealtime = useCallback(() => {
+    loadInvoices();
+    const openId = selectedRef.current?._id;
+    if (openId) {
+      axiosInstance.get(`/api/invoices/${openId}`)
+        .then((res) => { const f = res.data?.data; if (f) setSelected(toRow(f)); })
+        .catch(() => {});
+    }
+  }, [loadInvoices]);
+  useRealtime(['invoices_updated','payments_updated','credit_notes_updated','advance_payments_updated','delivery_notes_updated','sales_orders_updated'], onRealtime);
   const [linkedCNs,      setLinkedCNs]     = useState([]);
   const [cnLoading,      setCnLoading]     = useState(false);
   const [linkedPayments, setLinkedPayments] = useState([]);
@@ -944,6 +986,14 @@ const Invoices = () => {
     axiosInstance.get(`/api/advance-payments/?customerId=${selected.customerId}&available=true`)
       .then(res => setAvailAdvances(res.data?.data?.advances || []))
       .catch(() => setAvailAdvances([]));
+  }, [selected?.customerId, selected?._id]);
+
+  // Customer unused-credit wallet — surfaced as "Apply Credit" on unpaid invoices.
+  useEffect(() => {
+    if (!selected?.customerId) { setAvailCredit(0); return; }
+    axiosInstance.get(`/api/customers/${selected.customerId}`)
+      .then(res => { const c = res.data?.data || res.data; setAvailCredit(c?.unused_credits || 0); })
+      .catch(() => setAvailCredit(0));
   }, [selected?.customerId, selected?._id]);
 
   const totalAdvanceAvail = availAdvances.reduce((s, a) => s + (a.remainingAmount || 0), 0);
@@ -1413,6 +1463,16 @@ const Invoices = () => {
                           onClick={() => setApplyAdvModal(true)}
                           style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", color: "#8b5cf6", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                           🏦 Apply Advance ({fmt(totalAdvanceAvail)} available)
+                        </button>
+                      )}
+
+                      {/* Apply Credit — when customer has unused credit on account */}
+                      {["unpaid", "overdue", "partial"].includes(selected.status) && (selected.balance ?? 0) > 0 && availCredit > 0.005 && (
+                        <button
+                          onClick={handleApplyCredit}
+                          disabled={creditApplying}
+                          style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: creditApplying ? "not-allowed" : "pointer", background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "'DM Sans', sans-serif", width: "100%", opacity: creditApplying ? 0.7 : 1 }}>
+                          {creditApplying ? "Applying…" : `✓ Apply Credit (${fmt(availCredit)} available)`}
                         </button>
                       )}
 

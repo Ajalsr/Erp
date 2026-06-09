@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FaPlus, FaSearch, FaEdit, FaTrash, FaLock, FaBook, FaUniversity, FaBalanceScale } from 'react-icons/fa';
 import { IoClose } from 'react-icons/io5';
 import axiosInstance from '../../helper/axiosInstance';
+import useRealtime from '../../helper/useRealtime';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
 
@@ -51,6 +52,7 @@ export default function Accounts() {
   }, []);
 
   useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
+  useRealtime(['accounts_updated','journal_entries_updated','invoices_updated','bills_updated','payments_updated','vendor_payments_updated'], fetchAccounts);
 
   const filtered = accounts.filter(a => {
     const matchType   = typeFilter === 'all' || a.accountType === typeFilter;

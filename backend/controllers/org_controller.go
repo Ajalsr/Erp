@@ -221,7 +221,9 @@ func CreateOrganization() gin.HandlerFunc {
 // GET /api/organizations — returns all orgs the authenticated user belongs to
 func GetUserOrganizations() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// 30s (was 10s): on a slow/flaky Atlas link the org lookup could exceed 10s and
+		// 500, dropping the user to "No Organization Yet" despite a valid membership.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		userID, _ := c.Get("userId")
@@ -232,6 +234,7 @@ func GetUserOrganizations() gin.HandlerFunc {
 			"status": "active",
 		})
 		if err != nil {
+			log.Printf("GetUserOrganizations: member find failed for %q: %v", userIDStr, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
 			return
 		}
@@ -255,8 +258,15 @@ func GetUserOrganizations() gin.HandlerFunc {
 			roleMap[m.OrgID] = m.Role
 		}
 
-		orgCursor, err := orgCollection.Find(ctx, bson.M{"_id": bson.M{"$in": orgIDs}})
+		// Exclude the heavy base64 letterhead/stamp blobs — the org list/switcher never
+		// needs them, and pulling 50KB+ per org can blow the request timeout on a slow
+		// link (caused "No Organization Yet" for orgs that have a letterhead).
+		orgCursor, err := orgCollection.Find(ctx,
+			bson.M{"_id": bson.M{"$in": orgIDs}},
+			options.Find().SetProjection(bson.M{"letterheadImage": 0, "stampImage": 0}),
+		)
 		if err != nil {
+			log.Printf("GetUserOrganizations: org find failed for %q: %v", userIDStr, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
 			return
 		}
@@ -264,6 +274,7 @@ func GetUserOrganizations() gin.HandlerFunc {
 
 		var orgs []models.Organization
 		if err := orgCursor.All(ctx, &orgs); err != nil {
+			log.Printf("GetUserOrganizations: org decode failed for %q: %v", userIDStr, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
 			return
 		}
@@ -282,9 +293,13 @@ func GetUserOrganizations() gin.HandlerFunc {
 }
 
 // GET /api/organizations/:id
+// By default the heavy base64 letterhead/stamp blobs are excluded — this endpoint is
+// hit on every page by the permissions loader, and pulling 50KB+ over a slow link was
+// timing out → 404 → permissions failed to load → every module returned 403. Pass
+// ?withImages=true (Organization Settings) to include them.
 func GetOrganization() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		userID, _ := c.Get("userId")
@@ -300,8 +315,13 @@ func GetOrganization() gin.HandlerFunc {
 			return
 		}
 
+		findOpts := options.FindOne()
+		if c.Query("withImages") != "true" {
+			findOpts.SetProjection(bson.M{"letterheadImage": 0, "stampImage": 0})
+		}
 		var org models.Organization
-		if err = orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&org); err != nil {
+		if err = orgCollection.FindOne(ctx, bson.M{"_id": orgID}, findOpts).Decode(&org); err != nil {
+			log.Printf("GetOrganization: fetch failed for org %s (user %q): %v", orgID.Hex(), userID, err)
 			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Organization not found"})
 			return
 		}
@@ -310,6 +330,7 @@ func GetOrganization() gin.HandlerFunc {
 			"_id":                 org.ID,
 			"name":                org.Name,
 			"description":         org.Description,
+			"baseCurrency":        org.BaseCurrency,
 			"letterheadImage":     org.LetterheadImage,
 			"letterheadTopPad":    org.LetterheadTopPad,
 			"letterheadBottomPad": org.LetterheadBottomPad,
@@ -342,16 +363,24 @@ func UpdateOrganization() gin.HandlerFunc {
 		}
 
 		var input struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
+			Name         string `json:"name"`
+			Description  string `json:"description"`
+			BaseCurrency string `json:"baseCurrency"`
 		}
 		c.ShouldBindJSON(&input)
 
-		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
+		set := bson.M{
 			"name":        input.Name,
 			"description": input.Description,
 			"updatedAt":   time.Now(),
-		}})
+		}
+		// Only touch baseCurrency when supplied, so name/description-only saves don't
+		// wipe a previously configured currency.
+		if bc := strings.ToUpper(strings.TrimSpace(input.BaseCurrency)); bc != "" {
+			set["baseCurrency"] = bc
+		}
+
+		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": set})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update organization"})
 			return

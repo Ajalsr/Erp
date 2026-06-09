@@ -382,7 +382,9 @@ const Customers = () => {
           if (!cid) return;
           if (!map[cid]) map[cid] = { receivables: 0, includedVat: 0, subtotalDue: 0, total: 0, lastDate: null };
           map[cid].total += 1;
-          if (inv.status !== "paid" && inv.status !== "void") {
+          // Drafts (not posted) and proformas are not real receivables — exclude them,
+          // along with paid/void, from the customer's outstanding figure.
+          if (!["paid", "void", "draft"].includes(inv.status) && inv.type !== "proforma") {
             const grandTotal = inv.totals?.grandTotal ?? 0;
             const taxTotal   = inv.totals?.taxTotal   ?? 0;
             const subtotal   = inv.totals?.subtotal   ?? 0;

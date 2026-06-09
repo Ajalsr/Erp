@@ -14,6 +14,7 @@ import (
 	_ "github.com/backend/loader"
 	"github.com/backend/config"
 	"github.com/backend/controllers"
+	"github.com/backend/middlewares"
 	"github.com/backend/routes"
 	"github.com/backend/ws"
 )
@@ -74,9 +75,21 @@ func main() {
 	// Create MongoDB indexes on startup (idempotent — safe to run every restart)
 	config.EnsureIndexes(config.DB)
 
+	// Backfill FX gain/loss accounts (4300/5800) into existing orgs so foreign-currency
+	// payments post correctly without a manual re-seed. Idempotent.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		controllers.EnsureFXAccounts(ctx)
+	}()
+
 	router := gin.Default()
 	router.RedirectTrailingSlash = false
 	router.Use(CORSMiddleware())
+	// Emit a WebSocket "<entity>_updated" event after every successful mutation, so all
+	// connected clients in the org refresh live (runs post-handler; reads orgId set by
+	// RequireOrg). Must come before route registration to wrap every handler.
+	router.Use(middlewares.BroadcastMutations())
 
 	routes.StockRoutes(router)
 	routes.AuthRoutes(router)
@@ -108,6 +121,9 @@ func main() {
 	routes.DebitNoteRoutes(router)
 	routes.DocumentRoutes(router)
 	routes.ReportsRoutes(router)
+	routes.SearchRoutes(router)
+	routes.RecurringInvoiceRoutes(router)
+	routes.ExchangeRateRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))

@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { FaChartLine, FaFilter } from 'react-icons/fa';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { useBaseCurrency, baseCurrency } from '../../helper/currency';
 
 const fmt = v => Number(v || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function ProfitLoss() {
+  useBaseCurrency();
   const isDark = useThemeStore(s => s.isDark);
   const T = { ...getTheme(isDark), isDark };
 
@@ -93,7 +95,7 @@ export default function ProfitLoss() {
           <Section title="Expenses" section={data.expense} color="#ef4444" />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', margin: '4px 16px 0', borderRadius: 10, background: isProfit ? (isDark ? 'rgba(16,185,129,0.1)' : '#f0fdf4') : (isDark ? 'rgba(239,68,68,0.1)' : '#fef2f2'), border: `1.5px solid ${isProfit ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
             <span style={{ fontSize: 14, fontWeight: 800, color: T.textPri }}>{isProfit ? 'Net Profit' : 'Net Loss'}</span>
-            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 800, color: isProfit ? '#10b981' : '#ef4444' }}>AED {fmt(Math.abs(net))}</span>
+            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 800, color: isProfit ? '#10b981' : '#ef4444' }}>{baseCurrency()} {fmt(Math.abs(net))}</span>
           </div>
         </div>
       )}

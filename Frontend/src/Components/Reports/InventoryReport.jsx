@@ -6,9 +6,10 @@ import {
 import { FaBoxOpen, FaWarehouse, FaExclamationTriangle, FaSync, FaDownload, FaSearch, FaTimes } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
+import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 
-const fmtM = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const fmtK = (n) => { if (n >= 1000000) return `AED ${(n / 1000000).toFixed(1)}M`; if (n >= 1000) return `AED ${(n / 1000).toFixed(1)}K`; return `AED ${Math.round(n)}`; };
+const fmtM = (n) => `${baseCurrency()} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtK = (n) => { if (n >= 1000000) return `${baseCurrency()} ${(n / 1000000).toFixed(1)}M`; if (n >= 1000) return `${baseCurrency()} ${(n / 1000).toFixed(1)}K`; return `${baseCurrency()} ${Math.round(n)}`; };
 
 const CATEGORY_COLORS = ["#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899", "#84cc16"];
 
@@ -25,6 +26,7 @@ const norm = (it) => ({
 });
 
 export default function InventoryReport() {
+  useBaseCurrency();
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
 

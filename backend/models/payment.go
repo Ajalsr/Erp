@@ -6,15 +6,30 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// PaymentAllocation links part of one received payment to a single invoice. A payment
+// may settle several invoices at once (one bank receipt → many invoices).
+type PaymentAllocation struct {
+	InvoiceID     string  `json:"invoiceId"     bson:"invoiceId"`
+	InvoiceNumber string  `json:"invoiceNumber" bson:"invoiceNumber"`
+	Amount        float64 `json:"amount"        bson:"amount"` // applied to this invoice (txn currency)
+}
+
 type Payment struct {
 	ID            primitive.ObjectID `json:"_id,omitempty"          bson:"_id,omitempty"`
 	PaymentNumber string             `json:"paymentNumber"          bson:"paymentNumber"`
 	Date          string             `json:"date"                   bson:"date"`
 	CustomerID    string             `json:"customerId"             bson:"customerId"`
 	CustomerName  string             `json:"customerName"           bson:"customerName"`
+	// InvoiceID/InvoiceNumber: single-invoice payments (legacy + simple case). For a
+	// multi-invoice receipt these stay empty and Allocations holds the split.
 	InvoiceID     string             `json:"invoiceId,omitempty"    bson:"invoiceId,omitempty"`
 	InvoiceNumber string             `json:"invoiceNumber,omitempty" bson:"invoiceNumber,omitempty"`
-	Amount        float64            `json:"amount"                 bson:"amount"`
+	// Allocations: per-invoice split when one payment settles several invoices.
+	Allocations   []PaymentAllocation `json:"allocations,omitempty" bson:"allocations,omitempty"`
+	// ExcessCredit: amount received beyond all allocated invoices, moved to the
+	// customer's credit wallet (and posted to Customer Advances).
+	ExcessCredit  float64            `json:"excessCredit,omitempty" bson:"excessCredit,omitempty"`
+	Amount        float64            `json:"amount"                 bson:"amount"` // total received
 	PaymentMode   string             `json:"paymentMode"            bson:"paymentMode"` // cash|bank|cheque|card
 	Reference     string             `json:"reference,omitempty"    bson:"reference,omitempty"`
 	Notes         string             `json:"notes,omitempty"        bson:"notes,omitempty"`

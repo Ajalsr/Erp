@@ -82,6 +82,13 @@ type Invoice struct {
 	CustomerID    string             `json:"customerId"       bson:"customerId"`
 	LineItems     []InvoiceLineItem  `json:"lineItems"        bson:"lineItems"`
 	Totals        InvoiceTotals      `json:"totals"           bson:"totals"`
+	// Multi-currency: ExchangeRate is the txn→base rate frozen at posting time;
+	// BaseCurrency is the org reporting currency; BaseTotals is Totals converted to
+	// base. For same-currency invoices ExchangeRate=1 and BaseTotals==Totals. The GL
+	// is always posted in base, so financial statements stay single-currency.
+	ExchangeRate  float64            `json:"exchangeRate,omitempty"  bson:"exchangeRate,omitempty"`
+	BaseCurrency  string             `json:"baseCurrency,omitempty"  bson:"baseCurrency,omitempty"`
+	BaseTotals    InvoiceTotals      `json:"baseTotals,omitempty"    bson:"baseTotals,omitempty"`
 	Notes         InvoiceNotes       `json:"notes"            bson:"notes"`
 	Status        string             `json:"status"                    bson:"status"`
 	AmountPaid    float64            `json:"amountPaid"                bson:"amountPaid"`

@@ -1101,7 +1101,8 @@ func GetCustomerStatement() gin.HandlerFunc {
 			"orgId":      orgID,
 			"customerId": custIDStr,
 			"issueDate":  bson.M{"$gte": fromStr, "$lte": toStr},
-			"status":     bson.M{"$ne": "void"},
+			// Drafts are not real receivables (no GL posting) — exclude with void.
+			"status":     bson.M{"$nin": []string{"void", "draft"}},
 			"type":       bson.M{"$ne": "proforma"},
 		}, options.Find().SetSort(bson.D{{Key: "issueDate", Value: 1}}))
 		var invoices []models.Invoice
@@ -1144,7 +1145,7 @@ func GetCustomerStatement() gin.HandlerFunc {
 				"orgId":      orgID,
 				"customerId": custIDStr,
 				"issueDate":  bson.M{"$lt": fromStr},
-				"status":     bson.M{"$nin": []string{"void", "paid"}},
+				"status":     bson.M{"$nin": []string{"void", "paid", "draft"}},
 				"type":       bson.M{"$ne": "proforma"},
 			}},
 			{"$group": bson.M{"_id": nil, "balance": bson.M{"$sum": "$balanceDue"}}},

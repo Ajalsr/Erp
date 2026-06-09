@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { FaBalanceScale, FaDownload, FaFilter } from 'react-icons/fa';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { useBaseCurrency, baseCurrency } from '../../helper/currency';
 
 const TYPE_ORDER = ['asset', 'liability', 'equity', 'income', 'expense'];
 const TYPE_COLOR = {
@@ -15,6 +16,7 @@ const TYPE_COLOR = {
 const fmt = v => Number(v || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function TrialBalance() {
+  useBaseCurrency();
   const isDark = useThemeStore(s => s.isDark);
   const T = { ...getTheme(isDark), isDark };
 
@@ -93,7 +95,7 @@ export default function TrialBalance() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 10, marginBottom: 20, border: '1px solid', background: isBalanced ? (isDark ? 'rgba(16,185,129,0.08)' : '#f0fdf4') : (isDark ? 'rgba(239,68,68,0.08)' : '#fef2f2'), borderColor: isBalanced ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)' }}>
           <span style={{ fontSize: 16 }}>{isBalanced ? '✓' : '✕'}</span>
           <span style={{ fontSize: 12, fontWeight: 600, color: isBalanced ? '#10b981' : '#ef4444' }}>
-            {isBalanced ? 'Entries are balanced — total debits equal total credits' : `Out of balance by AED ${fmt(Math.abs((data?.grandDebit ?? 0) - (data?.grandCredit ?? 0)))}`}
+            {isBalanced ? 'Entries are balanced — total debits equal total credits' : `Out of balance by ${baseCurrency()} ${fmt(Math.abs((data?.grandDebit ?? 0) - (data?.grandCredit ?? 0)))}`}
           </span>
         </div>
       )}

@@ -129,6 +129,7 @@ const OrganizationSettings = () => {
   // Settings form
   const [orgName, setOrgName] = useState('')
   const [orgDesc, setOrgDesc] = useState('')
+  const [baseCurrency, setBaseCurrency] = useState('AED')
   const [saving, setSaving] = useState(false)
 
   // Letterhead
@@ -221,13 +222,14 @@ const OrganizationSettings = () => {
     try {
       setLoading(true)
       const [orgData, membersData, invData] = await Promise.all([
-        getOrganization(id),
+        getOrganization(id, true), // Settings needs the letterhead/stamp images
         getMembers(id),
         getOrgInvitations(id).catch(() => []),
       ])
       setOrg(orgData)
       setOrgName(orgData?.name || '')
       setOrgDesc(orgData?.description || '')
+      setBaseCurrency(orgData?.baseCurrency || 'AED')
       setLetterhead(orgData?.letterheadImage || '')
       setLetterheadTopPad(orgData?.letterheadTopPad || 13)
       setLetterheadBottomPad(orgData?.letterheadBottomPad || 8)
@@ -257,7 +259,7 @@ const OrganizationSettings = () => {
     if (!orgName.trim()) { nexusToast.error('Name is required'); return }
     setSaving(true)
     try {
-      await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim() })
+      await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim(), baseCurrency: (baseCurrency || 'AED').trim().toUpperCase() })
       if (activeOrg?._id === id) setActiveOrg({ ...activeOrg, name: orgName.trim() })
       nexusToast.success('Organization updated')
       load()
@@ -1025,6 +1027,22 @@ const OrganizationSettings = () => {
                     onChange={(e) => setOrgDesc(e.target.value)}
                     disabled={!canManage}
                   />
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: textSec, fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
+                    Base Currency
+                  </label>
+                  <input
+                    style={{ ...inputStyle, maxWidth: 140, textTransform: 'uppercase' }}
+                    value={baseCurrency}
+                    onChange={(e) => setBaseCurrency(e.target.value.toUpperCase().slice(0, 3))}
+                    maxLength={3}
+                    placeholder="AED"
+                    disabled={!canManage}
+                  />
+                  <p style={{ color: textSec, fontSize: '11px', margin: '6px 0 0' }}>
+                    Reporting/ledger currency. Foreign-currency invoices convert to this on the books.
+                  </p>
                 </div>
                 {canManage && (
                   <div>

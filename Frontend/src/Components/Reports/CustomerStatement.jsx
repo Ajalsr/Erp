@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
+import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 
 const fmt = (n) =>
-  `AED ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `${baseCurrency()} ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const toISO = (date) => new Date(date).toISOString().split("T")[0];
 const today = () => toISO(new Date());
@@ -21,6 +22,7 @@ const fmtDate = (d) => {
 };
 
 export default function CustomerStatement() {
+  useBaseCurrency();
   const navigate = useNavigate();
   const isDark   = useThemeStore((s) => s.isDark);
   const T        = getTheme(isDark);

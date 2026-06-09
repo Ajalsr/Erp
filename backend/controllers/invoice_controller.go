@@ -196,6 +196,10 @@ func CreateInvoice() gin.HandlerFunc {
 		inv.AmountPaid = 0
 		inv.BalanceDue = inv.Totals.GrandTotal
 
+		// Multi-currency: freeze the txn→base rate and compute base totals now, so the
+		// GL is posted in base currency and reports stay single-currency.
+		fxRate := applyInvoiceFX(ctx, &inv)
+
 		// Assign IDs to line items
 		for i := range inv.LineItems {
 			inv.LineItems[i].ID = primitive.NewObjectID()
@@ -213,7 +217,7 @@ func CreateInvoice() gin.HandlerFunc {
 
 		// Journal entry: DR Accounts Receivable / CR Sales Revenue (per item's sales account) + CR VAT Payable
 		if inv.Status != "draft" && inv.Totals.GrandTotal > 0 {
-			lines := buildInvoiceJELines(inv)
+			lines := scaleJELines(buildInvoiceJELines(inv), fxRate)
 			go autoJE(inv.OrgID, "invoice", inv.ID.Hex(), inv.InvoiceNumber, inv.IssueDate,
 				"Invoice raised - "+inv.InvoiceNumber, lines)
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // Module capabilities. Mirror frontend helper/permissions.js PERM_CAPS.
@@ -77,7 +78,11 @@ func capForRequest(c *gin.Context) string {
 func roleCapsForModule(ctx context.Context, orgID primitive.ObjectID, role, module string) []string {
 	orgCol := config.GetCollection(config.DB, "organizations")
 	var org models.Organization
-	if err := orgCol.FindOne(ctx, bson.M{"_id": orgID}).Decode(&org); err == nil {
+	// Fetch ONLY rolePermissions — never the heavy base64 letterhead/stamp. This runs on
+	// every non-owner request; pulling 50KB+ each time overran the timeout on a slow link,
+	// the read fell back to defaultModuleCaps (nil for custom roles) → spurious 403s.
+	opts := options.FindOne().SetProjection(bson.M{"rolePermissions": 1})
+	if err := orgCol.FindOne(ctx, bson.M{"_id": orgID}, opts).Decode(&org); err == nil {
 		if rp, ok := org.RolePermissions[role]; ok {
 			if caps, ok := rp.Modules[module]; ok {
 				return []string(caps)
@@ -170,6 +175,22 @@ func RequireApproval(key string) gin.HandlerFunc {
 			"message": "You don't have approval rights for " + key,
 		})
 	}
+}
+
+// MemberRole is the exported form of memberRole, for cross-cutting handlers (e.g.
+// global search) that need the caller's role without going through RequireModule.
+func MemberRole(ctx context.Context, orgID primitive.ObjectID, userID string) (string, bool) {
+	return memberRole(ctx, orgID, userID)
+}
+
+// RoleCanView reports whether role has the view capability on module. owner/admin
+// always pass. Mirrors the gate RequireModule applies for GET requests, so global
+// search can skip categories the caller may not read.
+func RoleCanView(ctx context.Context, orgID primitive.ObjectID, role, module string) bool {
+	if role == "owner" || role == "admin" {
+		return true
+	}
+	return containsCap(roleCapsForModule(ctx, orgID, role, module), CapView)
 }
 
 func memberRole(ctx context.Context, orgID primitive.ObjectID, userID string) (string, bool) {
