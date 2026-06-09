@@ -128,6 +128,26 @@ export async function fetchPermissions(force = false) {
 // without blanking the cache, so open screens never flash to "no access".
 export function invalidatePermissions() { fetchPermissions(true); }
 
+// Seed the perms cache straight from the signin payload (orgs carry role +
+// rolePermissions + customRoles), so the sidebar knows the user's access on first
+// paint — no GET /api/organizations/:id round-trip before the menu fills.
+export function seedPermissions(organizations, userId) {
+  if (!Array.isArray(organizations) || !userId) return;
+  let changed = false;
+  for (const org of organizations) {
+    const id = org?._id;
+    if (!id || !org.role) continue;
+    _store[id] = {
+      userId,
+      role:  org.role,
+      perms: org.rolePermissions || {},
+      roles: org.customRoles || ['member', 'viewer'],
+    };
+    changed = true;
+  }
+  if (changed) { saveStore(); _notify(); }
+}
+
 // Wipe the perms cache (call on logout) so the next account never sees stale access.
 export function clearPermissions() {
   _store = {};
@@ -204,7 +224,11 @@ export function usePermissions() {
     let live = true;
     const apply = () => { const c = cachedPermissions(activeOrgId); if (c && live) { setState(c); setReady(true); } };
     apply();                                              // instant, no flicker
-    fetchPermissions(true).then(s => { if (live) { setState(s); setReady(true); } }); // refresh in background
+    // Honor the cache: only hit the network when perms for this org aren't cached
+    // yet (first login / org switch). Avoids a redundant GET /api/organizations/:id
+    // on every mount. After a grant/role change, invalidatePermissions() forces a
+    // background refresh explicitly.
+    fetchPermissions(false).then(s => { if (live) { setState(s); setReady(true); } })
     const unsub = subscribePermissions(apply);            // live update after grant/clear
     return () => { live = false; unsub(); };
   }, [activeOrgId]);

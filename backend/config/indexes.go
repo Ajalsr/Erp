@@ -42,6 +42,7 @@ func EnsureIndexes(client *mongo.Client) {
 		// Customers
 		{collection: "customers", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "customerCode", Value: 1}}, name: "orgId_customerCode"},
 		{collection: "customers", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_status"},
+		{collection: "customers", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "created_at", Value: -1}}, name: "orgId_created_at"},
 
 		// Stocks / Items
 		{collection: "stocks", keys: bson.D{{Key: "orgId", Value: 1}}, name: "orgId"},
@@ -52,9 +53,19 @@ func EnsureIndexes(client *mongo.Client) {
 
 		// Bills
 		{collection: "bills", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_status"},
+		{collection: "bills", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "createdAt", Value: -1}}, name: "orgId_createdAt"},
 
 		// Vendors
 		{collection: "vendors", keys: bson.D{{Key: "orgId", Value: 1}}, name: "orgId"},
+
+		// Payments received — summed on the dashboard (all-time + this-month).
+		{collection: "payments", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "createdAt", Value: -1}}, name: "orgId_createdAt"},
+
+		// Vendor payments — summed on the dashboard (all-time + this-month).
+		{collection: "vendor_payments", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "createdAt", Value: -1}}, name: "orgId_createdAt"},
+
+		// Quotes — grouped/summed on the dashboard.
+		{collection: "quotes", keys: bson.D{{Key: "orgId", Value: 1}}, name: "orgId"},
 
 		// GRNs
 		{collection: "grns", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "createdAt", Value: -1}}, name: "orgId_createdAt"},
@@ -73,6 +84,11 @@ func EnsureIndexes(client *mongo.Client) {
 
 		// Org members (used on every authenticated request by RequireOrg middleware)
 		{collection: "org_members", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "userId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_userId_status"},
+		// Lookup by user — signin and GetUserOrganizations list a user's orgs by
+		// userId (+status). The compound index above is orgId-first so it can't serve
+		// a userId-first query; without this index that lookup is a full collection
+		// scan (was the ~10s signin / post-login stall).
+		{collection: "org_members", keys: bson.D{{Key: "userId", Value: 1}, {Key: "status", Value: 1}}, name: "userId_status"},
 	}
 
 	for _, idx := range indexes {

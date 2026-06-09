@@ -202,12 +202,18 @@ func SignIn() gin.HandlerFunc {
 			return
 		}
 
+		// Include the user's organizations in the signin response so the client can
+		// seed its store and skip the separate GET /api/organizations round-trip on
+		// first load — that extra Atlas call was the post-login "Loading…" delay.
+		organizations := buildUserOrganizations(ctx, user.UserID)
+
 		// Removed debug fmt.Println — do not log user IDs in production
 		c.JSON(http.StatusOK, gin.H{
-			"status":  http.StatusOK,
-			"message": "Login successful",
-			"data":    result,
-			"token":   token,
+			"status":        http.StatusOK,
+			"message":       "Login successful",
+			"data":          result,
+			"token":         token,
+			"organizations": organizations,
 		})
 	}
 }

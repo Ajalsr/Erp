@@ -13,5 +13,17 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-  ]
+  ],
+  build: {
+    rollupOptions: {
+      output: {
+        // Split the rarely-changing framework libs into their own chunk. They
+        // stay byte-identical across app deploys, so the browser serves them
+        // from cache on repeat visits instead of re-downloading the main bundle.
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+        },
+      },
+    },
+  },
 })

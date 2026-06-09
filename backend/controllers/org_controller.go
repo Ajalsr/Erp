@@ -219,6 +219,61 @@ func CreateOrganization() gin.HandlerFunc {
 }
 
 // GET /api/organizations — returns all orgs the authenticated user belongs to
+// buildUserOrganizations returns the active orgs a user belongs to, each tagged with
+// the user's role. Shared by the signin response and GetUserOrganizations so the
+// shape stays identical (heavy letterhead/stamp blobs excluded). Returns an empty
+// (non-nil) slice on any error so callers can embed it safely.
+func buildUserOrganizations(ctx context.Context, userIDStr string) []gin.H {
+	out := []gin.H{}
+
+	cursor, err := orgMemberCollection.Find(ctx, bson.M{"userId": userIDStr, "status": "active"})
+	if err != nil {
+		return out
+	}
+	defer cursor.Close(ctx)
+
+	var members []models.OrgMember
+	if err := cursor.All(ctx, &members); err != nil || len(members) == 0 {
+		return out
+	}
+
+	orgIDs := make([]primitive.ObjectID, 0, len(members))
+	roleMap := make(map[primitive.ObjectID]string)
+	for _, m := range members {
+		orgIDs = append(orgIDs, m.OrgID)
+		roleMap[m.OrgID] = m.Role
+	}
+
+	// Exclude the heavy blobs: letterhead/stamp images AND docSettings (the latter
+	// is ~2MB per org). None are needed for the org list / perms, and pulling them
+	// over a slow Atlas link was the ~20s post-login stall.
+	orgCursor, err := orgCollection.Find(ctx,
+		bson.M{"_id": bson.M{"$in": orgIDs}},
+		options.Find().SetProjection(bson.M{"letterheadImage": 0, "stampImage": 0, "docSettings": 0}),
+	)
+	if err != nil {
+		return out
+	}
+	defer orgCursor.Close(ctx)
+
+	var orgs []models.Organization
+	if err := orgCursor.All(ctx, &orgs); err != nil {
+		return out
+	}
+
+	for _, org := range orgs {
+		out = append(out, gin.H{
+			"_id":             org.ID,
+			"name":            org.Name,
+			"description":     org.Description,
+			"role":            roleMap[org.ID],
+			"rolePermissions": org.RolePermissions,
+			"customRoles":     effectiveCustomRoles(org),
+		})
+	}
+	return out
+}
+
 func GetUserOrganizations() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 30s (was 10s): on a slow/flaky Atlas link the org lookup could exceed 10s and
@@ -263,7 +318,7 @@ func GetUserOrganizations() gin.HandlerFunc {
 		// link (caused "No Organization Yet" for orgs that have a letterhead).
 		orgCursor, err := orgCollection.Find(ctx,
 			bson.M{"_id": bson.M{"$in": orgIDs}},
-			options.Find().SetProjection(bson.M{"letterheadImage": 0, "stampImage": 0}),
+			options.Find().SetProjection(bson.M{"letterheadImage": 0, "stampImage": 0, "docSettings": 0}),
 		)
 		if err != nil {
 			log.Printf("GetUserOrganizations: org find failed for %q: %v", userIDStr, err)
@@ -315,10 +370,15 @@ func GetOrganization() gin.HandlerFunc {
 			return
 		}
 
+		// docSettings (~2MB) is never part of this endpoint's response, so always
+		// exclude it. Images are excluded too except when explicitly requested.
 		findOpts := options.FindOne()
+		proj := bson.M{"docSettings": 0}
 		if c.Query("withImages") != "true" {
-			findOpts.SetProjection(bson.M{"letterheadImage": 0, "stampImage": 0})
+			proj["letterheadImage"] = 0
+			proj["stampImage"] = 0
 		}
+		findOpts.SetProjection(proj)
 		var org models.Organization
 		if err = orgCollection.FindOne(ctx, bson.M{"_id": orgID}, findOpts).Decode(&org); err != nil {
 			log.Printf("GetOrganization: fetch failed for org %s (user %q): %v", orgID.Hex(), userID, err)
