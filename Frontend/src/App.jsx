@@ -42,6 +42,7 @@ const AdvancePayments = lazy(() => import("./Components/AdvancePayments/AdvanceP
 const Bills = lazy(() => import("./Components/Bills/Bills"))
 const NewBill = lazy(() => import("./Components/Bills/NewBill"))
 const PaymentsMade = lazy(() => import("./Components/PaymentsMade/PaymentsMade"))
+const Approvals = lazy(() => import("./Components/Approvals/Approvals"))
 const VendorCredits = lazy(() => import("./Components/VendorCredits/VendorCredits"))
 const SalesReport = lazy(() => import("./Components/Reports/SalesReport"))
 const PurchaseReport = lazy(() => import("./Components/Reports/PurchaseReport"))
@@ -160,6 +161,7 @@ function App() {
               <Route path="/Purchase/Bills/Edit/:id" element={<NewBill />} />
               <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
               <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
+              <Route path="/Approvals" element={<Approvals />} />
               <Route path="/Reports/sales"                element={<SalesReport />} />
               <Route path="/Reports/purchases"            element={<PurchaseReport />} />
               <Route path="/Reports/inventory"            element={<InventoryReport />} />

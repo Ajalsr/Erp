@@ -124,6 +124,7 @@ func main() {
 	routes.SearchRoutes(router)
 	routes.RecurringInvoiceRoutes(router)
 	routes.ExchangeRateRoutes(router)
+	routes.ApprovalRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))

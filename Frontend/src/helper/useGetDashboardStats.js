@@ -1,5 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axiosInstance from './axiosInstance';
+import useRealtime from './useRealtime';
+
+// Mutations that change a dashboard number. A ws "<entity>_updated" event for any of
+// these refreshes the summary — no need to poll every few seconds.
+const DASH_EVENTS = [
+  'invoices_updated', 'payments_updated', 'bills_updated', 'vendor_payments_updated',
+  'sales_orders_updated', 'purchase_orders_updated', 'customers_updated', 'vendors_updated',
+  'stocks_updated', 'adjustments_updated', 'quotes_updated', 'grns_updated', 'delivery_notes_updated',
+  'credit_notes_updated', 'debit_notes_updated', 'advance_payments_updated', 'vendor_credits_updated',
+  'journal_entries_updated',
+];
 
 const DEFAULT_STATS = {
   // ── Customers ──────────────────────────────────────────────────────────────
@@ -109,12 +120,22 @@ const useGetDashboardStats = () => {
     }
   }, []);
 
+  // ws-driven refresh: when any relevant mutation broadcasts, refresh once. Debounced
+  // so a burst (e.g. a payment that touches bill + vendor + JE) triggers ONE summary
+  // call, not several.
+  const debounceRef = useRef(null);
+  const onRealtime = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchAll({ silent: true }), 2500);
+  }, [fetchAll]);
+  useRealtime(DASH_EVENTS, onRealtime);
+
   useEffect(() => {
     fetchAll();
-    // Refresh every 5 min (was 60s) in the background — no loading flash. The
-    // summary is heavier per call and the dashboard rarely needs sub-minute data.
-    const interval = setInterval(() => fetchAll({ silent: true }), 300_000);
-    return () => clearInterval(interval);
+    // Safety fallback only — ws drives normal refreshes. 10 min catches any missed
+    // event (dropped socket, cross-tab) without polling every few seconds.
+    const interval = setInterval(() => fetchAll({ silent: true }), 600_000);
+    return () => { clearInterval(interval); if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [fetchAll]);
 
   const getCustomerTransactions = useCallback(async (customerId) => {

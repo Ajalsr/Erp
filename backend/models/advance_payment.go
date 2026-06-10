@@ -29,6 +29,9 @@ type AdvancePayment struct {
 	AllocatedAmount float64             `json:"allocatedAmount"   bson:"allocatedAmount"`
 	RemainingAmount float64             `json:"remainingAmount"   bson:"remainingAmount"`
 	PaymentMode     string              `json:"paymentMode"       bson:"paymentMode"`
+	// DepositAccount: cash/bank GL account (id or code) the advance was deposited to.
+	// Empty → falls back to the mode-derived account (bankAccountCode).
+	DepositAccount  string              `json:"depositAccount,omitempty" bson:"depositAccount,omitempty"`
 	Reference       string              `json:"reference,omitempty" bson:"reference,omitempty"`
 	Notes           string              `json:"notes,omitempty"   bson:"notes,omitempty"`
 	Status          string              `json:"status"            bson:"status"` // unallocated | partial | applied

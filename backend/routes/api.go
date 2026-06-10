@@ -224,6 +224,7 @@ func VendorRoutes(router *gin.Engine) {
 		vendorRoutes.GET("/search", controllers.SearchVendors())
 		vendorRoutes.GET("/:id", controllers.GetVendorByID())
 		vendorRoutes.GET("/:id/transactions", controllers.GetVendorTransactions())
+		vendorRoutes.POST("/:id/apply-credit", controllers.ApplyVendorCreditWallet())
 		vendorRoutes.PUT("/:id", controllers.UpdateVendor())
 		vendorRoutes.DELETE("/:id", controllers.DeleteVendor())
 	}
@@ -252,6 +253,16 @@ func VendorPaymentRoutes(router *gin.Engine) {
 		vpRoutes.GET("/stats", controllers.GetVendorPaymentStats())
 		vpRoutes.GET("/:id", controllers.GetVendorPaymentByID())
 		vpRoutes.POST("/:id/reverse", controllers.ReverseVendorPayment())
+	}
+}
+
+func ApprovalRoutes(router *gin.Engine) {
+	apRoutes := router.Group("/api/approvals")
+	apRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		apRoutes.GET("/", controllers.GetApprovalRequests())
+		apRoutes.POST("/:id/approve", controllers.ApproveRequest())
+		apRoutes.POST("/:id/reject", controllers.RejectRequest())
 	}
 }
 

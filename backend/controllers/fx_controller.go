@@ -27,9 +27,13 @@ func orgBaseCurrency(ctx context.Context, orgID string) string {
 	if err != nil {
 		return DefaultBaseCurrency
 	}
+	// Project ONLY baseCurrency — org docs can carry multi-MB fields (docSettings,
+	// letterhead images); decoding the whole doc here once cost ~20s and blew request
+	// deadlines on every FX-touching path (bills, invoices, exchange-rate reads).
 	var org models.Organization
 	if err := config.GetCollection(config.DB, "organizations").
-		FindOne(ctx, bson.M{"_id": oid}).Decode(&org); err != nil || strings.TrimSpace(org.BaseCurrency) == "" {
+		FindOne(ctx, bson.M{"_id": oid}, options.FindOne().SetProjection(bson.M{"baseCurrency": 1})).
+		Decode(&org); err != nil || strings.TrimSpace(org.BaseCurrency) == "" {
 		return DefaultBaseCurrency
 	}
 	return strings.ToUpper(org.BaseCurrency)

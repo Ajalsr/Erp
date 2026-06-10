@@ -31,6 +31,9 @@ type Payment struct {
 	ExcessCredit  float64            `json:"excessCredit,omitempty" bson:"excessCredit,omitempty"`
 	Amount        float64            `json:"amount"                 bson:"amount"` // total received
 	PaymentMode   string             `json:"paymentMode"            bson:"paymentMode"` // cash|bank|cheque|card
+	// DepositAccount: the cash/bank GL account the money was deposited to (account _id
+	// or code). Empty → defaults to 1001 Cash on Hand. Resolved to a code for the JE.
+	DepositAccount string            `json:"depositAccount,omitempty" bson:"depositAccount,omitempty"`
 	Reference     string             `json:"reference,omitempty"    bson:"reference,omitempty"`
 	Notes         string             `json:"notes,omitempty"        bson:"notes,omitempty"`
 	OrgID          string             `json:"orgId,omitempty"         bson:"orgId,omitempty"`

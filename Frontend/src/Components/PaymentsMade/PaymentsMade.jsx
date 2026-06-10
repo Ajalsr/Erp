@@ -515,25 +515,31 @@ const ModernDatePicker = ({ value, onChange, T, isDark, error }) => {
 };
 
 /* ── Record Payment Modal ─────────────────────────────────────────── */
-const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
+export const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
   const [vendors,      setVendors]      = useState([]);
   const [bills,        setBills]        = useState([]);
   const [billsLoading, setBillsLoading] = useState(false);
   const [loading,      setLoading]      = useState(false);
-  const [selectedBill, setSelectedBill] = useState(null);
   const [errors,       setErrors]       = useState({});
+  const [creditAvail,  setCreditAvail]  = useState(0);   // vendor's creditAvailable wallet
+  const [applyingCredit, setApplyingCredit] = useState(false);
+  const [alloc,   setAlloc]   = useState({});   // billId -> amount string
+  const [touched, setTouched] = useState(false); // user manually edited the split
+  const [accounts, setAccounts] = useState([]);  // cash/bank accounts for "Paid Through"
 
   const [form, setForm] = useState({
     vendorId:    prefill?.vendorId    || "",
     vendorName:  prefill?.vendorName  || "",
-    billId:      prefill?.billId      || "",
-    billNumber:  prefill?.billNumber  || "",
     amount:      prefill?.amount      || "",
     date:        new Date().toISOString().split("T")[0],
     paymentMode: "Bank Transfer",
+    paidThroughAccount: "",
     details:     {},
     notes:       "",
   });
+
+  const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const balanceOf = (b) => Math.max(0, (b.totals?.grandTotal ?? 0) - (b.amountPaid ?? 0));
 
   // Load all vendors once
   useEffect(() => {
@@ -542,53 +548,109 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
       .catch(() => {});
   }, []);
 
-  // Load outstanding bills when vendor selected
+  // Load cash/bank accounts for the "Paid Through" picker; default to the first one.
   useEffect(() => {
-    if (!form.vendorId) { setBills([]); setSelectedBill(null); return; }
-    setBillsLoading(true);
-    axiosInstance.get(`/api/bills/?vendorId=${form.vendorId}&limit=50`)
+    axiosInstance.get("/api/accounts/?limit=500&status=active")
       .then(r => {
-        const all = r.data?.data?.bills || [];
-        setBills(all.filter(b => b.status !== "paid" && b.status !== "void" && b.status !== "draft"));
+        const banks = (r.data?.data?.accounts || []).filter(a => a.isBankAccount);
+        setAccounts(banks);
+        setForm(f => f.paidThroughAccount ? f : { ...f, paidThroughAccount: banks[0]?._id || "" });
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load outstanding bills (FIFO: oldest first) when vendor selected
+  useEffect(() => {
+    if (!form.vendorId) { setBills([]); setAlloc({}); setTouched(false); return; }
+    setBillsLoading(true);
+    axiosInstance.get(`/api/bills/?vendorId=${form.vendorId}&limit=100`)
+      .then(r => {
+        const all = (r.data?.data?.bills || [])
+          .filter(b => b.status !== "paid" && b.status !== "void" && b.status !== "draft" && balanceOf(b) > 0)
+          .sort((a, b) => new Date(a.billDate || a.createdAt || 0) - new Date(b.billDate || b.createdAt || 0));
+        setBills(all);
       })
       .catch(() => {})
       .finally(() => setBillsLoading(false));
   }, [form.vendorId]);
 
-  // Auto-select prefill bill once bills load
+  // Capture the vendor's credit wallet when the vendor list / selection changes.
   useEffect(() => {
-    if (bills.length > 0 && form.billId && !selectedBill) {
-      const found = bills.find(b => b._id === form.billId);
-      if (found) setSelectedBill(found);
+    if (!form.vendorId) { setCreditAvail(0); return; }
+    const v = vendors.find(x => x._id === form.vendorId);
+    if (v) setCreditAvail(v.creditAvailable || 0);
+  }, [form.vendorId, vendors]);
+
+  // FIFO auto-split: fill oldest bills first until the paid amount runs out.
+  // When opened for a specific bill (prefill), that bill is filled first.
+  const autoAllocate = useCallback((amt) => {
+    let rem = amt; const next = {};
+    const ordered = prefill?.billId
+      ? [...bills].sort((a, b) => (a._id === prefill.billId ? -1 : b._id === prefill.billId ? 1 : 0))
+      : bills;
+    for (const b of ordered) {
+      const bal = balanceOf(b);
+      if (rem <= 0 || bal <= 0) continue;
+      const a = Math.min(rem, bal);
+      next[b._id] = a.toFixed(2);
+      rem = r2(rem - a);
     }
-  }, [bills, form.billId, selectedBill]);
+    return next;
+  }, [bills, prefill]);
+
+  // Re-run auto-split when amount or bills change, unless the user edited a split.
+  useEffect(() => {
+    if (touched) return;
+    const amt = parseFloat(form.amount) || 0;
+    if (!amt || bills.length === 0) { setAlloc({}); return; }
+    setAlloc(autoAllocate(amt));
+  }, [form.amount, bills, touched, autoAllocate]);
 
   const selectVendor = (v) => {
     const name = v.displayName || v.companyName || "";
-    setForm(f => ({ ...f, vendorId: v._id, vendorName: name, billId: "", billNumber: "", amount: "" }));
-    setSelectedBill(null);
+    setForm(f => ({ ...f, vendorId: v._id, vendorName: name, amount: "" }));
+    setAlloc({}); setTouched(false);
+    setCreditAvail(v.creditAvailable || 0);
     setErrors(e => { const n = { ...e }; delete n.vendorId; return n; });
   };
 
-  const selectBill = (b) => {
-    const balance = Math.max(0, (b.totals?.grandTotal ?? 0) - (b.amountPaid ?? 0));
-    setSelectedBill(b);
-    setForm(f => ({ ...f, billId: b._id, billNumber: b.billNumber || "", amount: balance.toFixed(2) }));
+  const setAllocFor = (billId, val) => { setTouched(true); setAlloc(a => ({ ...a, [billId]: val })); };
+  const resetAuto = () => setTouched(false); // re-run FIFO auto-split
+
+  // Apply the vendor's existing credit wallet to their oldest open bill.
+  const handleApplyCredit = async () => {
+    const target = bills[0];
+    if (!form.vendorId || !target) return;
+    const applyAmt = Math.min(creditAvail, balanceOf(target));
+    if (applyAmt <= 0) return;
+    setApplyingCredit(true);
+    try {
+      const res = await axiosInstance.post(`/api/vendors/${form.vendorId}/apply-credit`, {
+        billId: target._id, amount: applyAmt,
+      });
+      setCreditAvail(res.data?.remainingCredit ?? 0);
+      onSaved(); onClose();
+    } catch (err) {
+      setErrors({ submit: err.response?.data?.message || "Failed to apply credit" });
+    } finally { setApplyingCredit(false); }
   };
 
-  // Balance calculations
-  const enteredAmt  = parseFloat(form.amount) || 0;
-  const billTotal   = selectedBill ? (selectedBill.totals?.grandTotal ?? 0) : 0;
-  const alreadyPaid = selectedBill ? (selectedBill.amountPaid ?? 0) : 0;
-  const balanceDue  = selectedBill ? Math.max(0, billTotal - alreadyPaid) : 0;
-  const remaining   = selectedBill ? Math.max(0, balanceDue - enteredAmt) : 0;
-  const overpay     = selectedBill && enteredAmt > balanceDue;
+  // Derived totals across the allocation grid.
+  const enteredAmt     = parseFloat(form.amount) || 0;
+  const totalAllocated = r2(Object.values(alloc).reduce((s, v) => s + (parseFloat(v) || 0), 0));
+  const excess         = Math.max(0, r2(enteredAmt - totalAllocated));
+  const overAllocated  = totalAllocated > enteredAmt + 0.001;
 
   const validate = () => {
     const e = {};
     if (!form.vendorId) e.vendorId = "Select a vendor";
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) e.amount = "Enter a valid amount";
+    if (!enteredAmt || enteredAmt <= 0) e.amount = "Enter a valid amount";
     if (!form.date)   e.date = "Select a date";
+    if (overAllocated) e.amount = "Allocated more than the amount paid";
+    for (const b of bills) {
+      const a = parseFloat(alloc[b._id]) || 0;
+      if (a > balanceOf(b) + 0.001) { e.amount = `Allocation for ${b.billNumber} exceeds its balance`; break; }
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -597,17 +659,20 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
     if (!validate()) return;
     setLoading(true);
     try {
+      const allocations = bills
+        .map(b => ({ billId: b._id, billNumber: b.billNumber, amount: r2(parseFloat(alloc[b._id]) || 0) }))
+        .filter(a => a.amount > 0);
       await axiosInstance.post("/api/vendor-payments/", {
         vendorId:    form.vendorId,
         vendorName:  form.vendorName,
-        billId:      form.billId   || undefined,
-        billNumber:  form.billNumber || undefined,
-        amount:      parseFloat(form.amount),
+        amount:      Number(enteredAmt),
         paymentMode:    form.paymentMode,
+        paidThroughAccount: form.paidThroughAccount || undefined,
         reference:      getPrimaryRef(form.paymentMode, form.details),
         paymentDetails: form.details,
         date:        form.date,
         notes:       form.notes,
+        allocations,
       });
       onSaved();
       onClose();
@@ -672,14 +737,35 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
             {errors.vendorId && <div style={errTxt}>{errors.vendorId}</div>}
           </div>
 
-          {/* Bill selection */}
+          {/* Amount paid */}
           <div>
-            <label style={lbl}>
-              Bill
-              <span style={{ textTransform: "none", fontWeight: 400, letterSpacing: 0, marginLeft: 6, color: T.textSec, fontSize: 11 }}>
-                (optional — select to auto-fill balance due)
-              </span>
-            </label>
+            <label style={lbl}>Amount Paid (AED) <span style={{ color: "#ef4444" }}>*</span></label>
+            <input
+              style={{
+                ...inp,
+                fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 600,
+                borderColor: errors.amount ? "#ef4444" : excess > 0 ? "#f59e0b" : T.border,
+                boxShadow: excess > 0 ? "0 0 0 3px rgba(245,158,11,.15)" : "none",
+              }}
+              type="number" min="0" step="0.01" placeholder="0.00"
+              value={form.amount}
+              onChange={e => { setTouched(false); setForm(f => ({ ...f, amount: e.target.value })); }}
+            />
+            {errors.amount && <div style={errTxt}>{errors.amount}</div>}
+          </div>
+
+          {/* Bill allocation (FIFO auto-split, editable) */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <label style={{ ...lbl, marginBottom: 0 }}>Apply to Bills</label>
+              {bills.length > 0 && (
+                <button type="button" onClick={resetAuto}
+                  style={{ background: "none", border: `1px solid ${T.border}`, color: T.blue, borderRadius: 7, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                  ⟲ Auto-split (FIFO)
+                </button>
+              )}
+            </div>
+
             {!form.vendorId ? (
               <div style={{ padding: "12px 14px", background: T.surface2, border: `1px dashed ${T.border}`, borderRadius: 9, color: T.textSec, fontSize: 12, textAlign: "center" }}>
                 Select a vendor first to see their bills
@@ -690,111 +776,110 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
               </div>
             ) : bills.length === 0 ? (
               <div style={{ padding: "12px 14px", background: T.surface2, border: `1px dashed ${T.border}`, borderRadius: 9, color: T.textSec, fontSize: 12, textAlign: "center" }}>
-                No outstanding bills for this vendor
+                No outstanding bills — the full amount records as vendor credit.
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 7, maxHeight: 210, overflowY: "auto" }}>
-                {/* General / unlinked option */}
-                <div
-                  onClick={() => { setSelectedBill(null); setForm(f => ({ ...f, billId: "", billNumber: "", amount: "" })); }}
-                  className={!form.billId ? "pm-bill-sel pm-bill-card" : "pm-bill-card"}
-                  style={{
-                    padding: "10px 13px", borderRadius: 9, cursor: "pointer",
-                    border: `1.5px solid ${!form.billId ? "#3b82f6" : T.border}`,
-                    background: !form.billId ? "rgba(59,130,246,.06)" : T.surface2,
-                    fontSize: 12, color: T.textSec, transition: "all .12s",
-                  }}>
-                  — General payment (not linked to a specific bill) —
-                </div>
-
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, maxHeight: 230, overflowY: "auto" }}>
                 {bills.map(b => {
-                  const tot  = b.totals?.grandTotal ?? 0;
-                  const paid = b.amountPaid ?? 0;
-                  const bal  = Math.max(0, tot - paid);
-                  const pct  = tot > 0 ? Math.min(100, (paid / tot) * 100) : 0;
-                  const sel  = form.billId === b._id;
+                  const bal  = balanceOf(b);
+                  const a    = parseFloat(alloc[b._id]) || 0;
+                  const full = a > 0 && a >= bal - 0.001;
+                  const part = a > 0 && a < bal - 0.001;
+                  const dt   = new Date(b.billDate || b.createdAt || 0);
                   return (
-                    <div key={b._id}
-                      onClick={() => selectBill(b)}
-                      className={sel ? "pm-bill-sel pm-bill-card" : "pm-bill-card"}
-                      style={{
-                        padding: "11px 13px", borderRadius: 9, cursor: "pointer",
-                        border: `1.5px solid ${sel ? "#3b82f6" : T.border}`,
-                        background: sel ? "rgba(59,130,246,.06)" : T.surface2,
-                        transition: "all .12s",
-                      }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-                        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: sel ? "#3b82f6" : T.textPri }}>
-                          {b.billNumber}
-                        </span>
-                        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#ef4444" }}>
-                          AED {bal.toFixed(2)} due
-                        </span>
+                    <div key={b._id} style={{
+                      display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center",
+                      padding: "10px 12px", borderRadius: 9,
+                      border: `1.5px solid ${a > 0 ? "#3b82f6" : T.border}`,
+                      background: a > 0 ? "rgba(59,130,246,.06)" : T.surface2,
+                    }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700, color: T.textPri }}>{b.billNumber}</span>
+                          {full && <span style={{ fontSize: 9, fontWeight: 700, color: "#10b981", background: "rgba(16,185,129,.12)", padding: "1px 6px", borderRadius: 20 }}>FULL</span>}
+                          {part && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "rgba(245,158,11,.12)", padding: "1px 6px", borderRadius: 20 }}>PARTIAL</span>}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.textSec, marginTop: 3 }}>
+                          {isNaN(dt) ? "" : dt.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" })} · Balance AED {bal.toFixed(2)}
+                        </div>
                       </div>
-                      <div style={{ height: 4, background: T.border, borderRadius: 2, overflow: "hidden", marginBottom: 6 }}>
-                        <div style={{ height: "100%", width: `${pct}%`, background: "#10b981", borderRadius: 2, transition: "width .3s" }} />
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.textSec }}>
-                        <span>Total: AED {tot.toFixed(2)}</span>
-                        <span style={{ color: "#10b981" }}>Paid: AED {paid.toFixed(2)}</span>
-                        <span style={{ color: "#ef4444" }}>Due: AED {bal.toFixed(2)}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, color: T.textSec }}>AED</span>
+                        <input type="number" min="0" step="0.01" value={alloc[b._id] ?? ""}
+                          onChange={e => setAllocFor(b._id, e.target.value)}
+                          style={{ ...inp, width: 110, padding: "7px 9px", fontFamily: "'DM Mono', monospace", fontSize: 12, textAlign: "right" }} />
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
-          </div>
 
-          {/* Amount */}
-          <div>
-            <label style={lbl}>Amount (AED) <span style={{ color: "#ef4444" }}>*</span></label>
-            <input
-              style={{
-                ...inp,
-                fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 600,
-                borderColor: errors.amount ? "#ef4444" : overpay ? "#f59e0b" : T.border,
-                boxShadow: overpay ? "0 0 0 3px rgba(245,158,11,.15)" : "none",
-              }}
-              type="number" min="0" step="0.01" placeholder="0.00"
-              value={form.amount}
-              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-            />
-            {errors.amount && <div style={errTxt}>{errors.amount}</div>}
-
-            {/* Live breakdown */}
-            {selectedBill && enteredAmt > 0 && (
-              <div style={{ marginTop: 10, padding: "13px 15px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10 }}>
+            {/* Allocation totals */}
+            {enteredAmt > 0 && (
+              <div style={{ marginTop: 10, padding: "12px 14px", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10 }}>
                 {[
-                  { label: "Bill Total",   val: `AED ${billTotal.toFixed(2)}`,   color: T.textPri },
-                  { label: "Already Paid", val: `AED ${alreadyPaid.toFixed(2)}`, color: "#10b981" },
-                  { label: "Balance Due",  val: `AED ${balanceDue.toFixed(2)}`,  color: "#ef4444" },
-                  { label: "This Payment", val: `AED ${enteredAmt.toFixed(2)}`,  color: "#3b82f6" },
+                  { label: "Amount Paid",        val: enteredAmt,     color: T.textPri },
+                  { label: "Allocated to Bills", val: totalAllocated, color: "#3b82f6" },
                 ].map(({ label, val, color }) => (
-                  <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
                     <span style={{ fontSize: 12, color: T.textSec }}>{label}</span>
-                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color }}>{val}</span>
+                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color }}>AED {val.toFixed(2)}</span>
                   </div>
                 ))}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, marginTop: 2 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>{overpay ? "Excess Payment" : "Remaining After"}</span>
-                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color: overpay ? "#f59e0b" : remaining === 0 ? "#10b981" : "#ef4444" }}>
-                    {overpay ? `+AED ${(enteredAmt - balanceDue).toFixed(2)}` : `AED ${remaining.toFixed(2)}`}
+                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>{excess > 0 ? "Excess → Credit" : "Unallocated"}</span>
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 700, color: excess > 0 ? "#f59e0b" : (overAllocated ? "#ef4444" : "#10b981") }}>
+                    AED {(enteredAmt - totalAllocated).toFixed(2)}
                   </span>
                 </div>
-                {remaining === 0 && !overpay && (
-                  <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(16,185,129,.12)", border: "1px solid rgba(16,185,129,.3)", borderRadius: 7, fontSize: 11, color: "#10b981", textAlign: "center", fontWeight: 600 }}>
-                    ✓ This payment will fully settle the bill
+                {overAllocated && (
+                  <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.3)", borderRadius: 7, fontSize: 11, color: "#ef4444", textAlign: "center", fontWeight: 600 }}>
+                    ⚠ Allocated more than paid — reduce a split
                   </div>
                 )}
-                {overpay && (
+                {excess > 0 && !overAllocated && (
                   <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(245,158,11,.12)", border: "1px solid rgba(245,158,11,.3)", borderRadius: 7, fontSize: 11, color: "#f59e0b", textAlign: "center", fontWeight: 600 }}>
-                    ⚠ Amount exceeds balance due
+                    ⚠ AED {excess.toFixed(2)} exceeds all bills — recorded as vendor credit (advance)
                   </div>
                 )}
               </div>
             )}
           </div>
+
+          {/* Credit available wallet banner */}
+          {creditAvail > 0 && (
+            <div style={{
+              padding: "13px 16px", borderRadius: 10,
+              background: "rgba(16,185,129,0.08)", border: "1.5px solid rgba(16,185,129,0.3)",
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+            }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#10b981", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 3 }}>
+                  Credit Available
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.textPri, fontFamily: "'DM Mono', monospace" }}>
+                  AED {creditAvail.toFixed(2)}
+                </div>
+                <div style={{ fontSize: 11, color: T.textSec, marginTop: 2 }}>
+                  {bills[0] ? `Apply AED ${Math.min(creditAvail, balanceOf(bills[0])).toFixed(2)} to ${bills[0].billNumber}` : "No open bill to apply to"}
+                </div>
+              </div>
+              {bills[0] && (
+                <button
+                  onClick={handleApplyCredit}
+                  disabled={applyingCredit}
+                  style={{
+                    padding: "8px 16px", borderRadius: 8, border: "none", cursor: applyingCredit ? "not-allowed" : "pointer",
+                    background: applyingCredit ? "rgba(16,185,129,0.4)" : "#10b981",
+                    color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "inherit", flexShrink: 0,
+                    opacity: applyingCredit ? 0.7 : 1,
+                  }}>
+                  {applyingCredit ? "Applying…" : "Apply Credit"}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Date + Mode */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -818,6 +903,24 @@ const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => {
                 isDark={isDark}
               />
             </div>
+          </div>
+
+          {/* Paid Through — which cash/bank GL account the money left from */}
+          <div>
+            <label style={lbl}>Paid Through (Cash / Bank Account)</label>
+            <select
+              value={form.paidThroughAccount}
+              onChange={e => setForm(f => ({ ...f, paidThroughAccount: e.target.value }))}
+              style={{
+                width: "100%", padding: "10px 13px", borderRadius: 9, fontSize: 13, cursor: "pointer",
+                background: isDark ? T.inputBg : T.surface2, border: `1.5px solid ${T.border}`,
+                color: T.textPri, fontFamily: "'DM Sans', sans-serif", outline: "none",
+              }}>
+              {accounts.length === 0 && <option value="">Cash on Hand (default)</option>}
+              {accounts.map(a => (
+                <option key={a._id} value={a._id}>[{a.accountCode}] {a.accountName}</option>
+              ))}
+            </select>
           </div>
 
           {/* Mode-specific fields */}

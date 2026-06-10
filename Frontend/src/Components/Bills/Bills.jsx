@@ -11,6 +11,7 @@ import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
 import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 import useRealtime from "../../helper/useRealtime";
+import { RecordPaymentModal } from "../PaymentsMade/PaymentsMade";
 
 const STATUS_CFG = {
   draft:   { color: "#94a3b8", bg: "rgba(100,116,139,0.1)", label: "Draft"   },
@@ -55,16 +56,6 @@ const MODE_FIELDS = {
                        { key: "issuingBank", label: "Issuing Bank",        placeholder: "e.g. First Abu Dhabi Bank" },
                        { key: "lcDate",      label: "LC Date",             type: "date" }],
   "Other":            [{ key: "txnRef",      label: "Reference / Description", placeholder: "Enter reference or description" }],
-};
-
-const getPrimaryRef = (mode, d = {}) => {
-  if (["Bank Transfer", "Online Transfer", "Debit Card", "Other"].includes(mode)) return d.txnRef || "";
-  if (["Cheque", "PDC"].includes(mode)) return d.chequeNo ? `CHQ-${d.chequeNo}` : "";
-  if (mode === "Demand Draft")     return d.ddNo || "";
-  if (mode === "Letter of Credit") return d.lcNo || "";
-  if (mode === "Credit Card")      return d.approvalCode ? `APPR-${d.approvalCode}` : "";
-  if (mode === "Cash")             return d.receiptNo || "";
-  return "";
 };
 
 const LIMIT = 10;
@@ -226,8 +217,6 @@ export default function Bills() {
   const [billPayments,    setBillPayments]    = useState([]);
   const [pmtLoading,      setPmtLoading]      = useState(false);
   const [payModal,        setPayModal]        = useState(false);
-  const [payForm,         setPayForm]         = useState({});
-  const [paySubmitting,   setPaySubmitting]   = useState(false);
   const [reverseModal,    setReverseModal]    = useState(null); // payment being reversed
   const [reverseReason,   setReverseReason]   = useState("");
   const [voidLoading,     setVoidLoading]     = useState(false);
@@ -237,6 +226,8 @@ export default function Bills() {
   const [reversing,       setReversing]       = useState(null);
   const [unapplyingCr,    setUnapplyingCr]    = useState(null);
   const [openCredits,     setOpenCredits]     = useState([]);   // open vendor credits to apply
+  const [walletCredit,    setWalletCredit]    = useState(0);    // vendor creditAvailable wallet (overpayments)
+  const [applyingWallet,  setApplyingWallet]  = useState(false);
   const [creditPicker,    setCreditPicker]    = useState(false);
   const [applyingCr,      setApplyingCr]      = useState(null);
   const [emailing,        setEmailing]        = useState(false);
@@ -283,11 +274,13 @@ export default function Bills() {
       axiosInstance.get(`/api/debit-notes?sourceDocId=${selected._id}`),
       axiosInstance.get(`/api/vendor-credits/?billId=${selected._id}`),
       axiosInstance.get(`/api/vendor-credits/?vendorId=${selected.vendorId}&status=open`),
-    ]).then(([dnRes, vcRes, openRes]) => {
+      axiosInstance.get(`/api/vendors/${selected.vendorId}`),
+    ]).then(([dnRes, vcRes, openRes, vendRes]) => {
       setDebitNotes(dnRes.status === "fulfilled" ? (dnRes.value.data?.data || []) : []);
       const credits = vcRes.status === "fulfilled" ? (vcRes.value.data?.data?.credits || []) : [];
       setAppliedCredits(credits.filter(c => c.status === "applied"));
       setOpenCredits(openRes.status === "fulfilled" ? (openRes.value.data?.data?.credits || []) : []);
+      setWalletCredit(vendRes.status === "fulfilled" ? (vendRes.value.data?.data?.creditAvailable || 0) : 0);
     }).finally(() => setDnLoading(false));
   }, [selected?._id]);
 
@@ -322,53 +315,11 @@ export default function Bills() {
     setDebitNotes([]);
     setAppliedCredits([]);
     setOpenCredits([]);
+    setWalletCredit(0);
     setCreditPicker(false);
     setPayModal(false);
-    setPayForm({ amount: String(b.balanceDue || ""), paymentMode: "Bank Transfer", reference: "", date: new Date().toISOString().split("T")[0], notes: "", details: {} });
   };
   const closeDrawer = () => { setDrawerOpen(false); setSelected(null); setPayModal(false); };
-
-  /* ── Record payment ── */
-  const handleRecordPayment = async () => {
-    const amt = parseFloat(payForm.amount);
-    if (!amt || amt <= 0) { nexusToast.error("Enter a valid amount"); return; }
-    // Enforce required mode-specific fields (matches Payments Made)
-    const reqMissing = (MODE_FIELDS[payForm.paymentMode] || [])
-      .filter(f => f.required && !(payForm.details?.[f.key] || "").trim())
-      .map(f => f.label);
-    if (reqMissing.length) { nexusToast.error(`Required: ${reqMissing.join(", ")}`); return; }
-
-    const primaryRef = getPrimaryRef(payForm.paymentMode, payForm.details) || payForm.reference || "";
-    // Fold mode details into notes for the audit trail
-    const detailStr = Object.entries(payForm.details || {})
-      .filter(([, v]) => (v || "").toString().trim())
-      .map(([k, v]) => `${k}: ${v}`).join(", ");
-    const fullNotes = [payForm.notes, detailStr].filter(Boolean).join(" | ");
-
-    setPaySubmitting(true);
-    try {
-      await axiosInstance.post("/api/vendor-payments/", {
-        vendorId:    selected.vendorId,
-        vendorName:  selected.vendorName,
-        billId:      selected._id,
-        billNumber:  selected.billNumber,
-        amount:      amt,
-        paymentMode: payForm.paymentMode,
-        reference:   primaryRef || undefined,
-        date:        payForm.date,
-        notes:       fullNotes || undefined,
-      });
-      nexusToast.success("Payment recorded!");
-      setPayModal(false);
-      await load();
-      const refreshed = await axiosInstance.get(`/api/bills/${selected._id}`);
-      if (refreshed.data?.data) setSelected(refreshed.data.data);
-      const pmtRes = await axiosInstance.get(`/api/vendor-payments/?billId=${selected._id}`);
-      setBillPayments(pmtRes.data?.data?.payments || []);
-    } catch (err) {
-      nexusToast.error(err?.response?.data?.message || "Failed to record payment");
-    } finally { setPaySubmitting(false); }
-  };
 
   /* ── Void bill ── */
   const handleVoid = async () => {
@@ -404,6 +355,30 @@ export default function Bills() {
     } catch (e) {
       nexusToast.error(e?.response?.data?.message || "Failed to apply credit");
     } finally { setApplyingCr(null); }
+  };
+
+  /* ── Apply vendor credit-available wallet (overpayments) to this bill ── */
+  const handleApplyWalletToBill = async () => {
+    const due = selected?.balanceDue || 0;
+    const amt = Math.min(walletCredit, due);
+    if (amt <= 0) return;
+    setApplyingWallet(true);
+    try {
+      const res = await axiosInstance.post(`/api/vendors/${selected.vendorId}/apply-credit`, {
+        billId: selected._id, amount: amt,
+      });
+      nexusToast.success(res.data?.message || "Credit applied");
+      setCreditPicker(false);
+      await load();
+      const [billRes, vendRes] = await Promise.allSettled([
+        axiosInstance.get(`/api/bills/${selected._id}`),
+        axiosInstance.get(`/api/vendors/${selected.vendorId}`),
+      ]);
+      if (billRes.status === "fulfilled" && billRes.value.data?.data) setSelected(billRes.value.data.data);
+      setWalletCredit(vendRes.status === "fulfilled" ? (vendRes.value.data?.data?.creditAvailable || 0) : 0);
+    } catch (e) {
+      nexusToast.error(e?.response?.data?.message || "Failed to apply credit");
+    } finally { setApplyingWallet(false); }
   };
 
   /* ── Unapply vendor credit from this bill ── */
@@ -938,9 +913,26 @@ export default function Bills() {
                     <p style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0 }}>Apply a vendor credit</p>
                     <button onClick={() => setCreditPicker(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 2 }}><FaTimes size={11} /></button>
                   </div>
-                  {openCredits.length === 0 ? (
+
+                  {/* Credit-available wallet (from overpayments) — apply to this bill */}
+                  {walletCredit > 0 && (
+                    <button onClick={handleApplyWalletToBill} disabled={applyingWallet}
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "9px 12px", marginBottom: 6, background: isDark ? "rgba(16,185,129,0.1)" : "#ecfdf5", border: `1px solid ${isDark ? "rgba(16,185,129,0.3)" : "#a7f3d0"}`, borderRadius: 9, cursor: applyingWallet ? "wait" : "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                      <span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", textTransform: "uppercase", letterSpacing: ".05em" }}>Credit Available</span>
+                        <span style={{ fontSize: 11, color: T.textSec, marginLeft: 8 }}>
+                          Apply {fmtAED(Math.min(walletCredit, selected.balanceDue || 0))} to this bill
+                        </span>
+                      </span>
+                      <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 800, color: "#10b981" }}>
+                        {applyingWallet ? "…" : fmtAED(walletCredit)}
+                      </span>
+                    </button>
+                  )}
+
+                  {openCredits.length === 0 && walletCredit <= 0 ? (
                     <p style={{ fontSize: 12, color: T.textSec, margin: "4px 0 0" }}>No open credits for this vendor.</p>
-                  ) : (
+                  ) : openCredits.length === 0 ? null : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 180, overflowY: "auto" }}>
                       {openCredits.map(cr => (
                         <button key={cr._id} onClick={() => handleApplyCreditToBill(cr)} disabled={applyingCr === cr._id}
@@ -991,72 +983,30 @@ export default function Bills() {
               </div>
             </div>
 
-            {/* ── Record Payment modal ── */}
+            {/* ── Record Payment modal — reuses the Payments Made flow (multi-bill
+                allocation, excess → vendor credit, apply-credit), prefilled to this bill ── */}
             {payModal && canPay && (
-              <div style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
-                onClick={e => e.target === e.currentTarget && setPayModal(false)}>
-                <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "22px", width: 460, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <p style={{ fontFamily: "Sora, sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>Record Payment</p>
-                    <button onClick={() => setPayModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 2 }}><FaTimes size={13} /></button>
-                  </div>
-                  <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 16px" }}>{selected.billNumber} · {selected.vendorName} · Balance {money(selected.balanceDue, selected.currency)}</p>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <label style={lbl}>Amount ({selected.currency || baseCurrency()}) *</label>
-                      <input type="number" min="0.01" step="0.01" value={payForm.amount}
-                        onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
-                        placeholder={`Balance: ${money(selected.balanceDue, selected.currency)}`} style={inp} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Payment Mode *</label>
-                      <CustomSelect value={payForm.paymentMode} options={PAYMENT_MODES} T={T} isDark={isDark}
-                        onChange={v => setPayForm(f => ({ ...f, paymentMode: v, details: {} }))} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Date *</label>
-                      <CustomDate value={payForm.date} T={T} isDark={isDark}
-                        onChange={v => setPayForm(f => ({ ...f, date: v }))} />
-                    </div>
-
-                    {/* Mode-specific fields — same as Payments Made */}
-                    {(MODE_FIELDS[payForm.paymentMode] || []).map(fld => (
-                      <div key={fld.key} style={{ gridColumn: (MODE_FIELDS[payForm.paymentMode].length === 1 || fld.key === "accountNo") ? "1 / -1" : "auto" }}>
-                        <label style={lbl}>{fld.label}{fld.required && " *"}</label>
-                        {fld.type === "select" ? (
-                          <CustomSelect value={payForm.details?.[fld.key] || ""} options={fld.options} placeholder="Select…" T={T} isDark={isDark}
-                            onChange={v => setPayForm(f => ({ ...f, details: { ...f.details, [fld.key]: v } }))} />
-                        ) : fld.type === "date" ? (
-                          <CustomDate value={payForm.details?.[fld.key] || ""} T={T} isDark={isDark}
-                            onChange={v => setPayForm(f => ({ ...f, details: { ...f.details, [fld.key]: v } }))} />
-                        ) : (
-                          <input type="text" value={payForm.details?.[fld.key] || ""}
-                            onChange={e => setPayForm(f => ({ ...f, details: { ...f.details, [fld.key]: e.target.value } }))}
-                            placeholder={fld.placeholder || ""} style={inp} />
-                        )}
-                      </div>
-                    ))}
-
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <label style={lbl}>Notes</label>
-                      <input value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))}
-                        placeholder="Optional…" style={inp} />
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-                    <button onClick={() => setPayModal(false)}
-                      style={{ flex: 1, padding: "10px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: T.surface2, color: T.textSec, border: `1.5px solid ${T.border}`, fontFamily: "inherit" }}>
-                      Cancel
-                    </button>
-                    <button onClick={handleRecordPayment} disabled={paySubmitting}
-                      style={{ flex: 2, padding: "10px 0", background: "#3b82f6", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: paySubmitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, fontFamily: "inherit", opacity: paySubmitting ? 0.7 : 1 }}>
-                      {paySubmitting ? <><FaSpinner className="bl-spin" size={12} /> Saving…</> : <><FaCheckCircle size={12} /> Confirm Payment</>}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <RecordPaymentModal
+                T={T}
+                isDark={isDark}
+                prefill={{
+                  vendorId:   selected.vendorId,
+                  vendorName: selected.vendorName,
+                  billId:     selected._id,
+                  billNumber: selected.billNumber,
+                  amount:     String(selected.balanceDue || ""),
+                }}
+                onClose={() => setPayModal(false)}
+                onSaved={async () => {
+                  setPayModal(false);
+                  nexusToast.success("Payment recorded");
+                  await load();
+                  const refreshed = await axiosInstance.get(`/api/bills/${selected._id}`);
+                  if (refreshed.data?.data) setSelected(refreshed.data.data);
+                  const pmtRes = await axiosInstance.get(`/api/vendor-payments/?billId=${selected._id}`);
+                  setBillPayments(pmtRes.data?.data?.payments || []);
+                }}
+              />
             )}
 
             {/* ── Reverse Payment modal ── */}

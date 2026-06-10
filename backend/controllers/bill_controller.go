@@ -32,6 +32,7 @@ func CreateBill() gin.HandlerFunc {
 		orgID, _ := c.Get("orgId")
 		orgIDStr := fmt.Sprintf("%v", orgID)
 		userID, _ := c.Get("userId")
+		userIDStr := fmt.Sprintf("%v", userID)
 
 		var b models.Bill
 		if err := c.ShouldBindJSON(&b); err != nil {
@@ -43,39 +44,76 @@ func CreateBill() gin.HandlerFunc {
 			return
 		}
 
-		b.ID = primitive.NewObjectID()
-		b.OrgID = orgIDStr
-		b.CreatedAt = time.Now()
-		b.UpdatedAt = time.Now()
-		if userID != nil {
-			b.CreatedBy = userID.(string)
+		// Approval gate — hold non-draft bills for an approver when the org requires it.
+		if b.Status != "draft" {
+			title := b.VendorName
+			if title == "" {
+				title = "Vendor bill"
+			}
+			if holdForApproval(c, ctx, orgIDStr, userIDStr, "", "bill", "bills", title, b.Totals.GrandTotal, b) {
+				return
+			}
 		}
-		if b.BillNumber == "" {
-			b.BillNumber = generateBillNumber()
-		}
-		if b.Status == "" {
-			b.Status = "open"
-		}
-		b.AmountPaid = 0
-		b.BalanceDue = b.Totals.GrandTotal
 
-		// Multi-currency: freeze the txn→base rate and compute base totals, so the GL
-		// posts in base currency and reports stay single-currency.
-		fxRate := applyBillFX(ctx, &b)
-
-		// Insert bill
-		if _, err := billCollection.InsertOne(ctx, b); err != nil {
+		id, num, err := createBillCore(ctx, orgIDStr, userIDStr, b)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create bill", "error": err.Error()})
 			return
 		}
+		c.JSON(http.StatusCreated, gin.H{
+			"status":  http.StatusCreated,
+			"message": "Bill created successfully",
+			"data":    gin.H{"id": id, "billNumber": num},
+		})
+	}
+}
 
-		// Journal entry: DR COGS + DR VAT Input / CR Accounts Payable (posted in base currency)
+// createBillCore performs the actual bill creation + GL/vendor side-effects. Called by
+// the handler directly, or by the approval flow when a held bill is approved.
+func createBillCore(ctx context.Context, orgIDStr, userIDStr string, b models.Bill) (string, string, error) {
+	b.ID = primitive.NewObjectID()
+	b.OrgID = orgIDStr
+	b.CreatedAt = time.Now()
+	b.UpdatedAt = time.Now()
+	if userIDStr != "" {
+		b.CreatedBy = userIDStr
+	}
+	if b.BillNumber == "" {
+		b.BillNumber = generateBillNumber()
+	}
+	if b.Status == "" {
+		b.Status = "open"
+	}
+	b.AmountPaid = 0
+	b.BalanceDue = b.Totals.GrandTotal
+
+	// Multi-currency: freeze the txn→base rate and compute base totals, so the GL
+	// posts in base currency and reports stay single-currency.
+	fxRate := applyBillFX(ctx, &b)
+
+	// Insert bill
+	if _, err := billCollection.InsertOne(ctx, b); err != nil {
+		return "", "", err
+	}
+
+	{
+		// Journal entry (posted in base currency):
+		//   GRN-linked bill (goods received into stock) → capitalise landed cost to
+		//     Inventory (1200); COGS is recognised later, at sale (deductStockOnDispatch).
+		//   Non-GRN bill (rent, utilities, services) → expense straight to COGS (5000).
+		// VAT Input (5500) is the recoverable tax; the credit clears Accounts Payable.
 		if b.Status != "draft" && b.Totals.GrandTotal > 0 {
+			goodsAccount := "5000" // expense (default)
+			if b.GRNID != "" {
+				goodsAccount = "1200" // inventory asset — goods received into stock
+			} else if code := resolveAccountCode(ctx, b.OrgID, b.ExpenseAccount); code != "" {
+				goodsAccount = code // user-chosen expense account for this bill
+			}
 			go autoJE(b.OrgID, "bill", b.ID.Hex(), b.BillNumber, b.BillDate,
 				"Bill received - "+b.BillNumber,
 				scaleJELines([]jeLineInput{
-					// COGS = everything except recoverable VAT (goods + freight + shipping + adjustment)
-					{AccountCode: "5000", Debit: b.Totals.GrandTotal - b.Totals.TaxTotal},
+					// Goods + freight + shipping + adjustment (everything except recoverable VAT)
+					{AccountCode: goodsAccount, Debit: b.Totals.GrandTotal - b.Totals.TaxTotal},
 					{AccountCode: "5500", Debit: b.Totals.TaxTotal},
 					{AccountCode: "2000", Credit: b.Totals.GrandTotal},
 				}, fxRate))
@@ -109,13 +147,9 @@ func CreateBill() gin.HandlerFunc {
 				"$set":  bson.M{"updatedAt": time.Now()},
 			})
 		}
-
-		c.JSON(http.StatusCreated, gin.H{
-			"status":  http.StatusCreated,
-			"message": "Bill created successfully",
-			"data":    gin.H{"id": b.ID.Hex(), "billNumber": b.BillNumber},
-		})
 	}
+
+	return b.ID.Hex(), b.BillNumber, nil
 }
 
 func GetAllBills() gin.HandlerFunc {
@@ -478,6 +512,18 @@ func UpdateBill() gin.HandlerFunc {
 			return
 		}
 
+		// Approval gate — hold the edit for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			userID, _ := c.Get("userId")
+			title := existing.VendorName
+			if title == "" {
+				title = "Vendor bill"
+			}
+			if holdActionForApproval(c, ctx, orgIDStr, fmt.Sprintf("%v", userID), "", "bill", "update", "bills", title, b.Totals.GrandTotal, c.Param("id"), b) {
+				return
+			}
+		}
+
 		paid       := existing.AmountPaid
 		newBalance := b.Totals.GrandTotal - paid
 		if newBalance < 0 {
@@ -560,6 +606,18 @@ func VoidBill() gin.HandlerFunc {
 		if b.Status == "paid" {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Cannot void a paid bill"})
 			return
+		}
+
+		// Approval gate — hold the void/delete for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			userID, _ := c.Get("userId")
+			title := b.VendorName
+			if title == "" {
+				title = "Vendor bill"
+			}
+			if holdActionForApproval(c, ctx, orgIDStr, fmt.Sprintf("%v", userID), "", "bill", "delete", "bills", title, b.Totals.GrandTotal, c.Param("id"), nil) {
+				return
+			}
 		}
 
 		billCollection.UpdateOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr},

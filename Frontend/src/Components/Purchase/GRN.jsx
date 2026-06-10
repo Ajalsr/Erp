@@ -440,13 +440,17 @@ export default function GRN() {
               if (!po) return;
               const poShip = parseFloat(po.shippingCharges || 0);
               const poAdj  = parseFloat(po.adjustment || 0);
-              const poSub  = parseFloat(po.subTotal || 0);
               if (poShip === 0 && poAdj === 0) return;
+              // Denominator = PO goods value (Σ qty×rate, excl freight) so a full receipt
+              // yields frac 1. po.subTotal may bundle freight and wrongly shrink the charge.
+              const poGoods = (po.items || []).reduce(
+                (s, i) => s + (parseFloat(i.quantity ?? i.qty ?? 0)) * (parseFloat(i.rate ?? i.unitPrice ?? 0)), 0);
+              const denom = poGoods > 0 ? poGoods : parseFloat(po.subTotal || 0);
               const recvVal = (d.items || []).reduce((s, i) => {
                 const acc = Math.max(0, (i.receivedQty || 0) - (i.rejectedQty || 0));
                 return s + acc * (i.rate || 0);
               }, 0);
-              const frac = poSub > 0 ? Math.min(1, recvVal / poSub) : 1;
+              const frac = denom > 0 ? Math.min(1, recvVal / denom) : 1;
               setInboundData(prev => prev ? {
                 ...prev,
                 shippingCharges: round2(poShip * frac),
