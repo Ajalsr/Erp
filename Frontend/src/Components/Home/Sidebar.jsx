@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { IoHome, IoChevronDown, IoSettingsOutline } from 'react-icons/io5'
-import { FaBoxOpen, FaCartArrowDown } from 'react-icons/fa'
+import { FaBoxOpen, FaCartArrowDown, FaClipboardCheck } from 'react-icons/fa'
 import { MdInventory2 } from 'react-icons/md'
 import { HiShoppingCart } from 'react-icons/hi'
 import { TbReportAnalytics } from 'react-icons/tb'
@@ -66,6 +66,7 @@ const MENU = [
     { name: 'Balance Sheet',     route: '/Reports/balance-sheet',mod: 'reports' },
     { name: 'Cash Flow',         route: '/Reports/cash-flow',    mod: 'reports' },
   ]},
+  { icon: FaClipboardCheck,   label: 'Approvals', route: '/Approvals', tourKey: 'nav-approvals' },
   { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },
 ]
 

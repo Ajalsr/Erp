@@ -76,6 +76,11 @@ type Organization struct {
 	StampImage          string             `bson:"stampImage,omitempty" json:"stampImage,omitempty"`                 // base64 data-URL — company seal/stamp
 	// Per-role access matrix: role → permissions. Owner/admin always full (not stored).
 	RolePermissions map[string]RolePerm `bson:"rolePermissions,omitempty" json:"rolePermissions,omitempty"`
+	// ApprovalSettings: legacy per-doc-type on/off toggle (superseded by ApprovalPolicies).
+	ApprovalSettings map[string]bool `bson:"approvalSettings,omitempty" json:"approvalSettings,omitempty"`
+	// ApprovalPolicies: per-module workflow — enabled + trigger conditions + a chain of
+	// approval steps (single role or any-N-of-group, with optional delegate).
+	ApprovalPolicies map[string]ApprovalPolicy `bson:"approvalPolicies,omitempty" json:"approvalPolicies,omitempty"`
 	// CustomRoles: org-defined assignable roles (besides built-in owner/admin).
 	// Empty on legacy orgs → falls back to ["member","viewer"].
 	CustomRoles []string `bson:"customRoles,omitempty" json:"customRoles,omitempty"`

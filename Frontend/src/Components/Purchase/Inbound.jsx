@@ -70,6 +70,11 @@ const transformPOsToItems = (poData, stockData) => {
   poData.purchaseOrders
     .filter(po => po.status === "issued" || po.status === "partial")
     .forEach(po => {
+      // PO goods value = Σ(qty × rate) across ALL lines, excluding freight. Used as the
+      // proration denominator for header shipping/adjustment so a FULL receipt → frac 1
+      // (po.subTotal can include freight, which would wrongly shrink the charge).
+      const poGoodsValue = (po.items || []).reduce(
+        (s, it) => s + parseQty(it.quantity) * parseFloat(it.rate || 0), 0);
       (po.items || []).forEach(oi => {
         const stock       = stockMap[oi.itemId];
         const orderedQty  = parseQty(oi.quantity);
@@ -101,6 +106,8 @@ const transformPOsToItems = (poData, stockData) => {
           poShipping:     parseFloat(po.shippingCharges || 0),
           poAdjustment:   parseFloat(po.adjustment || 0),
           poSubTotal:     parseFloat(po.subTotal || 0),
+          poGoodsValue,   // Σ(qty×rate) excl freight — proration denominator
+
           status:       receivedQty > 0 ? "partial" : "pending",
           poStatus:     po.status,
         });
@@ -301,15 +308,17 @@ export default function Inbound() {
   const goodsTax         = round2(inboundTaxGroups.reduce((s, g) => s + g.taxAmount, 0));
   const totalTax         = round2(goodsTax + freightTaxTotal);
   // Header shipping + adjustment prorated by received-value fraction per PO (SAP/Odoo/Zoho standard).
-  // frac = (goods value being received now) / (PO subtotal). Full receipt → full charge.
+  // frac = (goods value being received now) / (PO goods value, excl freight). Full receipt → full charge.
   const selPoIds         = [...new Set(selItems.map(i => i.poId))];
   const proratePO = (field) => round2(selPoIds.reduce((sum, pid) => {
     const poItems = selItems.filter(i => i.poId === pid);
     const charge  = poItems[0]?.[field] || 0;
     if (!charge) return sum;
-    const poSub   = poItems[0]?.poSubTotal || 0;
+    // Denominator is the PO's goods value excl freight (po.subTotal may bundle freight,
+    // which would make a full receipt prorate to < 1 and shrink the charge).
+    const denom   = poItems[0]?.poGoodsValue || poItems[0]?.poSubTotal || 0;
     const recvVal = poItems.reduce((s, i) => s + (i.receiveQty || 0) * (i.costPrice || 0), 0);
-    const frac    = poSub > 0 ? Math.min(1, recvVal / poSub) : 1;
+    const frac    = denom > 0 ? Math.min(1, recvVal / denom) : 1;
     return sum + charge * frac;
   }, 0));
   const shipCharge       = proratePO('poShipping');

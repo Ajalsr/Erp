@@ -111,6 +111,8 @@ export default function NewBill() {
   const [grnNumber,        setGrnNumber]        = useState(pre.grnNumber       || '');
   const [grnId,            setGrnId]            = useState(pre.grnId           || '');
   const [notes,          setNotes]          = useState('');
+  const [expenseAccount, setExpenseAccount] = useState(''); // non-GRN bills: which expense account
+  const [expAccounts,    setExpAccounts]    = useState([]); // expense-type accounts for the picker
   const [currency,       setCurrency]       = useState('AED');
   const [baseCurrency,   setBaseCurrency]   = useState('AED');
   const [exchangeRate,   setExchangeRate]   = useState(1);
@@ -157,6 +159,13 @@ export default function NewBill() {
     return () => clearTimeout(t);
   }, [vendorSearch, vendorId]);
 
+  // Load expense-type accounts for the non-GRN expense-account picker.
+  useEffect(() => {
+    axiosInstance.get('/api/accounts/?limit=500&status=active&type=expense')
+      .then(r => setExpAccounts(r.data?.data?.accounts || []))
+      .catch(() => {});
+  }, []);
+
   // Edit mode — load existing bill
   const [loadedEdit, setLoadedEdit] = useState(false);
   useEffect(() => {
@@ -180,6 +189,7 @@ export default function NewBill() {
       setGrnNumber(b.grnNumber || '');
       setGrnId(b.grnId || '');
       setNotes(b.notes || '');
+      setExpenseAccount(b.expenseAccount || '');
       if (b.currency) setCurrency(b.currency);
       if (b.exchangeRate > 0) setExchangeRate(b.exchangeRate);
       setShippingCharge(b.totals?.shipping   != null ? String(b.totals.shipping)   : '');
@@ -282,6 +292,8 @@ export default function NewBill() {
         purchaseOrderId:  purchaseOrderId  || undefined,
         grnId:            grnId            || undefined,
         grnNumber:        grnNumber        || undefined,
+        // GRN bills capitalise to Inventory; only non-GRN expense bills carry an account.
+        expenseAccount: grnId ? undefined : (expenseAccount || undefined),
         notes:          notes          || undefined,
         lineItems: lines.filter((l) => l.description).map((l) => ({
           description:  l.description,
@@ -604,6 +616,23 @@ export default function NewBill() {
             <span style={{ fontSize: 18, fontWeight: 900, color: T.blue, fontFamily: "'DM Mono', monospace" }}>AED {grandTotal.toFixed(2)}</span>
           </div>
         </div>
+
+        {/* Expense Account — only for non-GRN bills (GRN bills capitalise to Inventory) */}
+        {!grnId && !fromGRN && (
+          <div style={sec}>
+            <label style={lbl}>Expense Account</label>
+            <select value={expenseAccount} onChange={(e) => setExpenseAccount(e.target.value)}
+              style={{ ...inp, cursor: 'pointer' }}>
+              <option value="">Cost of Goods Sold (default)</option>
+              {expAccounts.map(a => (
+                <option key={a._id} value={a._id}>[{a.accountCode}] {a.accountName}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: 11, color: T.textSec, margin: '6px 0 0' }}>
+              Which account this bill is booked to (rent, utilities, services…).
+            </p>
+          </div>
+        )}
 
         {/* Notes */}
         <div style={sec}>

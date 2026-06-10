@@ -292,6 +292,7 @@ var defaultAccountSeeds = []seedDef{
 	{"1100", "Accounts Receivable",    "asset",     "current_asset",     "debit",  true,  false},
 	{"1200", "Inventory",              "asset",     "current_asset",     "debit",  true,  false},
 	{"1300", "Prepaid Expenses",       "asset",     "current_asset",     "debit",  false, false},
+	{"1350", "Vendor Advances",        "asset",     "current_asset",     "debit",  true,  false},
 	{"1500", "Fixed Assets",           "asset",     "fixed_asset",       "debit",  false, false},
 	{"2000", "Accounts Payable",       "liability", "current_liability", "credit", true,  false},
 	{"2100", "VAT Payable",            "liability", "current_liability", "credit", true,  false},

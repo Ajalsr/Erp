@@ -174,6 +174,17 @@ func CreateInvoice() gin.HandlerFunc {
 			return
 		}
 
+		// Approval gate — hold non-draft invoices for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") && inv.Status != "draft" {
+			title := inv.BillTo.Name
+			if title == "" {
+				title = "Invoice " + inv.InvoiceNumber
+			}
+			if holdForApproval(c, ctx, fmt.Sprintf("%v", orgID), fmt.Sprintf("%v", userID), "", "invoice", "invoices", title, inv.Totals.GrandTotal, inv) {
+				return
+			}
+		}
+
 		inv.ID = primitive.NewObjectID()
 		inv.OrgID = orgID.(string)
 		inv.CreatedBy = func() string {

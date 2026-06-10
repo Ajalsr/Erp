@@ -6,7 +6,8 @@ import useAuthStore from '../../store/useAuthStore'
 import useThemeStore from '../../store/useThemeStore'
 import nexusToast from '../../helper/nexusToast'
 import axiosInstance from '../../helper/axiosInstance'
-import { PERM_MODULES, PERM_APPROVALS, PERM_CAPS, invalidatePermissions, usePermissions } from '../../helper/permissions'
+import { PERM_MODULES, PERM_CAPS, invalidatePermissions, usePermissions } from '../../helper/permissions'
+import ApprovalsWorkflow from './ApprovalsWorkflow'
 
 const ROLES = ['admin', 'member', 'viewer']
 
@@ -364,11 +365,6 @@ const OrganizationSettings = () => {
     ...p,
     [role]: { ...(p[role] || {}), scope: { ...(p[role]?.scope || {}), [mod]: val } },
   }))
-  const approvalOn = (role, key) => !!permCfg?.[role]?.approvals?.[key]
-  const toggleApproval = (role, key) => setPermCfg(p => ({
-    ...p,
-    [role]: { ...(p[role] || {}), approvals: { ...(p[role]?.approvals || {}), [key]: !p?.[role]?.approvals?.[key] } },
-  }))
   const settingsGrant = (role) => !!permCfg?.[role]?.settings
   const toggleSettingsGrant = (role) => setPermCfg(p => ({
     ...p,
@@ -613,7 +609,7 @@ const OrganizationSettings = () => {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: bgInset, padding: '4px', borderRadius: '10px', width: 'fit-content', border: `1px solid ${border}` }}>
-          {['members', 'permissions', 'settings'].map((t) => (
+          {['members', 'permissions', 'approvals', 'settings'].map((t) => (
             <button
               key={t}
               className="os-tab"
@@ -957,22 +953,10 @@ const OrganizationSettings = () => {
                       </div>
                     </div>
 
-                    {/* Approvals */}
+                    {/* Settings access grant (owner-controlled). Approval rights are now
+                        configured per-module in the Approvals tab, not here. */}
                     <div>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Approval Permissions</p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {PERM_APPROVALS.map(a => (
-                          <label key={a.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg, cursor: canManage ? 'pointer' : 'default' }}>
-                            <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>{a.label}</span>
-                            <input type="checkbox" checked={approvalOn(role, a.key)} disabled={!canManage}
-                              onChange={() => canManage && toggleApproval(role, a.key)}
-                              style={{ width: 16, height: 16, cursor: canManage ? 'pointer' : 'default' }} />
-                          </label>
-                        ))}
-                      </div>
-
-                      {/* Settings access grant (owner-controlled) */}
-                      <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '18px 0 10px' }}>Settings Access</p>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Settings Access</p>
                       <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', border: `1px solid ${settingsGrant(role) ? accent : border}`, borderRadius: 10, background: inputBg, cursor: isOwner ? 'pointer' : 'default' }}>
                         <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>Can open organization Settings</span>
                         <input type="checkbox" checked={settingsGrant(role)} disabled={!isOwner}
@@ -998,6 +982,10 @@ const OrganizationSettings = () => {
         )}
 
         {/* ── Settings Tab ── */}
+        {tab === 'approvals' && (
+          <ApprovalsWorkflow orgId={id} customRoles={customRoles} canManage={canManage} />
+        )}
+
         {tab === 'settings' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>

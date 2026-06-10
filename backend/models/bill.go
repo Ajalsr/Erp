@@ -81,6 +81,11 @@ type Bill struct {
 
 	PaymentTerms string `json:"paymentTerms,omitempty" bson:"paymentTerms,omitempty"`
 
+	// ExpenseAccount: GL account (id or code) the goods/services are booked to for a
+	// non-GRN expense bill (rent, utilities, services). Empty → 5000 COGS. GRN-linked
+	// bills ignore this — their goods capitalise to Inventory (1200).
+	ExpenseAccount string `json:"expenseAccount,omitempty" bson:"expenseAccount,omitempty"`
+
 	// Status: draft | open | partial | paid | overdue | void
 	Status string `json:"status" bson:"status"`
 

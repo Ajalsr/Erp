@@ -425,11 +425,12 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   const [applyingCredit, setApplyingCredit] = useState(false);
   const [alloc,   setAlloc]   = useState({});      // invoiceId -> amount string
   const [touched, setTouched] = useState(false);   // user manually edited the split
+  const [accounts, setAccounts] = useState([]);    // cash/bank accounts for "Deposit To"
 
   const [form, setForm] = useState({
     customerId: "", customerName: "",
     amount: "", date: new Date().toISOString().split("T")[0],
-    paymentMode: "Bank Transfer", details: {}, notes: "",
+    paymentMode: "Bank Transfer", depositAccount: "", details: {}, notes: "",
   });
   const [errors, setErrors] = useState({});
 
@@ -439,6 +440,17 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   useEffect(() => {
     axiosInstance.get("/api/customers/getcustomers")
       .then(r => setCustomers(r.data?.data?.customers || r.data?.data || []))
+      .catch(() => {});
+  }, []);
+
+  // Load cash/bank accounts for the "Deposit To" picker; default to the first one.
+  useEffect(() => {
+    axiosInstance.get("/api/accounts/?limit=500&status=active")
+      .then(r => {
+        const banks = (r.data?.data?.accounts || []).filter(a => a.isBankAccount);
+        setAccounts(banks);
+        setForm(f => f.depositAccount ? f : { ...f, depositAccount: banks[0]?._id || "" });
+      })
       .catch(() => {});
   }, []);
 
@@ -553,6 +565,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
         amount:       Number(enteredAmt),
         date:         form.date,
         paymentMode:  form.paymentMode,
+        depositAccount: form.depositAccount || undefined,
         reference:    getPrimaryRef(form.paymentMode, form.details),
         paymentDetails: form.details,
         notes:        form.notes,
@@ -835,6 +848,20 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
                 onChange={m => setForm(f => ({ ...f, paymentMode: m, details: {} }))}
               />
             </div>
+          </div>
+
+          {/* ── Deposit To — which cash/bank GL account the money lands in ── */}
+          <div>
+            <label style={lbl}>Deposit To (Cash / Bank Account)</label>
+            <select
+              value={form.depositAccount}
+              onChange={e => setForm(f => ({ ...f, depositAccount: e.target.value }))}
+              style={{ ...inp, cursor: "pointer" }}>
+              {accounts.length === 0 && <option value="">Cash on Hand (default)</option>}
+              {accounts.map(a => (
+                <option key={a._id} value={a._id}>[{a.accountCode}] {a.accountName}</option>
+              ))}
+            </select>
           </div>
 
           {/* Mode-specific fields */}

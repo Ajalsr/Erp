@@ -43,6 +43,17 @@ func CreatePayment() gin.HandlerFunc {
 			return
 		}
 
+		// Approval gate — hold the receipt for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			title := p.CustomerName
+			if title == "" {
+				title = "Customer payment"
+			}
+			if holdForApproval(c, ctx, fmt.Sprintf("%v", orgID), fmt.Sprintf("%v", userID), "", "payment", "payments", title, p.Amount, p) {
+				return
+			}
+		}
+
 		p.ID = primitive.NewObjectID()
 		p.OrgID = orgID.(string)
 		p.CreatedAt = time.Now()
@@ -55,6 +66,13 @@ func CreatePayment() gin.HandlerFunc {
 		}
 		if p.Date == "" {
 			p.Date = time.Now().Format("2006-01-02")
+		}
+
+		// Resolve the deposit-to cash/bank account chosen by the user (id or code);
+		// fall back to 1001 Cash on Hand to preserve legacy behaviour.
+		bankCode := resolveAccountCode(ctx, p.OrgID, p.DepositAccount)
+		if bankCode == "" {
+			bankCode = "1001"
 		}
 
 		// ── Multi-invoice allocation path ────────────────────────────────────
@@ -178,7 +196,7 @@ func CreatePayment() gin.HandlerFunc {
 			// GL: one balanced entry per invoice (DR Bank / CR AR + FX gain/loss),
 			// plus the excess as DR Bank / CR Customer Advances (2400).
 			for _, pt := range parts {
-				lines := buildPaymentReceiptJE(ctx, p.OrgID, "1001", pt.amount, pt.ccy, pt.rate, p.Date)
+				lines := buildPaymentReceiptJE(ctx, p.OrgID, bankCode, pt.amount, pt.ccy, pt.rate, p.Date)
 				go autoJE(p.OrgID, "payment", p.ID.Hex(), p.PaymentNumber, p.Date,
 					"Payment received - "+p.PaymentNumber, lines)
 			}
@@ -186,7 +204,7 @@ func CreatePayment() gin.HandlerFunc {
 				go autoJE(p.OrgID, "payment", p.ID.Hex(), p.PaymentNumber, p.Date,
 					"Customer advance (overpayment) - "+p.PaymentNumber,
 					[]jeLineInput{
-						{AccountCode: "1001", Debit: excess},
+						{AccountCode: bankCode, Debit: excess},
 						{AccountCode: "2400", Credit: excess},
 					})
 			}
@@ -293,7 +311,7 @@ func CreatePayment() gin.HandlerFunc {
 		// realised FX gain/loss when the payment-date rate differs from the invoice's.
 		go autoJE(p.OrgID, "payment", p.ID.Hex(), p.PaymentNumber, p.Date,
 			"Payment received - "+p.InvoiceNumber,
-			buildPaymentReceiptJE(ctx, p.OrgID, "1001", p.Amount, invCurrency, invRate, p.Date))
+			buildPaymentReceiptJE(ctx, p.OrgID, bankCode, p.Amount, invCurrency, invRate, p.Date))
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,

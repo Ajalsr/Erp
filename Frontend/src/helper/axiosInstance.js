@@ -68,7 +68,15 @@ api.interceptors.request.use((config) => {
 
 // ── Response interceptor: handle 401 from server ─────────────────
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Approval gate: a create that returns 202 was held for an approver, not created.
+    // Surface a clear toast so the caller's own "created" message isn't misleading.
+    if (response?.status === 202 && response?.data?.data?.status === 'pending_approval') {
+      nexusToast.info?.('Submitted for approval')
+      response.__pendingApproval = true
+    }
+    return response
+  },
   (error) => {
     if (error.response?.status === 401) {
       handleExpiredSession()

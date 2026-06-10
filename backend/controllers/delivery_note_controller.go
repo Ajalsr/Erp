@@ -444,6 +444,7 @@ func deductStockOnDispatch(dn models.DeliveryNote, orgID string) {
 	defer cancel()
 
 	defWh, _ := defaultWarehouse(ctx, orgID)
+	totalCOGS := 0.0 // Σ(qty × unit cost) — recognised as Cost of Goods Sold on dispatch.
 	for _, item := range dn.Items {
 		if item.ItemID == "" || item.OutboundQuantity <= 0 {
 			continue
@@ -456,6 +457,9 @@ func deductStockOnDispatch(dn models.DeliveryNote, orgID string) {
 		if err := stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgID}).Decode(&stock); err != nil {
 			continue
 		}
+		unitCost := 0.0
+		fmt.Sscanf(stock.CostPrice, "%f", &unitCost)
+		totalCOGS += item.OutboundQuantity * unitCost
 		currentQty := 0.0
 		fmt.Sscanf(stock.Quantity, "%f", &currentQty)
 		newQty := currentQty - item.OutboundQuantity
@@ -486,6 +490,19 @@ func deductStockOnDispatch(dn models.DeliveryNote, orgID string) {
 			CreatedAt:   time.Now(),
 		}
 		adjustmentCollection.InsertOne(ctx, adj)
+	}
+
+	// Recognise Cost of Goods Sold at dispatch (perpetual inventory):
+	//   DR Cost of Goods Sold (5000) / CR Inventory (1200) at item cost.
+	// Mirrors the purchase side, which capitalised goods to Inventory at bill time.
+	if totalCOGS > 0 {
+		totalCOGS = round2(totalCOGS)
+		autoJE(orgID, "delivery_note", dn.ID.Hex(), dn.DNNumber, time.Now().Format("2006-01-02"),
+			"Cost of goods sold - "+dn.DNNumber,
+			[]jeLineInput{
+				{AccountCode: "5000", Debit: totalCOGS},
+				{AccountCode: "1200", Credit: totalCOGS},
+			})
 	}
 }
 

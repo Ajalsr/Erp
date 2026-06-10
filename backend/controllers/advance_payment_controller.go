@@ -102,11 +102,16 @@ func CreateAdvancePayment() gin.HandlerFunc {
 			)
 		}
 
-		// Journal entry: DR Bank/Cash / CR Customer Advances
+		// Journal entry: DR Bank/Cash / CR Customer Advances.
+		// Use the user-chosen deposit account; fall back to the mode-derived account.
+		bankCode := resolveAccountCode(ctx, orgIDStr, a.DepositAccount)
+		if bankCode == "" {
+			bankCode = bankAccountCode(a.PaymentMode)
+		}
 		go autoJE(orgIDStr, "advance_payment", a.ID.Hex(), a.AdvanceNumber, a.Date,
 			"Advance received - "+a.CustomerName,
 			[]jeLineInput{
-				{AccountCode: bankAccountCode(a.PaymentMode), Debit: a.Amount},
+				{AccountCode: bankCode, Debit: a.Amount},
 				{AccountCode: "2400", Credit: a.Amount},
 			})
 

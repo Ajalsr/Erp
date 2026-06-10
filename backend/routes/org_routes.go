@@ -19,6 +19,8 @@ func OrgRoutes(router *gin.Engine) {
 		orgRoutes.PATCH("/:id/letterhead", controllers.UpdateLetterhead())
 		orgRoutes.PATCH("/:id/stamp", controllers.UpdateStamp())
 		orgRoutes.PATCH("/:id/role-permissions", controllers.UpdateRolePermissions())
+		orgRoutes.PATCH("/:id/approval-settings", controllers.UpdateApprovalSettings())
+		orgRoutes.PATCH("/:id/approval-policies", controllers.UpdateApprovalPolicies())
 		orgRoutes.PATCH("/:id/roles", controllers.UpdateCustomRoles())
 
 		// Members

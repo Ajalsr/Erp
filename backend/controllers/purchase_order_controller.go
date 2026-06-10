@@ -139,6 +139,19 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
+		// Approval gate — hold the PO for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			orgIDVal, _ := c.Get("orgId")
+			userIDVal, _ := c.Get("userId")
+			title := req.VendorName
+			if title == "" {
+				title = "Purchase order"
+			}
+			if holdForApproval(c, ctx, fmt.Sprintf("%v", orgIDVal), fmt.Sprintf("%v", userIDVal), "", "po", "purchase_orders", title, req.Total, req) {
+				return
+			}
+		}
+
 		// ── Determine VAT rate based on vendor origin ─────────────────────
 		// mainland → 5% | free_zone / overseas → 0%
 		appliedTaxRate := 0.05

@@ -373,9 +373,10 @@ export default function AdvancePayments() {
 
 /* ─── Create Advance Modal ────────────────────────────────────── */
 function CreateAdvanceModal({ T, customers, inputStyle, labelStyle, onClose, onSaved }) {
-  const [form, setForm] = useState({ customerId: "", customerName: "", amount: "", date: localISO(new Date()), paymentMode: "Cash", salesOrderId: "", salesOrderNumber: "", notes: "" });
+  const [form, setForm] = useState({ customerId: "", customerName: "", amount: "", date: localISO(new Date()), paymentMode: "Cash", depositAccount: "", salesOrderId: "", salesOrderNumber: "", notes: "" });
   const [details, setDetails] = useState({});
   const [sos, setSos] = useState([]);
+  const [accounts, setAccounts] = useState([]); // cash/bank accounts for "Deposit To"
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -384,6 +385,13 @@ function CreateAdvanceModal({ T, customers, inputStyle, labelStyle, onClose, onS
       .then(r => { const all = r.data?.data?.salesOrders || []; setSos(all.filter(so => so.customerId === form.customerId && !["completed", "cancelled", "rejected"].includes(so.status))); })
       .catch(() => setSos([]));
   }, [form.customerId]);
+
+  // Load cash/bank accounts for the "Deposit To" picker.
+  useEffect(() => {
+    axiosInstance.get("/api/accounts/?limit=500&status=active")
+      .then(r => setAccounts((r.data?.data?.accounts || []).filter(a => a.isBankAccount)))
+      .catch(() => {});
+  }, []);
 
   const modeFields = MODE_FIELDS[form.paymentMode] || [];
 
@@ -428,6 +436,13 @@ function CreateAdvanceModal({ T, customers, inputStyle, labelStyle, onClose, onS
           <label style={labelStyle}>Payment Mode</label>
           <Sel T={T} value={form.paymentMode} options={MODES.map(m => ({ value: m, label: m }))} icon={MODE_ICONS[form.paymentMode]}
             onChange={v => { setForm(f => ({ ...f, paymentMode: v })); setDetails({}); }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Deposit To (Cash / Bank Account)</label>
+          <Sel T={T} value={form.depositAccount} icon="🏦"
+            placeholder="Auto by payment mode"
+            options={[{ value: "", label: "Auto (by payment mode)" }, ...accounts.map(a => ({ value: a._id, label: `[${a.accountCode}] ${a.accountName}` }))]}
+            onChange={v => setForm(f => ({ ...f, depositAccount: v }))} />
         </div>
         {/* Dynamic per-mode fields */}
         {modeFields.length > 0 && (

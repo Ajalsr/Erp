@@ -13,6 +13,7 @@ import (
 	"github.com/backend/config"
 	"github.com/backend/models"
 	"github.com/backend/utils"
+	"github.com/cloudinary/cloudinary-go/v2/api/uploader"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -268,6 +269,7 @@ func buildUserOrganizations(ctx context.Context, userIDStr string) []gin.H {
 			"description":     org.Description,
 			"role":            roleMap[org.ID],
 			"rolePermissions": org.RolePermissions,
+			"approvalSettings": org.ApprovalSettings,
 			"customRoles":     effectiveCustomRoles(org),
 		})
 	}
@@ -396,6 +398,8 @@ func GetOrganization() gin.HandlerFunc {
 			"letterheadBottomPad": org.LetterheadBottomPad,
 			"stampImage":          org.StampImage,
 			"rolePermissions":     org.RolePermissions,
+			"approvalSettings":    org.ApprovalSettings,
+			"approvalPolicies":    org.ApprovalPolicies,
 			"customRoles":         effectiveCustomRoles(org),
 			"createdBy":           org.CreatedBy,
 			"createdAt":           org.CreatedAt,
@@ -920,6 +924,37 @@ func CancelInvitation() gin.HandlerFunc {
 	}
 }
 
+// storeOrgImage offloads an org image to Cloudinary instead of MongoDB.
+//   - empty string        → returns "" (clears the field)
+//   - already an https URL → returned unchanged (already hosted)
+//   - base64 data-URL      → uploaded to Cloudinary; the secure URL is returned
+//
+// publicID is deterministic per org+kind so re-uploads OVERWRITE the same asset
+// (no orphan accumulation), and only a short URL is persisted in the org doc.
+func storeOrgImage(ctx context.Context, img, orgHex, kind string) (string, error) {
+	img = strings.TrimSpace(img)
+	if img == "" || strings.HasPrefix(img, "http://") || strings.HasPrefix(img, "https://") {
+		return img, nil // nothing to upload (cleared or already hosted)
+	}
+	if !strings.HasPrefix(img, "data:") {
+		return img, nil // not a data-URL we recognise — store as-is
+	}
+	if config.CloudinaryClient == nil {
+		return "", fmt.Errorf("cloudinary not configured")
+	}
+	overwrite, invalidate := true, true
+	res, err := config.CloudinaryClient.Upload.Upload(ctx, img, uploader.UploadParams{
+		PublicID:     fmt.Sprintf("erp/org/%s/%s", orgHex, kind),
+		Overwrite:    &overwrite,
+		Invalidate:   &invalidate,
+		ResourceType: "image",
+	})
+	if err != nil {
+		return "", err
+	}
+	return res.SecureURL, nil
+}
+
 // PATCH /api/organizations/:id/letterhead
 func UpdateLetterhead() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -948,8 +983,15 @@ func UpdateLetterhead() gin.HandlerFunc {
 			return
 		}
 
+		// Offload the image to Cloudinary; persist only the URL (keeps the org doc small).
+		url, upErr := storeOrgImage(ctx, input.LetterheadImage, orgID.Hex(), "letterhead")
+		if upErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to upload letterhead image", "error": upErr.Error()})
+			return
+		}
+
 		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
-			"letterheadImage":     input.LetterheadImage,
+			"letterheadImage":     url,
 			"letterheadTopPad":    input.LetterheadTopPad,
 			"letterheadBottomPad": input.LetterheadBottomPad,
 			"updatedAt":           time.Now(),
@@ -959,7 +1001,7 @@ func UpdateLetterhead() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Letterhead updated"})
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Letterhead updated", "letterheadImage": url})
 	}
 }
 
@@ -990,8 +1032,15 @@ func UpdateStamp() gin.HandlerFunc {
 			return
 		}
 
+		// Offload the stamp to Cloudinary; persist only the URL (keeps the org doc small).
+		url, upErr := storeOrgImage(ctx, input.StampImage, orgID.Hex(), "stamp")
+		if upErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to upload stamp image", "error": upErr.Error()})
+			return
+		}
+
 		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
-			"stampImage": input.StampImage,
+			"stampImage": url,
 			"updatedAt":  time.Now(),
 		}})
 		if err != nil {
@@ -999,7 +1048,7 @@ func UpdateStamp() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Stamp updated"})
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Stamp updated", "stampImage": url})
 	}
 }
 
@@ -1040,6 +1089,80 @@ func UpdateRolePermissions() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Permissions updated", "data": input.RolePermissions})
+	}
+}
+
+// PATCH /api/organizations/:id/approval-settings — set which doc types require approval.
+func UpdateApprovalSettings() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		userID, _ := c.Get("userId")
+		orgID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid org ID"})
+			return
+		}
+		if !canManageSettings(ctx, orgID, userID.(string)) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You don't have access to organization settings"})
+			return
+		}
+
+		var input struct {
+			ApprovalSettings map[string]bool `json:"approvalSettings"`
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
+			return
+		}
+
+		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
+			"approvalSettings": input.ApprovalSettings,
+			"updatedAt":        time.Now(),
+		}})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update approval settings"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Approval settings updated", "data": input.ApprovalSettings})
+	}
+}
+
+// PATCH /api/organizations/:id/approval-policies — save per-module approval workflows.
+func UpdateApprovalPolicies() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		userID, _ := c.Get("userId")
+		orgID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid org ID"})
+			return
+		}
+		if !canManageSettings(ctx, orgID, userID.(string)) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You don't have access to organization settings"})
+			return
+		}
+
+		var input struct {
+			ApprovalPolicies map[string]models.ApprovalPolicy `json:"approvalPolicies"`
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+
+		_, err = orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
+			"approvalPolicies": input.ApprovalPolicies,
+			"updatedAt":        time.Now(),
+		}})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update approval policies"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Approval workflows saved", "data": input.ApprovalPolicies})
 	}
 }
 
