@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +26,21 @@ var allowedOrigins = map[string]bool{
 	"tauri://localhost":       true, // Tauri macOS / Linux
 	"http://tauri.localhost":  true, // Tauri Windows
 	"https://tauri.localhost": true, // Tauri Windows (https mode)
+}
+
+// Seed extra allowed origins from the environment so production domains don't need a
+// code change. APP_URL is the deployed frontend; ALLOWED_ORIGINS is an optional
+// comma-separated list for any additional origins.
+func init() {
+	add := func(o string) {
+		if o = strings.TrimRight(strings.TrimSpace(o), "/"); o != "" {
+			allowedOrigins[o] = true
+		}
+	}
+	add(os.Getenv("APP_URL"))
+	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
+		add(o)
+	}
 }
 
 func CORSMiddleware() gin.HandlerFunc {

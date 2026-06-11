@@ -91,6 +91,19 @@ func GetAllEnquiries() gin.HandlerFunc {
 		if priority := c.Query("priority"); priority != "" {
 			filter["priority"] = priority
 		}
+		// followUp filter: today | overdue | due (overdue + today). Open enquiries only.
+		if fu := c.Query("followUp"); fu != "" {
+			todayStr := time.Now().Format("2006-01-02")
+			switch fu {
+			case "today":
+				filter["followUpDate"] = todayStr
+			case "overdue":
+				filter["followUpDate"] = bson.M{"$lt": todayStr, "$gt": ""}
+			case "due":
+				filter["followUpDate"] = bson.M{"$lte": todayStr, "$gt": ""}
+			}
+			filter["status"] = bson.M{"$nin": bson.A{"converted", "won", "lost", "closed", "cancelled"}}
+		}
 		if q := c.Query("q"); q != "" {
 			filter["$or"] = bson.A{
 				bson.M{"enquiryNumber": bson.M{"$regex": q, "$options": "i"}},
@@ -233,6 +246,16 @@ func UpdateEnquiryStatus() gin.HandlerFunc {
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid status", "error": err.Error()})
 			return
+		}
+
+		// Terminal enquiries can't change state — converted/lost/cancelled are final.
+		var existing models.Enquiry
+		if enquiryCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing) == nil {
+			switch existing.Status {
+			case "converted", "lost", "cancelled":
+				c.JSON(http.StatusConflict, gin.H{"message": "This enquiry is " + existing.Status + " and can no longer change status"})
+				return
+			}
 		}
 
 		result, err := enquiryCollection.UpdateOne(ctx,

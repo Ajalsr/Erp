@@ -172,6 +172,7 @@ const transformOrders = (apiData) => {
     adjustment: o.adjustment || 0,
     vat: o.vat || 0,
     createdAt: o.createdAt,
+    rejectionReason: o.rejectionReason || "",
   }));
 };
 
@@ -234,20 +235,30 @@ const Salesorders = () => {
   const [soHistory, setSoHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const updateOrderStatus = async (id, status) => {
+  const updateOrderStatus = async (id, status, extra = {}) => {
     if (approvingRef.current) return;
     approvingRef.current = id;
     setApprovingId(id);
     try {
-      await axiosInstance.patch(`/api/sales-orders/${id}/status`, { status });
+      await axiosInstance.patch(`/api/sales-orders/${id}/status`, { status, ...extra });
       await handleGetSalesorder();
-      if (selected?.id === id) setSelected(prev => prev ? { ...prev, rawStatus: status, status: formatStatus(status) } : null);
+      if (selected?.id === id) setSelected(prev => prev ? { ...prev, rawStatus: status, status: formatStatus(status), ...(extra.rejectionReason ? { rejectionReason: extra.rejectionReason } : {}) } : null);
     } catch (e) {
       alert(e.response?.data?.message || "Failed to update status.");
     } finally {
       approvingRef.current = null;
       setApprovingId(null);
     }
+  };
+
+  // Custom reject-reason modal state (replaces silent reject + native prompt).
+  const [rejectOrder, setRejectOrder] = useState(null); // order being rejected
+  const [rejectReason, setRejectReason] = useState("");
+  const confirmRejectOrder = async () => {
+    if (!rejectOrder || !rejectReason.trim()) return;
+    await updateOrderStatus(rejectOrder.id, "rejected", { rejectionReason: rejectReason.trim() });
+    setRejectOrder(null);
+    setRejectReason("");
   };
 
   useEffect(() => { handleGetSalesorder(); }, [handleGetSalesorder]);
@@ -837,7 +848,7 @@ const Salesorders = () => {
                                 </button>
                                 <button className="so-reject"
                                   disabled={approvingId === item.id}
-                                  onClick={() => updateOrderStatus(item.id, "rejected")}
+                                  onClick={() => { setRejectReason(""); setRejectOrder(item); }}
                                   style={{ height: "26px", padding: "0 8px", borderRadius: "6px", fontSize: "11px", fontWeight: "600", color: "#ef4444", background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.2)", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}>
                                   <FaThumbsDown size={9} />
                                 </button>
@@ -1077,7 +1088,7 @@ const Salesorders = () => {
                             <FaThumbsUp size={11} /> {approvingId === selected.id ? "Processing…" : "Approve Order"}
                           </button>
                           <button disabled={approvingId === selected.id}
-                            onClick={() => updateOrderStatus(selected.id, "rejected")}
+                            onClick={() => { setRejectReason(""); setRejectOrder(selected); }}
                             className="so-reject"
                             style={{ flex: 1, padding: "9px 0", borderRadius: "8px", border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.07)", color: "#ef4444", fontSize: "12px", fontWeight: "700", cursor: approvingId ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
                             <FaThumbsDown size={11} /> Reject
@@ -1092,6 +1103,9 @@ const Salesorders = () => {
                         <span style={{ fontSize: "16px" }}>🚫</span>
                         <div>
                           <div style={{ fontSize: "12px", fontWeight: "700", color: "#ef4444" }}>Order Rejected</div>
+                          {selected.rejectionReason && (
+                            <div style={{ fontSize: "12px", color: C.textPri, marginTop: "3px" }}>“{selected.rejectionReason}”</div>
+                          )}
                           <div style={{ fontSize: "11px", color: C.textSec, marginTop: "2px" }}>Creator can edit and resubmit.</div>
                         </div>
                       </div>
@@ -1304,6 +1318,33 @@ const Salesorders = () => {
           </>
         );
       })()}
+
+      {rejectOrder && createPortal(
+        <div onClick={() => approvingId === null && setRejectOrder(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100000, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 440, background: isDark ? C.surface : "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 22, fontFamily: "inherit" }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.textPri }}>Reject sales order</h3>
+            <p style={{ margin: "6px 0 14px", fontSize: 12.5, color: C.textSec }}>
+              Rejecting <strong style={{ color: C.textPri }}>{rejectOrder.saleOrderNumber}</strong> sends it back to the creator. A reason is required.
+            </p>
+            <textarea autoFocus value={rejectReason} onChange={e => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection…" rows={3}
+              style={{ width: "100%", boxSizing: "border-box", resize: "vertical", padding: "10px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: isDark ? "rgba(255,255,255,0.04)" : "#f8fafc", color: C.textPri, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button onClick={() => setRejectOrder(null)} disabled={approvingId !== null}
+                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+              <button onClick={confirmRejectOrder} disabled={!rejectReason.trim() || approvingId !== null}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: (!rejectReason.trim() || approvingId !== null) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (!rejectReason.trim() || approvingId !== null) ? 0.5 : 1 }}>
+                <FaThumbsDown size={11} /> {approvingId === rejectOrder.id ? "Rejecting…" : "Reject"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 };

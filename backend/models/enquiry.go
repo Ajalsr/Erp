@@ -32,6 +32,9 @@ type Enquiry struct {
 	Status         string             `json:"status"           bson:"status"`
 	AssignedTo     string             `json:"assignedTo"       bson:"assignedTo"`
 	FollowUpDate   string             `json:"followUpDate"     bson:"followUpDate"`
+	// FollowUpReminderDate is the day a follow-up reminder was last pushed (YYYY-MM-DD),
+	// so the daily scheduler fires at most once per follow-up date.
+	FollowUpReminderDate string       `json:"followUpReminderDate,omitempty" bson:"followUpReminderDate,omitempty"`
 	Notes          string             `json:"notes"            bson:"notes"`
 	OrgID          string             `json:"orgId,omitempty"  bson:"orgId,omitempty"`
 	CreatedBy      string             `json:"createdBy"        bson:"createdBy"`

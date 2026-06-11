@@ -43,6 +43,48 @@ func runDueDateChecks() {
 
 	// Generate invoices for recurring profiles whose next run date has arrived
 	processRecurringInvoices(ctx, todayStr)
+
+	// Enquiries whose follow-up date is today — remind the team
+	processEnquiryFollowUps(ctx, todayStr)
+}
+
+// processEnquiryFollowUps notifies org admins/owners about enquiries due for follow-up
+// today (or overdue and not yet reminded). Fires at most once per follow-up date.
+func processEnquiryFollowUps(ctx context.Context, todayStr string) {
+	cursor, err := enquiryCollection.Find(ctx, bson.M{
+		"followUpDate": bson.M{"$lte": todayStr, "$gt": ""},
+		"status":       bson.M{"$nin": []string{"converted", "won", "lost", "closed", "cancelled"}},
+		"followUpReminderDate": bson.M{"$ne": todayStr},
+	})
+	if err != nil {
+		log.Printf("[scheduler] enquiry follow-up query error: %v", err)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var enquiries []models.Enquiry
+	cursor.All(ctx, &enquiries)
+
+	for _, e := range enquiries {
+		overdue := e.FollowUpDate < todayStr
+		title := "Enquiry follow-up due today"
+		if overdue {
+			title = "Enquiry follow-up overdue"
+		}
+		who := e.CustomerName
+		if e.Company != "" {
+			who = e.CustomerName + " (" + e.Company + ")"
+		}
+		msg := fmt.Sprintf("%s — %s. Follow-up was %s", e.EnquiryNumber, who, e.FollowUpDate)
+		if e.AssignedTo != "" {
+			msg += " · assigned to " + e.AssignedTo
+		}
+		notifyOrgAdmins(ctx, e.OrgID, "enquiry_followup", title, msg,
+			map[string]string{"enquiryId": e.ID.Hex(), "enquiryNumber": e.EnquiryNumber})
+
+		enquiryCollection.UpdateOne(ctx, bson.M{"_id": e.ID},
+			bson.M{"$set": bson.M{"followUpReminderDate": todayStr}})
+	}
 }
 
 func processDueSoon(ctx context.Context, threeDaysStr string) {

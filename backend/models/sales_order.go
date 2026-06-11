@@ -120,6 +120,7 @@ type SalesOrder struct {
 	Status               string             `json:"status" bson:"status"`
 	CancelReason         string             `json:"cancelReason,omitempty" bson:"cancelReason,omitempty"`
 	CancelRequestedBy    string             `json:"cancelRequestedBy,omitempty" bson:"cancelRequestedBy,omitempty"`
+	RejectionReason      string             `json:"rejectionReason,omitempty" bson:"rejectionReason,omitempty"`
 	Attachments          []Attachment       `json:"attachments,omitempty" bson:"attachments,omitempty"`
 	OrgID                string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt            time.Time          `json:"createdAt" bson:"createdAt"`

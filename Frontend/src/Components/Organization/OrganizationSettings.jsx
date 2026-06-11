@@ -461,6 +461,7 @@ const OrganizationSettings = () => {
       const token = res?.data?.token
       if (token) {
         const link = `${window.location.origin}/invitations/accept?token=${token}`
+       //const link = `ephemeral-cat-104b46.netlify.app/inviations/accept?token=${token}` // Frontend route only; backend accepts token without origin for flexibility across environments.
         setInviteLink(link)
       }
       nexusToast.success(`Invitation sent to ${inviteEmail.trim()}`)

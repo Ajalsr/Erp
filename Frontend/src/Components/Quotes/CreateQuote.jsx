@@ -587,12 +587,16 @@ export default function CreateQuote() {
         sourceEnquiryNumber: fromEnquiry?.enquiryNumber || null,
       };
 
+      let r;
       if (isEdit && prefill?._id) {
-        await axiosInstance.put(`/api/quotes/${prefill._id}`, payload);
-        nexusToast.success("Quote updated");
+        r = await axiosInstance.put(`/api/quotes/${prefill._id}`, payload);
       } else {
-        await axiosInstance.post("/api/quotes/", payload);
-        nexusToast.success(status === "draft" ? "Quote saved as draft" : "Quote created");
+        r = await axiosInstance.post("/api/quotes/", payload);
+      }
+      if (r?.data?.data?.status === "pending_approval") {
+        nexusToast.success("Submitted for approval");
+      } else {
+        nexusToast.success(isEdit ? "Quote updated" : status === "draft" ? "Quote saved as draft" : "Quote created");
       }
       navigate("/Sales/Quotes");
     } catch (e) {

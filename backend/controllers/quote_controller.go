@@ -32,6 +32,17 @@ func CreateQuote() gin.HandlerFunc {
 			return
 		}
 
+		// Approval gate — hold the create for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			title := q.CustomerName
+			if title == "" {
+				title = "Quote"
+			}
+			if holdActionForApproval(c, ctx, fmt.Sprintf("%v", orgID), fmt.Sprintf("%v", userID), "", "quote", "create", "quotes", title, q.Totals.GrandTotal, "", q) {
+				return
+			}
+		}
+
 		count, _ := quoteCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
 		q.ID = primitive.NewObjectID()
 		q.QuoteNumber = fmt.Sprintf("QUO-%d-%04d", time.Now().Year(), count+1)
@@ -247,6 +258,18 @@ func UpdateQuote() gin.HandlerFunc {
 			}
 		}
 
+		// Approval gate — hold the edit for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			userID, _ := c.Get("userId")
+			title := payload.CustomerName
+			if title == "" {
+				title = existing.CustomerName
+			}
+			if holdActionForApproval(c, ctx, fmt.Sprintf("%v", orgID), fmt.Sprintf("%v", userID), "", "quote", "update", "quotes", title, payload.Totals.GrandTotal, c.Param("id"), payload) {
+				return
+			}
+		}
+
 		update := bson.M{"$set": bson.M{
 			"status":        payload.Status,
 			"quoteDate":     payload.QuoteDate,
@@ -292,6 +315,27 @@ func UpdateQuoteStatus() gin.HandlerFunc {
 			return
 		}
 
+		// A regular member can't accept/decline their own quote — needs another reviewer.
+		// Owner/admin (the approval authority) may accept/decline their own.
+		if req.Status == "accepted" || req.Status == "declined" {
+			var existing models.Quote
+			if quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing) == nil {
+				userID, _ := c.Get("userId")
+				if existing.CreatedBy != "" && existing.CreatedBy == fmt.Sprintf("%v", userID) {
+					isPrivileged := false
+					if orgObjID, e := primitive.ObjectIDFromHex(fmt.Sprintf("%v", orgID)); e == nil {
+						if role, ok := getMemberRole(ctx, orgObjID, fmt.Sprintf("%v", userID)); ok {
+							isPrivileged = isAdminOrOwner(role)
+						}
+					}
+					if !isPrivileged {
+						c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can't accept or decline a quote you created"})
+						return
+					}
+				}
+			}
+		}
+
 		_, err = quoteCollection.UpdateOne(ctx,
 			bson.M{"_id": objectID, "orgId": orgID},
 			bson.M{"$set": bson.M{"status": req.Status, "updatedAt": time.Now()}},
@@ -299,6 +343,19 @@ func UpdateQuoteStatus() gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to update status"})
 			return
+		}
+
+		// Accepting a quote that came from an enquiry marks that enquiry converted.
+		if req.Status == "accepted" {
+			var q models.Quote
+			if quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&q) == nil && q.SourceEnquiryId != "" {
+				if enqObjID, e := primitive.ObjectIDFromHex(q.SourceEnquiryId); e == nil {
+					enquiryCollection.UpdateOne(ctx,
+						bson.M{"_id": enqObjID, "orgId": orgID},
+						bson.M{"$set": bson.M{"status": "converted", "updatedAt": time.Now()}},
+					)
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote status updated"})
@@ -328,6 +385,10 @@ func ConvertQuoteToInvoice() gin.HandlerFunc {
 		}
 		if q.Status == "converted" {
 			c.JSON(http.StatusConflict, gin.H{"message": "Quote already converted"})
+			return
+		}
+		if q.Status != "accepted" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Quote must be accepted before converting"})
 			return
 		}
 
@@ -430,6 +491,10 @@ func ConvertQuoteToSalesOrder() gin.HandlerFunc {
 		}
 		if q.Status == "converted" {
 			c.JSON(http.StatusConflict, gin.H{"message": "Quote already converted"})
+			return
+		}
+		if q.Status != "accepted" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Quote must be accepted before converting"})
 			return
 		}
 

@@ -34,6 +34,9 @@ var approvalFieldCatalog = map[string][]apprField{
 	"payments":        {{"amount", "money"}, {"customer", "text"}},
 	"vendor_payments": {{"amount", "money"}, {"vendor", "text"}},
 	"purchase_orders": {{"amount", "money"}, {"vendor", "text"}},
+	"quotes":          {{"amount", "money"}, {"customer", "text"}},
+	"customers":       {{"name", "text"}},
+	"vendors":         {{"name", "text"}},
 }
 
 func fieldType(moduleKey, field string) string {
@@ -115,6 +118,16 @@ func docFieldValue(moduleKey, field string, p bson.M) interface{} {
 		}
 		n, _ := nestedNum(p, "total")
 		return n
+	case "quotes":
+		if field == "customer" {
+			return nestedStr(p, "customerName")
+		}
+		n, _ := nestedNum(p, "totals", "grandTotal")
+		return n
+	case "customers":
+		return nestedStr(p, "customerDisplayName")
+	case "vendors":
+		return nestedStr(p, "displayName")
 	}
 	return nil
 }
@@ -252,12 +265,22 @@ func holdActionForApproval(c *gin.Context, ctx context.Context, orgIDStr, userID
 	docType, action, moduleKey, title string, amount float64, docID string, payloadModel interface{}) bool {
 
 	policy, ok := loadPolicy(ctx, orgIDStr, moduleKey)
-	if !ok || !policy.Enabled {
+	if !ok || !policy.Enabled || !policy.GatesAction(action) {
 		return false
 	}
 	payload := toBsonM(payloadModel)
 	if action != "delete" && !evaluateTrigger(policy, moduleKey, payload) {
 		return false // conditions not met → proceed normally
+	}
+
+	steps := buildChainStates(policy)
+
+	// Self-clearance: if the creator's own role can satisfy every step alone, approval is
+	// a no-op — skip the hold and let the document create normally.
+	if orgObjID, err := primitive.ObjectIDFromHex(orgIDStr); err == nil {
+		if role, ok := getMemberRole(ctx, orgObjID, userIDStr); ok && canSelfClear(role, steps) {
+			return false
+		}
 	}
 
 	req := models.ApprovalRequest{
@@ -270,7 +293,7 @@ func holdActionForApproval(c *gin.Context, ctx context.Context, orgIDStr, userID
 		Title:           title,
 		Amount:          amount,
 		Payload:         payload,
-		Steps:           buildChainStates(policy),
+		Steps:           steps,
 		CurrentStep:     0,
 		Status:          "pending",
 		RequestedBy:     userIDStr,
@@ -282,12 +305,124 @@ func holdActionForApproval(c *gin.Context, ctx context.Context, orgIDStr, userID
 		return true
 	}
 
+	go notifyStepApprovers(orgIDStr, req)
 	go ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "create", OrgID: orgIDStr})
 	c.JSON(http.StatusAccepted, gin.H{
 		"status":  http.StatusAccepted,
 		"message": "Submitted for approval",
 		"data":    gin.H{"approvalId": req.ID.Hex(), "status": "pending_approval"},
 	})
+	return true
+}
+
+// docTypeLabel maps an approval docType to a human label.
+func docTypeLabel(dt string) string {
+	if l := map[string]string{
+		"po": "Purchase order", "bill": "Bill", "vendor_payment": "Vendor payment",
+		"payment": "Customer payment", "invoice": "Invoice", "customer": "Customer", "vendor": "Vendor",
+		"quote": "Quote",
+	}[dt]; l != "" {
+		return l
+	}
+	return dt
+}
+
+// notifyRequester tells the user who raised the request about its final outcome.
+// Safe to call in a goroutine.
+func notifyRequester(orgIDStr string, ar models.ApprovalRequest, approved bool, reason, docNumber string) {
+	if ar.RequestedBy == "" {
+		return
+	}
+	label := docTypeLabel(ar.DocType)
+	result := "rejected"
+	var title, msg string
+	if approved {
+		result = "approved"
+		title = label + " approved"
+		msg = fmt.Sprintf("Your %s (%s) was approved", strings.ToLower(label), ar.Title)
+		if docNumber != "" {
+			msg += " — " + docNumber
+		}
+	} else {
+		title = label + " rejected"
+		msg = fmt.Sprintf("Your %s (%s) was rejected", strings.ToLower(label), ar.Title)
+		if reason != "" {
+			msg += ": " + reason
+		}
+	}
+	meta := map[string]string{"approvalId": ar.ID.Hex(), "docType": ar.DocType, "result": result}
+	pushNotificationWithMeta(ar.RequestedBy, "approval_result", title, msg, orgIDStr, "", meta)
+}
+
+// notifyStepApprovers pushes an "approval_request" notification to every active org
+// member who may clear the request's current step (step roles + delegate + owner/admin),
+// excluding the requester. Safe to call in a goroutine.
+func notifyStepApprovers(orgIDStr string, ar models.ApprovalRequest) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	orgObjID, err := primitive.ObjectIDFromHex(orgIDStr)
+	if err != nil || ar.CurrentStep >= len(ar.Steps) {
+		return
+	}
+	step := ar.Steps[ar.CurrentStep]
+
+	roleSet := map[string]bool{"owner": true, "admin": true}
+	for _, r := range step.Roles {
+		roleSet[r] = true
+	}
+	if step.Delegate != "" {
+		roleSet[step.Delegate] = true
+	}
+	roles := make([]string, 0, len(roleSet))
+	for r := range roleSet {
+		roles = append(roles, r)
+	}
+
+	cursor, err := orgMemberCollection.Find(ctx, bson.M{
+		"orgId":  orgObjID,
+		"status": "active",
+		"role":   bson.M{"$in": roles},
+		"userId": bson.M{"$ne": ar.RequestedBy},
+	})
+	if err != nil {
+		return
+	}
+	defer cursor.Close(ctx)
+	var members []models.OrgMember
+	cursor.All(ctx, &members)
+
+	verb := map[string]string{"create": "created", "update": "edited", "delete": "voided"}[ar.Action]
+	if verb == "" {
+		verb = "submitted"
+	}
+	docLabel := docTypeLabel(ar.DocType)
+	title := docLabel + " needs approval"
+	name := ar.RequestedByName
+	if name == "" {
+		name = "Someone"
+	}
+	msg := fmt.Sprintf("%s %s a %s (%s) awaiting your sign-off", name, verb, strings.ToLower(docLabel), ar.Title)
+	meta := map[string]string{"approvalId": ar.ID.Hex(), "docType": ar.DocType, "action": ar.Action}
+
+	for _, m := range members {
+		go pushNotificationWithMeta(m.UserID, "approval_request", title, msg, orgIDStr, "", meta)
+	}
+}
+
+// canSelfClear reports whether a single user of the given role can satisfy every step in
+// the chain alone — eligible for each step, and no step needs a quorum of distinct people.
+// When true, holding the document for approval is pointless (the creator could just approve
+// it themselves), so the gate is skipped.
+func canSelfClear(role string, steps []models.ApprovalStepState) bool {
+	for _, st := range steps {
+		if !stepEligible(role, st) {
+			return false
+		}
+		if st.Mode == "quorum" && st.N > 1 {
+			return false // needs ≥2 distinct approvers — one person can't clear it
+		}
+	}
 	return true
 }
 
@@ -443,6 +578,7 @@ func ApproveRequest() gin.HandlerFunc {
 				"status": "approved", "decidedBy": userIDStr, "decidedAt": time.Now(),
 				"resultDocId": docID, "resultDocNumber": docNumber,
 			}})
+			go notifyRequester(orgIDStr, ar, true, "", docNumber)
 			go ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "update", OrgID: orgIDStr})
 			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Approved — document created", "data": gin.H{"docId": docID, "docNumber": docNumber, "complete": true}})
 			return
@@ -452,6 +588,9 @@ func ApproveRequest() gin.HandlerFunc {
 		approvalRequestCollection.UpdateOne(ctx, bson.M{"_id": reqObjID}, bson.M{"$set": bson.M{
 			"steps": ar.Steps, "currentStep": ar.CurrentStep,
 		}})
+		if advanced {
+			go notifyStepApprovers(orgIDStr, ar)
+		}
 		go ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "update", OrgID: orgIDStr})
 		msg := "Approval recorded"
 		if advanced {
@@ -498,6 +637,7 @@ func RejectRequest() gin.HandlerFunc {
 		approvalRequestCollection.UpdateOne(ctx, bson.M{"_id": reqObjID}, bson.M{"$set": bson.M{
 			"status": "rejected", "decidedBy": userIDStr, "decidedAt": time.Now(), "reason": body.Reason,
 		}})
+		go notifyRequester(orgIDStr, ar, false, body.Reason, "")
 		go ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "update", OrgID: orgIDStr})
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Rejected"})
 	}
@@ -517,6 +657,12 @@ func replayApprovedCreate(ctx context.Context, orgIDStr, requestedBy string, ar 
 			return syntheticReplay(UpdateBill(), http.MethodPut, idParam, orgIDStr, requestedBy, ar.Payload, ar.DocID)
 		case "invoice":
 			return syntheticReplay(UpdateInvoice(), http.MethodPut, idParam, orgIDStr, requestedBy, ar.Payload, ar.DocID)
+		case "customer":
+			return syntheticReplay(UpdateCustomer(), http.MethodPut, idParam, orgIDStr, requestedBy, ar.Payload, ar.DocID)
+		case "vendor":
+			return syntheticReplay(UpdateVendor(), http.MethodPut, idParam, orgIDStr, requestedBy, ar.Payload, ar.DocID)
+		case "quote":
+			return syntheticReplay(UpdateQuote(), http.MethodPut, idParam, orgIDStr, requestedBy, ar.Payload, ar.DocID)
 		}
 	case "delete":
 		switch ar.DocType {
@@ -545,6 +691,12 @@ func replayApprovedCreate(ctx context.Context, orgIDStr, requestedBy string, ar 
 			return syntheticReplay(CreatePayment(), http.MethodPost, nil, orgIDStr, requestedBy, ar.Payload, "")
 		case "po":
 			return syntheticReplay(CreatePurchaseOrder(), http.MethodPost, nil, orgIDStr, requestedBy, ar.Payload, "")
+		case "customer":
+			return syntheticReplay(AddCustomers(), http.MethodPost, nil, orgIDStr, requestedBy, ar.Payload, "")
+		case "vendor":
+			return syntheticReplay(CreateVendor(), http.MethodPost, nil, orgIDStr, requestedBy, ar.Payload, "")
+		case "quote":
+			return syntheticReplay(CreateQuote(), http.MethodPost, nil, orgIDStr, requestedBy, ar.Payload, "")
 		}
 	}
 	return "", "", fmt.Errorf("unsupported %s/%s", ar.Action, ar.DocType)

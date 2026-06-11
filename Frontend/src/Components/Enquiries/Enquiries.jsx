@@ -485,6 +485,7 @@ export default function Enquiries() {
   const [loading,      setLoading]      = useState(true);
   const [search,       setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [followUp,     setFollowUp]     = useState(""); // "" | today | overdue
   const [page,         setPage]         = useState(1);
   const [totalPages,   setTotalPages]   = useState(1);
   const [totalCount,   setTotalCount]   = useState(0);
@@ -522,6 +523,7 @@ export default function Enquiries() {
     try {
       const params = new URLSearchParams({ page, limit: LIMIT });
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (followUp) params.set("followUp", followUp);
       if (search.trim()) params.set("q", search.trim());
       const res = await axiosInstance.get(`/api/enquiries/?${params}`);
       const d = res.data?.data ?? {};
@@ -529,7 +531,7 @@ export default function Enquiries() {
       setTotalPages(d.totalPages ?? 1);
       setTotalCount(d.total ?? 0);
     } catch { setEnquiries([]); } finally { setLoading(false); }
-  }, [page, statusFilter, search]);
+  }, [page, statusFilter, followUp, search]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -732,6 +734,19 @@ export default function Enquiries() {
                   {s.label}
                 </button>
               ))}
+            </div>
+            {/* Follow-up quick filters */}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {[{ k: "today", l: "Due today", c: "#f59e0b" }, { k: "overdue", l: "Overdue", c: "#ef4444" }].map(({ k, l, c }) => {
+                const on = followUp === k;
+                return (
+                  <button key={k} className="enq-tab"
+                    onClick={() => { setFollowUp(on ? "" : k); setPage(1); }}
+                    style={{ color: on ? "#fff" : c, background: on ? c : `${c}1a`, border: `1px solid ${c}55`, fontWeight: 600 }}>
+                    {l}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -939,11 +954,17 @@ export default function Enquiries() {
               {/* ── Update Status Tab ── */}
               {drawerTab === "update" && (
                 <div style={{ animation: "enqFadeUp .2s ease" }}>
+                  {["converted", "lost", "cancelled"].includes(selected.status) && (
+                    <div style={{ marginBottom: 16, padding: "12px 14px", borderRadius: 10, background: isDark ? "rgba(148,163,184,0.1)" : "#f1f5f9", border: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 16 }}>🔒</span>
+                      <span style={{ fontSize: 12.5, color: T.textPri }}>This enquiry is <strong style={{ textTransform: "capitalize" }}>{selected.status}</strong> — a final state. Status can no longer change.</span>
+                    </div>
+                  )}
                   <p style={{ fontSize: 13, color: T.textSec, marginBottom: 16 }}>Change the enquiry status to track its progress through your pipeline.</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {STATUSES.filter(s => s.key !== "all").map(s => (
                       <button key={s.key}
-                        disabled={updatingStatus || selected.status === s.key}
+                        disabled={updatingStatus || selected.status === s.key || ["converted", "lost", "cancelled"].includes(selected.status)}
                         onClick={() => handleStatusUpdate(s.key)}
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
                           border: `1.5px solid ${selected.status === s.key ? s.color : border}`,
