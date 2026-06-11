@@ -948,10 +948,9 @@ func FinalizeProforma() gin.HandlerFunc {
 			return
 		}
 
-		invCount, _ := invoiceCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "type": bson.M{"$ne": "proforma"}})
 		newInv := models.Invoice{
 			ID:                  primitive.NewObjectID(),
-			InvoiceNumber:       fmt.Sprintf("INV-%d-%04d", time.Now().Year(), invCount+1),
+			InvoiceNumber:       nextNumber(ctx, fmt.Sprintf("%v", orgID), "invoice", invoiceCollection, "invoiceNumber"),
 			IssueDate:           time.Now().Format("2006-01-02"),
 			DueDate:             inv.DueDate,
 			Currency:            inv.Currency,

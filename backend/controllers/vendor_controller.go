@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"time"
@@ -19,8 +18,10 @@ import (
 
 var vendorCollection *mongo.Collection = config.GetCollection(config.DB, "vendors")
 
-func generateVendorCode() string {
-	return fmt.Sprintf("VEN-%04d", rand.Intn(9000)+1000)
+func generateVendorCode(orgID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return nextNumber(ctx, orgID, "vendor", vendorCollection, "vendorCode")
 }
 
 func CreateVendor() gin.HandlerFunc {
@@ -56,7 +57,7 @@ func CreateVendor() gin.HandlerFunc {
 			v.CreatedBy = userID.(string)
 		}
 		if v.VendorCode == "" {
-			v.VendorCode = generateVendorCode()
+			v.VendorCode = generateVendorCode(orgID.(string))
 		}
 		if v.Status == "" {
 			v.Status = "active"
@@ -430,7 +431,7 @@ func ImportVendors() gin.HandlerFunc {
 			v.CreatedAt = now
 			v.UpdatedAt = now
 			if v.VendorCode == "" {
-				v.VendorCode = generateVendorCode()
+				v.VendorCode = generateVendorCode(orgIDStr)
 			}
 			if v.VendorType == "" {
 				v.VendorType = "business"

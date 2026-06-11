@@ -40,9 +40,8 @@ func getUserRole(ctx context.Context, userID, orgIDStr string) string {
 }
 
 // generateLPONumber creates a sequential LPO number
-func generateLPONumber(ctx context.Context) string {
-	count, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"lpoNumber": bson.M{"$exists": true, "$ne": ""}})
-	return fmt.Sprintf("LPO-%04d", count+1)
+func generateLPONumber(ctx context.Context, orgID string) string {
+	return nextNumber(ctx, orgID, "lpo", purchaseOrderCollection, "lpoNumber")
 }
 
 var purchaseOrderCollection *mongo.Collection = config.GetCollection(config.DB, "purchase_orders")
@@ -220,7 +219,7 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 
 		// ── Generate order number ─────────────────────────────────────────
 		if req.OrderNumber == "" {
-			req.OrderNumber = generatePONumber(ctx)
+			req.OrderNumber = generatePONumber(ctx, c.GetString("orgId"))
 		}
 
 		// ── CreatedBy / OrgID from JWT ───────────────────────────────────
@@ -241,7 +240,7 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 		if isAdmin {
 			poStatus = "issued"
 			approvalStatus = "approved"
-			lpoNumber = generateLPONumber(ctx)
+			lpoNumber = generateLPONumber(ctx, orgIDStr)
 		}
 
 		poTypeVal := req.POType
@@ -372,7 +371,7 @@ func ApprovePurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
-		lpoNumber := generateLPONumber(ctx)
+		lpoNumber := generateLPONumber(ctx, orgIDStr)
 		now := time.Now()
 
 		result, err := purchaseOrderCollection.UpdateOne(ctx,
@@ -487,21 +486,8 @@ func GetPurchaseOrderByID() gin.HandlerFunc {
 	}
 }
 
-func generatePONumber(ctx context.Context) string {
-	now := time.Now()
-	prefix := fmt.Sprintf("PO%02d%02d", int(now.Month()), now.Year()%100)
-	filter := bson.M{"orderNumber": bson.M{"$regex": "^" + prefix}}
-	opts := options.FindOne().SetSort(bson.D{{Key: "orderNumber", Value: -1}})
-	var last bson.M
-	next := 1
-	if err := purchaseOrderCollection.FindOne(ctx, filter, opts).Decode(&last); err == nil {
-		if num, ok := last["orderNumber"].(string); ok && len(num) >= 10 {
-			if seq, err := strconv.Atoi(num[6:]); err == nil {
-				next = seq + 1
-			}
-		}
-	}
-	return fmt.Sprintf("%s%04d", prefix, next)
+func generatePONumber(ctx context.Context, orgID string) string {
+	return nextNumber(ctx, orgID, "purchase_order", purchaseOrderCollection, "orderNumber")
 }
 
 func GetAllPurchaseOrders() gin.HandlerFunc {

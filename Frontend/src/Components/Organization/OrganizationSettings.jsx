@@ -67,21 +67,118 @@ const ROLE_TEMPLATES = [
   },
 ]
 
+// ── Customer-code numbering format ──────────────────────────────────────────
+// A format is an ordered list of segments. Mirrors backend utils/numbering.go.
+const NUM_SEG_TYPES = [
+  { value: 'month',    label: 'Month' },
+  { value: 'year',     label: 'Year' },
+  { value: 'day',      label: 'Day' },
+  { value: 'literal',  label: 'Text' },
+  { value: 'sequence', label: 'Counter' },
+]
+
+// Legacy default: MM + YY + 2-digit counter (e.g. "042607").
+const DEFAULT_CUST_FORMAT = [
+  { type: 'month', digits: 2 },
+  { type: 'year', digits: 2 },
+  { type: 'sequence', mode: 'digit', digits: 2, start: 1 },
+]
+
+// Entities whose auto-numbers can be configured. Keys match backend
+// entityDefaultFormats in controllers/numbering.go.
+const NUM_ENTITIES = [
+  { key: 'customer',       label: 'Customer Code' },
+  { key: 'invoice',        label: 'Invoice' },
+  { key: 'quote',          label: 'Quote' },
+  { key: 'sales_order',    label: 'Sales Order' },
+  { key: 'delivery_note',  label: 'Delivery Note' },
+  { key: 'purchase_order', label: 'Purchase Order' },
+  { key: 'lpo',            label: 'LPO' },
+  { key: 'grn',            label: 'GRN' },
+  { key: 'bill',           label: 'Bill' },
+  { key: 'payment',        label: 'Payment' },
+  { key: 'advance',        label: 'Advance Payment' },
+  { key: 'vendor',         label: 'Vendor Code' },
+  { key: 'vendor_payment', label: 'Vendor Payment' },
+  { key: 'vendor_credit',  label: 'Vendor Credit' },
+  { key: 'credit_note',    label: 'Credit Note' },
+  { key: 'debit_note',     label: 'Debit Note' },
+  { key: 'journal_entry',  label: 'Journal Entry' },
+]
+
+// Legacy default formats per entity (mirror backend entityDefaultFormats).
+const _litYS  = (p) => [{ type: 'literal', value: p }, { type: 'year', digits: 4 }, { type: 'literal', value: '-' }, { type: 'sequence', mode: 'digit', digits: 4, start: 1 }]
+const _litYMS = (p) => [{ type: 'literal', value: p }, { type: 'year', digits: 4 }, { type: 'month', digits: 2 }, { type: 'literal', value: '-' }, { type: 'sequence', mode: 'digit', digits: 4, start: 1 }]
+const _litS   = (p) => [{ type: 'literal', value: p }, { type: 'sequence', mode: 'digit', digits: 4, start: 1 }]
+const _litMYS = (p) => [{ type: 'literal', value: p }, { type: 'month', digits: 2 }, { type: 'year', digits: 2 }, { type: 'sequence', mode: 'digit', digits: 4, start: 1 }]
+
+const ENTITY_DEFAULTS = {
+  customer: DEFAULT_CUST_FORMAT,
+  invoice: _litYS('INV-'), quote: _litYS('QUO-'), delivery_note: _litYS('DN-'),
+  credit_note: _litS('CN-'), debit_note: _litS('DN-'), grn: _litS('GRN-'), vendor: _litS('VEN-'), lpo: _litS('LPO-'),
+  bill: _litYMS('BILL-'), payment: _litYMS('PAY-'), vendor_payment: _litYMS('VPAY-'),
+  advance: _litYMS('ADV-'), vendor_credit: _litYMS('VCR-'), journal_entry: _litYMS('JE-'),
+  sales_order: _litMYS('SO'), purchase_order: _litMYS('PO'),
+}
+
+const newSegment = (type) => {
+  switch (type) {
+    case 'literal':  return { type: 'literal', value: '-' }
+    case 'year':     return { type: 'year', digits: 2 }
+    case 'day':      return { type: 'day', digits: 2 }
+    case 'sequence': return { type: 'sequence', mode: 'digit', digits: 4, start: 1 }
+    default:         return { type: 'month', digits: 2 } // month
+  }
+}
+
+// Counter (A=0) rendered base-26, left-padded to width — matches backend toBase26.
+const toBase26 = (n, width) => {
+  let s = ''; n = Math.max(0, n || 0)
+  for (let i = 0; i < (width || 1); i++) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) }
+  while (n > 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) }
+  return s
+}
+
+// Live preview of the first number a format would produce.
+const renderNumberPreview = (segs) => {
+  const now = new Date()
+  return (segs || []).map((s) => {
+    const d = s.digits || 0
+    switch (s.type) {
+      case 'literal':  return s.value || ''
+      case 'month':    return String(now.getMonth() + 1).padStart(d || 2, '0')
+      case 'day':      return String(now.getDate()).padStart(d || 2, '0')
+      case 'year': {
+        const w = d || 4
+        return String(now.getFullYear()).slice(-w).padStart(w, '0')
+      }
+      case 'sequence': {
+        const start = s.start || 1
+        return s.mode === 'alpha' ? toBase26(0, s.digits || 4) : String(start).padStart(s.digits || 4, '0')
+      }
+      default: return ''
+    }
+  }).join('')
+}
+
 // Themed dropdown (portal popover so it never clips inside the scrollable matrix).
 const CustomSelect = ({ value, options, onChange, disabled, colors: c }) => {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState(null)
   const ref = useRef(null)
+  const popRef = useRef(null)
   const sel = options.find(o => o.value === value)
   const measure = () => { const r = ref.current?.getBoundingClientRect(); if (r) setPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 84) }) }
   useEffect(() => {
     if (!open) return
-    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
-    const reposition = () => setOpen(false)
+    const close = (e) => { if (!ref.current?.contains(e.target) && !popRef.current?.contains(e.target)) setOpen(false) }
+    // Close on page scroll, but ignore scrolling inside the popover list itself.
+    const onScroll = (e) => { if (!popRef.current?.contains(e.target)) setOpen(false) }
+    const onResize = () => setOpen(false)
     window.addEventListener('mousedown', close)
-    window.addEventListener('scroll', reposition, true)
-    window.addEventListener('resize', reposition)
-    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('scroll', reposition, true); window.removeEventListener('resize', reposition) }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
+    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', onResize) }
   }, [open])
   return (
     <>
@@ -92,7 +189,7 @@ const CustomSelect = ({ value, options, onChange, disabled, colors: c }) => {
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ flexShrink: 0, opacity: .6, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}><path d="M6 9l6 6 6-6" /></svg>
       </button>
       {open && pos && createPortal(
-        <div style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, zIndex: 99999, background: c.bgCard, border: `1px solid ${c.border}`, borderRadius: 8, boxShadow: c.shadow, padding: 4 }}>
+        <div ref={popRef} style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, zIndex: 99999, background: c.bgCard, border: `1px solid ${c.border}`, borderRadius: 8, boxShadow: c.shadow, padding: 4, maxHeight: 240, overflowY: 'auto' }}>
           {options.map(o => (
             <div key={o.value} onMouseDown={() => { onChange(o.value); setOpen(false) }}
               style={{ padding: '6px 10px', borderRadius: 5, fontSize: 12, fontWeight: o.value === value ? 700 : 500, cursor: 'pointer', color: o.value === value ? c.accent : c.textPri, background: o.value === value ? c.accentSoft : 'transparent' }}
@@ -203,6 +300,53 @@ const OrganizationSettings = () => {
   }
 
   const removeSalutation = (s) => saveSalutations(salutations.filter(x => x !== s))
+
+  // Document/code numbering formats (per entity)
+  const [numEntity, setNumEntity] = useState('customer')
+  const [numSegs, setNumSegs] = useState(ENTITY_DEFAULTS.customer)
+  const [savingNum, setSavingNum] = useState(false)
+  const numFormatsRef = useRef({}) // all saved entity formats, preserved on save
+
+  // Segments for an entity: saved format if present, else the legacy default.
+  const segsForEntity = (key) => {
+    const saved = numFormatsRef.current?.[key]?.segments
+    return (Array.isArray(saved) && saved.length) ? saved : (ENTITY_DEFAULTS[key] || [])
+  }
+
+  useEffect(() => {
+    axiosInstance.get('/api/org/settings')
+      .then(res => {
+        const all = res.data?.data?.numberingFormats
+        if (all && typeof all === 'object') numFormatsRef.current = all
+        setNumSegs(segsForEntity(numEntity))
+      })
+      .catch(() => {})
+  }, [])
+
+  const switchEntity = (key) => { setNumEntity(key); setNumSegs(segsForEntity(key)) }
+  const resetEntity = () => setNumSegs(ENTITY_DEFAULTS[numEntity] || [])
+
+  const updateSeg = (i, patch) => setNumSegs(segs => segs.map((s, j) => j === i ? { ...s, ...patch } : s))
+  const removeSeg = (i) => setNumSegs(segs => segs.filter((_, j) => j !== i))
+  const addSeg = (type) => setNumSegs(segs => [...segs, newSegment(type)])
+  const addSepSeg = (ch) => setNumSegs(segs => [...segs, { type: 'literal', value: ch }])
+  const moveSeg = (i, dir) => setNumSegs(segs => {
+    const j = i + dir
+    if (j < 0 || j >= segs.length) return segs
+    const next = segs.slice(); [next[i], next[j]] = [next[j], next[i]]; return next
+  })
+
+  const saveNumbering = async () => {
+    setSavingNum(true)
+    try {
+      const merged = { ...numFormatsRef.current, [numEntity]: { segments: numSegs } }
+      await axiosInstance.put('/api/org/settings', { numberingFormats: merged })
+      numFormatsRef.current = merged
+      const label = NUM_ENTITIES.find(e => e.key === numEntity)?.label || numEntity
+      nexusToast.success(`${label} numbering saved`)
+    } catch { nexusToast.error('Failed to save numbering format') }
+    finally { setSavingNum(false) }
+  }
 
   // Design tokens — mirror the Organization Settings reference palette.
   const accent       = isDark ? '#5d8bff' : '#2f6bf6'
@@ -610,7 +754,7 @@ const OrganizationSettings = () => {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: bgInset, padding: '4px', borderRadius: '10px', width: 'fit-content', border: `1px solid ${border}` }}>
-          {['members', 'permissions', 'approvals', 'settings'].map((t) => (
+          {['members', 'permissions', 'approvals', 'settings', 'numbering'].map((t) => (
             <button
               key={t}
               className="os-tab"
@@ -1218,6 +1362,145 @@ const OrganizationSettings = () => {
                 <button onClick={handleDelete} style={btnStyle('danger')}>
                   Delete Organization
                 </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Numbering Tab ── */}
+        {tab === 'numbering' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {!canManage && (
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm, color: textSec, fontSize: 13 }}>
+                Only owners and admins can edit numbering formats.
+              </div>
+            )}
+            {canManage && (
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 6px', fontFamily: 'inherit' }}>
+                  Document & Code Numbering
+                </h3>
+                <p style={{ color: textSec, fontSize: '12px', margin: '0 0 14px' }}>
+                  Build the format for any auto-generated number. Pick a document, order the pieces — e.g. Text + Year + Counter.
+                  The counter resets each period when a Month or Year piece comes before it.
+                </p>
+
+                {/* Entity picker */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                  <span style={{ color: textSec, fontSize: 12, fontWeight: 600 }}>Document</span>
+                  <CustomSelect
+                    value={numEntity}
+                    options={NUM_ENTITIES.map(e => ({ value: e.key, label: e.label }))}
+                    onChange={switchEntity}
+                    colors={{ accent, border, inputBg, textPri, bgCard, shadow: shadowSm, accentSoft }}
+                  />
+                  <button onClick={resetEntity} title="Reset to default"
+                    style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: bgInset, color: textSec, border: `1px solid ${border}`, fontFamily: 'inherit' }}>
+                    Reset to default
+                  </button>
+                </div>
+
+                {/* Live preview */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '12px 14px', borderRadius: 10, background: bgInset, border: `1px solid ${border}` }}>
+                  <span style={{ color: textSec, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>Next number</span>
+                  <span style={{ color: accent, fontSize: 18, fontWeight: 700, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: '.06em' }}>
+                    {renderNumberPreview(numSegs) || '—'}
+                  </span>
+                </div>
+
+                {/* Segment rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                  {numSegs.map((seg, i) => {
+                    const sel = { ...inputStyle, width: 'auto', padding: '6px 8px', fontSize: 12, borderRadius: 8 }
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', borderRadius: 10, background: bgInset, border: `1px solid ${border}` }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <button onClick={() => moveSeg(i, -1)} disabled={i === 0} title="Move up"
+                            style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: textSec, opacity: i === 0 ? 0.3 : 0.8, lineHeight: 0.7, fontSize: 11 }}>▲</button>
+                          <button onClick={() => moveSeg(i, 1)} disabled={i === numSegs.length - 1} title="Move down"
+                            style={{ background: 'none', border: 'none', cursor: i === numSegs.length - 1 ? 'default' : 'pointer', color: textSec, opacity: i === numSegs.length - 1 ? 0.3 : 0.8, lineHeight: 0.7, fontSize: 11 }}>▼</button>
+                        </div>
+
+                        <select value={seg.type} onChange={e => updateSeg(i, newSegment(e.target.value))} style={sel}>
+                          {NUM_SEG_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+
+                        {seg.type === 'literal' && (
+                          <input value={seg.value || ''} onChange={e => updateSeg(i, { value: e.target.value })}
+                            placeholder="text e.g. - / CUST" style={{ ...sel, minWidth: 110 }} />
+                        )}
+
+                        {(seg.type === 'month' || seg.type === 'year' || seg.type === 'day') && (
+                          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: textSec, fontSize: 12 }}>
+                            Digits
+                            <select value={seg.digits || (seg.type === 'year' ? 4 : 2)} onChange={e => updateSeg(i, { digits: +e.target.value })} style={sel}>
+                              {(seg.type === 'year' ? [2, 4] : [1, 2, 3]).map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                          </label>
+                        )}
+
+                        {seg.type === 'sequence' && (
+                          <>
+                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: textSec, fontSize: 12 }}>
+                              Style
+                              <select value={seg.mode || 'digit'} onChange={e => updateSeg(i, { mode: e.target.value })} style={sel}>
+                                <option value="digit">Numbers (1,2,3)</option>
+                                <option value="alpha">Letters (A,B,C)</option>
+                              </select>
+                            </label>
+                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: textSec, fontSize: 12 }}>
+                              Width
+                              <select value={seg.digits || 4} onChange={e => updateSeg(i, { digits: +e.target.value })} style={sel}>
+                                {[1, 2, 3, 4, 5, 6].map(d => <option key={d} value={d}>{d}</option>)}
+                              </select>
+                            </label>
+                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: textSec, fontSize: 12 }}>
+                              Start
+                              <input type="number" min={1} value={seg.start ?? 1} onChange={e => updateSeg(i, { start: Math.max(1, +e.target.value || 1) })}
+                                style={{ ...sel, width: 64 }} />
+                            </label>
+                          </>
+                        )}
+
+                        <button onClick={() => removeSeg(i)} title="Remove"
+                          style={{ marginLeft: 'auto', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', cursor: 'pointer', borderRadius: 6, width: 24, height: 24, fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Add piece + save */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ color: textSec, fontSize: 12 }}>Add:</span>
+                  {NUM_SEG_TYPES.map(t => (
+                    <button key={t.value} onClick={() => addSeg(t.value)}
+                      style={{ padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: accentSoft, border: `1px solid ${accentLine}`, color: accent, fontFamily: 'inherit' }}>
+                      + {t.label}
+                    </button>
+                  ))}
+                  <span style={{ width: 1, height: 18, background: border, margin: '0 2px' }} />
+                  <span style={{ color: textSec, fontSize: 12 }}>Sep:</span>
+                  {[
+                    { ch: '-', label: '-' },
+                    { ch: '/', label: '/' },
+                    { ch: '.', label: '.' },
+                    { ch: ' ', label: '␣' },
+                  ].map(s => (
+                    <button key={s.ch} onClick={() => addSepSeg(s.ch)} title={`Add "${s.ch === ' ' ? 'space' : s.ch}" separator`}
+                      style={{ width: 28, height: 28, borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', background: bgInset, border: `1px solid ${border}`, color: textPri, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {s.label}
+                    </button>
+                  ))}
+                  <button onClick={saveNumbering} disabled={savingNum || !numSegs.some(s => s.type === 'sequence')}
+                    style={{ ...btnStyle('primary'), marginLeft: 'auto', opacity: (savingNum || !numSegs.some(s => s.type === 'sequence')) ? 0.6 : 1 }}>
+                    {savingNum ? 'Saving…' : 'Save Format'}
+                  </button>
+                </div>
+                {!numSegs.some(s => s.type === 'sequence') && (
+                  <p style={{ color: '#f59e0b', fontSize: 11, margin: '10px 0 0' }}>
+                    Add a Counter piece so each record gets a unique number.
+                  </p>
+                )}
               </div>
             )}
           </div>

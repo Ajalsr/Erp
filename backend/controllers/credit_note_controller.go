@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/backend/config"
@@ -62,18 +60,7 @@ func calcCNTotals(items []models.CNLineItem) models.CNTotals {
 // nextCNNumber returns the next sequential credit note number for the org.
 // Format: CN-0001, CN-0002, … per org (resets per org, not globally).
 func nextCNNumber(ctx context.Context, orgID string) string {
-	opts := options.FindOne().SetSort(bson.D{{Key: "creditNoteNumber", Value: -1}})
-	var last bson.M
-	next := 1
-	if err := creditNoteCollection.FindOne(ctx, bson.M{"orgId": orgID}, opts).Decode(&last); err == nil {
-		if num, ok := last["creditNoteNumber"].(string); ok {
-			seqStr := strings.TrimPrefix(num, "CN-")
-			if seq, err := strconv.Atoi(seqStr); err == nil {
-				next = seq + 1
-			}
-		}
-	}
-	return fmt.Sprintf("CN-%04d", next)
+	return nextNumber(ctx, orgID, "credit_note", creditNoteCollection, "creditNoteNumber")
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────

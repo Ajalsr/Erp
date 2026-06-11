@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -18,9 +17,10 @@ import (
 
 var advancePaymentCollection *mongo.Collection = config.GetCollection(config.DB, "advance_payments")
 
-func generateAdvanceNumber() string {
-	now := time.Now()
-	return fmt.Sprintf("ADV-%d%02d-%04d", now.Year(), now.Month(), rand.Intn(9000)+1000)
+func generateAdvanceNumber(orgID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return nextNumber(ctx, orgID, "advance", advancePaymentCollection, "advanceNumber")
 }
 
 // bankAccountCode maps a payment mode to its GL cash/bank account code.
@@ -60,7 +60,7 @@ func CreateAdvancePayment() gin.HandlerFunc {
 
 		a.ID = primitive.NewObjectID()
 		a.OrgID = orgIDStr
-		a.AdvanceNumber = generateAdvanceNumber()
+		a.AdvanceNumber = generateAdvanceNumber(orgIDStr)
 		a.AllocatedAmount = 0
 		a.RemainingAmount = a.Amount
 		a.Status = "unallocated"
@@ -297,7 +297,7 @@ func ApplyAdvanceToInvoice() gin.HandlerFunc {
 		pmt := models.Payment{
 			ID:            primitive.NewObjectID(),
 			OrgID:         orgIDStr,
-			PaymentNumber: generatePaymentNumber(),
+			PaymentNumber: generatePaymentNumber(orgIDStr),
 			Date:          time.Now().Format("2006-01-02"),
 			CustomerID:    adv.CustomerID,
 			CustomerName:  adv.CustomerName,

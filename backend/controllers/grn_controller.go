@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/backend/config"
@@ -27,19 +25,8 @@ func grnTaxRate(origin string) float64 {
 	return 0.05
 }
 
-func generateGRNNumber(ctx context.Context) string {
-	opts := options.FindOne().SetSort(bson.D{{Key: "grnNumber", Value: -1}})
-	var last bson.M
-	next := 1
-	if err := grnCollection.FindOne(ctx, bson.M{"grnNumber": bson.M{"$regex": "^GRN-"}}, opts).Decode(&last); err == nil {
-		if num, ok := last["grnNumber"].(string); ok {
-			seqStr := strings.TrimPrefix(num, "GRN-")
-			if seq, err := strconv.Atoi(seqStr); err == nil {
-				next = seq + 1
-			}
-		}
-	}
-	return fmt.Sprintf("GRN-%04d", next)
+func generateGRNNumber(ctx context.Context, orgID string) string {
+	return nextNumber(ctx, orgID, "grn", grnCollection, "grnNumber")
 }
 
 func CreateGRN() gin.HandlerFunc {
@@ -104,7 +91,7 @@ func CreateGRN() gin.HandlerFunc {
 			g.Status = "draft"
 		}
 		if g.GRNNumber == "" {
-			g.GRNNumber = generateGRNNumber(ctx)
+			g.GRNNumber = generateGRNNumber(ctx, orgIDStr)
 		}
 		if g.ReceiptDate.IsZero() {
 			g.ReceiptDate = time.Now()

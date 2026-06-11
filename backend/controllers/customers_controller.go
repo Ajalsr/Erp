@@ -177,30 +177,7 @@ func AddCustomers() gin.HandlerFunc {
 }
 
 func generateCustomerCodeContinuous(ctx context.Context, orgID string) (string, error) {
-	now := time.Now()
-	currentMonth := int(now.Month())
-	currentYear := now.Year() % 100
-
-	// Find the last customer code used by this org, sorted descending
-	opts := options.FindOne().SetSort(bson.D{{Key: "customerCode", Value: -1}})
-	var lastCustomer bson.M
-	err := customersCollection.FindOne(ctx, bson.M{"orgId": orgID}, opts).Decode(&lastCustomer)
-
-	nextSequence := 1
-	if err == nil {
-		if lastCode, ok := lastCustomer["customerCode"].(string); ok && len(lastCode) == 6 {
-			if lastSeq, e := strconv.Atoi(lastCode[4:]); e == nil {
-				nextSequence = lastSeq + 1
-				if nextSequence > 99 {
-					nextSequence = 1
-				}
-			}
-		}
-	} else if err != mongo.ErrNoDocuments {
-		return "", err
-	}
-
-	return fmt.Sprintf("%02d%02d%02d", currentMonth, currentYear, nextSequence), nil
+	return nextNumber(ctx, orgID, "customer", customersCollection, "customerCode"), nil
 }
 
 func GetCustomerSuggestions() gin.HandlerFunc {

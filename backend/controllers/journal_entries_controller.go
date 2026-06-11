@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -19,9 +18,10 @@ import (
 
 var jeCollection *mongo.Collection = config.GetCollection(config.DB, "journal_entries")
 
-func generateJENumber() string {
-	now := time.Now()
-	return fmt.Sprintf("JE-%d%02d-%04d", now.Year(), now.Month(), rand.Intn(9000)+1000)
+func generateJENumber(orgID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return nextNumber(ctx, orgID, "journal_entry", jeCollection, "entryNumber")
 }
 
 // jeLineInput is the simplified input for autoJE callers — pass code + debit/credit.
@@ -86,7 +86,7 @@ func autoJE(orgID, refType, refID, reference, date, description string, lines []
 	je := models.JournalEntry{
 		ID:          primitive.NewObjectID(),
 		OrgID:       orgID,
-		EntryNumber: generateJENumber(),
+		EntryNumber: generateJENumber(orgID),
 		Date:        date,
 		Reference:   reference,
 		RefType:     refType,
@@ -135,7 +135,7 @@ func CreateManualJournalEntry() gin.HandlerFunc {
 
 		je.ID = primitive.NewObjectID()
 		je.OrgID = orgIDStr
-		je.EntryNumber = generateJENumber()
+		je.EntryNumber = generateJENumber(orgIDStr)
 		je.RefType = "manual"
 		je.TotalDebit = totalDebit
 		je.TotalCredit = totalCredit
@@ -272,7 +272,7 @@ func reverseJournalEntries(orgID, refID, reversedBy string) {
 		reversal := models.JournalEntry{
 			ID:          primitive.NewObjectID(),
 			OrgID:       orgID,
-			EntryNumber: generateJENumber(),
+			EntryNumber: generateJENumber(orgID),
 			Date:        time.Now().Format("2006-01-02"),
 			Reference:   "REV-" + je.Reference,
 			RefType:     "reversal",
