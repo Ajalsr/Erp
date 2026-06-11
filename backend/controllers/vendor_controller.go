@@ -41,6 +41,13 @@ func CreateVendor() gin.HandlerFunc {
 			return
 		}
 
+		// Approval gate — hold the create for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			if holdActionForApproval(c, ctx, fmt.Sprintf("%v", orgID), fmt.Sprintf("%v", userID), "", "vendor", "create", "vendors", v.DisplayName, 0, "", v) {
+				return
+			}
+		}
+
 		v.ID = primitive.NewObjectID()
 		v.OrgID = orgID.(string)
 		v.CreatedAt = time.Now()
@@ -173,6 +180,18 @@ func UpdateVendor() gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&updates); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
 			return
+		}
+
+		// Approval gate — hold the edit for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			userID, _ := c.Get("userId")
+			title, _ := updates["displayName"].(string)
+			if title == "" {
+				title = "Vendor"
+			}
+			if holdActionForApproval(c, ctx, fmt.Sprintf("%v", orgID), fmt.Sprintf("%v", userID), "", "vendor", "update", "vendors", title, 0, id, updates) {
+				return
+			}
 		}
 
 		delete(updates, "_id")

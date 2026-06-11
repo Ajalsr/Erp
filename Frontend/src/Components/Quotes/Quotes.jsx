@@ -7,6 +7,7 @@ import {
   FaCopy, FaPaperPlane, FaExchangeAlt, FaLink, FaDownload, FaPrint,
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
@@ -55,7 +56,9 @@ const STAT_CARDS = [
 
 export default function Quotes() {
   const navigate  = useNavigate();
-  const { can, canEditRecord, canViewRecord } = usePermissions();
+  const { can, canEditRecord, canViewRecord, role } = usePermissions();
+  const myUserId = useAuthStore((s) => s.user?.userId);
+  const isOwnerAdmin = role === "owner" || role === "admin";
   const canExport = can("quotes", "export");
   const isDark    = useThemeStore(s => s.isDark);
   const T         = getTheme(isDark);
@@ -70,6 +73,7 @@ export default function Quotes() {
   const [stats,      setStats]      = useState({});
   const [converting,    setConverting]    = useState(false);
   const [convertingToSO, setConvertingToSO] = useState(false);
+  const [convertSOTarget, setConvertSOTarget] = useState(null); // quote pending SO conversion
   const [deleting,      setDeleting]      = useState(false);
 
   const exportQuotesCSV = () => {
@@ -149,12 +153,14 @@ export default function Quotes() {
     }
   }
 
-  async function handleConvertToSO(q) {
-    if (!window.confirm(`Auto-convert ${q.quoteNumber} to a draft Sales Order?`)) return;
+  async function confirmConvertToSO() {
+    const q = convertSOTarget;
+    if (!q) return;
     setConvertingToSO(true);
     try {
       const res = await axiosInstance.post(`/api/quotes/${q._id}/convert-to-so`);
       nexusToast.success(`Sales Order ${res.data?.data?.orderNumber} created`);
+      setConvertSOTarget(null);
       setSelected(null);
       load();
     } catch (e) {
@@ -195,10 +201,10 @@ export default function Quotes() {
   `;
 
   return (
-    <div className="qt-root" style={{ background: T.bg, minHeight: "100vh", color: T.text }}>
+    <div className="qt-root" style={{ background: T.bg, height: "100%", overflow: "hidden", color: T.text }}>
       <style>{css}</style>
 
-      <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
 
         {/* ── Main panel ── */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -471,10 +477,15 @@ export default function Quotes() {
                 </tbody>
               </table>
             </div>
+          </div>
 
-            {/* Pagination */}
+          {/* Pagination footer — always visible, below the scroll area */}
+          <div style={{ flexShrink: 0, borderTop: `1px solid ${T.border}`, padding: "12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span style={{ fontSize: 12, color: T.textSec || T.muted }}>
+              {total === 0 ? "No quotes" : `${(page - 1) * LIMIT + 1}–${Math.min(page * LIMIT, total)} of ${total} quotes`}
+            </span>
             {totalPages > 1 && (
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: "18px 0 4px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button
                   disabled={page <= 1}
                   onClick={() => setPage(p => p - 1)}
@@ -523,7 +534,7 @@ export default function Quotes() {
             background: T.surface,
             borderLeft: `1px solid ${T.border}`,
             display: "flex", flexDirection: "column",
-            height: "100vh", overflow: "hidden",
+            height: "100%", overflow: "hidden",
           }}>
 
             {/* Drawer header */}
@@ -739,19 +750,19 @@ export default function Quotes() {
                       />
                     )}
 
-                    {["sent", "draft"].includes(selected.status) && (
+                    {["sent", "draft"].includes(selected.status) && (selected.createdBy !== myUserId || isOwnerAdmin) && (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
                         <ActionBtn
                           onClick={() => handleStatusChange(selected, "accepted")}
                           icon={<FaCheckCircle />}
-                          label="Mark Accepted"
+                          label="Customer Accepted"
                           color="#10b981" glow="rgba(16,185,129,0.15)"
                           outline
                         />
                         <ActionBtn
                           onClick={() => handleStatusChange(selected, "declined")}
                           icon={<FaTimesCircle />}
-                          label="Mark Declined"
+                          label="Customer Declined"
                           color="#ef4444" glow="rgba(239,68,68,0.1)"
                           outline
                         />
@@ -777,9 +788,9 @@ export default function Quotes() {
                       />
                     )}
 
-                    {["sent", "accepted"].includes(selected.status) && (
+                    {selected.status === "accepted" && (
                       <ActionBtn
-                        onClick={() => handleConvertToSO(selected)}
+                        onClick={() => setConvertSOTarget(selected)}
                         icon={<FaExchangeAlt />}
                         label={convertingToSO ? "Converting…" : "Quick Convert to SO"}
                         color="#10b981" glow="rgba(16,185,129,0.15)"
@@ -787,7 +798,7 @@ export default function Quotes() {
                       />
                     )}
 
-                    {["sent", "accepted"].includes(selected.status) && (
+                    {selected.status === "accepted" && (
                       <ActionBtn
                         onClick={() => handleConvert(selected)}
                         icon={<FaFileInvoice />}
@@ -820,6 +831,33 @@ export default function Quotes() {
                   </div>
                 </Section>
 
+              </div>
+            </div>
+          </div>
+        )}
+
+        {convertSOTarget && (
+          <div onClick={() => !convertingToSO && setConvertSOTarget(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ width: "100%", maxWidth: 420, background: isDark ? T.surface : "#fff", border: `1px solid ${T.border}`, borderRadius: 14, padding: 22, fontFamily: "inherit" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                <span style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(16,185,129,0.12)", color: "#10b981", display: "flex", alignItems: "center", justifyContent: "center" }}><FaExchangeAlt size={14} /></span>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.textPri }}>Convert to Sales Order</h3>
+              </div>
+              <p style={{ margin: "4px 0 16px", fontSize: 13, color: T.textSec || T.muted, lineHeight: 1.5 }}>
+                Create a draft Sales Order from <strong style={{ color: T.textPri }}>{convertSOTarget.quoteNumber}</strong>
+                {convertSOTarget.customerName ? <> for <strong style={{ color: T.textPri }}>{convertSOTarget.customerName}</strong></> : null}? The quote will be marked as converted.
+              </p>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => setConvertSOTarget(null)} disabled={convertingToSO}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec || T.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                  Cancel
+                </button>
+                <button onClick={confirmConvertToSO} disabled={convertingToSO}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: "none", background: "#10b981", color: "#fff", fontSize: 13, fontWeight: 700, cursor: convertingToSO ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: convertingToSO ? 0.6 : 1 }}>
+                  <FaExchangeAlt size={11} /> {convertingToSO ? "Converting…" : "Convert"}
+                </button>
               </div>
             </div>
           </div>

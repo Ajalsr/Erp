@@ -502,6 +502,18 @@ func UpdateInvoice() gin.HandlerFunc {
 			}
 		}
 
+		// Approval gate — hold the edit for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			userID, _ := c.Get("userId")
+			title := payload.BillTo.Name
+			if title == "" {
+				title = "Invoice"
+			}
+			if holdActionForApproval(c, ctx, fmt.Sprintf("%v", orgID), fmt.Sprintf("%v", userID), "", "invoice", "update", "invoices", title, payload.Totals.GrandTotal, id, payload) {
+				return
+			}
+		}
+
 		fields := bson.M{
 			"status":        payload.Status,
 			"invoiceNumber": payload.InvoiceNumber,

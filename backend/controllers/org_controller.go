@@ -755,6 +755,13 @@ func AcceptInvitation() gin.HandlerFunc {
 			return
 		}
 
+		// The invite is bound to a specific email — the accepting account must match it,
+		// so a forwarded/leaked link can't be used to join under a different identity.
+		if !strings.EqualFold(strings.TrimSpace(invitation.Email), strings.TrimSpace(fmt.Sprintf("%v", userID))) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "This invitation was sent to " + invitation.Email + ". Sign in with that email to accept it."})
+			return
+		}
+
 		// Check if logged-in user is already a member of this org
 		alreadyMember, _ := orgMemberCollection.CountDocuments(ctx, bson.M{
 			"orgId":  invitation.OrgID,

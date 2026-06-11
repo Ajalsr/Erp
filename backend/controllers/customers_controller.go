@@ -89,6 +89,15 @@ func AddCustomers() gin.HandlerFunc {
 			return
 		}
 
+		// Approval gate — hold the create for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			orgIDStr := fmt.Sprintf("%v", func() interface{} { v, _ := c.Get("orgId"); return v }())
+			userIDStr := fmt.Sprintf("%v", func() interface{} { v, _ := c.Get("userId"); return v }())
+			if holdActionForApproval(c, ctx, orgIDStr, userIDStr, "", "customer", "create", "customers", item.CustomerDisplayName, 0, "", item) {
+				return
+			}
+		}
+
 		// ── Auto-generate customer code ───────────────────────────────────
 		orgIDVal, _ := c.Get("orgId")
 		customerCode, err := generateCustomerCodeContinuous(ctx, fmt.Sprintf("%v", orgIDVal))
@@ -403,6 +412,18 @@ func UpdateCustomer() gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&updateData); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
 			return
+		}
+
+		// Approval gate — hold the edit for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			userIDStr := fmt.Sprintf("%v", func() interface{} { v, _ := c.Get("userId"); return v }())
+			title := updateData.CustomerDisplayName
+			if title == "" {
+				title = existingCustomer.CustomerDisplayName
+			}
+			if holdActionForApproval(c, ctx, fmt.Sprintf("%v", orgID), userIDStr, "", "customer", "update", "customers", title, 0, id, updateData) {
+				return
+			}
 		}
 
 		now := time.Now()

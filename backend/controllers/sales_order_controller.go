@@ -607,6 +607,7 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			Status            string `json:"status"`
 			CancelReason      string `json:"cancelReason"`
 			CancelRequestedBy string `json:"cancelRequestedBy"`
+			RejectionReason   string `json:"rejectionReason"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil || req.Status == "" {
@@ -643,6 +644,10 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			setFields["cancelReason"] = req.CancelReason
 			setFields["cancelRequestedBy"] = req.CancelRequestedBy
 			histNote = req.CancelReason
+		}
+		if req.Status == "rejected" {
+			setFields["rejectionReason"] = req.RejectionReason
+			histNote = req.RejectionReason
 		}
 		histEntry := models.SOHistoryEntry{
 			Action:    "status_changed",

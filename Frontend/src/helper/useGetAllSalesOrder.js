@@ -13,7 +13,9 @@ const useGetAllSalesOrder = () => {
     try {
       const query = new URLSearchParams()
       if (params.page)      query.set('page',      params.page)
-      if (params.limit)     query.set('limit',     params.limit)
+      // The Sales Orders page filters/paginates/counts client-side, so pull the full set
+      // by default (backend default is only 10). Callers can still override.
+      query.set('limit', params.limit || 5000)
       if (params.status)    query.set('status',    params.status)
       if (params.search)    query.set('search',    params.search)
       if (params.startDate) query.set('startDate', params.startDate)

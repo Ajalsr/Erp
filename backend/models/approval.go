@@ -37,8 +37,24 @@ type ApprovalStep struct {
 // ApprovalPolicy is the full per-module workflow.
 type ApprovalPolicy struct {
 	Enabled bool            `json:"enabled" bson:"enabled"`
+	// Actions this policy gates: any of "create" | "update" | "delete". Empty ⇒ all
+	// actions (back-compat: pre-existing policies had no per-action control).
+	Actions []string        `json:"actions" bson:"actions"`
 	Trigger ApprovalTrigger `json:"trigger" bson:"trigger"`
 	Steps   []ApprovalStep  `json:"steps"   bson:"steps"`
+}
+
+// GatesAction reports whether this policy requires approval for the given action.
+func (p ApprovalPolicy) GatesAction(action string) bool {
+	if len(p.Actions) == 0 {
+		return true // unset ⇒ gate every action wired in code
+	}
+	for _, a := range p.Actions {
+		if a == action {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Runtime request (one held document working through its chain) ────────────

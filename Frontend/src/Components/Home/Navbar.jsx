@@ -613,7 +613,7 @@ const Navbar = ({ onToggleSidebar }) => {
                       No notifications yet
                     </div>
                   ) : notifications.map((n) => {
-                    const dotColor = { invite: '#60a5fa', accepted: '#4ade80', role_changed: '#fbbf24', removed: '#f87171', cancel_request: '#ef4444' }[n.type] || '#94a3b8'
+                    const dotColor = { invite: '#60a5fa', accepted: '#4ade80', role_changed: '#fbbf24', removed: '#f87171', cancel_request: '#ef4444', approval_request: '#3b82f6', approval_result: n.metadata?.result === 'rejected' ? '#ef4444' : '#10b981', enquiry_followup: '#f59e0b' }[n.type] || '#94a3b8'
                     const ago = (() => {
                       const s = Math.floor((Date.now() - new Date(n.createdAt)) / 1000)
                       if (s < 60) return `${s}s ago`
@@ -622,18 +622,28 @@ const Navbar = ({ onToggleSidebar }) => {
                       return `${Math.floor(s / 86400)}d ago`
                     })()
                     const isCancelReq = n.type === 'cancel_request' && isAdmin
+                    const isApproval = n.type === 'approval_request' || n.type === 'approval_result'
+                    const isEnquiry = n.type === 'enquiry_followup'
+                    const clickable = isCancelReq || isApproval || isEnquiry
+                    const onClickNotif = isCancelReq
+                      ? () => { setNotifOpen(false); navigate('/Sales/Outbound'); }
+                      : isApproval
+                        ? () => { setNotifOpen(false); navigate(n.metadata?.approvalId ? `/Approvals?id=${n.metadata.approvalId}` : '/Approvals'); }
+                        : isEnquiry
+                          ? () => { setNotifOpen(false); navigate('/Sales/Enquiries'); }
+                          : undefined
                     return (
                       <div
                         key={n._id}
                         className="nx-sep"
-                        onClick={isCancelReq ? () => { setNotifOpen(false); navigate('/Sales/Outbound'); } : undefined}
+                        onClick={onClickNotif}
                         style={{
                           display: 'flex', alignItems: 'flex-start', gap: '10px',
                           padding: '11px 14px',
                           background: isCancelReq
                             ? (isDark ? 'rgba(239,68,68,0.06)' : 'rgba(239,68,68,0.04)')
                             : n.read ? 'transparent' : (isDark ? 'rgba(59,130,246,0.04)' : 'rgba(59,130,246,0.03)'),
-                          cursor: isCancelReq ? 'pointer' : 'default',
+                          cursor: clickable ? 'pointer' : 'default',
                         }}
                       >
                         <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: dotColor, marginTop: '5px', flexShrink: 0 }} />
@@ -644,6 +654,16 @@ const Navbar = ({ onToggleSidebar }) => {
                           {isCancelReq && (
                             <p style={{ color: '#ef4444', fontSize: '10px', margin: '4px 0 0', fontWeight: '600' }}>
                               Click to review in Outbound →
+                            </p>
+                          )}
+                          {isApproval && (
+                            <p style={{ color: '#3b82f6', fontSize: '10px', margin: '4px 0 0', fontWeight: '600' }}>
+                              Click to review in Approvals →
+                            </p>
+                          )}
+                          {isEnquiry && (
+                            <p style={{ color: '#f59e0b', fontSize: '10px', margin: '4px 0 0', fontWeight: '600' }}>
+                              Click to open Enquiries →
                             </p>
                           )}
                         </div>

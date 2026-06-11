@@ -10,10 +10,28 @@ const APPROVAL_MODULES = [
   { key: 'bills',           label: 'Bills',            group: 'Purchases' },
   { key: 'vendor_payments', label: 'Payments Made',    group: 'Finance' },
   { key: 'payments',        label: 'Payments Received', group: 'Finance' },
+  { key: 'quotes',          label: 'Quotes',           group: 'Sales' },
   { key: 'invoices',        label: 'Invoices',         group: 'Sales' },
+  { key: 'customers',       label: 'Customers',        group: 'Contacts' },
+  { key: 'vendors',         label: 'Vendors',          group: 'Contacts' },
 ]
 const modLabel = (k) => (APPROVAL_MODULES.find(m => m.key === k) || {}).label || k
 const modGroup = (k) => (APPROVAL_MODULES.find(m => m.key === k) || {}).group || ''
+
+/* Actions each module's gate is wired for in the backend. Only these can be toggled. */
+const MODULE_ACTIONS = {
+  purchase_orders: ['create'],
+  bills:           ['create', 'update', 'delete'],
+  vendor_payments: ['create'],
+  payments:        ['create'],
+  quotes:          ['create', 'update'],
+  invoices:        ['create', 'update'],
+  customers:       ['create', 'update'],
+  vendors:         ['create', 'update'],
+}
+const actionsFor = (k) => MODULE_ACTIONS[k] || ['create']
+const ACTION_LABEL = { create: 'Create', update: 'Edit', delete: 'Delete' }
+const ACTION_VERB  = { create: 'created', update: 'edited', delete: 'deleted' }
 
 /* Field catalog — mirrors backend approvalFieldCatalog. */
 const APPROVAL_FIELDS = {
@@ -21,7 +39,10 @@ const APPROVAL_FIELDS = {
   bills:           [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'vendor', label: 'Vendor', type: 'text' }],
   vendor_payments: [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'vendor', label: 'Vendor', type: 'text' }],
   payments:        [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
+  quotes:          [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
   invoices:        [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
+  customers:       [{ key: 'name', label: 'Name', type: 'text' }],
+  vendors:         [{ key: 'name', label: 'Name', type: 'text' }],
 }
 const OPS = {
   money: [{ v: 'gte', l: '≥' }, { v: 'lte', l: '≤' }, { v: 'gt', l: '>' }, { v: 'lt', l: '<' }, { v: 'eq', l: '=' }, { v: 'ne', l: '≠' }],
@@ -135,6 +156,17 @@ function PolicyEditor({ T, modKey, policy, available, canManage, onChange, sel }
   const trig = policy.trigger || { mode: 'always', match: 'all', conditions: [] }
 
   const setEnabled = (v) => onChange({ ...policy, enabled: v })
+
+  // Which actions this policy gates. Unset ⇒ all wired actions (matches backend default).
+  const supportedActions = actionsFor(modKey)
+  const selActions = (policy.actions && policy.actions.length) ? policy.actions : supportedActions
+  const toggleAction = (a) => {
+    const has = selActions.includes(a)
+    if (has && selActions.length === 1) return // keep at least one
+    const next = supportedActions.filter(x => has ? (x !== a && selActions.includes(x)) : (x === a || selActions.includes(x)))
+    onChange({ ...policy, actions: next })
+  }
+
   const setTrigMode = (mode) => {
     if (mode === 'conditions' && (!trig.conditions || trig.conditions.length === 0)) {
       const f = fieldsFor(modKey)[0]
@@ -189,6 +221,25 @@ function PolicyEditor({ T, modKey, policy, available, canManage, onChange, sel }
         </div>
       ) : (
         <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+          {/* WHICH ACTIONS */}
+          {supportedActions.length > 1 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textPri, marginBottom: 10 }}>Which actions need approval?</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {supportedActions.map(a => {
+                  const on = selActions.includes(a)
+                  return (
+                    <button key={a} disabled={disabled} onClick={() => !disabled && toggleAction(a)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 8, cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: on ? 700 : 500, background: on ? T.blue : 'transparent', color: on ? '#fff' : T.textSec, border: `1px solid ${on ? T.blue : T.border}` }}>
+                      {on ? <FaCheck size={10} /> : <span style={{ width: 10, height: 10, borderRadius: 3, border: `1.5px solid ${T.textSec}`, display: 'inline-block' }} />}
+                      {ACTION_LABEL[a]}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* WHEN */}
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.textPri, marginBottom: 10 }}>When is approval required?</div>
@@ -236,7 +287,7 @@ function PolicyEditor({ T, modKey, policy, available, canManage, onChange, sel }
             <p style={{ margin: '0 0 12px', fontSize: 11.5, color: T.textSec }}>Steps run top to bottom. Each clears before the next begins.</p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 10, border: `1px dashed ${T.border}`, background: T.bg, fontSize: 12, color: T.textSec }}>
-              A {modLabel(modKey).replace(/s$/, '').toLowerCase()} is created
+              A {modLabel(modKey).replace(/s$/, '').toLowerCase()} is {selActions.map(a => ACTION_VERB[a]).join(' or ')}
             </div>
 
             {(steps.length ? steps : []).map((s, i) => (
