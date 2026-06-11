@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -18,9 +17,10 @@ import (
 
 var vendorCreditCollection *mongo.Collection = config.GetCollection(config.DB, "vendor_credits")
 
-func generateCreditNumber() string {
-	now := time.Now()
-	return fmt.Sprintf("VCR-%d%02d-%04d", now.Year(), now.Month(), rand.Intn(9000)+1000)
+func generateCreditNumber(orgID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return nextNumber(ctx, orgID, "vendor_credit", vendorCreditCollection, "creditNumber")
 }
 
 func CreateVendorCredit() gin.HandlerFunc {
@@ -50,7 +50,7 @@ func CreateVendorCredit() gin.HandlerFunc {
 			cr.CreatedBy = fmt.Sprintf("%v", userID)
 		}
 		if cr.CreditNumber == "" {
-			cr.CreditNumber = generateCreditNumber()
+			cr.CreditNumber = generateCreditNumber(orgIDStr)
 		}
 		if cr.Status == "" {
 			cr.Status = "open"

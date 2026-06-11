@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/backend/config"
@@ -20,18 +18,7 @@ import (
 var debitNoteCollection *mongo.Collection = config.GetCollection(config.DB, "debit_notes")
 
 func nextDNNumber(ctx context.Context, orgID string) string {
-	opts := options.FindOne().SetSort(bson.D{{Key: "debitNoteNumber", Value: -1}})
-	var last bson.M
-	next := 1
-	if err := debitNoteCollection.FindOne(ctx, bson.M{"orgId": orgID}, opts).Decode(&last); err == nil {
-		if num, ok := last["debitNoteNumber"].(string); ok {
-			seqStr := strings.TrimPrefix(num, "DN-")
-			if seq, err := strconv.Atoi(seqStr); err == nil {
-				next = seq + 1
-			}
-		}
-	}
-	return fmt.Sprintf("DN-%04d", next)
+	return nextNumber(ctx, orgID, "debit_note", debitNoteCollection, "debitNoteNumber")
 }
 
 // POST /api/debit-notes

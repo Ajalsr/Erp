@@ -246,7 +246,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 		}
 
 		if req.OrderNumber == "" {
-			req.OrderNumber = generateOrderNumber(ctx)
+			req.OrderNumber = generateOrderNumber(ctx, fmt.Sprintf("%v", orgID))
 		}
 		soStatus := func() string { if privileged { return "open" }; return "pending_approval" }()
 		now := time.Now()
@@ -351,36 +351,8 @@ func CreateSalesOrder() gin.HandlerFunc {
 	}
 }
 
-func generateOrderNumber(ctx context.Context) string {
-	now := time.Now()
-	year := now.Year() % 100
-	month := int(now.Month())
-	prefix := "SO" + strconv.Itoa(month/10) + strconv.Itoa(month%10) + strconv.Itoa(year/10) + strconv.Itoa(year%10)
-
-	filter := bson.M{"orderNumber": bson.M{"$regex": "^" + prefix}}
-	opts := options.FindOne().SetSort(bson.D{{Key: "orderNumber", Value: -1}})
-
-	var lastOrder bson.M
-	err := salesOrdersCollection.FindOne(ctx, filter, opts).Decode(&lastOrder)
-
-	nextSequence := 1
-	if err == nil {
-		if lastNumber, ok := lastOrder["orderNumber"].(string); ok && len(lastNumber) >= 8 {
-			seqStr := lastNumber[6:]
-			if seq, err := strconv.Atoi(seqStr); err == nil {
-				nextSequence = seq + 1
-				if nextSequence > 9999 {
-					nextSequence = 1
-				}
-			}
-		}
-	}
-
-	seq := strconv.Itoa(nextSequence)
-	for len(seq) < 4 {
-		seq = "0" + seq
-	}
-	return prefix + seq
+func generateOrderNumber(ctx context.Context, orgID string) string {
+	return nextNumber(ctx, orgID, "sales_order", salesOrdersCollection, "orderNumber")
 }
 
 func GetAllSalesOrders() gin.HandlerFunc {

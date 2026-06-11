@@ -19,9 +19,7 @@ import (
 var deliveryNotesCollection *mongo.Collection = config.GetCollection(config.DB, "delivery_notes")
 
 func generateDNNumber(ctx context.Context, orgID string) string {
-	count, _ := deliveryNotesCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
-	year := time.Now().Year()
-	return fmt.Sprintf("DN-%d-%04d", year, count+1)
+	return nextNumber(ctx, orgID, "delivery_note", deliveryNotesCollection, "dnNumber")
 }
 
 // ─── CREATE ───────────────────────────────────────────────────────────────────

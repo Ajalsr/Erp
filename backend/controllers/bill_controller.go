@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"time"
@@ -19,9 +18,10 @@ import (
 
 var billCollection *mongo.Collection = config.GetCollection(config.DB, "bills")
 
-func generateBillNumber() string {
-	now := time.Now()
-	return fmt.Sprintf("BILL-%d%02d-%04d", now.Year(), now.Month(), rand.Intn(9000)+1000)
+func generateBillNumber(orgID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return nextNumber(ctx, orgID, "bill", billCollection, "billNumber")
 }
 
 func CreateBill() gin.HandlerFunc {
@@ -79,7 +79,7 @@ func createBillCore(ctx context.Context, orgIDStr, userIDStr string, b models.Bi
 		b.CreatedBy = userIDStr
 	}
 	if b.BillNumber == "" {
-		b.BillNumber = generateBillNumber()
+		b.BillNumber = generateBillNumber(orgIDStr)
 	}
 	if b.Status == "" {
 		b.Status = "open"
@@ -411,7 +411,7 @@ func ConvertPOToBill() gin.HandlerFunc {
 
 		bill := models.Bill{
 			ID:                  primitive.NewObjectID(),
-			BillNumber:          generateBillNumber(),
+			BillNumber:          generateBillNumber(orgIDStr),
 			BillDate:            billDate,
 			DueDate:             dueDate,
 			AccountingDate:      billDate,

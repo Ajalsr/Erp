@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -18,9 +17,10 @@ import (
 
 var vendorPaymentCollection *mongo.Collection = config.GetCollection(config.DB, "vendor_payments")
 
-func generateVendorPaymentNumber() string {
-	now := time.Now()
-	return fmt.Sprintf("VPAY-%d%02d-%04d", now.Year(), now.Month(), rand.Intn(9000)+1000)
+func generateVendorPaymentNumber(orgID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return nextNumber(ctx, orgID, "vendor_payment", vendorPaymentCollection, "paymentNumber")
 }
 
 func CreateVendorPayment() gin.HandlerFunc {
@@ -65,7 +65,7 @@ func CreateVendorPayment() gin.HandlerFunc {
 			p.CreatedBy = fmt.Sprintf("%v", userID)
 		}
 		if p.PaymentNumber == "" {
-			p.PaymentNumber = generateVendorPaymentNumber()
+			p.PaymentNumber = generateVendorPaymentNumber(orgIDStr)
 		}
 		if p.Date == "" {
 			p.Date = time.Now().Format("2006-01-02")
@@ -627,7 +627,7 @@ func ApplyVendorCreditWallet() gin.HandlerFunc {
 			BillNumber:    b.BillNumber,
 			Amount:        apply,
 			PaymentMode:   "Credit Applied",
-			PaymentNumber: generateVendorPaymentNumber(),
+			PaymentNumber: generateVendorPaymentNumber(orgIDStr),
 			Date:          time.Now().Format("2006-01-02"),
 			Notes:         "Applied from vendor credit available balance",
 			CreatedBy:     userIDStr,

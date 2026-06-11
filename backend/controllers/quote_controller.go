@@ -43,9 +43,8 @@ func CreateQuote() gin.HandlerFunc {
 			}
 		}
 
-		count, _ := quoteCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
 		q.ID = primitive.NewObjectID()
-		q.QuoteNumber = fmt.Sprintf("QUO-%d-%04d", time.Now().Year(), count+1)
+		q.QuoteNumber = nextNumber(ctx, fmt.Sprintf("%v", orgID), "quote", quoteCollection, "quoteNumber")
 		q.OrgID = orgID.(string)
 		q.CreatedBy = func() string {
 			if userID != nil {
@@ -409,10 +408,9 @@ func ConvertQuoteToInvoice() gin.HandlerFunc {
 			}
 		}
 
-		invCount, _ := invoiceCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
 		inv := models.Invoice{
 			ID:            primitive.NewObjectID(),
-			InvoiceNumber: fmt.Sprintf("INV-%d-%04d", time.Now().Year(), invCount+1),
+			InvoiceNumber: nextNumber(ctx, fmt.Sprintf("%v", orgID), "invoice", invoiceCollection, "invoiceNumber"),
 			IssueDate:     time.Now().Format("2006-01-02"),
 			DueDate:       q.ValidUntil,
 			Currency:      q.Currency,
@@ -512,7 +510,6 @@ func ConvertQuoteToSalesOrder() gin.HandlerFunc {
 			})
 		}
 
-		soCount, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgID})
 		createdByStr := ""
 		if userID != nil {
 			createdByStr = fmt.Sprintf("%v", userID)
@@ -520,7 +517,7 @@ func ConvertQuoteToSalesOrder() gin.HandlerFunc {
 
 		so := models.SalesOrder{
 			ID:                primitive.NewObjectID(),
-			OrderNumber:       fmt.Sprintf("SO-%d-%04d", time.Now().Year(), soCount+1),
+			OrderNumber:       nextNumber(ctx, fmt.Sprintf("%v", orgID), "sales_order", salesOrdersCollection, "orderNumber"),
 			CustomerID:        q.CustomerID,
 			CustomerName:      q.CustomerName,
 			SalesType:         "SO",

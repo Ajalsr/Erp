@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -18,9 +17,10 @@ import (
 
 var paymentCollection *mongo.Collection = config.GetCollection(config.DB, "payments")
 
-func generatePaymentNumber() string {
-	now := time.Now()
-	return fmt.Sprintf("PAY-%d%02d-%04d", now.Year(), now.Month(), rand.Intn(9000)+1000)
+func generatePaymentNumber(orgID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return nextNumber(ctx, orgID, "payment", paymentCollection, "paymentNumber")
 }
 
 // CreatePayment records a payment, updates the linked invoice, and adjusts
@@ -62,7 +62,7 @@ func CreatePayment() gin.HandlerFunc {
 			p.CreatedBy = userID.(string)
 		}
 		if p.PaymentNumber == "" {
-			p.PaymentNumber = generatePaymentNumber()
+			p.PaymentNumber = generatePaymentNumber(orgID.(string))
 		}
 		if p.Date == "" {
 			p.Date = time.Now().Format("2006-01-02")
@@ -538,7 +538,7 @@ func ApplyCredit() gin.HandlerFunc {
 			InvoiceNumber: inv.InvoiceNumber,
 			Amount:        apply,
 			PaymentMode:   "Credit Applied",
-			PaymentNumber: generatePaymentNumber(),
+			PaymentNumber: generatePaymentNumber(orgID.(string)),
 			Date:          time.Now().Format("2006-01-02"),
 			Notes:         "Applied from customer unused credit balance",
 			CreatedBy:     fmt.Sprintf("%v", userID),
