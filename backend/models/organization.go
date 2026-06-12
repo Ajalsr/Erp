@@ -55,10 +55,20 @@ type RolePerm struct {
 	Modules   map[string]ModuleCaps `bson:"modules,omitempty"   json:"modules,omitempty"`
 	Approvals map[string]bool       `bson:"approvals,omitempty" json:"approvals,omitempty"`
 	Settings  bool                  `bson:"settings,omitempty"  json:"settings,omitempty"` // may open org Settings
-	// Scope: moduleKey → record visibility, "all" | "own". Absent/"" = "all".
-	// "own" limits list/read to records the user created (Odoo record-rule style).
-	// owner/admin always "all". Enforced per-controller via scopeForModule.
+	// Scope: LEGACY module-wide record visibility, "all" | "own". Kept for back-compat;
+	// per-action Scopes below take precedence. owner/admin always "all".
 	Scope map[string]string `bson:"scope,omitempty" json:"scope,omitempty"`
+	// Scopes: moduleKey → per-action record visibility. Each of view/edit/delete is
+	// "all" | "own" (absent/"" = "all"). Add has no scope (creating a record). This
+	// supersedes the legacy Scope map. Enforced per-controller via scopeForModule(action).
+	Scopes map[string]ScopeSet `bson:"scopes,omitempty" json:"scopes,omitempty"`
+}
+
+// ScopeSet is per-action record visibility for one module.
+type ScopeSet struct {
+	View   string `bson:"view,omitempty"   json:"view,omitempty"`
+	Edit   string `bson:"edit,omitempty"   json:"edit,omitempty"`
+	Delete string `bson:"delete,omitempty" json:"delete,omitempty"`
 }
 
 // Organization represents a workspace/team that users belong to

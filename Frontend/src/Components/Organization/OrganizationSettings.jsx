@@ -7,6 +7,9 @@ import useThemeStore from '../../store/useThemeStore'
 import nexusToast from '../../helper/nexusToast'
 import axiosInstance from '../../helper/axiosInstance'
 import { PERM_MODULES, PERM_CAPS, invalidatePermissions, usePermissions } from '../../helper/permissions'
+
+// Grid template for the module-access matrix: module label + one column per capability.
+const PERM_GRID = `minmax(104px,1.3fr) repeat(${PERM_CAPS.length}, minmax(58px,1fr))`
 import ApprovalsWorkflow from './ApprovalsWorkflow'
 
 const ROLES = ['admin', 'member', 'viewer']
@@ -330,11 +333,17 @@ const OrganizationSettings = () => {
   const removeSeg = (i) => setNumSegs(segs => segs.filter((_, j) => j !== i))
   const addSeg = (type) => setNumSegs(segs => [...segs, newSegment(type)])
   const addSepSeg = (ch) => setNumSegs(segs => [...segs, { type: 'literal', value: ch }])
-  const moveSeg = (i, dir) => setNumSegs(segs => {
-    const j = i + dir
-    if (j < 0 || j >= segs.length) return segs
-    const next = segs.slice(); [next[i], next[j]] = [next[j], next[i]]; return next
+  // Drag-and-drop reorder of segment rows.
+  const [dragIdx, setDragIdx] = useState(null)
+  const [dragOverIdx, setDragOverIdx] = useState(null)
+  const moveSegTo = (from, to) => setNumSegs(segs => {
+    if (from == null || to == null || from === to) return segs
+    const next = segs.slice()
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    return next
   })
+  const endDrag = () => { setDragIdx(null); setDragOverIdx(null) }
 
   const saveNumbering = async () => {
     setSavingNum(true)
@@ -503,11 +512,22 @@ const OrganizationSettings = () => {
     const next = cur.includes(cap) ? cur.filter(c => c !== cap) : [...cur, cap]
     return { ...p, [role]: { ...(p[role] || {}), modules: { ...(p[role]?.modules || {}), [mod]: next } } }
   })
-  // Record scope per module: 'all' (default) or 'own' (only records the user created).
-  const scopeOf = (role, mod) => permCfg?.[role]?.scope?.[mod] === 'own' ? 'own' : 'all'
-  const setScope = (role, mod, val) => setPermCfg(p => ({
+  // Per-action record scope: 'all' (default) or 'own'. Falls back to legacy module-wide
+  // scope when a per-action value isn't set.
+  const scopeOf = (role, mod, action) => {
+    const perAction = permCfg?.[role]?.scopes?.[mod]?.[action]
+    if (perAction === 'own' || perAction === 'all') return perAction
+    return permCfg?.[role]?.scope?.[mod] === 'own' ? 'own' : 'all'
+  }
+  const setScope = (role, mod, action, val) => setPermCfg(p => ({
     ...p,
-    [role]: { ...(p[role] || {}), scope: { ...(p[role]?.scope || {}), [mod]: val } },
+    [role]: {
+      ...(p[role] || {}),
+      scopes: {
+        ...(p[role]?.scopes || {}),
+        [mod]: { ...(p[role]?.scopes?.[mod] || {}), [action]: val },
+      },
+    },
   }))
   const settingsGrant = (role) => !!permCfg?.[role]?.settings
   const toggleSettingsGrant = (role) => setPermCfg(p => ({
@@ -547,9 +567,9 @@ const OrganizationSettings = () => {
     if (!r) return
     if (['owner', 'admin'].includes(r) || customRoles.includes(r)) { nexusToast.error('Role already exists or is reserved'); return }
     saveRoles([...customRoles, r])
-    // New role defaults every module record-scope to 'own' (least-privilege). Persists on Save Permissions.
-    const ownScope = Object.fromEntries(PERM_MODULES.map(m => [m.key, 'own']))
-    setPermCfg(p => ({ ...p, [r]: { ...(p[r] || {}), scope: { ...(p[r]?.scope || {}), ...ownScope } } }))
+    // New role defaults every module's view/edit/delete scope to 'own' (least-privilege).
+    const ownScopes = Object.fromEntries(PERM_MODULES.map(m => [m.key, { view: 'own', edit: 'own', delete: 'own' }]))
+    setPermCfg(p => ({ ...p, [r]: { ...(p[r] || {}), scopes: { ...(p[r]?.scopes || {}), ...ownScopes } } }))
     setSelectedRole(r)
     setNewRoleName('')
   }
@@ -1061,35 +1081,43 @@ const OrganizationSettings = () => {
                     {/* Module access — independent View / Add / Edit capabilities */}
                     <div>
                       <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Module Access</p>
-                      <p style={{ fontSize: 11, color: textSec, margin: '-4px 0 10px' }}>View = read · Add = create · Edit = change · Delete = remove · Export = download/print. Combine freely; none ticked = no access. Scope = which records are visible (All / Own only).</p>
+                      <p style={{ fontSize: 11, color: textSec, margin: '-4px 0 10px' }}>View = read · Add = create · Edit = change · Delete = remove · Export = download/print. Combine freely; none ticked = no access. <strong style={{ color: textPri }}>All / Own</strong> next to View, Edit and Delete sets whether that action applies to every record or only the user's own. Add has no scope (creating a new record).</p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                         {[...new Set(PERM_MODULES.map(m => m.group))].map(group => (
                           <div key={group}>
                             <p style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: '.08em', margin: '0 0 6px' }}>{group}</p>
+                            {/* Column header */}
+                            <div style={{ display: 'grid', gridTemplateColumns: PERM_GRID, gap: 8, alignItems: 'center', padding: '0 12px 5px' }}>
+                              <span />
+                              {PERM_CAPS.map(cap => (
+                                <span key={cap} style={{ fontSize: 9.5, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.04em', textAlign: 'center' }}>{cap}</span>
+                              ))}
+                            </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                               {PERM_MODULES.filter(m => m.group === group).map(m => (
-                                <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg }}>
-                                  <span style={{ fontSize: 13, color: textPri, fontWeight: 500, minWidth: 120 }}>{m.label}</span>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    {PERM_CAPS.map(cap => {
-                                      const on = hasModCap(role, m.key, cap)
-                                      return (
-                                        <label key={cap} title={cap} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: canManage ? 'pointer' : 'default', fontSize: 11, fontWeight: 600, color: on ? accent : textSec, textTransform: 'capitalize' }}>
-                                          <input type="checkbox" checked={on} disabled={!canManage}
-                                            onChange={() => canManage && toggleModCap(role, m.key, cap)}
-                                            style={{ width: 14, height: 14, cursor: canManage ? 'pointer' : 'default' }} />
-                                          {cap}
-                                        </label>
-                                      )
-                                    })}
-                                    <CustomSelect
-                                      value={scopeOf(role, m.key)}
-                                      options={[{ value: 'all', label: 'All' }, { value: 'own', label: 'Own' }]}
-                                      onChange={(v) => canManage && setScope(role, m.key, v)}
-                                      disabled={!canManage}
-                                      colors={{ border, inputBg, textPri, accent, accentSoft, bgCard, shadow: shadowSm }}
-                                    />
-                                  </div>
+                                <div key={m.key} style={{ display: 'grid', gridTemplateColumns: PERM_GRID, gap: 8, alignItems: 'center', padding: '9px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg }}>
+                                  <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>{m.label}</span>
+                                  {PERM_CAPS.map(cap => {
+                                    const on = hasModCap(role, m.key, cap)
+                                    const scoped = on && (cap === 'view' || cap === 'edit' || cap === 'delete')
+                                    const sv = scopeOf(role, m.key, cap)
+                                    return (
+                                      <div key={cap} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                                        <input type="checkbox" checked={on} disabled={!canManage} title={cap}
+                                          onChange={() => canManage && toggleModCap(role, m.key, cap)}
+                                          style={{ width: 15, height: 15, cursor: canManage ? 'pointer' : 'default', accentColor: accent }} />
+                                        {scoped && (
+                                          <div style={{ display: 'inline-flex', border: `1px solid ${border}`, borderRadius: 6, overflow: 'hidden' }}>
+                                            {['all', 'own'].map(o => (
+                                              <button key={o} type="button" disabled={!canManage}
+                                                onClick={() => canManage && setScope(role, m.key, cap, o)}
+                                                style={{ padding: '1px 6px', fontSize: 8.5, fontWeight: 800, border: 'none', cursor: canManage ? 'pointer' : 'default', fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '.03em', background: sv === o ? (o === 'own' ? '#f59e0b' : accent) : 'transparent', color: sv === o ? '#fff' : textSec }}>{o}</button>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
                                 </div>
                               ))}
                             </div>
@@ -1412,18 +1440,26 @@ const OrganizationSettings = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
                   {numSegs.map((seg, i) => {
                     const sel = { ...inputStyle, width: 'auto', padding: '6px 8px', fontSize: 12, borderRadius: 8 }
+                    const segColors = { border, inputBg, textPri, accent, accentSoft, bgCard, shadow: shadowSm }
                     return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', borderRadius: 10, background: bgInset, border: `1px solid ${border}` }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <button onClick={() => moveSeg(i, -1)} disabled={i === 0} title="Move up"
-                            style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: textSec, opacity: i === 0 ? 0.3 : 0.8, lineHeight: 0.7, fontSize: 11 }}>▲</button>
-                          <button onClick={() => moveSeg(i, 1)} disabled={i === numSegs.length - 1} title="Move down"
-                            style={{ background: 'none', border: 'none', cursor: i === numSegs.length - 1 ? 'default' : 'pointer', color: textSec, opacity: i === numSegs.length - 1 ? 0.3 : 0.8, lineHeight: 0.7, fontSize: 11 }}>▼</button>
-                        </div>
+                      <div key={i}
+                        onDragEnter={e => { e.preventDefault(); if (dragOverIdx !== i) setDragOverIdx(i) }}
+                        onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                        onDrop={e => { e.preventDefault(); moveSegTo(dragIdx, i); endDrag() }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', borderRadius: 10,
+                          background: bgInset,
+                          border: `1px solid ${dragOverIdx === i && dragIdx !== null && dragIdx !== i ? accent : border}`,
+                          opacity: dragIdx === i ? 0.4 : 1, transition: 'opacity .15s, border-color .15s' }}>
+                        <div draggable
+                          onDragStart={e => { setDragIdx(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)) }}
+                          onDragEnd={endDrag}
+                          title="Drag to reorder"
+                          style={{ cursor: 'grab', color: textSec, opacity: 0.7, fontSize: 14, lineHeight: 1, padding: '0 2px', userSelect: 'none' }}>⠿</div>
 
-                        <select value={seg.type} onChange={e => updateSeg(i, newSegment(e.target.value))} style={sel}>
-                          {NUM_SEG_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        </select>
+                        <CustomSelect value={seg.type} disabled={!canManage}
+                          options={NUM_SEG_TYPES.map(t => ({ value: t.value, label: t.label }))}
+                          onChange={v => updateSeg(i, newSegment(v))}
+                          colors={segColors} />
 
                         {seg.type === 'literal' && (
                           <input value={seg.value || ''} onChange={e => updateSeg(i, { value: e.target.value })}
@@ -1433,9 +1469,10 @@ const OrganizationSettings = () => {
                         {(seg.type === 'month' || seg.type === 'year' || seg.type === 'day') && (
                           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: textSec, fontSize: 12 }}>
                             Digits
-                            <select value={seg.digits || (seg.type === 'year' ? 4 : 2)} onChange={e => updateSeg(i, { digits: +e.target.value })} style={sel}>
-                              {(seg.type === 'year' ? [2, 4] : [1, 2, 3]).map(d => <option key={d} value={d}>{d}</option>)}
-                            </select>
+                            <CustomSelect value={String(seg.digits || (seg.type === 'year' ? 4 : 2))} disabled={!canManage}
+                              options={(seg.type === 'year' ? [2, 4] : [1, 2, 3]).map(d => ({ value: String(d), label: String(d) }))}
+                              onChange={v => updateSeg(i, { digits: +v })}
+                              colors={segColors} />
                           </label>
                         )}
 
@@ -1443,16 +1480,17 @@ const OrganizationSettings = () => {
                           <>
                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: textSec, fontSize: 12 }}>
                               Style
-                              <select value={seg.mode || 'digit'} onChange={e => updateSeg(i, { mode: e.target.value })} style={sel}>
-                                <option value="digit">Numbers (1,2,3)</option>
-                                <option value="alpha">Letters (A,B,C)</option>
-                              </select>
+                              <CustomSelect value={seg.mode || 'digit'} disabled={!canManage}
+                                options={[{ value: 'digit', label: 'Numbers (1,2,3)' }, { value: 'alpha', label: 'Letters (A,B,C)' }]}
+                                onChange={v => updateSeg(i, { mode: v })}
+                                colors={segColors} />
                             </label>
                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: textSec, fontSize: 12 }}>
                               Width
-                              <select value={seg.digits || 4} onChange={e => updateSeg(i, { digits: +e.target.value })} style={sel}>
-                                {[1, 2, 3, 4, 5, 6].map(d => <option key={d} value={d}>{d}</option>)}
-                              </select>
+                              <CustomSelect value={String(seg.digits || 4)} disabled={!canManage}
+                                options={[1, 2, 3, 4, 5, 6].map(d => ({ value: String(d), label: String(d) }))}
+                                onChange={v => updateSeg(i, { digits: +v })}
+                                colors={segColors} />
                             </label>
                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: textSec, fontSize: 12 }}>
                               Start

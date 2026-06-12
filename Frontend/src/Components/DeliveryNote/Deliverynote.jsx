@@ -180,7 +180,7 @@ export default function DeliveryNote() {
   useEffect(() => {
     const orgId = activeOrg?._id;
     if (!orgId) return;
-    api.get(`/api/organizations/${orgId}`)
+    api.get(`/api/organizations/${orgId}?withImages=true`)
       .then((r) => {
         const d = r.data?.data || {};
         setLetterhead(d.letterheadImage || '');

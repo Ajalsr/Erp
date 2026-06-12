@@ -10,6 +10,7 @@ import {
 } from 'react-icons/fa';
 import { MdMoveToInbox } from 'react-icons/md';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useAuthStore from '../../store/useAuthStore';
 import api from '../../helper/axiosInstance';
 
 // ── Custom dropdown ────────────────────────────────────────────────
@@ -155,7 +156,7 @@ const pageCss = (isDark) => `
 `;
 
 // ── Print document ─────────────────────────────────────────────
-function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax, grandTotal, grnNote, inFlow, taxRate }) {
+function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax, grandTotal, grnNote, inFlow, taxRate, letterhead, stamp, orgName, topPadPx, botPadPx }) {
   const vatPct = Math.round((taxRate ?? 0.05) * 100);
   return (
     <div className="grn-doc" style={{
@@ -165,13 +166,30 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
       boxShadow: inFlow ? '0 2px 28px rgba(0,0,0,0.12)' : '0 2px 20px rgba(0,0,0,0.1)',
       fontFamily: 'Inter, sans-serif',
       overflow: 'hidden',
+      position: 'relative',
+      ...(letterhead ? {
+        backgroundImage: `url(${letterhead})`,
+        backgroundSize: '100% auto',
+        backgroundPosition: 'top center',
+        backgroundRepeat: 'no-repeat',
+        paddingTop: topPadPx,
+        paddingBottom: botPadPx,
+        WebkitPrintColorAdjust: 'exact',
+        printColorAdjust: 'exact',
+      } : {}),
     }}>
-      {/* Company header */}
+      {/* Optional company stamp */}
+      {stamp && (
+        <img src={stamp} alt="Company stamp" style={{ position: 'absolute', right: 24, bottom: (botPadPx || 0) + 40, width: 110, height: 110, objectFit: 'contain', opacity: 0.9, pointerEvents: 'none', transform: 'rotate(-6deg)', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }} />
+      )}
+
+      {/* Company header — only when no letterhead image is configured */}
+      {!letterhead && (
       <div style={{ background: '#1e3a5f', padding: '18px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#fff', fontWeight: 900 }}>N</div>
+          <div style={{ width: 48, height: 48, borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#fff', fontWeight: 900 }}>{(orgName || 'N').charAt(0).toUpperCase()}</div>
           <div>
-            <p style={{ fontSize: 17, fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.01em' }}>Nexus ERP</p>
+            <p style={{ fontSize: 17, fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.01em' }}>{orgName || 'Nexus ERP'}</p>
             <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', margin: '2px 0 0' }}>Dubai, United Arab Emirates · P.O.Box: 00000</p>
           </div>
         </div>
@@ -180,6 +198,7 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
           <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', margin: 0 }}>info@nexuserp.com</p>
         </div>
       </div>
+      )}
 
       {/* Title */}
       <div style={{ textAlign: 'center', padding: '16px 0 10px', borderBottom: '2px solid #1e3a5f' }}>
@@ -346,6 +365,41 @@ export default function GRN() {
   const [printPreview,        setPrintPreview]        = useState(false);
   const [savedGRN,            setSavedGRN]            = useState(null);
   const [mounted,             setMounted]             = useState(false);
+
+  // Org letterhead/stamp for the printed GRN (mirrors InvoicePrint).
+  const activeOrg = useAuthStore(s => s.activeOrg);
+  const [letterhead, setLetterhead] = useState('');
+  const [letterTop, setLetterTop]   = useState(13);
+  const [letterBot, setLetterBot]   = useState(8);
+  const [stamp, setStamp]           = useState('');
+  const [orgName, setOrgName]       = useState('');
+  const [topPadPx, setTopPadPx]     = useState(0);
+  const [botPadPx, setBotPadPx]     = useState(0);
+
+  useEffect(() => {
+    const orgId = activeOrg?._id;
+    if (!orgId) return;
+    api.get(`/api/organizations/${orgId}?withImages=true`).then(r => {
+      const d = r.data?.data || {};
+      setLetterhead(d.letterheadImage || '');
+      setLetterTop(d.letterheadTopPad || 13);
+      setLetterBot(d.letterheadBottomPad || 8);
+      setStamp(d.stampImage || '');
+      setOrgName(d.name || d.companyName || '');
+    }).catch(() => {});
+  }, [activeOrg]);
+
+  useEffect(() => {
+    if (!letterhead) { setTopPadPx(0); setBotPadPx(0); return; }
+    const img = new Image();
+    img.onload = () => {
+      const w = 794; // A4 width @96dpi — fixed so print + preview match
+      const h = w * (img.naturalHeight / img.naturalWidth);
+      setTopPadPx(Math.round(h * letterTop / 100));
+      setBotPadPx(Math.round(h * letterBot / 100));
+    };
+    img.src = letterhead;
+  }, [letterhead, letterTop, letterBot]);
 
   const updateLineExtra = (idx, field, val) =>
     setLineExtras((prev) => ({ ...prev, [idx]: { ...(prev[idx] || {}), [field]: val } }));
@@ -684,7 +738,7 @@ export default function GRN() {
     });
   };
 
-  const docProps = { grn, inboundData, items: itemsAccepted, subTotal, taxGroups, totalTax, grandTotal, grnNote, taxRate };
+  const docProps = { grn, inboundData, items: itemsAccepted, subTotal, taxGroups, totalTax, grandTotal, grnNote, taxRate, letterhead, stamp, orgName, topPadPx, botPadPx };
 
   return (
     <>

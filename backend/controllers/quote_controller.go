@@ -171,7 +171,7 @@ func GetQuoteByID() gin.HandlerFunc {
 			return
 		}
 		// Record scope: "own" roles may only open quotes they created.
-		if uid, _, ownOnly := recordScope(c, "quotes"); ownOnly && q.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "quotes", "view"); ownOnly && q.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only view your own quotes"})
 			return
 		}
@@ -236,7 +236,7 @@ func UpdateQuote() gin.HandlerFunc {
 			return
 		}
 		// Record scope: when the caller's scope is "own", only the creator may edit.
-		if uid, _, ownOnly := recordScope(c, "quotes"); ownOnly && existing.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "quotes", "edit"); ownOnly && existing.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only edit quotes you created"})
 			return
 		}
@@ -579,7 +579,7 @@ func DeleteQuote() gin.HandlerFunc {
 			return
 		}
 		// Record scope: when the caller's scope is "own", only the creator may delete.
-		if uid, _, ownOnly := recordScope(c, "quotes"); ownOnly && existing.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "quotes", "delete"); ownOnly && existing.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only delete quotes you created"})
 			return
 		}

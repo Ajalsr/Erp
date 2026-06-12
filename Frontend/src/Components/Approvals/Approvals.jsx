@@ -161,7 +161,7 @@ export default function Approvals() {
                   </td>
                   <td style={{ padding: '12px 16px', fontWeight: 600 }}>
                     {req.action && req.action !== 'create' && (
-                      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', marginRight: 7, padding: '1px 6px', borderRadius: 5, color: req.action === 'delete' ? '#ef4444' : '#f59e0b', background: req.action === 'delete' ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)' }}>{req.action === 'delete' ? 'Void' : 'Edit'}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', marginRight: 7, padding: '1px 6px', borderRadius: 5, color: req.action === 'delete' ? '#ef4444' : '#f59e0b', background: req.action === 'delete' ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)' }}>{req.action === 'delete' ? 'Void' : req.action === 'finalize' ? 'Finalize' : 'Edit'}</span>
                     )}
                     {req.title || '—'}{req.resultDocNumber && <span style={{ color: T.textSec, fontWeight: 400, marginLeft: 6, fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{req.resultDocNumber}</span>}
                   </td>

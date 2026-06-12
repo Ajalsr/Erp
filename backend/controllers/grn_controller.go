@@ -90,9 +90,8 @@ func CreateGRN() gin.HandlerFunc {
 		if g.Status == "" {
 			g.Status = "draft"
 		}
-		if g.GRNNumber == "" {
-			g.GRNNumber = generateGRNNumber(ctx, orgIDStr)
-		}
+		// Always assign from the org's numbering format — ignore any client-sent value.
+		g.GRNNumber = generateGRNNumber(ctx, orgIDStr)
 		if g.ReceiptDate.IsZero() {
 			g.ReceiptDate = time.Now()
 		}

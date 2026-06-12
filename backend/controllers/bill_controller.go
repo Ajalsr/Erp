@@ -239,7 +239,7 @@ func GetBillByID() gin.HandlerFunc {
 			return
 		}
 		// Record scope: "own" roles may only open bills they created.
-		if uid, _, ownOnly := recordScope(c, "bills"); ownOnly && b.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "bills", "view"); ownOnly && b.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only view bills you created"})
 			return
 		}
@@ -503,7 +503,7 @@ func UpdateBill() gin.HandlerFunc {
 			return
 		}
 		// Record scope: when the caller's scope is "own", only the creator may edit.
-		if uid, _, ownOnly := recordScope(c, "bills"); ownOnly && existing.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "bills", "edit"); ownOnly && existing.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only edit bills you created"})
 			return
 		}

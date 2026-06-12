@@ -25,6 +25,8 @@ func StockRoutes(router *gin.Engine) {
 		stockRoutes.POST("/additem", controllers.AddItem())
 		stockRoutes.POST("/import", controllers.ImportItems())
 		stockRoutes.GET("/:id/availability", controllers.GetItemStockAvailability())
+		stockRoutes.GET("/:id", controllers.GetItemByID())
+		stockRoutes.PUT("/:id", controllers.UpdateItem())
 		stockRoutes.PATCH("/:id/reduce", controllers.ReduceStock())
 		stockRoutes.PATCH("/:id/increase", controllers.IncreaseStock())
 		stockRoutes.POST("/backfill-warehouse", controllers.BackfillWarehouseStock())

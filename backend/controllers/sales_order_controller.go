@@ -245,9 +245,9 @@ func CreateSalesOrder() gin.HandlerFunc {
 			}
 		}
 
-		if req.OrderNumber == "" {
-			req.OrderNumber = generateOrderNumber(ctx, fmt.Sprintf("%v", orgID))
-		}
+		// Always assign from the org's configured numbering format — the client only sends
+		// a placeholder for display, never the authoritative number.
+		req.OrderNumber = generateOrderNumber(ctx, fmt.Sprintf("%v", orgID))
 		soStatus := func() string { if privileged { return "open" }; return "pending_approval" }()
 		now := time.Now()
 		salesOrder := models.SalesOrder{
@@ -511,7 +511,7 @@ func GetSalesOrderByID() gin.HandlerFunc {
 			return
 		}
 		// Record scope: "own" roles may only open orders they created.
-		if uid, _, ownOnly := recordScope(c, "sales_orders"); ownOnly && salesOrder.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "sales_orders", "view"); ownOnly && salesOrder.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only view your own sales orders"})
 			return
 		}
@@ -796,7 +796,7 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			return
 		}
 		// Record scope: when the caller's scope is "own", only the creator may edit.
-		if uid, _, ownOnly := recordScope(c, "sales_orders"); ownOnly && existingOrder.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "sales_orders", "edit"); ownOnly && existingOrder.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only edit orders you created"})
 			return
 		}
@@ -1011,7 +1011,7 @@ func DeleteSalesOrder() gin.HandlerFunc {
 			return
 		}
 		// Record scope: when the caller's scope is "own", only the creator may delete.
-		if uid, _, ownOnly := recordScope(c, "sales_orders"); ownOnly && existingOrder.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "sales_orders", "delete"); ownOnly && existingOrder.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only delete orders you created"})
 			return
 		}

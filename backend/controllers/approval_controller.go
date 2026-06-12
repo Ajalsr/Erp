@@ -671,6 +671,10 @@ func replayApprovedCreate(ctx context.Context, orgIDStr, requestedBy string, ar 
 		case "invoice":
 			return syntheticReplay(VoidInvoice(), http.MethodPatch, idParam, orgIDStr, requestedBy, nil, ar.DocID)
 		}
+	case "finalize":
+		if ar.DocType == "invoice" {
+			return syntheticReplay(FinalizeProforma(), http.MethodPost, idParam, orgIDStr, requestedBy, nil, ar.DocID)
+		}
 	default: // create
 		switch ar.DocType {
 		case "bill":
