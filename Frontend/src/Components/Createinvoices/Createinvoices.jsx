@@ -480,6 +480,16 @@ const CreateInvoice = () => {
       .catch(() => setExchangeRate(1));
   }, [currency, baseCurrency, issueDate]);
 
+  // Preview the next invoice number from the org's configured numbering format.
+  // Skip when editing a draft (that effect sets the real number). The backend assigns
+  // the authoritative number on issue.
+  useEffect(() => {
+    if (location.state?.editDraft) return;
+    axiosInstance.get('/api/org/numbering/preview?key=invoice')
+      .then(res => { if (res.data?.data?.number) setInvoiceNumber(res.data.data.number); })
+      .catch(() => {});
+  }, [location.state]);
+
   // Pre-fill form when editing an existing draft from the invoice list
   useEffect(() => {
     const draft = location.state?.editDraft;

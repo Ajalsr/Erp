@@ -57,5 +57,6 @@ func OrgRoutes(router *gin.Engine) {
 	{
 		orgSettingsRoutes.GET("/settings", controllers.GetOrgSettings())
 		orgSettingsRoutes.PUT("/settings", controllers.UpdateOrgSettings())
+		orgSettingsRoutes.GET("/numbering/preview", controllers.GetNextNumberPreview())
 	}
 }

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { IoMdClose } from "react-icons/io";
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import useAdditem from '../../helper/useAddItem';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
@@ -353,6 +353,8 @@ const NAV_SECTIONS = [
 const New = () => {
   const { handleAdditem } = useAdditem();
   const navigate = useNavigate();
+  const { id: editId } = useParams();
+  const isEdit = !!editId;
   const fileInputRef = useRef(null);
 
   // ── Theme ──
@@ -436,6 +438,32 @@ const New = () => {
       .catch(() => {});
   }, []);
 
+  /* ── Load item when editing ── */
+  useEffect(() => {
+    if (!editId) return;
+    axiosInstance.get(`/api/stocks/${editId}`)
+      .then(res => {
+        const it = res.data?.data;
+        if (!it) return;
+        setFormData(prev => ({
+          ...prev,
+          type: it.type || 'goods',
+          name: it.name || '', item_code: it.item_code || '', unit: it.unit || '',
+          category: it.category || '', brand: it.brand || '', manufacturer: it.manufacturer || '',
+          length: it.length || '', width: it.width || '', height: it.height || '', dimension_unit: it.dimension_unit || 'cm',
+          weight: it.weight || '', upc: it.upc || '', mpn: it.mpn || '', ean: it.ean || '', isbn: it.isbn || '',
+          quantity: it.quantity || '', reorder_point: it.reorder_point || '',
+          selling_price: it.selling_price || '', sales_account: it.sales_account || '', sales_description: it.sales_description || '',
+          cost_price: it.cost_price || '', cost_account: it.cost_account || '', cost_description: it.cost_description || '', preferred_vendor: it.preferred_vendor || '',
+          inventory_account: it.inventory_account || '', opening_stock: it.opening_stock || '', opening_stock_rate: it.opening_stock_rate || '',
+        }));
+        setSalesEnabled(!!(it.selling_price || it.sales_account));
+        setPurchaseEnabled(!!(it.cost_price || it.cost_account));
+        setTrackInventory(!!(it.inventory_account || it.opening_stock || it.reorder_point));
+      })
+      .catch(() => nexusToast.error('Failed to load item'));
+  }, [editId]);
+
   /* ── Scroll spy ── */
   useEffect(() => {
     const obs = new IntersectionObserver(
@@ -479,8 +507,13 @@ const New = () => {
     setErrors({});
     setSaving(true);
     try {
-      await handleAdditem(formData);
-      nexusToast.success('Item created successfully!');
+      if (isEdit) {
+        await axiosInstance.put(`/api/stocks/${editId}`, formData);
+        nexusToast.success('Item updated successfully!');
+      } else {
+        await handleAdditem(formData);
+        nexusToast.success('Item created successfully!');
+      }
       setTimeout(() => navigate('/Items/Items'), 1500);
     } catch (err) {
       const msg =
@@ -591,7 +624,7 @@ const New = () => {
           <div style={{ width: 1, height: 22, background: T.border }} />
           <div>
             <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
-              {formData.name || <span style={{ color: T.textSec, fontStyle: 'italic' }}>New Item</span>}
+              {formData.name || <span style={{ color: T.textSec, fontStyle: 'italic' }}>{isEdit ? 'Edit Item' : 'New Item'}</span>}
             </p>
             <p style={{ fontSize: 10, color: T.textSec, margin: '3px 0 0', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
               {formData.item_code
@@ -628,7 +661,7 @@ const New = () => {
           }}>
             {saving
               ? <><div style={{ width:13,height:13,border:'2px solid rgba(255,255,255,.35)',borderTopColor:'#fff',borderRadius:'50%',animation:'nwSpin .7s linear infinite' }} /> Saving…</>
-              : <><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg> Save Item</>
+              : <><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg> {isEdit ? 'Update Item' : 'Save Item'}</>
             }
           </button>
         </div>
@@ -1063,7 +1096,7 @@ const New = () => {
             }}>
               {saving
                 ? <><div style={{ width:14,height:14,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nwSpin .7s linear infinite' }} /> Saving…</>
-                : <><svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.3} strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> Save Item to Catalog</>
+                : <><svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.3} strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> {isEdit ? 'Update Item' : 'Save Item to Catalog'}</>
               }
             </button>
           </div>

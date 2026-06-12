@@ -74,13 +74,34 @@ func effectiveCustomRoles(org models.Organization) []string {
 
 // scopeForModule returns "all" | "own" record visibility for a role on a module.
 // owner/admin always "all"; absent config defaults to "all".
-func scopeForModule(ctx context.Context, orgID primitive.ObjectID, role, module string) string {
+// scopeForModule resolves record visibility ("all"|"own") for a role on a module for a
+// specific action ("view"|"edit"|"delete"). Per-action Scopes win; legacy module-wide
+// Scope is the fallback. owner/admin always "all".
+func scopeForModule(ctx context.Context, orgID primitive.ObjectID, role, module, action string) string {
 	if role == "owner" || role == "admin" {
 		return "all"
 	}
 	var org models.Organization
 	if orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&org) == nil {
 		if rp, ok := org.RolePermissions[role]; ok {
+			if s, ok := rp.Scopes[module]; ok {
+				var v string
+				switch action {
+				case "edit":
+					v = s.Edit
+				case "delete":
+					v = s.Delete
+				default:
+					v = s.View
+				}
+				if v == "own" {
+					return "own"
+				}
+				if v == "all" {
+					return "all"
+				}
+				// v empty → fall through to legacy below
+			}
 			if rp.Scope[module] == "own" {
 				return "own"
 			}
@@ -92,7 +113,7 @@ func scopeForModule(ctx context.Context, orgID primitive.ObjectID, role, module 
 // recordScope resolves the caller's role and whether they are restricted to their
 // own records for the module. Reads orgId/userId from the gin context (set by
 // Authenticate + RequireOrg). ownOnly is always false for owner/admin.
-func recordScope(c *gin.Context, module string) (userID, role string, ownOnly bool) {
+func recordScope(c *gin.Context, module, action string) (userID, role string, ownOnly bool) {
 	uid, _ := c.Get("userId")
 	userID, _ = uid.(string)
 	oid, _ := c.Get("orgId")
@@ -110,7 +131,7 @@ func recordScope(c *gin.Context, module string) (userID, role string, ownOnly bo
 	if role == "owner" || role == "admin" {
 		return userID, role, false
 	}
-	return userID, role, scopeForModule(ctx, orgID, role, module) == "own"
+	return userID, role, scopeForModule(ctx, orgID, role, module, action) == "own"
 }
 
 // canModifyRecord reports whether the caller may edit/delete a record created by

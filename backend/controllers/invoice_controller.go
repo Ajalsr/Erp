@@ -174,8 +174,10 @@ func CreateInvoice() gin.HandlerFunc {
 			return
 		}
 
-		// Approval gate — hold non-draft invoices for an approver when the org requires it.
-		if !c.GetBool("approvalReplay") && inv.Status != "draft" {
+		// Approval gate — hold non-draft real invoices for an approver when the org
+		// requires it. Proformas are not accounting documents (no GL/AR/tax impact), so
+		// they flow free; the gate fires when a proforma is finalized into a real invoice.
+		if !c.GetBool("approvalReplay") && inv.Status != "draft" && inv.Type != "proforma" {
 			title := inv.BillTo.Name
 			if title == "" {
 				title = "Invoice " + inv.InvoiceNumber
@@ -387,7 +389,7 @@ func GetInvoiceByID() gin.HandlerFunc {
 			return
 		}
 		// Record scope: "own" roles may only open invoices they created.
-		if uid, _, ownOnly := recordScope(c, "invoices"); ownOnly && inv.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "invoices", "view"); ownOnly && inv.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only view invoices you created"})
 			return
 		}
@@ -481,7 +483,7 @@ func UpdateInvoice() gin.HandlerFunc {
 			return
 		}
 		// Record scope: when the caller's scope is "own", only the creator may edit.
-		if uid, _, ownOnly := recordScope(c, "invoices"); ownOnly && existing.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "invoices", "edit"); ownOnly && existing.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only edit invoices you created"})
 			return
 		}
@@ -946,6 +948,19 @@ func FinalizeProforma() gin.HandlerFunc {
 		if inv.ProformaConvertedTo != "" {
 			c.JSON(http.StatusConflict, gin.H{"message": "Proforma already finalized"})
 			return
+		}
+
+		// Approval gate — finalizing a proforma posts a real invoice, so it's the point
+		// where the org's invoice approval applies. Replay re-runs this finalize by id.
+		if !c.GetBool("approvalReplay") {
+			userID, _ := c.Get("userId")
+			title := inv.BillTo.Name
+			if title == "" {
+				title = "Invoice from " + inv.InvoiceNumber
+			}
+			if holdActionForApproval(c, ctx, fmt.Sprintf("%v", orgID), fmt.Sprintf("%v", userID), "", "invoice", "finalize", "invoices", title, inv.Totals.GrandTotal, id, inv) {
+				return
+			}
 		}
 
 		newInv := models.Invoice{

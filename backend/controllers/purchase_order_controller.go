@@ -477,7 +477,7 @@ func GetPurchaseOrderByID() gin.HandlerFunc {
 			return
 		}
 		// Record scope: "own" roles may only open purchase orders they created.
-		if uid, _, ownOnly := recordScope(c, "purchase_orders"); ownOnly && po.CreatedBy != uid {
+		if uid, _, ownOnly := recordScope(c, "purchase_orders", "view"); ownOnly && po.CreatedBy != uid {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only view purchase orders you created"})
 			return
 		}

@@ -62,7 +62,7 @@ export default function QuotePrint() {
   useEffect(() => {
     const orgId = activeOrg?._id;
     if (!orgId) return;
-    api.get(`/api/organizations/${orgId}`).then(r => {
+    api.get(`/api/organizations/${orgId}?withImages=true`).then(r => {
       const d = r.data?.data || {};
       setLetterhead(d.letterheadImage || '');
       setLetterTop(d.letterheadTopPad || 13);

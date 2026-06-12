@@ -2,15 +2,57 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/backend/config"
 	"github.com/backend/utils"
 
+	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
+
+// GetNextNumberPreview returns the next number an entity would get under the org's
+// configured format, without consuming it — for read-only previews on create forms.
+// GET /api/numbering/preview?key=sales_order
+func GetNextNumberPreview() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		key := c.Query("key")
+
+		type src struct {
+			coll  *mongo.Collection
+			field string
+		}
+		sources := map[string]src{
+			"sales_order":    {salesOrdersCollection, "orderNumber"},
+			"purchase_order": {purchaseOrderCollection, "orderNumber"},
+			"quote":          {quoteCollection, "quoteNumber"},
+			"invoice":        {invoiceCollection, "invoiceNumber"},
+			"bill":           {billCollection, "billNumber"},
+			"customer":       {customersCollection, "customerCode"},
+			"credit_note":    {creditNoteCollection, "creditNoteNumber"},
+			"debit_note":     {debitNoteCollection, "debitNoteNumber"},
+			"payment":        {paymentCollection, "paymentNumber"},
+			"grn":            {grnCollection, "grnNumber"},
+			"delivery_note":  {deliveryNotesCollection, "dnNumber"},
+		}
+		s, ok := sources[key]
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Unknown numbering key"})
+			return
+		}
+
+		number := nextNumber(ctx, fmt.Sprintf("%v", orgID), key, s.coll, s.field)
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{"number": number}})
+	}
+}
 
 // ── Configurable document/entity numbering ─────────────────────────────────
 //

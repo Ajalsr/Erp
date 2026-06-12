@@ -221,6 +221,7 @@ export default function Item() {
 
     .inv-btn{transition:all .15s;cursor:pointer}
     .inv-btn:hover{filter:brightness(${isDark?"1.1":".96"});transform:translateY(-1px)}
+    .tx-acc:hover{filter:brightness(${isDark?"1.15":".97"})}
 
     .inv-qa{transition:background .1s;cursor:pointer}
     .inv-qa:hover{background:${isDark?"rgba(255,255,255,.06)":"rgba(0,0,0,.05)"}}
@@ -833,6 +834,7 @@ function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, i
 /* ─── Transactions / History tab ─────────────────────────────────────── */
 function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, text, muted, itemOrders, ordersLoading, itemAdjustments, adjLoading }) {
   void surface2;
+  const [collapsed, setCollapsed] = useState({});
   const fmtA=(n)=>fmtAED(n);
   const fmtD=(d)=>d?new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}):"—";
   const SC={
@@ -874,12 +876,22 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
   const onOrder  = itemOrders.filter(o=>o.type==="onorder");    // issued POs — pending receipt
   if(itemOrders.length===0) return <Empty icon={<FaBox size={22}/>} title="No Transactions" sub="Sales and purchase orders appear here." T={T} muted={muted}/>;
 
-  const TxTable=({rows,color,label})=>(
+  const TxTable=({rows,color,label})=>{
+    const isOpen = !collapsed[label];
+    const toggle = ()=>setCollapsed(c=>({...c,[label]:!c[label]}));
+    return (
     <div style={{marginBottom:16}}>
-      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:7}}>
+      <button onClick={toggle} className="tx-acc"
+        style={{display:"flex",alignItems:"center",gap:9,marginBottom:isOpen?8:0,background:isDark?`${color}12`:`${color}0d`,border:`1px solid ${isDark?`${color}33`:`${color}26`}`,borderRadius:9,cursor:"pointer",padding:"9px 12px",fontFamily:"inherit",width:"100%",transition:"background .15s"}}>
+        <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:16,height:16,borderRadius:5,background:color,color:"#fff",fontSize:11,fontWeight:700,flexShrink:0,transform:isOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>›</span>
         <span style={{width:7,height:7,borderRadius:"50%",background:color}}/>
-        <span style={{fontSize:9.5,fontWeight:700,color,textTransform:"uppercase",letterSpacing:".08em"}}>{label}</span>
-      </div>
+        <span style={{fontSize:10,fontWeight:700,color,textTransform:"uppercase",letterSpacing:".08em"}}>{label}</span>
+        <span style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:10,fontWeight:700,color,background:isDark?`${color}22`:`${color}1a`,borderRadius:20,padding:"1px 8px"}}>{rows.length}</span>
+          <span style={{fontSize:10,color:muted,fontWeight:500}}>{isOpen?"Hide":"Show"}</span>
+        </span>
+      </button>
+      {isOpen && (
       <div style={{border:`1px solid ${border}`,borderRadius:9,overflow:"hidden"}}>
         <div style={{display:"grid",gridTemplateColumns:"1.1fr 1fr .8fr .7fr .8fr 70px",padding:"7px 12px",background:isDark?`${color}08`:`${color}10`,borderBottom:`1px solid ${border}`}}>
           {["Date","Order #","Party","Qty","Total","Status"].map(h=>(
@@ -906,8 +918,10 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
           <span className="sora" style={{fontSize:12,fontWeight:700,color,fontFamily:"monospace"}}>{fmtA(rows.reduce((s,o)=>s+o.total,0))}</span>
         </div>
       </div>
+      )}
     </div>
-  );
+    );
+  };
 
   return (
     <div style={{padding:"20px 24px"}}>

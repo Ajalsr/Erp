@@ -593,8 +593,12 @@ const Newsalesorders = () => {
   useEffect(()=>{
     if(isEditMode) return; // number/date are loaded from the draft
     setOrderDate(new Date().toLocaleDateString('en-CA'));
-    const d=new Date(),m=(d.getMonth()+1).toString().padStart(2,'0'),y=d.getFullYear();
-    setOrderNumber(`SO-${y}${m}-${Math.floor(Math.random()*1000).toString().padStart(3,'0')}`);
+    // Preview the next number from the org's configured numbering format (read-only;
+    // the backend assigns the authoritative number on save).
+    setOrderNumber('…');
+    axiosInstance.get('/api/org/numbering/preview?key=sales_order')
+      .then(res=>setOrderNumber(res.data?.data?.number||''))
+      .catch(()=>setOrderNumber(''));
   },[isEditMode]);
 
   // Load draft for editing

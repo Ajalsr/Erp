@@ -1336,8 +1336,12 @@ const Invoices = () => {
                               setFinalizingProforma(true);
                               try {
                                 const res = await axiosInstance.post(`/api/invoices/${selected._id}/finalize`);
-                                const invNum = res.data?.data?.invoiceNumber || "Invoice";
-                                nexusToast.success(`${invNum} created — proforma finalized`);
+                                if (res.data?.data?.status === "pending_approval") {
+                                  nexusToast.success("Submitted for approval");
+                                } else {
+                                  const invNum = res.data?.data?.invoiceNumber || "Invoice";
+                                  nexusToast.success(`${invNum} created — proforma finalized`);
+                                }
                                 setSelected(null); loadInvoices();
                               } catch (e) {
                                 nexusToast.error(e.response?.data?.message || "Finalize failed");

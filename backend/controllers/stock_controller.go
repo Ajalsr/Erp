@@ -250,6 +250,76 @@ func AddItem() gin.HandlerFunc {
 	}
 }
 
+// GetItemByID returns a single item by id, scoped to the org — used to load the edit form.
+func GetItemByID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid item ID format"})
+			return
+		}
+		orgID, _ := c.Get("orgId")
+
+		var item models.Stock
+		if err := stockCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": fmt.Sprintf("%v", orgID)}).Decode(&item); err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Item not found"})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to fetch item"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": item})
+	}
+}
+
+// UpdateItem edits an item's details. Stock quantities (quantity, opening_stock, the
+// warehouse breakdown, committed/ordered) are managed by stock movements and are NOT
+// touched here — only the descriptive/pricing/account fields are updated.
+func UpdateItem() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid item ID format"})
+			return
+		}
+
+		var body map[string]interface{}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+
+		// Strip fields that must not be overwritten via an edit.
+		for _, k := range []string{"_id", "orgId", "created_at", "createdBy", "created_by", "quantity", "opening_stock", "warehouseStock", "quantity_ordered", "quantity_sold"} {
+			delete(body, k)
+		}
+		body["updated_at"] = time.Now()
+
+		orgID, _ := c.Get("orgId")
+		res, err := stockCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": fmt.Sprintf("%v", orgID)},
+			bson.M{"$set": body},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update item", "error": err.Error()})
+			return
+		}
+		if res.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Item not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Item updated successfully"})
+	}
+}
+
 // ─── REDUCE STOCK ─────────────────────────────────────────────────────────────
 // Guards against reducing below zero — returns 422 Unprocessable if stock is insufficient.
 func ReduceStock() gin.HandlerFunc {

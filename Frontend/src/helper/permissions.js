@@ -179,31 +179,45 @@ function evalApprove(state, key) {
   return !!perms?.[role]?.approvals?.[key];
 }
 
-// Record scope for a module: 'all' or 'own'. owner/admin always 'all'.
-function evalScope(state, module) {
+// Record scope for a module + action ('view'|'edit'|'delete'): 'all' or 'own'.
+// Per-action scopes win; legacy module-wide scope is the fallback. owner/admin 'all'.
+function evalScope(state, module, action = 'view') {
   const { role, perms } = state;
   if (role === 'owner' || role === 'admin') return 'all';
-  return perms?.[role]?.scope?.[module] === 'own' ? 'own' : 'all';
+  const perAction = perms?.[role]?.scopes?.[module]?.[action];
+  if (perAction === 'own') return 'own';
+  if (perAction === 'all') return 'all';
+  return perms?.[role]?.scope?.[module] === 'own' ? 'own' : 'all'; // legacy fallback
 }
 
-// canEditRecord — caller may edit/delete a record created by createdBy.
-// owner/admin always. Otherwise needs the edit cap; and when scope is "own", must
-// also be the creator. Scope "all" lets any edit-capable user edit.
+// canEditRecord — caller may edit a record created by createdBy. owner/admin always.
+// Otherwise needs the edit cap; when edit-scope is "own", must also be the creator.
 function evalCanEditRecord(state, module, createdBy) {
   const { role } = state;
   if (role === 'owner' || role === 'admin') return true;
   if (!evalCan(state, module, 'edit')) return false;
-  if (evalScope(state, module) !== 'own') return true;
+  if (evalScope(state, module, 'edit') !== 'own') return true;
   const uid = useAuthStore.getState().user?.userId;
   return !!createdBy && createdBy === uid;
 }
 
-// canViewRecord — caller may open a record's details. owner/admin always; scope
-// "all" lets anyone with view; scope "own" only the creator.
+// canDeleteRecord — caller may delete a record created by createdBy. owner/admin always.
+// Needs the delete cap; when delete-scope is "own", must also be the creator.
+function evalCanDeleteRecord(state, module, createdBy) {
+  const { role } = state;
+  if (role === 'owner' || role === 'admin') return true;
+  if (!evalCan(state, module, 'delete')) return false;
+  if (evalScope(state, module, 'delete') !== 'own') return true;
+  const uid = useAuthStore.getState().user?.userId;
+  return !!createdBy && createdBy === uid;
+}
+
+// canViewRecord — caller may open a record's details. owner/admin always; view-scope
+// "all" lets anyone with view; "own" only the creator.
 function evalCanViewRecord(state, module, createdBy) {
   const { role } = state;
   if (role === 'owner' || role === 'admin') return true;
-  if (evalScope(state, module) !== 'own') return true;
+  if (evalScope(state, module, 'view') !== 'own') return true;
   const uid = useAuthStore.getState().user?.userId;
   return !!createdBy && createdBy === uid;
 }
@@ -241,8 +255,9 @@ export function usePermissions() {
     canAnyOf: (modules) => (modules || []).some(m => evalCanAny(state, m)),
     canApprove: (key) => evalApprove(state, key),
     canSettings: () => evalSettings(state),
-    scope: (module) => evalScope(state, module),
+    scope: (module, action) => evalScope(state, module, action),
     canEditRecord: (module, createdBy) => evalCanEditRecord(state, module, createdBy),
+    canDeleteRecord: (module, createdBy) => evalCanDeleteRecord(state, module, createdBy),
     canViewRecord: (module, createdBy) => evalCanViewRecord(state, module, createdBy),
   };
 }

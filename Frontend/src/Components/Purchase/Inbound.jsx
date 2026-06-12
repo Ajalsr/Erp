@@ -231,9 +231,9 @@ export default function Inbound() {
 
     setReceiveLoading(true);
     try {
-      const grnNumber = `GRN-${Date.now().toString().slice(-6).padStart(6, "0")}`;
+      // Number is assigned by the backend from the org's numbering format.
       const payload = {
-        grnNumber,
+        grnNumber: "",
         purchaseOrderId:  sel[0]?.poId          || '',
         poNumber:         sel[0]?.poNumber       || '',
         vendorId:         sel[0]?.vendorId       || '',

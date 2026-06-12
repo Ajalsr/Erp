@@ -46,6 +46,10 @@ type ApprovalPolicy struct {
 
 // GatesAction reports whether this policy requires approval for the given action.
 func (p ApprovalPolicy) GatesAction(action string) bool {
+	// Finalizing a proforma posts a real invoice — treat it like a create for gating.
+	if action == "finalize" {
+		action = "create"
+	}
 	if len(p.Actions) == 0 {
 		return true // unset ⇒ gate every action wired in code
 	}
