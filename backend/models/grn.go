@@ -29,6 +29,30 @@ type GRNItem struct {
 	FreightTaxAmount float64 `json:"freightTaxAmount,omitempty" bson:"freightTaxAmount,omitempty"`
 }
 
+// GRNCharge is a landed-cost line added at goods receipt: customs duty, clearing,
+// freight, insurance, etc. Each carries its own optional tax and an optional payee.
+//   - PayeeVendorID empty  → charge belongs to the main vendor; folded into the main bill.
+//   - PayeeVendorID set     → charge is billed separately to that payee (e.g. customs
+//                             authority) as its own bill, created already-paid.
+type GRNCharge struct {
+	ID              primitive.ObjectID `json:"_id,omitempty"          bson:"_id,omitempty"`
+	Type            string             `json:"type"                   bson:"type"`    // customs_duty | clearing | freight | insurance | other
+	Label           string             `json:"label"                  bson:"label"`
+	Amount          float64            `json:"amount"                 bson:"amount"`
+	TaxRate         float64            `json:"taxRate"                bson:"taxRate"` // percent; 0 = no tax
+	TaxAmount       float64            `json:"taxAmount"              bson:"taxAmount"`
+	Total           float64            `json:"total"                  bson:"total"`
+	PayeeVendorID   string             `json:"payeeVendorId,omitempty"   bson:"payeeVendorId,omitempty"`
+	PayeeVendorName string             `json:"payeeVendorName,omitempty" bson:"payeeVendorName,omitempty"`
+	// Capitalise true → adds to landed cost of stock (Inventory 1200); false → expense.
+	Capitalise bool `json:"capitalise" bson:"capitalise"`
+	// PaymentAccount: cash/bank account code the separate payee bill is paid from
+	// (it's created already paid). Empty → defaults to Bank (1002).
+	PaymentAccount string `json:"paymentAccount,omitempty" bson:"paymentAccount,omitempty"`
+	// BillID is set once this charge has been billed (separate payee bill).
+	BillID string `json:"billId,omitempty" bson:"billId,omitempty"`
+}
+
 type GRN struct {
 	ID                 primitive.ObjectID `json:"_id,omitempty"          bson:"_id,omitempty"`
 	GRNNumber          string             `json:"grnNumber"              bson:"grnNumber"`
@@ -48,6 +72,8 @@ type GRN struct {
 	SubTotal           float64            `json:"subTotal"               bson:"subTotal"`
 	TotalTax           float64            `json:"totalTax"               bson:"totalTax"`
 	ShippingCharges    float64            `json:"shippingCharges"        bson:"shippingCharges"`
+	Charges            []GRNCharge        `json:"charges,omitempty"      bson:"charges,omitempty"`      // landed-cost / other charges
+	ChargesTotal       float64            `json:"chargesTotal"           bson:"chargesTotal"`           // sum of all charge totals
 	Adjustment         float64            `json:"adjustment"             bson:"adjustment"`
 	Total              float64            `json:"total"                  bson:"total"`
 	Status             string             `json:"status"                 bson:"status"` // draft | confirmed | rejected | billed

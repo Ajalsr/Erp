@@ -29,6 +29,21 @@ func generateGRNNumber(ctx context.Context, orgID string) string {
 	return nextNumber(ctx, orgID, "grn", grnCollection, "grnNumber")
 }
 
+// computeGRNCharges recomputes each charge's tax + total server-side and returns the
+// cleaned slice plus the combined charges total. Assigns a fresh id to new charges.
+func computeGRNCharges(charges []models.GRNCharge) ([]models.GRNCharge, float64) {
+	total := 0.0
+	for i := range charges {
+		if charges[i].ID.IsZero() {
+			charges[i].ID = primitive.NewObjectID()
+		}
+		charges[i].TaxAmount = round2(charges[i].Amount * charges[i].TaxRate / 100)
+		charges[i].Total = round2(charges[i].Amount + charges[i].TaxAmount)
+		total += charges[i].Total
+	}
+	return charges, round2(total)
+}
+
 func CreateGRN() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -136,9 +151,10 @@ func CreateGRN() gin.HandlerFunc {
 			subTotal += base + freight
 			totalTax += tax + freightTax
 		}
+		g.Charges, g.ChargesTotal = computeGRNCharges(g.Charges)
 		g.SubTotal = round2(subTotal)
 		g.TotalTax = round2(totalTax)
-		g.Total = round2(subTotal + totalTax + g.ShippingCharges + g.Adjustment)
+		g.Total = round2(subTotal + totalTax + g.ShippingCharges + g.ChargesTotal + g.Adjustment)
 
 		if _, err := grnCollection.InsertOne(ctx, g); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create GRN", "error": err.Error()})
@@ -163,6 +179,25 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 	if whID == "" {
 		whID = defWh
 	}
+
+	// Landed cost: capitalised charges (customs duty, clearing…) + header shipping are
+	// prorated across the accepted goods by value, then absorbed into each item's unit
+	// cost so COGS at sale reflects the true landed cost. Non-capitalised charges are
+	// expensed (excluded here). Per-item freight is added directly to that item.
+	capPool := g.ShippingCharges
+	for _, ch := range g.Charges {
+		if ch.Capitalise {
+			capPool += ch.Amount
+		}
+	}
+	totalAcceptedValue := 0.0
+	for _, it := range g.Items {
+		acc := it.ReceivedQty - it.RejectedQty
+		if acc > 0 {
+			totalAcceptedValue += acc * it.Rate
+		}
+	}
+
 	for _, item := range g.Items {
 		if item.ItemID == "" {
 			continue
@@ -173,6 +208,7 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 		}
 		var stockDoc struct {
 			Quantity       string             `bson:"quantity"`
+			CostPrice      string             `bson:"cost_price"`
 			WarehouseStock map[string]float64 `bson:"warehouseStock"`
 		}
 		if fetchErr := stockCol.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgIDStr}).Decode(&stockDoc); fetchErr == nil {
@@ -187,6 +223,27 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 			// received warehouse. Total `quantity` stays authoritative.
 			whMap := seedWarehouseMap(stockDoc.WarehouseStock, currentQty, defWh)
 			whMap = addToWarehouse(whMap, whID, acceptedQty)
+
+			// Landed unit cost for this receipt = rate + per-unit freight + per-unit
+			// share of the capitalised pool (prorated by line value). Then roll into a
+			// weighted-average cost over existing on-hand stock.
+			setFields := bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()}
+			if acceptedQty > 0 {
+				lineValue := acceptedQty * item.Rate
+				chargeShare := 0.0
+				if capPool > 0 && totalAcceptedValue > 0 {
+					chargeShare = capPool * (lineValue / totalAcceptedValue)
+				}
+				landedUnitCost := item.Rate + (item.Freight+chargeShare)/acceptedQty
+				currentCost := 0.0
+				fmt.Sscanf(stockDoc.CostPrice, "%f", &currentCost)
+				newCost := landedUnitCost
+				if newQty > 0 && currentQty > 0 {
+					newCost = (currentQty*currentCost + acceptedQty*landedUnitCost) / newQty
+				}
+				setFields["cost_price"] = fmt.Sprintf("%g", round2(newCost))
+			}
+
 			// Only clear the ACCEPTED qty from the on-order count. Rejected units were
 			// returned to the vendor, so they remain outstanding and must stay on-order
 			// (the vendor still owes a replacement). Using ReceivedQty here would wrongly
@@ -194,7 +251,7 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 			stockCol.UpdateOne(ctx,
 				bson.M{"_id": itemObjID, "orgId": orgIDStr},
 				bson.M{
-					"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()},
+					"$set": setFields,
 					"$inc": bson.M{"quantity_ordered": -acceptedQty},
 				},
 			)
@@ -255,6 +312,13 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 					bson.M{"_id": poObjID, "orgId": orgIDStr},
 					bson.M{"$set": bson.M{"status": newStatus, "updatedAt": time.Now()}},
 				)
+
+				// Procure-to-order: if this PO was raised to source a sales order, credit
+				// the matching SO lines' fulfilledQty with the accepted qty (mapped via the
+				// PO line's SourceSOItemID), then recompute the SO's fulfillmentStatus.
+				if po.SourceSalesOrderID != "" {
+					creditSOFulfillment(ctx, orgIDStr, po, g)
+				}
 			}
 		}
 	}
@@ -282,6 +346,68 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 			)
 		}
 	}
+}
+
+// creditSOFulfillment bumps the source sales order's line fulfilledQty by the qty
+// accepted on this GRN, mapping GRN line → PO line (by itemId) → SO line (by the PO
+// line's SourceSOItemID). It then recomputes the SO fulfillmentStatus across ALL its
+// lines (a partial GRN, or one of several split-vendor POs, leaves it "partial").
+func creditSOFulfillment(ctx context.Context, orgIDStr string, po models.PurchaseOrder, g models.GRN) {
+	soObjID, err := primitive.ObjectIDFromHex(po.SourceSalesOrderID)
+	if err != nil {
+		return
+	}
+
+	// PO line's itemId → the SO line it sources.
+	itemToSOItem := map[string]string{}
+	for _, pi := range po.Items {
+		if pi.ItemID != "" && pi.SourceSOItemID != "" {
+			itemToSOItem[pi.ItemID] = pi.SourceSOItemID
+		}
+	}
+	if len(itemToSOItem) == 0 {
+		return
+	}
+
+	for _, gi := range g.Items {
+		accepted := gi.ReceivedQty - gi.RejectedQty
+		if accepted <= 0 || gi.ItemID == "" {
+			continue
+		}
+		soItemID := itemToSOItem[gi.ItemID]
+		if soItemID == "" {
+			continue
+		}
+		soItemObjID, err := primitive.ObjectIDFromHex(soItemID)
+		if err != nil {
+			continue
+		}
+		salesOrdersCollection.UpdateOne(ctx,
+			bson.M{"_id": soObjID, "orgId": orgIDStr, "items._id": soItemObjID},
+			bson.M{"$inc": bson.M{"items.$.fulfilledQty": accepted}},
+		)
+	}
+
+	// Recompute fulfillment status from the freshly updated SO lines.
+	var so models.SalesOrder
+	if err := salesOrdersCollection.FindOne(ctx, bson.M{"_id": soObjID, "orgId": orgIDStr}).Decode(&so); err != nil {
+		return
+	}
+	totalOrdered, totalFulfilled := 0.0, 0.0
+	for _, li := range so.Items {
+		totalOrdered += li.Quantity
+		totalFulfilled += li.FulfilledQty
+	}
+	status := "procuring"
+	if totalFulfilled > 0 && totalFulfilled < totalOrdered {
+		status = "partial"
+	} else if totalOrdered > 0 && totalFulfilled >= totalOrdered {
+		status = "ready" // fully procured — goods in stock, ready to dispatch
+	}
+	salesOrdersCollection.UpdateOne(ctx,
+		bson.M{"_id": soObjID, "orgId": orgIDStr},
+		bson.M{"$set": bson.M{"fulfillmentStatus": status, "updatedAt": time.Now()}},
+	)
 }
 
 func ConfirmGRN() gin.HandlerFunc {
@@ -517,9 +643,10 @@ func UpdateGRN() gin.HandlerFunc {
 			Notes           string           `json:"notes"`
 			WarehouseID     string           `json:"warehouseId"`
 			WarehouseName   string           `json:"warehouseName"`
-			ShippingCharges *float64         `json:"shippingCharges"`
-			Adjustment      *float64         `json:"adjustment"`
-			Items           []models.GRNItem `json:"items"`
+			ShippingCharges *float64             `json:"shippingCharges"`
+			Adjustment      *float64             `json:"adjustment"`
+			Charges         *[]models.GRNCharge  `json:"charges"`
+			Items           []models.GRNItem     `json:"items"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": 400, "message": "Invalid request body"})
@@ -533,43 +660,52 @@ func UpdateGRN() gin.HandlerFunc {
 			set["warehouseId"]   = body.WarehouseID
 			set["warehouseName"] = body.WarehouseName
 		}
-		if len(body.Items) > 0 {
-			// Recalculate item totals using accepted qty before saving
-			var g models.GRN
-			if err2 := grnCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr}).Decode(&g); err2 == nil {
-				taxRate := grnTaxRate(g.VendorOrigin)
-				subTotal, totalTax := 0.0, 0.0
-				for i, item := range body.Items {
-					accepted := item.ReceivedQty - item.RejectedQty
-					if accepted < 0 { accepted = 0 }
-					base := accepted * item.Rate
-					tax  := base * taxRate
-					frac := 0.0
-					if item.OrderedQty > 0 {
-						frac = accepted / item.OrderedQty
-					} else if accepted > 0 {
-						frac = 1
-					}
-					freight := round2(item.Freight * frac)
-					freightTax := round2(freight * item.FreightTaxRate / 100)
-					body.Items[i].BaseAmount = base
-					body.Items[i].TaxAmount  = tax
-					body.Items[i].Freight = freight
-					body.Items[i].FreightTaxAmount = freightTax
-					body.Items[i].LineTotal  = base + tax + freight + freightTax
-					subTotal += base + freight
-					totalTax += tax + freightTax
+		// Fetch the stored GRN so we can recompute the grand total whenever items,
+		// charges, shipping or adjustment change (each feeds the same total).
+		var g models.GRN
+		hasStored := grnCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr}).Decode(&g) == nil
+
+		if hasStored && len(body.Items) > 0 {
+			taxRate := grnTaxRate(g.VendorOrigin)
+			subTotal, totalTax := 0.0, 0.0
+			for i, item := range body.Items {
+				accepted := item.ReceivedQty - item.RejectedQty
+				if accepted < 0 { accepted = 0 }
+				base := accepted * item.Rate
+				tax  := base * taxRate
+				frac := 0.0
+				if item.OrderedQty > 0 {
+					frac = accepted / item.OrderedQty
+				} else if accepted > 0 {
+					frac = 1
 				}
-				// Use incoming ship/adjust if provided, else keep stored
-				ship := g.ShippingCharges
-				adj  := g.Adjustment
-				if body.ShippingCharges != nil { ship = *body.ShippingCharges; set["shippingCharges"] = ship }
-				if body.Adjustment != nil      { adj  = *body.Adjustment;      set["adjustment"]      = adj  }
-				set["items"]    = body.Items
-				set["subTotal"] = round2(subTotal)
-				set["totalTax"] = round2(totalTax)
-				set["total"]    = round2(subTotal + totalTax + ship + adj)
+				freight := round2(item.Freight * frac)
+				freightTax := round2(freight * item.FreightTaxRate / 100)
+				body.Items[i].BaseAmount = base
+				body.Items[i].TaxAmount  = tax
+				body.Items[i].Freight = freight
+				body.Items[i].FreightTaxAmount = freightTax
+				body.Items[i].LineTotal  = base + tax + freight + freightTax
+				subTotal += base + freight
+				totalTax += tax + freightTax
 			}
+			set["items"]    = body.Items
+			set["subTotal"] = round2(subTotal)
+			set["totalTax"] = round2(totalTax)
+			g.SubTotal = round2(subTotal)
+			g.TotalTax = round2(totalTax)
+		}
+
+		if hasStored {
+			// Apply incoming ship/adjust/charges over the stored values, then recompute total.
+			if body.ShippingCharges != nil { g.ShippingCharges = *body.ShippingCharges; set["shippingCharges"] = g.ShippingCharges }
+			if body.Adjustment != nil      { g.Adjustment      = *body.Adjustment;      set["adjustment"]      = g.Adjustment      }
+			if body.Charges != nil {
+				g.Charges, g.ChargesTotal = computeGRNCharges(*body.Charges)
+				set["charges"]      = g.Charges
+				set["chargesTotal"] = g.ChargesTotal
+			}
+			set["total"] = round2(g.SubTotal + g.TotalTax + g.ShippingCharges + g.ChargesTotal + g.Adjustment)
 		} else {
 			if body.ShippingCharges != nil { set["shippingCharges"] = *body.ShippingCharges }
 			if body.Adjustment != nil      { set["adjustment"]      = *body.Adjustment      }

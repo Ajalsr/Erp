@@ -130,6 +130,9 @@ type SalesOrder struct {
 	SourceQuoteID        string             `json:"sourceQuoteId,omitempty"     bson:"sourceQuoteId,omitempty"`
 	SourceQuoteNumber    string             `json:"sourceQuoteNumber,omitempty" bson:"sourceQuoteNumber,omitempty"`
 	FulfillmentStatus    string             `json:"fulfillmentStatus,omitempty" bson:"fulfillmentStatus,omitempty"`
+	// LinkedPOIDs — purchase orders raised to procure this SO (back-to-back). One SO
+	// may spawn many POs (lines split across vendors).
+	LinkedPOIDs          []string           `json:"linkedPoIds,omitempty"       bson:"linkedPoIds,omitempty"`
 	StatusHistory        []SOHistoryEntry   `json:"statusHistory,omitempty" bson:"statusHistory,omitempty"`
 }
 

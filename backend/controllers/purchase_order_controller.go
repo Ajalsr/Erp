@@ -514,6 +514,10 @@ func GetAllPurchaseOrders() gin.HandlerFunc {
 				{"vendorName": bson.M{"$regex": q, "$options": "i"}},
 			}})
 		}
+		// Procure-to-order: list the POs raised against a given sales order.
+		if soID := c.Query("sourceSalesOrderId"); soID != "" {
+			andClauses = append(andClauses, bson.M{"sourceSalesOrderId": soID})
+		}
 		filter := bson.M{"$and": andClauses}
 
 		total, _ := purchaseOrderCollection.CountDocuments(ctx, filter)
@@ -621,6 +625,228 @@ func GetPurchaseOrderStats() gin.HandlerFunc {
 				"orderedOrders":  ordered,
 				"receivedOrders": received,
 				"totalAmount":    round2(totalAmount),
+			},
+		})
+	}
+}
+
+// ConvertSOToPO raises a purchase order to procure (a subset of) a sales order's lines
+// from one vendor — back-to-back / procure-to-order. Multi-vendor is supported by
+// calling this once per vendor with that vendor's line subset; each call makes one PO
+// and appends it to the SO's LinkedPOIDs. The PO records who you buy FROM (vendor) and
+// who you buy FOR (the SO's customer); each PO line keeps SourceSOItemID so received
+// goods later credit the right SO line's fulfilledQty (see confirmGRNStock).
+func ConvertSOToPO() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		userID, _ := c.Get("userId")
+		createdBy := fmt.Sprintf("%v", userID)
+
+		soObjID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid sales order ID"})
+			return
+		}
+
+		var body struct {
+			VendorID        string  `json:"vendorId"`
+			VendorName      string  `json:"vendorName"`
+			ShippingCharges float64 `json:"shippingCharges"`
+			Adjustment      float64 `json:"adjustment"`
+			Items           []struct {
+				SourceSOItemID string  `json:"sourceSoItemId"`
+				ItemID         string  `json:"itemId"`
+				Details        string  `json:"details"`
+				Quantity       float64 `json:"quantity"`
+				Rate           float64 `json:"rate"`
+				Unit           string  `json:"unit"`
+				Discount       float64 `json:"discount"`
+				DiscountType   string  `json:"discountType"`
+				Freight        float64 `json:"freight"`
+				FreightTaxRate float64 `json:"freightTaxRate"`
+			} `json:"items"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+		if body.VendorID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Vendor is required"})
+			return
+		}
+		if len(body.Items) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Select at least one line to procure"})
+			return
+		}
+
+		// Load the SO for customer details + number.
+		var so models.SalesOrder
+		if err := salesOrdersCollection.FindOne(ctx, bson.M{"_id": soObjID, "orgId": orgIDStr}).Decode(&so); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Sales order not found"})
+			return
+		}
+
+		// Vendor origin → VAT rate (mainland 5%, free_zone/overseas 0%).
+		appliedTaxRate := 0.05
+		vendorOrigin := ""
+		if vObjID, err2 := primitive.ObjectIDFromHex(body.VendorID); err2 == nil {
+			var vendor struct {
+				Origin string `bson:"origin"`
+			}
+			vendorCollection.FindOne(ctx, bson.M{"_id": vObjID, "orgId": orgIDStr}).Decode(&vendor)
+			vendorOrigin = normaliseOrigin(vendor.Origin)
+			if vendorOrigin == "free_zone" || vendorOrigin == "overseas" {
+				appliedTaxRate = 0.0
+			}
+		}
+
+		// Build PO lines from the selected SO lines. Goods taxed at vendor-origin rate;
+		// optional per-line freight taxed at its OWN rate (mirrors CreatePurchaseOrder).
+		var processedItems []models.PurchaseOrderItem
+		var subTotal float64
+		for _, it := range body.Items {
+			if it.Quantity <= 0 {
+				continue
+			}
+			base := calcLineBase(it.Quantity, it.Rate, it.Discount, it.DiscountType)
+			tax := round2(base * appliedTaxRate)
+			freight := round2(it.Freight)
+			freightTax := round2(freight * it.FreightTaxRate / 100)
+			amount := round2(base + tax + freight + freightTax)
+			processedItems = append(processedItems, models.PurchaseOrderItem{
+				ID:               primitive.NewObjectID(),
+				ItemID:           it.ItemID,
+				Details:          it.Details,
+				Quantity:         it.Quantity,
+				Rate:             it.Rate,
+				Discount:         it.Discount,
+				DiscountType:     it.DiscountType,
+				BaseAmount:       base,
+				TaxRate:          appliedTaxRate * 100,
+				TaxAmount:        tax,
+				Amount:           amount,
+				Unit:             it.Unit,
+				Freight:          freight,
+				FreightTaxRate:   it.FreightTaxRate,
+				FreightTaxAmount: freightTax,
+				SourceSOItemID:   it.SourceSOItemID,
+			})
+			subTotal += base + freight
+		}
+		if len(processedItems) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "No valid lines (quantity must be > 0)"})
+			return
+		}
+		subTotal = round2(subTotal)
+		taxGroups := buildTaxGroups(processedItems)
+		totalTax := 0.0
+		for _, it := range processedItems {
+			totalTax += it.TaxAmount + it.FreightTaxAmount
+		}
+		totalTax = round2(totalTax)
+		shipping := round2(body.ShippingCharges)
+		adjustment := round2(body.Adjustment)
+		total := round2(subTotal + totalTax + shipping + adjustment)
+
+		// Admin/owner auto-issues with an LPO; others go pending_approval.
+		role := getUserRole(ctx, createdBy, orgIDStr)
+		isAdmin := role == "owner" || role == "admin"
+		poStatus, approvalStatus, lpoNumber := "pending_approval", "pending", ""
+		if isAdmin {
+			poStatus, approvalStatus = "issued", "approved"
+			lpoNumber = generateLPONumber(ctx, orgIDStr)
+		}
+
+		po := models.PurchaseOrder{
+			ID:                 primitive.NewObjectID(),
+			OrderNumber:        generatePONumber(ctx, orgIDStr),
+			VendorID:           body.VendorID,
+			VendorName:         body.VendorName,
+			VendorOrigin:       vendorOrigin,
+			POType:             "goods",
+			OrderDate:          time.Now(),
+			PaymentTerms:       so.PaymentTerms,
+			Items:              processedItems,
+			SubTotal:           subTotal,
+			TaxGroups:          taxGroups,
+			TotalTax:           totalTax,
+			ShippingCharges:    shipping,
+			Adjustment:         adjustment,
+			Total:              total,
+			Status:             poStatus,
+			ApprovalStatus:     approvalStatus,
+			LPONumber:          lpoNumber,
+			SourceSalesOrderID: so.ID.Hex(),
+			SourceSONumber:     so.OrderNumber,
+			ForCustomerID:      so.CustomerID,
+			ForCustomerName:    so.CustomerName,
+			OrgID:              orgIDStr,
+			CreatedAt:          time.Now(),
+			UpdatedAt:          time.Now(),
+			CreatedBy:          createdBy,
+		}
+		if isAdmin {
+			now := time.Now()
+			po.ApprovedBy = createdBy
+			po.ApprovedAt = &now
+		}
+
+		if _, err := purchaseOrderCollection.InsertOne(ctx, po); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create purchase order", "error": err.Error()})
+			return
+		}
+
+		// On-order count for goods.
+		stockCol := config.GetCollection(config.DB, "stocks")
+		for _, item := range processedItems {
+			if item.ItemID != "" {
+				if itemObjID, err := primitive.ObjectIDFromHex(item.ItemID); err == nil {
+					stockCol.UpdateOne(ctx,
+						bson.M{"_id": itemObjID, "orgId": orgIDStr},
+						bson.M{"$inc": bson.M{"quantity_ordered": item.Quantity}},
+					)
+				}
+			}
+		}
+
+		// Vendor history.
+		if vObjID, err := primitive.ObjectIDFromHex(po.VendorID); err == nil {
+			vendorCollection.UpdateOne(ctx,
+				bson.M{"_id": vObjID, "orgId": orgIDStr},
+				bson.M{
+					"$push": bson.M{"history": bson.M{
+						"action":    "po_created",
+						"timestamp": time.Now(),
+						"user":      createdBy,
+						"details":   fmt.Sprintf("PO %s raised to source SO %s (%s). Total: AED %.2f", po.OrderNumber, so.OrderNumber, so.CustomerName, po.Total),
+					}},
+					"$set": bson.M{"updatedAt": time.Now()},
+				},
+			)
+		}
+
+		// Link PO to the SO + flag it as being procured.
+		salesOrdersCollection.UpdateOne(ctx,
+			bson.M{"_id": soObjID, "orgId": orgIDStr},
+			bson.M{
+				"$push": bson.M{"linkedPoIds": po.ID.Hex()},
+				"$set":  bson.M{"fulfillmentStatus": "procuring", "updatedAt": time.Now()},
+			},
+		)
+
+		c.JSON(http.StatusCreated, gin.H{
+			"status":  http.StatusCreated,
+			"message": "Purchase order created from sales order",
+			"data": gin.H{
+				"id":          po.ID.Hex(),
+				"orderNumber": po.OrderNumber,
+				"lpoNumber":   po.LPONumber,
+				"status":      po.Status,
+				"total":       po.Total,
 			},
 		})
 	}

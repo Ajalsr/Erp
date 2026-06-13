@@ -28,6 +28,9 @@ type PurchaseOrderItem struct {
 	TaxAmount    float64            `json:"taxAmount"        bson:"taxAmount"`    // baseAmount × taxRate%
 	Amount       float64            `json:"amount"           bson:"amount"`       // base + tax + freight + freightTax
 	Unit         string             `json:"unit"             bson:"unit"`
+	// SourceSOItemID links this PO line back to the sales-order line it procures for,
+	// so received goods can credit the right SO line's fulfilledQty.
+	SourceSOItemID string `json:"sourceSoItemId,omitempty" bson:"sourceSoItemId,omitempty"`
 	// Optional per-item freight — taxed at its OWN rate (UAE: local 5%, international 0%),
 	// independent of the vendor-origin VAT applied to the goods.
 	Freight          float64 `json:"freight,omitempty"          bson:"freight,omitempty"`
@@ -60,6 +63,13 @@ type PurchaseOrder struct {
 
 	CustomerNotes      string `json:"customerNotes"      bson:"customerNotes"`
 	TermsAndConditions string `json:"termsAndConditions" bson:"termsAndConditions"`
+
+	// ── Procure-to-order link ─────────────────────────────────────────────
+	// Set when this PO was raised to source a customer's sales order (back-to-back).
+	SourceSalesOrderID string `json:"sourceSalesOrderId,omitempty" bson:"sourceSalesOrderId,omitempty"`
+	SourceSONumber     string `json:"sourceSoNumber,omitempty"     bson:"sourceSoNumber,omitempty"`
+	ForCustomerID      string `json:"forCustomerId,omitempty"      bson:"forCustomerId,omitempty"`   // who you buy FOR
+	ForCustomerName    string `json:"forCustomerName,omitempty"    bson:"forCustomerName,omitempty"`
 	// POType: goods = must go through GRN before bill; service = bill directly from PO
 	POType string `json:"poType" bson:"poType"` // goods | service
 	Status string `json:"status" bson:"status"` // draft | pending_approval | approved | issued | partial | received | cancelled

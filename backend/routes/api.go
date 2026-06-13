@@ -74,6 +74,7 @@ func SaleOrderRoutes(router *gin.Engine) {
 		salesOrderRoutes.PATCH("/:id/status", controllers.UpdateSalesOrderStatus())
 		salesOrderRoutes.DELETE("/:id", controllers.DeleteSalesOrder())
 		salesOrderRoutes.POST("/:id/revert", controllers.RevertSalesOrder())
+		salesOrderRoutes.POST("/:id/create-po", controllers.ConvertSOToPO())
 	}
 }
 

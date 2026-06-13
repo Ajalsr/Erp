@@ -362,6 +362,18 @@ export default function Purchaseorders() {
                       {selected.poType === 'service' ? <><FaTools size={9}/> Service PO — Bill Directly</> : <><FaBox size={9}/> Goods PO — Requires GRN</>}
                     </span>
                   </div>
+
+                  {/* Procure-to-order: who this PO is bought FOR */}
+                  {selected.sourceSalesOrderId && (
+                    <div style={{ margin:'0 0 12px', padding:'10px 12px', borderRadius:9, background:isDark?'rgba(59,130,246,.1)':'#eff6ff', border:`1px solid ${isDark?'rgba(59,130,246,.3)':'#bfdbfe'}` }}>
+                      <p style={{ margin:0, fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em', color:'#3b82f6' }}>Bought for customer</p>
+                      <p style={{ margin:'3px 0 0', fontSize:12.5, fontWeight:600, color:T.textPri }}>
+                        {selected.forCustomerName || '—'}
+                        {selected.sourceSoNumber && <span style={{ color:T.textSec, fontWeight:400 }}> · against SO {selected.sourceSoNumber}</span>}
+                      </p>
+                    </div>
+                  )}
+
                   <DRow label="Order Number"  value={selected.orderNumber} T={T}/>
                   <DRow label="Order Date"    value={fmtDate(selected.orderDate)} T={T}/>
                   <DRow label="Expected By"   value={fmtDate(selected.expectedDeliveryDate||selected.expectedDate)} T={T}/>
@@ -370,6 +382,10 @@ export default function Purchaseorders() {
                   <DRow label="Reference No." value={selected.referenceNo||selected.lpoNumber} T={T}/>
                   <DRow label="Created By"    value={selected.createdBy} T={T}/>
                   <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>
+                  {(() => {
+                    const frt = (selected.items || []).reduce((s, it) => s + (parseFloat(it.freight) || 0), 0);
+                    return frt > 0 ? <DRow label="Freight (in subtotal)" value={fmtAmt(frt)} T={T}/> : null;
+                  })()}
                   <DRow label="Shipping"      value={fmtAmt(selected.shippingCharges)} T={T}/>
                   <DRow label="Adjustment"    value={fmtAmt(selected.adjustment)} T={T}/>
                   {(selected.taxGroups||[]).length > 0

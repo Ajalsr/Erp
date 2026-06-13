@@ -246,7 +246,7 @@ export default function StockSummary() {
                     ['Unit',         drawer.unit       || '—'],
                     ['Qty on Hand',  drawer.qty],
                     ['Reorder Point',drawer.reorder || '—'],
-                    ['Cost Price',   drawer.cost ? `AED ${drawer.cost.toFixed(2)}` : '—'],
+                    ['Item Value',   drawer.cost ? `AED ${drawer.cost.toFixed(2)}` : '—'],
                     ['Stock Value',  `AED ${drawer.stockValue.toFixed(2)}`],
                     ['Selling Price',drawer.selling_price ? `AED ${parseFloat(drawer.selling_price).toFixed(2)}` : '—'],
                   ].map(([l, v]) => (
