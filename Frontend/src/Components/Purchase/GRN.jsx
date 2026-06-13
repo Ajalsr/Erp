@@ -156,7 +156,7 @@ const pageCss = (isDark) => `
 `;
 
 // ── Print document ─────────────────────────────────────────────
-function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax, grandTotal, grnNote, inFlow, taxRate, letterhead, stamp, orgName, topPadPx, botPadPx }) {
+function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax, grandTotal, grnNote, inFlow, taxRate, letterhead, stamp, orgName, topPadPx, botPadPx, charges = [], landed = [], hasLanded = false, shipCharge = 0, adjustAmt = 0 }) {
   const vatPct = Math.round((taxRate ?? 0.05) * 100);
   return (
     <div className="grn-doc" style={{
@@ -246,6 +246,7 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
               { label: 'Received',    w: '9%',  align: 'center' },
               { label: 'Unit',        w: '7%',  align: 'center' },
               { label: 'Unit Cost',   w: '12%', align: 'right'  },
+              ...(hasLanded ? [{ label: 'Landed Cost', w: '11%', align: 'right' }] : []),
               { label: `VAT ${vatPct}%`, w: '10%', align: 'right'  },
               { label: 'Line Total',  w: '13%', align: 'right'  },
             ].map(({ label, w, align }) => (
@@ -269,6 +270,9 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
                 <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 700, color: '#0f172a', fontSize: 11 }}>{qty}</td>
                 <td style={{ padding: '9px 10px', textAlign: 'center', color: '#64748b', fontSize: 11 }}>{item.unit || 'Pcs'}</td>
                 <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'monospace', fontSize: 11 }}>{fmtAED(unitCost)}</td>
+                {hasLanded && (
+                  <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#047857' }}>{fmtAED(landed[idx] ?? unitCost)}</td>
+                )}
                 <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'monospace', fontSize: 11, color: '#b45309' }}>{fmtAED(lineVat)}</td>
                 <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: '#1d4ed8' }}>{fmtAED(lineTotal)}</td>
               </tr>
@@ -276,7 +280,7 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
           })}
           {Array.from({ length: Math.max(0, 3 - items.length) }).map((_, i) => (
             <tr key={`empty-${i}`} style={{ borderBottom: '1px solid #e2e8f0' }}>
-              {[...Array(9)].map((__, j) => <td key={j} style={{ padding: '9px 10px' }}>&nbsp;</td>)}
+              {[...Array(hasLanded ? 10 : 9)].map((__, j) => <td key={j} style={{ padding: '9px 10px' }}>&nbsp;</td>)}
             </tr>
           ))}
         </tbody>
@@ -295,6 +299,26 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax,
               <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: '#b45309' }}>{fmtAED(g.taxAmount)}</span>
             </div>
           ))}
+          {shipCharge !== 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <span style={{ fontSize: 10, color: '#64748b' }}>Shipping Charges</span>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>{fmtAED(shipCharge)}</span>
+            </div>
+          )}
+          {charges.map((c, i) => (
+            <div key={`ch-${i}`} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <span style={{ fontSize: 10, color: '#64748b' }}>
+                {c.label || 'Other charge'}{c.payeeVendorId ? ` (${c.payeeVendorName || 'payee'}, paid)` : ''}
+              </span>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>{fmtAED(c.total)}</span>
+            </div>
+          ))}
+          {adjustAmt !== 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <span style={{ fontSize: 10, color: '#64748b' }}>Adjustment</span>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: adjustAmt < 0 ? '#dc2626' : '#0f172a' }}>{adjustAmt < 0 ? '−' : '+'}{fmtAED(Math.abs(adjustAmt))}</span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, padding: '10px 12px', background: '#eff6ff', borderRadius: 6, border: '1.5px solid #bfdbfe' }}>
             <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Grand Total (incl. VAT)</span>
             <span style={{ fontSize: 16, fontWeight: 900, fontFamily: 'monospace', color: '#1d4ed8' }}>{fmtAED(grandTotal)}</span>
@@ -365,6 +389,9 @@ export default function GRN() {
   const [printPreview,        setPrintPreview]        = useState(false);
   const [savedGRN,            setSavedGRN]            = useState(null);
   const [mounted,             setMounted]             = useState(false);
+  const [charges,             setCharges]             = useState([]); // landed-cost / other charges
+  const [vendors,             setVendors]             = useState([]); // payee picker options
+  const [bankAccounts,        setBankAccounts]        = useState([]); // cash/bank "paid from" options
 
   // Org letterhead/stamp for the printed GRN (mirrors InvoicePrint).
   const activeOrg = useAuthStore(s => s.activeOrg);
@@ -410,6 +437,16 @@ export default function GRN() {
     const handler = () => setPrintPreview(false);
     window.addEventListener('afterprint', handler);
     return () => window.removeEventListener('afterprint', handler);
+  }, []);
+
+  // Vendors for the "payee" picker on each other-charge row (customs authority, agent…)
+  useEffect(() => {
+    api.get('/api/vendors/?limit=200')
+      .then(r => setVendors(r.data?.data?.vendors || []))
+      .catch(() => {});
+    api.get('/api/accounts/?limit=500&status=active')
+      .then(r => setBankAccounts((r.data?.data?.accounts || []).filter(a => a.isBankAccount)))
+      .catch(() => {});
   }, []);
 
   // Load data — from state (new creation) or API (existing GRN)
@@ -467,6 +504,19 @@ export default function GRN() {
           };
         });
         setLineExtras(extras);
+        if (Array.isArray(d.charges)) {
+          setCharges(d.charges.map((ch) => ({
+            type:            ch.type || 'other',
+            label:           ch.label || '',
+            amount:          ch.amount || 0,
+            taxRate:         ch.taxRate || 0,
+            payeeVendorId:   ch.payeeVendorId || '',
+            payeeVendorName: ch.payeeVendorName || '',
+            capitalise:      ch.capitalise !== false,
+            paymentAccount:  ch.paymentAccount || '',
+            billId:          ch.billId || '',
+          })));
+        }
         setGrnStatus(d.status || 'draft');
         if (d.warehouseId) setWarehouseId(d.warehouseId);
         if (['confirmed', 'stocked', 'invoiced', 'billed', 'rejected'].includes(d.status)) {
@@ -576,7 +626,52 @@ export default function GRN() {
   const totalTax   = round2(goodsTax + freightTaxTotal);
   const shipCharge = round2(parseFloat(inboundData?.shippingCharges) || 0);
   const adjustAmt  = round2(parseFloat(inboundData?.adjustment) || 0);
-  const grandTotal = round2(subTotal + totalTax + shipCharge + adjustAmt);
+  // Other charges (customs duty, clearing, freight…) — each with optional tax + payee.
+  const chargeRows = charges.map((ch) => {
+    const amount    = round2(parseFloat(ch.amount) || 0);
+    const taxAmount = round2(amount * (parseFloat(ch.taxRate) || 0) / 100);
+    return { ...ch, amount, taxAmount, total: round2(amount + taxAmount) };
+  });
+  const chargesTotal = round2(chargeRows.reduce((s, c) => s + c.total, 0));
+  const grandTotal = round2(subTotal + totalTax + shipCharge + chargesTotal + adjustAmt);
+
+  // Per-item landed unit cost (mirrors backend confirmGRNStock): rate + per-unit
+  // freight + a value-prorated share of the capitalised pool (shipping + capitalised
+  // charges). This is what gets baked into stock cost on confirm.
+  const capPool = round2(shipCharge + chargeRows.filter(c => c.capitalise !== false).reduce((s, c) => s + c.amount, 0));
+  const totalAcceptedValue = round2(itemsAccepted.reduce((s, i) => s + (i.receiveQty || 0) * parseFloat(i.costPrice || 0), 0));
+  const landedByIdx = itemsAccepted.map((i) => {
+    const acc  = i.receiveQty || 0;
+    const rate = parseFloat(i.costPrice || 0);
+    if (acc <= 0) return rate;
+    const lineValue = acc * rate;
+    const share = (capPool > 0 && totalAcceptedValue > 0) ? capPool * (lineValue / totalAcceptedValue) : 0;
+    return round2(rate + ((i.freightForReceipt || 0) + share) / acc);
+  });
+  const hasLanded = landedByIdx.some((lc, idx) => lc > parseFloat(items[idx]?.costPrice || items[idx]?.rate || 0) + 0.001);
+
+  const chargesEditable = !confirmed && !linkedBill;
+  const CHARGE_TYPES = [
+    { value: 'customs_duty', label: 'Customs Duty' },
+    { value: 'clearing',     label: 'Clearing / Handling' },
+    { value: 'freight',      label: 'Freight' },
+    { value: 'insurance',    label: 'Insurance' },
+    { value: 'other',        label: 'Other' },
+  ];
+  const updateCharge = (idx, patch) => setCharges((prev) => prev.map((c, i) => i === idx ? { ...c, ...patch } : c));
+  const addCharge    = () => setCharges((prev) => [...prev, { type: 'customs_duty', label: '', amount: 0, taxRate: 0, payeeVendorId: '', payeeVendorName: '', capitalise: true, paymentAccount: '', billId: '' }]);
+  const removeCharge = (idx) => setCharges((prev) => prev.filter((_, i) => i !== idx));
+  // Backend payload form — server recomputes tax/total.
+  const chargesPayload = chargeRows.map((c) => ({
+    type:            c.type || 'other',
+    label:           c.label || '',
+    amount:          c.amount,
+    taxRate:         parseFloat(c.taxRate) || 0,
+    payeeVendorId:   c.payeeVendorId || '',
+    payeeVendorName: c.payeeVendorName || '',
+    capitalise:      c.capitalise !== false,
+    paymentAccount:  c.payeeVendorId ? (c.paymentAccount || '') : '',
+  }));
 
   const isRejected = grnStatus === 'rejected'; // every received unit failed QC → no stock added
 
@@ -633,6 +728,7 @@ export default function GRN() {
           requiresApproval:   inboundData.requiresApproval || false,
           shippingCharges:    shipCharge,
           adjustment:         adjustAmt,
+          charges:            chargesPayload,
           status:             'draft',
           items: items.map((i, idx) => {
             const ex = lineExtras[idx] || {};
@@ -666,6 +762,7 @@ export default function GRN() {
           warehouseName: warehouses.find(w => w._id === warehouseId)?.name || undefined,
           shippingCharges: shipCharge,
           adjustment:      adjustAmt,
+          charges:         chargesPayload,
           items: items.map((i, idx) => {
             const ex = lineExtras[idx] || {};
             return {
@@ -733,12 +830,22 @@ export default function GRN() {
             freight:      round2(i.freightForReceipt || 0),
             freightTaxRate: i.frtPct || 0,
           })).filter(i => i.qty > 0),
+          // Other charges with NO separate payee → billed to the main vendor as line items
+          // (charges WITH a payee are auto-billed separately by the backend, already paid).
+          ...chargeRows.filter((c) => !c.payeeVendorId).map((c) => ({
+            description:  c.label || CHARGE_TYPES.find(t => t.value === c.type)?.label || 'Other charge',
+            qty:          1,
+            unitPrice:    c.amount,
+            taxRate:      parseFloat(c.taxRate) || 0,
+            discount:     0,
+            discountType: 'fixed',
+          })),
         ],
       },
     });
   };
 
-  const docProps = { grn, inboundData, items: itemsAccepted, subTotal, taxGroups, totalTax, grandTotal, grnNote, taxRate, letterhead, stamp, orgName, topPadPx, botPadPx };
+  const docProps = { grn, inboundData, items: itemsAccepted, subTotal, taxGroups, totalTax, grandTotal, grnNote, taxRate, letterhead, stamp, orgName, topPadPx, botPadPx, charges: chargeRows, landed: landedByIdx, hasLanded, shipCharge, adjustAmt };
 
   return (
     <>
@@ -1053,6 +1160,7 @@ export default function GRN() {
                         { h: 'Quality',     align: 'center', w: '8%'  },
                         { h: 'Unit',        align: 'center', w: '6%'  },
                         { h: 'Unit Cost',   align: 'right',  w: '10%' },
+                        ...(hasLanded ? [{ h: 'Landed Cost', align: 'right', w: '10%' }] : []),
                         { h: `VAT ${Math.round(taxRate*100)}%`, align: 'right',  w: '9%'  },
                         { h: 'Line Total',  align: 'right',  w: '11%' },
                       ].map(({ h, align, w }) => (
@@ -1137,6 +1245,13 @@ export default function GRN() {
                           <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                             <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: T.textPri }}>{fmtAED(unitCost)}</span>
                           </td>
+                          {hasLanded && (
+                            <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                              <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }} title="Unit cost + freight + prorated charges (booked to stock on confirm)">
+                                {fmtAED(landedByIdx[idx] ?? unitCost)}
+                              </span>
+                            </td>
+                          )}
                           <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                             <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>{fmtAED(lineVat)}</span>
                           </td>
@@ -1150,6 +1265,83 @@ export default function GRN() {
                 </table>
                 </div>
               </div>
+
+              {/* Other Charges editor (landed cost: customs duty, clearing, freight…) */}
+              {(chargesEditable || chargeRows.length > 0) && (
+                <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 13, padding: '18px 20px', marginBottom: 18 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: chargeRows.length > 0 ? 12 : 0 }}>
+                    <div>
+                      <span style={{ fontSize: 13.5, fontWeight: 800, color: T.textPri }}>Other Charges</span>
+                      <span style={{ fontSize: 11.5, color: T.textSec, marginLeft: 8 }}>Customs duty, clearing, freight — with optional tax & a separate payee</span>
+                    </div>
+                    {chargesEditable && (
+                      <button className="grn-btn" onClick={addCharge}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 13px', background: T.blue, border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff' }}>
+                        + Add Charge
+                      </button>
+                    )}
+                  </div>
+
+                  {chargeRows.map((c, idx) => (
+                    <div key={idx} style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 110px 90px 1fr 34px', gap: 9, alignItems: 'center' }}>
+                      <CustomSelect value={c.type} onChange={(v) => updateCharge(idx, { type: v })}
+                        options={CHARGE_TYPES} T={T} isDark={isDark} disabled={!chargesEditable} />
+                      <input type="text" placeholder="Label (e.g. Import duty 5%)" value={c.label}
+                        disabled={!chargesEditable}
+                        onChange={(e) => updateCharge(idx, { label: e.target.value })}
+                        style={{ padding: '8px 11px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5, color: T.textPri }} />
+                      <input type="number" step="any" placeholder="Amount" value={c.amount || ''}
+                        disabled={!chargesEditable}
+                        onChange={(e) => updateCharge(idx, { amount: e.target.value })}
+                        style={{ padding: '8px 11px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5, color: T.textPri, textAlign: 'right' }} />
+                      <input type="number" step="any" placeholder="Tax %" value={c.taxRate || ''}
+                        disabled={!chargesEditable}
+                        onChange={(e) => updateCharge(idx, { taxRate: e.target.value })}
+                        style={{ padding: '8px 11px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5, color: T.textPri, textAlign: 'right' }} />
+                      <CustomSelect
+                        value={c.payeeVendorId}
+                        onChange={(v) => updateCharge(idx, { payeeVendorId: v, payeeVendorName: vendors.find(x => (x._id || x.id) === v)?.displayName || vendors.find(x => (x._id || x.id) === v)?.name || vendors.find(x => (x._id || x.id) === v)?.companyName || '' })}
+                        options={[{ value: '', label: 'Payee: Main vendor (on main bill)' }, ...vendors.map(v => ({ value: v._id || v.id, label: v.displayName || v.name || v.companyName || 'Vendor' }))]}
+                        T={T} isDark={isDark} disabled={!chargesEditable} />
+                      {chargesEditable ? (
+                        <button className="grn-btn" onClick={() => removeCharge(idx)}
+                          style={{ width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 8, color: '#ef4444', fontSize: 15 }}>
+                          ×
+                        </button>
+                      ) : <span />}
+                    </div>
+
+                    {/* Per-charge options: capitalise into stock cost + (when a separate payee) the bank/cash it's paid from */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '7px 2px 0', flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: T.textSec, cursor: chargesEditable ? 'pointer' : 'default' }}>
+                        <input type="checkbox" checked={c.capitalise !== false} disabled={!chargesEditable}
+                          onChange={(e) => updateCharge(idx, { capitalise: e.target.checked })} />
+                        Add to stock cost (capitalise)
+                      </label>
+                      {c.payeeVendorId && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <span style={{ fontSize: 11.5, color: '#f59e0b' }}>Paid from:</span>
+                          <div style={{ minWidth: 200 }}>
+                            <CustomSelect
+                              value={c.paymentAccount}
+                              onChange={(v) => updateCharge(idx, { paymentAccount: v })}
+                              options={[{ value: '', label: 'Bank Account (default)' }, ...bankAccounts.map(a => ({ value: a.accountCode, label: `${a.accountCode} · ${a.accountName}` }))]}
+                              T={T} isDark={isDark} disabled={!chargesEditable} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    </div>
+                  ))}
+
+                  {chargeRows.some(c => c.payeeVendorId) && (
+                    <p style={{ fontSize: 11, color: T.textSec, margin: '4px 0 0' }}>
+                      ⚡ Charges with a payee are billed separately to that party as a <b>paid</b> bill when you create the bill. The main vendor bill follows its payment terms.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Totals card (GRN-specific, not in Deliverynote) */}
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -1196,6 +1388,21 @@ export default function GRN() {
                           <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: adjustAmt < 0 ? '#ef4444' : T.textPri }}>{adjustAmt < 0 ? '−' : '+'}{fmtAED(Math.abs(adjustAmt))}</span>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {chargeRows.length > 0 && (
+                    <div style={{ padding: '10px 0', borderBottom: `1px solid ${T.border}` }}>
+                      {chargeRows.map((c, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: i < chargeRows.length - 1 ? 6 : 0 }}>
+                          <span style={{ fontSize: 11.5, color: T.textSec }}>
+                            {c.label || CHARGE_TYPES.find(t => t.value === c.type)?.label || 'Other charge'}
+                            {c.payeeVendorId && <span style={{ color: '#f59e0b' }}> · {c.payeeVendorName} (paid)</span>}
+                            {c.taxAmount > 0 && <span style={{ color: T.textSec }}> · +VAT {fmtAED(c.taxAmount)}</span>}
+                          </span>
+                          <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: T.textPri }}>{fmtAED(c.total)}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
 

@@ -78,7 +78,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
   const dropdown = (
     <div ref={dropRef} style={{
       position: "absolute", top: dropPos.top, left: dropPos.left, width: dropPos.width,
-      zIndex: 99999, background: bg, border: `1px solid ${border}`, borderRadius: "10px",
+      zIndex: 1000001, background: bg, border: `1px solid ${border}`, borderRadius: "10px",
       boxShadow: isDarkNow ? "0 20px 60px rgba(0,0,0,0.6)" : "0 8px 32px rgba(0,0,0,0.12)",
       overflow: "hidden", fontFamily: "'DM Sans', sans-serif",
       visibility: ready ? "visible" : "hidden", opacity: ready ? 1 : 0, transition: "opacity 0.1s",
@@ -131,6 +131,9 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWid
 const formatCurrency = (amount) =>
   new Intl.NumberFormat("en-AE", { style: "currency", currency: "AED", minimumFractionDigits: 2 }).format(amount || 0);
 
+const round2 = (n) => Math.round(((parseFloat(n) || 0) + Number.EPSILON) * 100) / 100;
+const fmtAEDFull = (n) => "AED " + Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const formatCurrencyShort = (amount) => {
   const n = amount || 0;
   if (n >= 1_000_000) return `AED ${(n / 1_000_000).toFixed(1)}M`;
@@ -173,6 +176,8 @@ const transformOrders = (apiData) => {
     vat: o.vat || 0,
     createdAt: o.createdAt,
     rejectionReason: o.rejectionReason || "",
+    fulfillmentStatus: o.fulfillmentStatus || "",
+    linkedPoIds: o.linkedPoIds || [],
   }));
 };
 
@@ -234,6 +239,117 @@ const Salesorders = () => {
   const [perPage, setPerPage] = useState(10);
   const [soHistory, setSoHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // ── Create-PO-from-SO (procure-to-order, multi-vendor) ──────────────────
+  const [poModalSO, setPoModalSO] = useState(null);   // the SO being procured
+  const [poVendors, setPoVendors] = useState([]);     // vendor options
+  const [poLines, setPoLines] = useState([]);         // [{ check, soItemId, itemId, details, unit, rate, qty, vendorId }]
+  const [poSaving, setPoSaving] = useState(false);
+  const [poShipping, setPoShipping] = useState("0");
+  const [poAdjustment, setPoAdjustment] = useState("0");
+  const [linkedPOs, setLinkedPOs] = useState([]); // POs raised against the open SO
+
+  // Vendor-origin VAT: mainland 5%, free_zone/overseas 0% (mirrors the PO form).
+  const vendorTaxRate = (origin) => {
+    const o = (origin || "").toLowerCase().replace(/\s+/g, "_");
+    return (o === "free_zone" || o === "overseas") ? 0 : 0.05;
+  };
+  const poLineCalc = (l) => {
+    const qty = parseFloat(l.qty) || 0;
+    const rate = parseFloat(l.rate) || 0;
+    const disc = parseFloat(l.discount) || 0;
+    let base = qty * rate;
+    if (l.discountType === "percentage") base = base - base * (disc / 100);
+    else base = Math.max(0, base - disc);
+    const v = poVendors.find(x => (x._id || x.id) === l.vendorId);
+    const taxRate = vendorTaxRate(v?.origin);
+    const tax = base * taxRate;
+    const freight = parseFloat(l.freight) || 0;
+    const freightTax = freight * (parseFloat(l.freightTaxRate) || 0) / 100;
+    return { base, tax, taxRate, freight, freightTax, amount: base + tax + freight + freightTax };
+  };
+  const poTotals = (() => {
+    const chosen = poLines.filter(l => l.check);
+    let sub = 0, tax = 0;
+    chosen.forEach(l => { const c = poLineCalc(l); sub += c.base + c.freight; tax += c.tax + c.freightTax; });
+    const ship = parseFloat(poShipping) || 0;
+    const adj = parseFloat(poAdjustment) || 0;
+    return { sub: round2(sub), tax: round2(tax), ship: round2(ship), adj: round2(adj), grand: round2(sub + tax + ship + adj) };
+  })();
+
+  useEffect(() => {
+    if (!selected?.id) { setLinkedPOs([]); return; }
+    axiosInstance.get(`/api/purchase-orders/getorders?sourceSalesOrderId=${selected.id}&limit=100`)
+      .then(r => setLinkedPOs(r.data?.data?.purchaseOrders || []))
+      .catch(() => setLinkedPOs([]));
+  }, [selected?.id, poSaving]);
+
+  useEffect(() => {
+    if (!poModalSO) return;
+    axiosInstance.get("/api/vendors/?limit=200")
+      .then(r => setPoVendors(r.data?.data?.vendors || []))
+      .catch(() => setPoVendors([]));
+    setPoShipping("0");
+    setPoAdjustment("0");
+    setPoLines((poModalSO.items || []).map(it => {
+      const remaining = Math.max(0, (it.quantity || 0) - (it.fulfilledQty || 0));
+      return {
+        check: remaining > 0,
+        soItemId: it._id || it.id || "",
+        itemId: it.itemId || "",
+        details: it.details || "",
+        unit: it.unit || "",
+        rate: it.rate || 0,
+        discount: typeof it.discount === "number" ? it.discount : 0,
+        discountType: it.discountType || "fixed",
+        qty: remaining || it.quantity || 0,
+        freight: 0,
+        freightTaxRate: 0,
+        vendorId: "",
+      };
+    }));
+  }, [poModalSO]);
+
+  const submitCreatePO = async () => {
+    const chosen = poLines.filter(l => l.check && l.qty > 0 && l.vendorId);
+    if (!chosen.length) { alert("Select at least one line, set a quantity, and pick a vendor."); return; }
+    // Group selected lines by vendor → one PO per vendor (multi-vendor split).
+    const byVendor = {};
+    chosen.forEach(l => { (byVendor[l.vendorId] ||= []).push(l); });
+    setPoSaving(true);
+    try {
+      const results = [];
+      for (const [vendorId, lines] of Object.entries(byVendor)) {
+        const v = poVendors.find(x => (x._id || x.id) === vendorId);
+        const res = await axiosInstance.post(`/api/sales-orders/${poModalSO.id}/create-po`, {
+          vendorId,
+          vendorName: v?.displayName || v?.name || v?.companyName || "",
+          shippingCharges: Number(poShipping) || 0,
+          adjustment: Number(poAdjustment) || 0,
+          items: lines.map(l => ({
+            sourceSoItemId: l.soItemId,
+            itemId: l.itemId,
+            details: l.details,
+            quantity: Number(l.qty),
+            rate: Number(l.rate),
+            unit: l.unit,
+            discount: Number(l.discount) || 0,
+            discountType: l.discountType,
+            freight: Number(l.freight) || 0,
+            freightTaxRate: Number(l.freightTaxRate) || 0,
+          })),
+        });
+        results.push(res.data?.data?.orderNumber || "PO");
+      }
+      setPoModalSO(null);
+      await handleGetSalesorder();
+      alert(`Created ${results.length} purchase order(s): ${results.join(", ")}`);
+    } catch (e) {
+      alert(e.response?.data?.message || "Failed to create purchase order.");
+    } finally {
+      setPoSaving(false);
+    }
+  };
 
   const updateOrderStatus = async (id, status, extra = {}) => {
     if (approvingRef.current) return;
@@ -1207,6 +1323,39 @@ const Salesorders = () => {
                         <span style={{ fontSize: "11px", fontWeight: "600", color: C.textSec }}>{itemCount} item{itemCount !== 1 ? "s" : ""} · Subtotal</span>
                         <span className="so-heading" style={{ fontSize: "14px", fontWeight: "800", color: hue, fontFamily: "'DM Mono', monospace" }}>{fmtM(selected.subTotal)}</span>
                       </div>
+
+                      {/* Procure-to-order: raise PO(s) to source these lines */}
+                      {!["cancelled", "rejected"].includes(selected.rawStatus) && (
+                        <button onClick={() => setPoModalSO(selected)}
+                          style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 14px", borderRadius: 9, border: "none", background: "#3b82f6", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                          <FaFileInvoiceDollar size={12} /> Create Purchase Order
+                        </button>
+                      )}
+                      {linkedPOs.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: C.textSec, margin: "0 0 6px" }}>
+                            Linked purchase orders ({linkedPOs.length})
+                          </p>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {linkedPOs.map(po => {
+                              const ps = getStatus(po.status);
+                              return (
+                                <div key={po._id} onClick={() => navigate("/Purchase/PurchaseOrders")}
+                                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 11px", borderRadius: 8, border: `1px solid ${C.border}`, background: isDark ? C.surface : "#fff", cursor: "pointer" }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700, color: C.blueLight }}>{po.orderNumber}</span>
+                                    <span style={{ fontSize: 11, color: C.textSec }}> · {po.vendorName || "—"}</span>
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                                    <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 7px", borderRadius: 999, color: ps.color, background: ps.bg, border: `1px solid ${ps.border}` }}>{ps.label}</span>
+                                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11.5, fontWeight: 700, color: C.textPri }}>{fmtM(po.total)}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "200px", gap: "10px" }}>
@@ -1339,6 +1488,116 @@ const Salesorders = () => {
               <button onClick={confirmRejectOrder} disabled={!rejectReason.trim() || approvingId !== null}
                 style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: (!rejectReason.trim() || approvingId !== null) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (!rejectReason.trim() || approvingId !== null) ? 0.5 : 1 }}>
                 <FaThumbsDown size={11} /> {approvingId === rejectOrder.id ? "Rejecting…" : "Reject"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {poModalSO && createPortal(
+        <div onClick={() => !poSaving && setPoModalSO(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100000, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 880, maxHeight: "90vh", overflowY: "auto", background: isDark ? C.surface : "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 22, fontFamily: "inherit" }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.textPri }}>Create Purchase Order</h3>
+            <p style={{ margin: "6px 0 16px", fontSize: 12.5, color: C.textSec }}>
+              Procure for <strong style={{ color: C.textPri }}>{poModalSO.saleOrderNumber}</strong> · {poModalSO.customer}.
+              Pick a vendor per line — lines sharing a vendor become one PO (multi-vendor = multiple POs).
+            </p>
+
+            {(() => {
+              // shared styles for the line editor inputs
+              const inp = { boxSizing: "border-box", textAlign: "right", padding: "7px 9px", borderRadius: 8, border: `1px solid ${C.border}`, background: isDark ? "rgba(255,255,255,0.04)" : "#f8fafc", color: C.textPri, fontSize: 12.5, fontFamily: "'DM Mono', monospace", width: "100%" };
+              const lab = { fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: C.textSec, margin: "0 0 3px" };
+              const set = (idx, patch) => setPoLines(p => p.map((x, i) => i === idx ? { ...x, ...patch } : x));
+              return poLines.map((l, idx) => {
+                const c = poLineCalc(l);
+                return (
+                  <div key={l.soItemId || idx} style={{ padding: "11px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: isDark ? "rgba(255,255,255,0.02)" : "#fff", marginBottom: 9, opacity: l.check ? 1 : 0.55 }}>
+                    {/* top row */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: l.check ? 10 : 0 }}>
+                      <input type="checkbox" checked={l.check}
+                        onChange={e => set(idx, { check: e.target.checked })} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: C.textPri, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.details || "Item"}</p>
+                        <span style={{ fontSize: 10.5, color: C.textSec }}>{l.unit || "unit"}{c.taxRate > 0 ? ` · VAT ${Math.round(c.taxRate * 100)}%` : l.vendorId ? " · zero-rated" : ""}</span>
+                      </div>
+                      <div style={{ width: 230, flexShrink: 0 }}>
+                        <CustomSelect
+                          value={l.vendorId}
+                          onChange={(v) => set(idx, { vendorId: v })}
+                          placeholder="Buy from (vendor)…"
+                          minWidth={230}
+                          options={poVendors.map(v => ({ value: v._id || v.id, label: v.displayName || v.name || v.companyName || "Vendor" }))}
+                        />
+                      </div>
+                      <span style={{ width: 96, textAlign: "right", flexShrink: 0, fontSize: 13, fontWeight: 700, color: "#3b82f6", fontFamily: "'DM Mono', monospace" }}>{fmtAEDFull(c.amount)}</span>
+                    </div>
+
+                    {/* editable fields */}
+                    {l.check && (
+                      <div style={{ display: "grid", gridTemplateColumns: "70px 100px 110px 100px 90px", gap: 9 }}>
+                        <div><p style={lab}>Qty</p>
+                          <input type="number" min="0" step="any" value={l.qty} onChange={e => set(idx, { qty: e.target.value })} style={inp} /></div>
+                        <div><p style={lab}>Rate</p>
+                          <input type="number" min="0" step="any" value={l.rate} onChange={e => set(idx, { rate: e.target.value })} style={inp} /></div>
+                        <div><p style={lab}>Discount</p>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input type="number" min="0" step="any" value={l.discount} onChange={e => set(idx, { discount: e.target.value })} style={{ ...inp, width: "60%" }} />
+                            <button type="button" onClick={() => set(idx, { discountType: l.discountType === "percentage" ? "fixed" : "percentage" })}
+                              style={{ width: "40%", borderRadius: 8, border: `1px solid ${C.border}`, background: isDark ? "rgba(255,255,255,0.04)" : "#f8fafc", color: C.textPri, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                              {l.discountType === "percentage" ? "%" : "AED"}
+                            </button>
+                          </div></div>
+                        <div><p style={lab}>Freight</p>
+                          <input type="number" min="0" step="any" value={l.freight} onChange={e => set(idx, { freight: e.target.value })} style={inp} /></div>
+                        <div><p style={lab}>Frt Tax %</p>
+                          <input type="number" min="0" step="any" value={l.freightTaxRate} onChange={e => set(idx, { freightTaxRate: e.target.value })} style={inp} /></div>
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+
+            {/* Header charges + live totals */}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+              <div style={{ width: 320, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", background: isDark ? "rgba(255,255,255,0.02)" : "#f8fafc" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontSize: 11.5, color: C.textSec }}>Subtotal</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: C.textPri, fontFamily: "'DM Mono', monospace" }}>{fmtAEDFull(poTotals.sub)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontSize: 11.5, color: C.textSec }}>VAT</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "#f59e0b", fontFamily: "'DM Mono', monospace" }}>{fmtAEDFull(poTotals.tax)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
+                  <span style={{ fontSize: 11.5, color: C.textSec }}>Shipping</span>
+                  <input type="number" min="0" step="any" value={poShipping} onChange={e => setPoShipping(e.target.value)}
+                    style={{ width: 110, boxSizing: "border-box", textAlign: "right", padding: "5px 8px", borderRadius: 7, border: `1px solid ${C.border}`, background: isDark ? "rgba(255,255,255,0.04)" : "#fff", color: C.textPri, fontSize: 12, fontFamily: "'DM Mono', monospace" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                  <span style={{ fontSize: 11.5, color: C.textSec }}>Adjustment</span>
+                  <input type="number" step="any" value={poAdjustment} onChange={e => setPoAdjustment(e.target.value)}
+                    style={{ width: 110, boxSizing: "border-box", textAlign: "right", padding: "5px 8px", borderRadius: 7, border: `1px solid ${C.border}`, background: isDark ? "rgba(255,255,255,0.04)" : "#fff", color: C.textPri, fontSize: 12, fontFamily: "'DM Mono', monospace" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: C.textPri }}>Grand Total</span>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: "#3b82f6", fontFamily: "'DM Mono', monospace" }}>{fmtAEDFull(poTotals.grand)}</span>
+                </div>
+                <p style={{ fontSize: 10, color: C.textSec, margin: "8px 0 0" }}>Shipping &amp; adjustment apply to each PO created.</p>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+              <button onClick={() => setPoModalSO(null)} disabled={poSaving}
+                style={{ padding: "9px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+              <button onClick={submitCreatePO} disabled={poSaving}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 18px", borderRadius: 8, border: "none", background: "#3b82f6", color: "#fff", fontSize: 13, fontWeight: 700, cursor: poSaving ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: poSaving ? 0.6 : 1 }}>
+                <FaFileInvoiceDollar size={11} /> {poSaving ? "Creating…" : "Create PO(s)"}
               </button>
             </div>
           </div>

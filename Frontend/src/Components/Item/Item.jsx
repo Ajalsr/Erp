@@ -444,6 +444,7 @@ export default function Item() {
               itemOrders={itemOrders} ordersLoading={ordersLoading}
               itemAdjustments={itemAdjustments} adjLoading={adjLoading}
               requested={(availability.requested ?? 0) + (availability.committed ?? 0)}
+              availability={availability}
               onClose={closePanel}
               onAdjust={(item)=>{setAdjustItem(item);setAdjustQty(String(item.quantity??0));}}
               onEdit={(item)=>navigate(`/Items/Items/Edit/${item._id||item.id}`)}
@@ -510,7 +511,7 @@ function MiniSparkline({ vals, color }) {
 }
 
 /* ─── Detail panel ────────────────────────────────────────────────────── */
-function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, itemAdjustments, adjLoading, requested, onClose, onAdjust, onEdit }) {
+function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, itemAdjustments, adjLoading, requested, availability, onClose, onAdjust, onEdit }) {
   const state = stockState(item.quantity, item.reorder_point);
   const qty   = parseFloat(item.quantity || 0);
   const reo   = parseFloat(item.reorder_point || 0);
@@ -670,7 +671,7 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
 
         {/* Tab body */}
         {activeTab==="overview"&&(
-          <OverviewTab item={item} T={T} isDark={isDark} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders}/>
+          <OverviewTab item={item} T={T} isDark={isDark} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} availability={availability} onEdit={onEdit}/>
         )}
         {(activeTab==="transactions"||activeTab==="history")&&(
           <TxnHistoryTab activeTab={activeTab} item={item} T={T} isDark={isDark} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} ordersLoading={ordersLoading} itemAdjustments={itemAdjustments} adjLoading={adjLoading}/>
@@ -727,10 +728,19 @@ function KpiCard({ label, value, tone, sub, icon, bar, T, isDark, muted, text })
 }
 
 /* ─── Overview tab ────────────────────────────────────────────────────── */
-function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, itemOrders }) {
+function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, itemOrders, availability = {}, onEdit }) {
   const qty = parseFloat(item.quantity||0);
   const fmtD = (d)=>d?new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}):"—";
   const recentTxns = itemOrders.slice(-5).reverse();
+
+  // Stock buckets (from /availability). Accounting commits at sales-order confirmation;
+  // Physical commits when goods are picked into an un-dispatched delivery note.
+  const inHand    = parseFloat(availability.inHand ?? qty) || 0;
+  const committed = parseFloat(availability.committed ?? 0) || 0; // confirmed SOs
+  const requestedQ= parseFloat(availability.requested ?? 0) || 0; // unshipped DNs + pending-approval SOs
+  const acctFree  = Math.max(0, inHand - committed);
+  const physFree  = Math.max(0, inHand - requestedQ);
+  const fmtU      = (n)=>`${(Math.round((n+Number.EPSILON)*100)/100)}`;
 
   const cardStyle = { background:surface, border:`1px solid ${border}`, borderRadius:11, overflow:"hidden" };
   const cardH     = { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"11px 14px", borderBottom:`1px solid ${border}`, fontSize:12, fontWeight:600, color:text, letterSpacing:".01em" };
@@ -795,6 +805,53 @@ function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, i
             </div>
           </div>
         </div>
+
+        {/* Stock breakdown card — Opening / Accounting / Physical */}
+        {(() => {
+          const u = item.unit || "units";
+          const rowStyle = { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 0" };
+          const labelStyle = { fontSize:12, color:muted, borderBottom:`1px dashed ${border2}`, paddingBottom:1 };
+          const valStyle = { fontSize:12.5, fontWeight:600, color:text, fontFamily:"'DM Mono',monospace" };
+          const Section = ({ title, hint, onHand, reqLabel, reqVal, freeLabel, freeVal }) => (
+            <div style={{ marginTop:14 }}>
+              <div style={{ fontSize:12.5, fontWeight:700, color:text, marginBottom:2 }} title={hint}>{title} <span style={{color:muted,fontWeight:400}}>ⓘ</span></div>
+              <div style={rowStyle}><span style={labelStyle}>Stock on Hand</span><span style={valStyle}>{fmtU(onHand)}</span></div>
+              <div style={rowStyle}><span style={labelStyle}>{reqLabel}</span><span style={valStyle}>{fmtU(reqVal)}</span></div>
+              <div style={rowStyle}><span style={labelStyle}>{freeLabel}</span><span style={{...valStyle, color: freeVal>0?T.green:muted}}>{fmtU(freeVal)}</span></div>
+            </div>
+          );
+          return (
+            <div style={cardStyle}>
+              <div style={cardH}>Stock <span style={{fontSize:11.5,fontWeight:500,color:muted}}>in {u}</span></div>
+              <div style={cardB}>
+                {/* Opening stock */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", paddingBottom:6, borderBottom:`1px solid ${border}` }}>
+                  <span style={{ fontSize:12.5, fontWeight:700, color:text }}>Opening Stock <span style={valStyle}>: {fmtU(parseFloat(item.opening_stock||0))}</span></span>
+                  {onEdit && (
+                    <span onClick={()=>onEdit(item)} style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:12, fontWeight:600, color:T.blue, cursor:"pointer" }}>
+                      <FaEdit size={11}/> Edit
+                    </span>
+                  )}
+                </div>
+
+                <Section
+                  title="Accounting Stock"
+                  hint="Reserved when a sales order is confirmed. Free = on hand − committed sales orders."
+                  onHand={inHand}
+                  reqLabel="Requested Stock" reqVal={committed}
+                  freeLabel="Free Stock"      freeVal={acctFree}
+                />
+                <Section
+                  title="Physical Stock"
+                  hint="Reserved when goods are picked into an un-dispatched delivery note. Free = on hand − goods awaiting dispatch."
+                  onHand={inHand}
+                  reqLabel="Requested Stock" reqVal={requestedQ}
+                  freeLabel="Free Stock"      freeVal={physFree}
+                />
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Recent transactions card */}
         <div style={cardStyle}>
