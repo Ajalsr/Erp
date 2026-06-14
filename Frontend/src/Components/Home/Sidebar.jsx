@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { guardNav } from '../../helper/useUnsavedGuard'
 import { IoHome, IoChevronDown, IoSettingsOutline } from 'react-icons/io5'
 import { FaBoxOpen, FaCartArrowDown, FaClipboardCheck } from 'react-icons/fa'
 import { MdInventory2 } from 'react-icons/md'
@@ -48,6 +49,7 @@ const MENU = [
   ]},
   { icon: TbReportAnalytics, label: 'Reports',    mods: ['reports'], tourKey: 'nav-reports', subItems: [
     { name: 'Sales Report',          route: '/Reports/sales',                mod: 'reports' },
+    { name: 'Sales by Emirate',      route: '/Reports/sales-by-emirate',     mod: 'reports' },
     { name: 'Purchase Report',       route: '/Reports/purchases',            mod: 'reports' },
     { name: 'Inventory Report',      route: '/Reports/inventory',            mod: 'reports' },
     { name: 'AR Aging',              route: '/Reports/aging',                mod: 'reports' },
@@ -216,7 +218,7 @@ const Sidebar = ({ isCollapsed }) => {
                   title={isCollapsed ? item.label : ''}
                   data-tour={item.tourKey}
                   onClick={() => {
-                    if (item.settings) { navigate(orgId ? `/organizations/${orgId}/settings` : '/Home') }
+                    if (item.settings) { guardNav(() => navigate(orgId ? `/organizations/${orgId}/settings` : '/Home')) }
                     else if (hasSub) {
                       // Expanded rail: toggle the section. Collapsed rail (no room to
                       // expand): jump straight to the first sub-item the role can open,
@@ -224,10 +226,10 @@ const Sidebar = ({ isCollapsed }) => {
                       if (!isCollapsed) setOpenMenu(isOpen ? null : item.label)
                       else {
                         const first = item.subItems.find((sub) => !sub.mod || canAny(sub.mod))
-                        if (first) navigate(first.route)
+                        if (first) guardNav(() => navigate(first.route))
                       }
                     }
-                    else navigate(item.route)
+                    else guardNav(() => navigate(item.route))
                   }}
                   className={`nx-nav-item ${active ? 'active' : ''}`}
                   style={{
@@ -250,7 +252,7 @@ const Sidebar = ({ isCollapsed }) => {
                   <div style={{ overflow: 'hidden', maxHeight: isOpen ? '400px' : 0, transition: 'max-height 0.25s ease' }}>
                     <div style={{ paddingLeft: '16px', paddingRight: '4px', paddingTop: '2px', paddingBottom: '4px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
                       {item.subItems.filter((sub) => !sub.mod || canAny(sub.mod)).map((sub) => (
-                        <button key={sub.name} onClick={() => navigate(sub.route)}
+                        <button key={sub.name} onClick={() => guardNav(() => navigate(sub.route))}
                           className={`nx-sub ${isSubActive(sub.route) ? 'active' : ''}`}
                           style={subBtnStyle}>
                           {sub.name}

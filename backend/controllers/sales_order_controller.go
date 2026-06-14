@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/backend/config"
@@ -41,6 +42,30 @@ func calculateItemAmount(quantity, rate, discount float64, discountType string) 
 		result = 0
 	}
 	return math.Round(result*100) / 100
+}
+
+// salesOrderApproverRoles returns the roles allowed to approve/reject a sales order:
+// owner/admin always, plus any roles configured in the "sales_orders" approval policy
+// chain (Settings → Approvals). Falls back to owner/admin when nothing is configured.
+func salesOrderApproverRoles(ctx context.Context, orgID primitive.ObjectID) map[string]bool {
+	roles := map[string]bool{"owner": true, "admin": true}
+	var org models.Organization
+	if orgCollection.FindOne(ctx, bson.M{"_id": orgID},
+		options.FindOne().SetProjection(bson.M{"approvalPolicies": 1})).Decode(&org) == nil {
+		if p, ok := org.ApprovalPolicies["sales_orders"]; ok {
+			for _, s := range p.Steps {
+				for _, r := range s.Roles {
+					if r != "" {
+						roles[r] = true
+					}
+				}
+				if s.Delegate != "" {
+					roles[s.Delegate] = true
+				}
+			}
+		}
+	}
+	return roles
 }
 
 func CreateSalesOrder() gin.HandlerFunc {
@@ -168,21 +193,17 @@ func CreateSalesOrder() gin.HandlerFunc {
 		adjustment := math.Round(req.Adjustment*100) / 100
 		total := math.Round((subTotal+vat+shipping+adjustment)*100) / 100
 
-		// ── Role check: admin/owner vs non-privileged ─────────────────────────
-		privileged := false
 		orgIDStr := fmt.Sprintf("%v", orgID)
-		if orgObjID, parseErr := primitive.ObjectIDFromHex(orgIDStr); parseErr == nil {
-			if role, ok := getMemberRole(ctx, orgObjID, fmt.Sprintf("%v", userID)); ok {
-				privileged = isAdminOrOwner(role)
-			}
-		}
-		// ── Credit limit check ────────────────────────────────────────────────
-		// When CreditLimitAction == "block" (or "block" is the org default) and the
-		// new order would push the customer over their credit limit, return 422 and
-		// refuse to save. Otherwise include a creditWarning in the 201 response.
+		// ── Risk checks → route to approval instead of hard-blocking ──────────
+		// Credit-limit "block", an expired trade license, or any overdue invoice no
+		// longer reject the order — they force it into pending_approval and the reasons
+		// are surfaced so the UI can show a popup.
 		var creditWarning gin.H
+		needsApproval := false
+		var approvalReasons []string
+		invCol := config.GetCollection(config.DB, "invoices")
+
 		if customer.CreditLimit > 0 {
-			invCol := config.GetCollection(config.DB, "invoices")
 			soCol := config.GetCollection(config.DB, "sales_orders")
 
 			invPipeline := []bson.M{
@@ -230,25 +251,51 @@ func CreateSalesOrder() gin.HandlerFunc {
 					"exceeded":      true,
 				}
 				action := customer.CreditLimitAction
-			if action == "" {
-				action = "warn"
-			}
-			if action == "block" {
-					c.JSON(http.StatusUnprocessableEntity, gin.H{
-						"status":        http.StatusUnprocessableEntity,
-						"message":       "Order blocked: this order would exceed the customer's credit limit",
-						"creditBlocked": info,
-					})
-					return
+				if action == "" {
+					action = "warn"
+				}
+				if action == "block" {
+					needsApproval = true
+					approvalReasons = append(approvalReasons,
+						fmt.Sprintf("Credit limit exceeded (limit AED %.2f, this order would reach AED %.2f)", customer.CreditLimit, projectedUsed))
 				}
 				creditWarning = info
 			}
 		}
 
+		// Expired trade license (customer custom field "licenseExpiryDate", YYYY-MM-DD).
+		if customer.CustomFields != nil {
+			if exp, ok := customer.CustomFields["licenseExpiryDate"].(string); ok && exp != "" {
+				if exp < time.Now().Format("2006-01-02") {
+					needsApproval = true
+					approvalReasons = append(approvalReasons, "Customer's trade license expired on "+exp)
+				}
+			}
+		}
+
+		// Any overdue invoice for this customer.
+		if overdueCount, _ := invCol.CountDocuments(ctx, bson.M{
+			"orgId":      orgID,
+			"customerId": req.CustomerID,
+			"status":     "overdue",
+		}); overdueCount > 0 {
+			needsApproval = true
+			approvalReasons = append(approvalReasons, fmt.Sprintf("%d overdue invoice(s) on this customer", overdueCount))
+		}
+
 		// Always assign from the org's configured numbering format — the client only sends
 		// a placeholder for display, never the authoritative number.
 		req.OrderNumber = generateOrderNumber(ctx, fmt.Sprintf("%v", orgID))
-		soStatus := func() string { if privileged { return "open" }; return "pending_approval" }()
+		// Approval is required ONLY when a risk reason fires (credit block / expired
+		// license / overdue). A clean order goes straight to open for everyone.
+		soStatus := "open"
+		if needsApproval {
+			soStatus = "pending_approval"
+		}
+		histNote := ""
+		if needsApproval {
+			histNote = "Held for approval: " + strings.Join(approvalReasons, "; ")
+		}
 		now := time.Now()
 		salesOrder := models.SalesOrder{
 			ID:                   primitive.NewObjectID(),
@@ -281,6 +328,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 				{
 					Action:    "created",
 					Status:    soStatus,
+					Note:      histNote,
 					ChangedBy: fmt.Sprintf("%v", userID),
 					ChangedAt: now,
 				},
@@ -346,6 +394,10 @@ func CreateSalesOrder() gin.HandlerFunc {
 		}
 		if creditWarning != nil {
 			resp["creditWarning"] = creditWarning
+		}
+		if needsApproval {
+			resp["sentToApproval"] = true
+			resp["approvalReasons"] = approvalReasons
 		}
 		c.JSON(http.StatusCreated, resp)
 	}
@@ -597,13 +649,22 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			return
 		}
 
-		// Only admin/owner can approve, reject, confirm, or directly cancel
-		if req.Status == "approved" || req.Status == "rejected" || req.Status == "confirmed" || req.Status == "cancelled" {
+		// approve/reject → the configured approver roles (Settings → Approvals chain for
+		// sales orders, owner/admin always). confirm/cancel stay owner/admin only.
+		if req.Status == "approved" || req.Status == "rejected" {
 			statusUserID, _ := c.Get("userId")
-			statusOrgIDStr := fmt.Sprintf("%v", orgID)
-			if statusOrgObjID, err2 := primitive.ObjectIDFromHex(statusOrgIDStr); err2 == nil {
+			if statusOrgObjID, err2 := primitive.ObjectIDFromHex(fmt.Sprintf("%v", orgID)); err2 == nil {
+				statusRole, ok2 := getMemberRole(ctx, statusOrgObjID, fmt.Sprintf("%v", statusUserID))
+				if !ok2 || !salesOrderApproverRoles(ctx, statusOrgObjID)[statusRole] {
+					c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You're not an approver for sales orders."})
+					return
+				}
+			}
+		} else if req.Status == "confirmed" || req.Status == "cancelled" {
+			statusUserID, _ := c.Get("userId")
+			if statusOrgObjID, err2 := primitive.ObjectIDFromHex(fmt.Sprintf("%v", orgID)); err2 == nil {
 				if statusRole, ok2 := getMemberRole(ctx, statusOrgObjID, fmt.Sprintf("%v", statusUserID)); !ok2 || !isAdminOrOwner(statusRole) {
-					c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admin or owner can approve, reject, confirm, or cancel sales orders."})
+					c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only admin or owner can confirm or cancel sales orders."})
 					return
 				}
 			}
@@ -659,10 +720,15 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 					submitterID := fmt.Sprintf("%v", c.MustGet("userId"))
 					orgIDStr2 := fmt.Sprintf("%v", orgID)
 					orgObjID, _ := primitive.ObjectIDFromHex(orgIDStr2)
+					approverRoles := salesOrderApproverRoles(nCtx, orgObjID)
+					roleList := make([]string, 0, len(approverRoles))
+					for r := range approverRoles {
+						roleList = append(roleList, r)
+					}
 					cur, err2 := orgMemberCollection.Find(nCtx, bson.M{
 						"orgId":  orgObjID,
 						"status": "active",
-						"role":   bson.M{"$in": []string{"owner", "admin"}},
+						"role":   bson.M{"$in": roleList},
 					})
 					if err2 == nil {
 						var admins []models.OrgMember

@@ -12,6 +12,8 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useAuthStore from '../../store/useAuthStore';
 import api from '../../helper/axiosInstance';
 
+const EMIRATES = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'];
+
 const today = () =>
   new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
@@ -273,6 +275,18 @@ export default function DeliveryNote() {
       showToast('Marked as delivered!', '✅');
     } catch (e) { showToast(e.response?.data?.message || 'Failed to update status.', '❌'); }
     finally { setDeliverLoading(false); }
+  };
+
+  // Set the delivery emirate (location-based sales tracking).
+  const saveLocation = async (loc) => {
+    const prev = note?.deliveryLocation || '';
+    setNote((p) => ({ ...p, deliveryLocation: loc }));
+    try {
+      await api.patch(`/api/delivery-notes/${note._id}/location`, { deliveryLocation: loc });
+    } catch (e) {
+      setNote((p) => ({ ...p, deliveryLocation: prev }));
+      showToast(e.response?.data?.message || 'Failed to update location.', '❌');
+    }
   };
 
   const handleCreateInvoice = () => {
@@ -742,9 +756,17 @@ export default function DeliveryNote() {
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: 'uppercase', letterSpacing: '.07em' }}>Delivery Details</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                    {/* Location — editable emirate dropdown (location-based sales tracking) */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500, flexShrink: 0 }}>Location</span>
+                      <select value={note.deliveryLocation || ''} onChange={(e) => saveLocation(e.target.value)}
+                        style={{ fontSize: 12.5, fontWeight: 600, color: note.deliveryLocation ? T.textPri : T.textSec, background: isDark ? T.surface2 : '#fff', border: `1px solid ${T.border}`, borderRadius: 7, padding: '4px 8px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'right', maxWidth: 160 }}>
+                        <option value="">Select emirate…</option>
+                        {EMIRATES.map((em) => <option key={em} value={em}>{em}</option>)}
+                      </select>
+                    </div>
                     {[
                       { label: 'Delivery Date',    value: fmtDate(note.date),                 mono: false },
-                      { label: 'Location',         value: note.deliveryLocation || '—',       mono: false },
                       { label: 'Sales Order',      value: note.orderNumber || '—',            mono: true  },
                       { label: 'Cust PO No.',      value: note.custPoNo || '—',               mono: true  },
                       { label: 'Cust PO Date',     value: fmtDate(note.custPoDate) || '—',   mono: false },

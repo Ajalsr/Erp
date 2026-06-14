@@ -3,6 +3,7 @@ import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { FaChevronLeft, FaPlus, FaTrash, FaCheckCircle, FaSpinner, FaChevronDown } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import axiosInstance from '../../helper/axiosInstance';
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import nexusToast from '../../helper/nexusToast';
 
 // Normalise vendor origin variants → canonical form for RCM logic
@@ -126,7 +127,9 @@ export default function NewBill() {
   // 3-way match reference — snapshot of GRN-received qty + total at creation time
   const fromGRN = !!pre.fromGRN;
   const refQtyTotal   = round2((pre.items || []).reduce((s, i) => s + (parseFloat(i.qty) || 0), 0));
-  const refGrandTotal = round2(parseFloat(pre.total) || 0);
+  // Compare against the portion billed on THIS bill (matchTotal excludes charges that
+  // are billed separately to their own payee). Falls back to the full GRN total.
+  const refGrandTotal = round2(parseFloat(pre.matchTotal ?? pre.total) || 0);
 
   // Vendor search
   const [vendorSearch,  setVendorSearch]  = useState(pre.vendorName || '');
@@ -331,8 +334,10 @@ export default function NewBill() {
   const lbl = { display: 'block', fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 };
   const sec = { background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: '20px 22px', marginBottom: 16, boxShadow: isDark ? '0 2px 10px rgba(0,0,0,.25)' : '0 1px 4px rgba(0,0,0,.05)' };
 
+  const guard = useUnsavedGuard({ hasDraft: false });
+
   return (
-    <div style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px', color: T.textPri, fontFamily: "'DM Sans', sans-serif" }}>
+    <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px', color: T.textPri, fontFamily: "'DM Sans', sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');`}</style>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
 
@@ -615,6 +620,23 @@ export default function NewBill() {
             <span style={{ fontSize: 15, fontWeight: 800, color: T.textPri }}>Grand Total</span>
             <span style={{ fontSize: 18, fontWeight: 900, color: T.blue, fontFamily: "'DM Mono', monospace" }}>AED {grandTotal.toFixed(2)}</span>
           </div>
+
+          {Array.isArray(pre.separateCharges) && pre.separateCharges.length > 0 && (
+            <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 10, background: isDark ? 'rgba(139,92,246,.08)' : '#f5f3ff', border: `1px solid ${isDark ? 'rgba(139,92,246,.25)' : '#ddd6fe'}` }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', marginBottom: 6 }}>⚡ Billed separately ({pre.separateCharges.length})</div>
+              {pre.separateCharges.map((c, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, color: T.textSec, marginBottom: 3 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label} → {c.payeeName}</span>
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontWeight: 700, color: T.textPri, flexShrink: 0 }}>AED {Number(c.total || 0).toFixed(2)}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, fontWeight: 700, color: '#7c3aed', borderTop: `1px solid ${isDark ? 'rgba(139,92,246,.2)' : '#ddd6fe'}`, marginTop: 5, paddingTop: 5 }}>
+                <span>Separate bill total</span>
+                <span style={{ fontFamily: "'DM Mono', monospace" }}>AED {pre.separateCharges.reduce((s, c) => s + (Number(c.total) || 0), 0).toFixed(2)}</span>
+              </div>
+              <p style={{ fontSize: 10, color: T.textSec, margin: '6px 0 0', lineHeight: 1.4 }}>These charges are auto-billed to their payee as a paid bill — not part of this vendor bill.</p>
+            </div>
+          )}
         </div>
 
         {/* Expense Account — only for non-GRN bills (GRN bills capitalise to Inventory) */}

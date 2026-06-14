@@ -518,6 +518,10 @@ func GetAllPurchaseOrders() gin.HandlerFunc {
 		if soID := c.Query("sourceSalesOrderId"); soID != "" {
 			andClauses = append(andClauses, bson.M{"sourceSalesOrderId": soID})
 		}
+		// Procured-for-customer: list every back-to-back PO bought for a customer.
+		if custID := c.Query("forCustomerId"); custID != "" {
+			andClauses = append(andClauses, bson.M{"forCustomerId": custID})
+		}
 		filter := bson.M{"$and": andClauses}
 
 		total, _ := purchaseOrderCollection.CountDocuments(ctx, filter)

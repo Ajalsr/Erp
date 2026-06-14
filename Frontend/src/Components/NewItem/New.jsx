@@ -6,6 +6,7 @@ import useAdditem from '../../helper/useAddItem';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
 import axiosInstance from '../../helper/axiosInstance';
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 
 /* ─── Colour palette derived from item name ─────────────────────────── */
 const PALETTE = [
@@ -355,6 +356,7 @@ const New = () => {
   const navigate = useNavigate();
   const { id: editId } = useParams();
   const isEdit = !!editId;
+  const guard = useUnsavedGuard({ hasDraft: false });
   const fileInputRef = useRef(null);
 
   // ── Theme ──
@@ -514,6 +516,7 @@ const New = () => {
         await handleAdditem(formData);
         nexusToast.success('Item created successfully!');
       }
+      guard.reset();
       setTimeout(() => navigate('/Items/Items'), 1500);
     } catch (err) {
       const msg =
@@ -591,7 +594,7 @@ const New = () => {
 
   /* ═══════════════════════════ RENDER ════════════════════════════════ */
   return (
-    <div className="nw2-root" style={{ background: T.bg, minHeight: '100vh' }}>
+    <div className="nw2-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: '100vh' }}>
       <style>{css}</style>
 
       {/* ── DISCARD MODAL (proper React portal, not toast) ── */}

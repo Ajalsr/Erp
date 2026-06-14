@@ -116,8 +116,12 @@ func GetItemStockAvailability() gin.HandlerFunc {
 			{"$unwind": "$items"},
 			{"$match": bson.M{"items.itemId": itemIDStr}},
 			{"$group": bson.M{
-				"_id":       nil,
-				"committed": bson.M{"$sum": "$items.quantity"},
+				"_id": nil,
+				// Remaining (undispatched) qty only: ordered − already fulfilled, floored at 0.
+				// Without subtracting fulfilledQty a partly-dispatched order over-reserves.
+				"committed": bson.M{"$sum": bson.M{"$max": bson.A{0,
+					bson.M{"$subtract": bson.A{"$items.quantity", bson.M{"$ifNull": bson.A{"$items.fulfilledQty", 0}}}},
+				}}},
 			}},
 		}
 		cur, err := soCol.Aggregate(ctx, pipeline)

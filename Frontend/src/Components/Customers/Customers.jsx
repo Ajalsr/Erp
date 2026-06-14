@@ -231,6 +231,8 @@ const Customers = () => {
   const [invoiceMap,   setInvoiceMap]           = useState({});
   const [creditStatus, setCreditStatus]          = useState(null);
   const [customerCNs,  setCustomerCNs]           = useState([]);
+  const [procuredPOs,  setProcuredPOs]           = useState([]);
+  const [procuredLoading, setProcuredLoading]    = useState(false);
   const [searchTerm, setSearchTerm]           = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -434,6 +436,16 @@ const Customers = () => {
       setCustPayments(pmtRes.status === "fulfilled" ? pmtRes.value.data?.data?.payments || [] : []);
       setCustomerCNs(cnRes.status === "fulfilled" ? cnRes.value.data?.data || [] : []);
     }).finally(() => setTxnLoading(false));
+  }, [activeTab, selectedItem]);
+
+  // Back-to-back POs procured FOR this customer.
+  useEffect(() => {
+    if (activeTab !== "procured" || !selectedItem?._id) return;
+    setProcuredLoading(true);
+    axiosInstance.get(`/api/purchase-orders?forCustomerId=${selectedItem._id}&limit=200`)
+      .then((r) => setProcuredPOs(r.data?.data?.purchaseOrders || []))
+      .catch(() => setProcuredPOs([]))
+      .finally(() => setProcuredLoading(false));
   }, [activeTab, selectedItem]);
 
   useEffect(() => {
@@ -927,6 +939,7 @@ const Customers = () => {
                           { id: "transactions", label: `Invoices${invData.total ? ` ${invData.total}` : ""}` },
                           { id: "statement",    label: "Payments" },
                           { id: "financials",   label: "Statement" },
+                          { id: "procured",     label: "Procured" },
                           { id: "contacts",     label: "Contacts" },
                           { id: "documents",    label: `Documents${selectedItem?.documents?.length ? ` (${selectedItem.documents.length})` : ""}` },
                         ].map(tab => (
@@ -1514,6 +1527,45 @@ const Customers = () => {
                           </div>
                         </div>
                       )}
+                    </div>
+                  );
+                })()}
+
+                {/* ── PROCURED TAB (back-to-back POs bought FOR this customer) ── */}
+                {activeTab === "procured" && (() => {
+                  const fmtAmt = (n) => `AED ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  const fmtD   = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+                  if (procuredLoading) return <div style={{ padding: 40, textAlign: "center", color: T.textSec, fontSize: 13 }}>Loading…</div>;
+                  if (!procuredPOs.length) return (
+                    <div style={{ padding: "48px 20px", textAlign: "center", color: T.textSec }}>
+                      <div style={{ fontSize: 32, marginBottom: 10 }}>📦</div>
+                      <div style={{ fontWeight: 600, color: T.textPri, marginBottom: 4 }}>Nothing procured for this customer</div>
+                      <div style={{ fontSize: 12 }}>Back-to-back purchase orders raised from this customer's sales orders appear here.</div>
+                    </div>
+                  );
+                  const total = procuredPOs.reduce((s, p) => s + (p.total || p.grandTotal || 0), 0);
+                  return (
+                    <div style={{ padding: "4px 0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 4px 10px" }}>
+                        <span style={{ fontSize: 12, color: T.textSec }}>{procuredPOs.length} purchase order{procuredPOs.length !== 1 ? "s" : ""}</span>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: T.textPri }}>{fmtAmt(total)}</span>
+                      </div>
+                      <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr .8fr", padding: "8px 12px", background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
+                          {["PO #", "Vendor", "From SO", "Total"].map((h, i) => (
+                            <span key={h} style={{ fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: ".05em", textAlign: i === 3 ? "right" : "left" }}>{h}</span>
+                          ))}
+                        </div>
+                        {procuredPOs.map((p, i) => (
+                          <div key={p._id || i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr .8fr", padding: "10px 12px", borderTop: i ? `1px solid ${T.border}` : "none", alignItems: "center" }}>
+                            <span style={{ fontSize: 11.5, fontWeight: 600, color: T.blueLight, fontFamily: "'DM Mono', monospace" }}>{p.orderNumber || "—"}</span>
+                            <span style={{ fontSize: 11.5, color: T.textPri, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.vendorName || "—"}</span>
+                            <span style={{ fontSize: 11, color: T.textSec, fontFamily: "'DM Mono', monospace" }}>{p.sourceSoNumber || "—"}</span>
+                            <span style={{ fontSize: 11.5, fontWeight: 700, color: T.textPri, textAlign: "right", fontFamily: "'DM Mono', monospace" }}>{fmtAmt(p.total || p.grandTotal)}</span>
+                            <span style={{ gridColumn: "1 / -1", fontSize: 10, color: T.textSec, marginTop: 3 }}>{fmtD(p.orderDate || p.createdAt)} · {p.status || "—"}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   );
                 })()}

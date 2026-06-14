@@ -214,6 +214,132 @@ func GetDeliveryNoteByID() gin.HandlerFunc {
 }
 
 // ─── UPDATE STATUS ────────────────────────────────────────────────────────────
+// GetSalesByEmirate aggregates dispatched/delivered delivery notes by emirate →
+// count + total value, for location-based sales tracking. Optional from/to on date.
+// GET /api/delivery-notes/sales-by-emirate?from=YYYY-MM-DD&to=YYYY-MM-DD
+func GetSalesByEmirate() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		match := bson.M{
+			"orgId":  fmt.Sprintf("%v", orgID),
+			"status": bson.M{"$in": []string{"dispatched", "delivered"}},
+		}
+		if from := c.Query("from"); from != "" {
+			match["date"] = bson.M{"$gte": from}
+		}
+		if to := c.Query("to"); to != "" {
+			if d, ok := match["date"].(bson.M); ok {
+				d["$lte"] = to
+			} else {
+				match["date"] = bson.M{"$lte": to}
+			}
+		}
+
+		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: match}},
+			{{Key: "$group", Value: bson.M{
+				"_id":   "$deliveryLocation",
+				"count": bson.M{"$sum": 1},
+				"total": bson.M{"$sum": "$grandTotal"},
+			}}},
+			{{Key: "$sort", Value: bson.M{"total": -1}}},
+		}
+
+		cursor, err := deliveryNotesCollection.Aggregate(ctx, pipeline)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Aggregation failed"})
+			return
+		}
+		defer cursor.Close(ctx)
+		var rows []bson.M
+		cursor.All(ctx, &rows)
+
+		out := make([]gin.H, 0, len(rows))
+		grand := 0.0
+		var grandCount int64
+		for _, r := range rows {
+			emirate, _ := r["_id"].(string)
+			if emirate == "" {
+				emirate = "Unassigned"
+			}
+			total := 0.0
+			switch v := r["total"].(type) {
+			case float64:
+				total = v
+			case int64:
+				total = float64(v)
+			case int32:
+				total = float64(v)
+			}
+			cnt := int64(0)
+			switch v := r["count"].(type) {
+			case int32:
+				cnt = int64(v)
+			case int64:
+				cnt = v
+			}
+			out = append(out, gin.H{"emirate": emirate, "count": cnt, "total": total})
+			grand += total
+			grandCount += cnt
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{
+			"rows": out, "grandTotal": grand, "grandCount": grandCount,
+		}})
+	}
+}
+
+// uaeEmirates is the allow-list for a delivery note's location.
+var uaeEmirates = map[string]bool{
+	"Abu Dhabi": true, "Dubai": true, "Sharjah": true, "Ajman": true,
+	"Umm Al Quwain": true, "Ras Al Khaimah": true, "Fujairah": true,
+}
+
+// UpdateDeliveryNoteLocation sets the delivery emirate (for location-based sales tracking).
+func UpdateDeliveryNoteLocation() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid delivery note ID"})
+			return
+		}
+
+		var body struct {
+			DeliveryLocation string `json:"deliveryLocation"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
+			return
+		}
+		// Allow clearing ("") or a valid emirate only.
+		if body.DeliveryLocation != "" && !uaeEmirates[body.DeliveryLocation] {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid emirate"})
+			return
+		}
+
+		orgID, _ := c.Get("orgId")
+		res, err := deliveryNotesCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": fmt.Sprintf("%v", orgID)},
+			bson.M{"$set": bson.M{"deliveryLocation": body.DeliveryLocation, "updatedAt": time.Now()}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update location"})
+			return
+		}
+		if res.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Delivery note not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Location updated"})
+	}
+}
+
 func UpdateDeliveryNoteStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

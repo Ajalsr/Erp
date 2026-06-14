@@ -2,6 +2,7 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar    from './Home/Sidebar'
 import Navbar     from './Home/Navbar'
+import UnsavedModal from './common/UnsavedModal'
 // import TourGuide  from './Tour/TourGuide'
 import useThemeStore from '../store/useThemeStore'
 import useWebSocket from '../helper/useWebSocket'
@@ -130,6 +131,7 @@ export default function Layout() {
       </div>
 
       {/* <TourGuide /> */}
+      <UnsavedModal />
     </div>
   )
 }

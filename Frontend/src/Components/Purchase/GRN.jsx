@@ -804,6 +804,11 @@ export default function GRN() {
   };
 
   const handleCreateBill = () => {
+    // Charges with a payee are billed separately to that party, so they're NOT on this
+    // bill. The 3-way match must compare against the main-vendor portion only.
+    const payeeCharges = chargeRows.filter((c) => c.payeeVendorId);
+    const payeeChargesTotal = round2(payeeCharges.reduce((s, c) => s + c.total, 0));
+    const grnTotal = savedGRN?.total || grandTotal;
     navigate('/Purchase/Bills/New', {
       state: {
         fromGRN:          true,
@@ -814,7 +819,15 @@ export default function GRN() {
         vendorId:         inboundData.vendorId || '',
         vendorName:       grn.vendor || '',
         vendorOrigin:     inboundData.vendorOrigin || '',
-        total:            savedGRN?.total || grandTotal,
+        total:            grnTotal,
+        // Expected total on THIS bill (excludes separately-billed payee charges).
+        matchTotal:       round2(grnTotal - payeeChargesTotal),
+        // Charges billed separately to their own payee — shown as a note on the bill.
+        separateCharges:  payeeCharges.map((c) => ({
+          label:     c.label || CHARGE_TYPES.find(t => t.value === c.type)?.label || 'Other charge',
+          payeeName: c.payeeVendorName || 'payee',
+          total:     round2(c.total),
+        })),
         // Header charges — shown in a small box on the bill, NOT as line items
         shippingCharges:  round2(shipCharge),
         adjustment:       round2(adjustAmt),

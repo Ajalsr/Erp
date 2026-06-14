@@ -5,6 +5,7 @@ import useAuthStore from '../../store/useAuthStore';
 import useGetItem from '../../helper/useGetItem';
 import useGetCustomers from '../../helper/useGetCustomers';
 import useAddSalesOrder from '../../helper/useAddSalesOrder';
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import axiosInstance from '../../helper/axiosInstance';
 import { debounce } from 'lodash';
 import DatePicker from 'react-datepicker';
@@ -501,7 +502,7 @@ const Newsalesorders = () => {
   const [successMessage,setSuccessMessage]=useState('');
   const [toasterType,setToasterType]=useState('success');
   const [editStatus,setEditStatus]=useState('');
-  const [creditBlockError,setCreditBlockError]=useState(null);
+  const [approvalInfo,setApprovalInfo]=useState(null); // {reasons:[]} when order held for approval
   const [lpoError,setLpoError]=useState('');
 
   const activeOrg=useAuthStore(s=>s.activeOrg);
@@ -825,8 +826,8 @@ const Newsalesorders = () => {
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setToasterType('success');setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
-  const handleSubmitForApproval=async()=>{try{const d=prepareSalesOrderData('pending_approval'),r=await handleAddSalesOrder(d);if(r?.data?.id){setToasterType('success');setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){const blocked=e.response?.data?.creditBlocked;if(blocked){setCreditBlockError(blocked);return;}if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){if(r?.sentToApproval){guard.reset();setApprovalInfo({reasons:r.approvalReasons||[]});return;}handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setToasterType('success');setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSubmitForApproval=async()=>{try{const d=prepareSalesOrderData('pending_approval'),r=await handleAddSalesOrder(d);if(r?.data?.id){guard.reset();if(r?.sentToApproval){setApprovalInfo({reasons:r.approvalReasons||[]});return;}setToasterType('success');setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
   const handleResubmit=async()=>{try{const d=prepareSalesOrderData('pending_approval');await axiosInstance.put(`/api/sales-orders/${editId}`,d);setToasterType('success');setSuccessMessage('Order resubmitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to resubmit.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
@@ -835,62 +836,37 @@ const Newsalesorders = () => {
   const hasItemsAdded=items.some(i=>i.details&&i.quantity>0);
   const isCreditHardBlocked=!!(creditStatus?.exceeded&&creditStatus?.creditLimitAction==='block');
 
+  const guard=useUnsavedGuard({saveDraft:async()=>{const d=prepareSalesOrderData('draft');await handleAddSalesOrder(d);},hasDraft:true});
+
   return (
-    <div className="nso-root" style={{minHeight:'100vh',background:T.bg,padding:'20px 20px 90px'}}>
+    <div className="nso-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{minHeight:'100vh',background:T.bg,padding:'20px 20px 90px'}}>
       {/* useMemo: only re-generate the style block when the theme changes, not on every keystroke */}
       <style>{useMemo(()=>buildCSS(isDark),[isDark])}</style>
       <Toaster message="Are you sure you want to cancel? All unsaved changes will be lost." type="warning" isVisible={showCancelToaster} onConfirm={confirmCancel} onCancel={cancelCancel}/>
       <SuccessToaster message={successMessage} isVisible={showSuccessToaster} onClose={()=>setShowSuccessToaster(false)} type={toasterType}/>
 
-      {creditBlockError && (
+      {approvalInfo && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',backdropFilter:'blur(8px)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-          <div style={{background:T.surface,borderRadius:20,maxWidth:420,width:'100%',boxShadow:isDark?'0 32px 80px rgba(0,0,0,0.7)':'0 32px 80px rgba(0,0,0,0.18)',overflow:'hidden',border:`1.5px solid ${isDark?'rgba(220,38,38,0.3)':'#fecaca'}`}}>
-            {/* Red accent top bar */}
-            <div style={{height:4,background:'linear-gradient(90deg,#dc2626,#ef4444,#f87171)'}}/>
-            {/* Header */}
+          <div style={{background:T.surface,borderRadius:20,maxWidth:440,width:'100%',boxShadow:isDark?'0 32px 80px rgba(0,0,0,0.7)':'0 32px 80px rgba(0,0,0,0.18)',overflow:'hidden',border:`1.5px solid ${isDark?'rgba(245,158,11,0.3)':'#fde68a'}`}}>
+            <div style={{height:4,background:'linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b)'}}/>
             <div style={{padding:'24px 24px 0',display:'flex',alignItems:'flex-start',gap:14}}>
-              <div style={{width:46,height:46,borderRadius:14,background:'rgba(220,38,38,0.12)',border:'1.5px solid rgba(220,38,38,0.25)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:20}}>🚫</div>
+              <div style={{width:46,height:46,borderRadius:14,background:'rgba(245,158,11,0.12)',border:'1.5px solid rgba(245,158,11,0.25)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:20}}>⏳</div>
               <div>
-                <p style={{fontSize:16,fontWeight:800,color:'#dc2626',margin:'0 0 4px',fontFamily:"'Sora',sans-serif",letterSpacing:'-0.02em'}}>Credit Limit Exceeded</p>
-                <p style={{fontSize:12,color:T.textSec,margin:0,lineHeight:1.5}}>This order cannot be placed — it would exceed the customer's approved credit limit.</p>
+                <p style={{fontSize:16,fontWeight:800,color:'#d97706',margin:'0 0 4px',fontFamily:"'Sora',sans-serif",letterSpacing:'-0.02em'}}>Sent for approval</p>
+                <p style={{fontSize:12,color:T.textSec,margin:0,lineHeight:1.5}}>The order was created but needs a manager's approval before it proceeds, for the following reason{(approvalInfo.reasons||[]).length>1?'s':''}:</p>
               </div>
             </div>
-            {/* Stats */}
-            <div style={{margin:'20px 24px',borderRadius:12,overflow:'hidden',border:`1.5px solid ${isDark?'rgba(255,255,255,0.07)':'#f1f5f9'}`}}>
-              {[
-                {label:'Credit Limit',    value:creditBlockError.creditLimit,   color:T.textPri,  bg: isDark?'rgba(255,255,255,0.03)':'#f8fafc'},
-                {label:'Currently Used',  value:creditBlockError.currentUsed,   color:T.textPri,  bg:'transparent'},
-                {label:'This Order',      value:creditBlockError.thisOrder,     color:'#f59e0b',  bg: isDark?'rgba(245,158,11,0.06)':'#fffbeb'},
-                {label:'Projected Total', value:creditBlockError.projectedUsed, color:'#dc2626',  bg: isDark?'rgba(220,38,38,0.08)':'#fef2f2', bold:true},
-              ].map((row,i)=>(
-                <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:row.bg,borderBottom:i<3?`1px solid ${isDark?'rgba(255,255,255,0.05)':'#f1f5f9'}`:'none'}}>
-                  <span style={{fontSize:12,color:T.textSec,fontWeight:row.bold?700:500}}>{row.label}</span>
-                  <span style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:row.bold?800:600,color:row.color}}>
-                    AED {row.value?.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}
-                  </span>
+            <div style={{margin:'18px 24px',display:'flex',flexDirection:'column',gap:8}}>
+              {(approvalInfo.reasons||[]).map((reason,i)=>(
+                <div key={i} style={{display:'flex',alignItems:'flex-start',gap:9,padding:'10px 12px',background:isDark?'rgba(245,158,11,0.06)':'#fffbeb',border:`1px solid ${isDark?'rgba(245,158,11,0.18)':'#fde68a'}`,borderRadius:9}}>
+                  <span style={{color:'#f59e0b',fontSize:13,lineHeight:1.4,flexShrink:0}}>⚠️</span>
+                  <span style={{fontSize:12.5,color:T.textPri,lineHeight:1.45}}>{reason}</span>
                 </div>
               ))}
             </div>
-            {/* Overflow bar */}
-            <div style={{margin:'0 24px 20px'}}>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontWeight:600,color:T.textSec,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>
-                <span>Credit Used</span>
-                <span style={{color:'#dc2626'}}>Exceeds by AED {(creditBlockError.projectedUsed-creditBlockError.creditLimit)?.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-              </div>
-              <div style={{height:6,background:isDark?'rgba(255,255,255,0.08)':'#f1f5f9',borderRadius:99,overflow:'hidden'}}>
-                <div style={{height:'100%',width:'100%',background:'linear-gradient(90deg,#f59e0b,#ef4444)',borderRadius:99}}/>
-              </div>
-            </div>
-            {/* Footer note */}
-            <div style={{margin:'0 24px 20px',padding:'10px 12px',background:isDark?'rgba(255,255,255,0.03)':'#f8fafc',borderRadius:9,border:`1px solid ${isDark?'rgba(255,255,255,0.06)':'#e2e8f0'}`}}>
-              <p style={{fontSize:11,color:T.textSec,margin:0,lineHeight:1.6}}>
-                To proceed, reduce the order total or ask a manager to raise the customer's credit limit.
-              </p>
-            </div>
-            {/* Action */}
             <div style={{padding:'0 24px 24px'}}>
-              <button onClick={()=>setCreditBlockError(null)} style={{width:'100%',padding:'12px',background:'linear-gradient(135deg,#dc2626,#b91c1c)',color:'#fff',border:'none',borderRadius:11,fontWeight:700,cursor:'pointer',fontSize:13,fontFamily:"'DM Sans',sans-serif",letterSpacing:'0.01em',boxShadow:'0 4px 14px rgba(220,38,38,0.35)',transition:'all .15s'}}>
-                Go Back &amp; Edit Order
+              <button onClick={()=>{setApprovalInfo(null);navigate('/Sales/Salesorders');}} style={{width:'100%',padding:'12px',background:'linear-gradient(135deg,#f59e0b,#d97706)',color:'#fff',border:'none',borderRadius:11,fontWeight:700,cursor:'pointer',fontSize:13,fontFamily:"'DM Sans',sans-serif",letterSpacing:'0.01em',boxShadow:'0 4px 14px rgba(245,158,11,0.35)'}}>
+                OK, go to Sales Orders
               </button>
             </div>
           </div>
