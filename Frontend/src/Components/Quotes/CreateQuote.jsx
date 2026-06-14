@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
 import axiosInstance from "../../helper/axiosInstance";
+import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import useThemeStore from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
 
@@ -616,10 +617,12 @@ export default function CreateQuote() {
     ::-webkit-scrollbar-thumb { background: ${isDark ? "rgba(255,255,255,0.11)" : "rgba(0,0,0,0.13)"}; border-radius: 999px; }
   `;
 
+  const guard = useUnsavedGuard({ hasDraft: false });
+
   return (
     <ThemeCtx.Provider value={T}>
     <StockCtx.Provider value={catalogItems}>
-      <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", color: T.text }}>
+      <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", color: T.text }}>
         <style>{css}</style>
 
         {/* Top bar */}

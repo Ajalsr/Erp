@@ -117,7 +117,7 @@ export default function Item() {
       const onOrder = pos.filter(po=>["issued","partial"].includes(po.status)&&(po.items||[]).some(i=>i.itemId===selectedItem._id)).map(po=>{
         const l = po.items.find(i=>i.itemId===selectedItem._id);
         const remaining = Math.max(0, (l?.quantity??0) - (l?.receivedQty||0));
-        return { type:"onorder", id:po._id, orderNumber:po.orderNumber, partyName:po.vendorName||"—", date:po.orderDate, qty:remaining, total:remaining*(l?.rate??0), status:po.status };
+        return { type:"onorder", id:po._id, orderNumber:po.orderNumber, partyName:po.vendorName||"—", forCustomer:po.forCustomerName||"", date:po.orderDate, qty:remaining, total:remaining*(l?.rate??0), status:po.status };
       });
 
       setItemOrders([...sales,...purchases,...onOrder].sort((a,b)=>new Date(a.date)-new Date(b.date)));
@@ -871,7 +871,7 @@ function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, i
                     {o.type==="purchase"?<FaArrowDown size={11}/>:<FaArrowUp size={11}/>}
                   </div>
                   <div style={{minWidth:0}}>
-                    <div style={{fontSize:12.5,fontWeight:500,color:text}}>{o.orderNumber||"—"} <span style={{color:muted,fontWeight:400}}>· {o.partyName}</span></div>
+                    <div style={{fontSize:12.5,fontWeight:500,color:text}}>{o.orderNumber||"—"} <span style={{color:muted,fontWeight:400}}>· {o.partyName}{o.forCustomer?` · for ${o.forCustomer}`:""}</span></div>
                     <div style={{fontSize:11,color:muted}}>{fmtD(o.date)}</div>
                   </div>
                 </div>
@@ -961,7 +961,7 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
             <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.1fr 1fr .8fr .7fr .8fr 70px",padding:"9px 12px",borderBottom:i<rows.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
               <span style={{fontSize:10,color:muted}}>{fmtD(o.date)}</span>
               <span style={{fontSize:10,color,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
-              <span style={{fontSize:10,color:text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.partyName}</span>
+              <span style={{fontSize:10,color:text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.partyName}{o.forCustomer&&<span style={{color:muted}}> · for {o.forCustomer}</span>}</span>
               <span className="sora" style={{fontSize:11,fontWeight:700,color}}>{o.type==="sale"?"−":"+"}{ o.qty}</span>
               <span style={{fontSize:10,color:text,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
               <span style={{display:"inline-flex",alignItems:"center",gap:3,padding:"2px 7px",borderRadius:20,fontSize:9,fontWeight:600,background:s.bg,color:s.t,textTransform:"capitalize",width:"fit-content"}}>

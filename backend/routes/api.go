@@ -385,6 +385,8 @@ func DeliveryNoteRoutes(router *gin.Engine) {
 		dnRoutes.GET("/stats", controllers.GetDeliveryNoteStats())
 		dnRoutes.GET("/:id", controllers.GetDeliveryNoteByID())
 		dnRoutes.PATCH("/:id/status", controllers.UpdateDeliveryNoteStatus())
+		dnRoutes.PATCH("/:id/location", controllers.UpdateDeliveryNoteLocation())
+		dnRoutes.GET("/sales-by-emirate", controllers.GetSalesByEmirate())
 		dnRoutes.PATCH("/:id/invoice", controllers.MarkDeliveryNoteInvoiced())
 	}
 }

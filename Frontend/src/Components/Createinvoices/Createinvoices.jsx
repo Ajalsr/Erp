@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
 import axiosInstance from "../../helper/axiosInstance";
+import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import useThemeStore from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
 
@@ -798,6 +799,8 @@ const CreateInvoice = () => {
     { key: "approved", label: "Approved",          dot: T.accent2, bg: `${T.accent2}1a`, bdr: `${T.accent2}55` },
   ];
 
+  const guard = useUnsavedGuard({ saveDraft: async () => { await (draftId ? axiosInstance.put(`/api/invoices/${draftId}`, buildPayload("draft")) : axiosInstance.post("/api/invoices", buildPayload("draft"))); }, hasDraft: true });
+
   return (
     <ThemeCtx.Provider value={T}>
       <style>{`
@@ -811,7 +814,7 @@ const CreateInvoice = () => {
         .ci-tab-active { border-bottom: 2px solid ${T.accent} !important; color: ${T.text} !important; }
       `}</style>
 
-      <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif", transition: "background 0.25s, color 0.25s" }}>
+      <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif", transition: "background 0.25s, color 0.25s" }}>
 
         {/* Topbar */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 24px", borderBottom: `1px solid ${T.border}`, background: T.topbar, transition: "background 0.25s, border-color 0.25s" }}>
