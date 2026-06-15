@@ -1,14 +1,17 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -590,5 +593,76 @@ func DeleteQuote() gin.HandlerFunc {
 
 		quoteCollection.DeleteOne(ctx, bson.M{"_id": objectID, "orgId": orgID})
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote deleted"})
+	}
+}
+
+// SendQuote emails a quote to one or more recipients and marks it as sent.
+// POST /api/quotes/:id/send  body: { recipients: []string, message: string }
+func SendQuote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid quote ID"})
+			return
+		}
+
+		var q models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&q); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+
+		var req struct {
+			Recipients []string `json:"recipients"`
+			Message    string   `json:"message"`
+		}
+		c.ShouldBindJSON(&req)
+
+		// De-dupe + trim recipients; fall back to the quote's / customer's email.
+		seen := map[string]bool{}
+		var to []string
+		for _, e := range req.Recipients {
+			e = strings.TrimSpace(e)
+			if e != "" && !seen[strings.ToLower(e)] {
+				seen[strings.ToLower(e)] = true
+				to = append(to, e)
+			}
+		}
+		if len(to) == 0 {
+			if q.CustomerEmail != "" {
+				to = append(to, q.CustomerEmail)
+			} else if cid, e2 := primitive.ObjectIDFromHex(q.CustomerID); e2 == nil {
+				var cust models.Customer
+				if customersCollection.FindOne(ctx, bson.M{"_id": cid}).Decode(&cust) == nil && cust.CustomerEmail != "" {
+					to = append(to, cust.CustomerEmail)
+				}
+			}
+		}
+		if len(to) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "No recipient email provided for this quote"})
+			return
+		}
+
+		// Attach the same PDF as Preview & Print / Download.
+		var pdfBuf bytes.Buffer
+		if err := buildQuotePDF(q).Output(&pdfBuf); err != nil {
+			pdfBuf.Reset() // fall back to a body-only email rather than failing the send
+		}
+
+		if err := utils.SendQuoteEmail(to, q, req.Message, pdfBuf.Bytes()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send quote email", "error": err.Error()})
+			return
+		}
+
+		// A sent quote moves out of draft.
+		if q.Status == "draft" || q.Status == "" {
+			quoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{"status": "sent", "updatedAt": time.Now()}})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote sent to " + strings.Join(to, ", ")})
 	}
 }

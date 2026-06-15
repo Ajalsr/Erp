@@ -60,11 +60,17 @@ export const PERM_LEVELS = ['none', 'view', 'edit'];
 // delete/export are privileged — not granted by default, must be set explicitly.
 export const PERM_CAPS = ['view', 'add', 'edit', 'delete', 'export'];
 
-// Fallback capabilities when nothing configured for a role. Must mirror backend
+// Modules a Sales Rep can create/edit in by default (mirrors backend salesRepEditModules).
+export const SALES_REP_EDIT_MODULES = new Set(['enquiries', 'quotes', 'sales_orders']);
+
+// Fallback capabilities when nothing configured for a role+module. Must mirror backend
 // middlewares.defaultModuleCaps. Read-only default: mutations need explicit grant.
-const defaultCaps = (role) =>
-  (role === 'owner' || role === 'admin') ? ['view', 'add', 'edit', 'delete', 'export']
-  : (role === 'member' || role === 'viewer') ? ['view'] : [];
+const defaultCaps = (role, module) => {
+  if (role === 'owner' || role === 'admin') return ['view', 'add', 'edit', 'delete', 'export'];
+  if (role === 'sales_rep') return SALES_REP_EDIT_MODULES.has(module) ? ['view', 'add', 'edit'] : ['view'];
+  if (role === 'member' || role === 'viewer') return ['view'];
+  return [];
+};
 
 const orgId = () => {
   const s = useAuthStore.getState();
@@ -72,7 +78,7 @@ const orgId = () => {
 };
 const authUserId = () => useAuthStore.getState().user?.userId || '';
 
-const EMPTY = { orgId: '', role: '', perms: {}, roles: ['member', 'viewer'] };
+const EMPTY = { orgId: '', role: '', perms: {}, roles: ['sales_rep'] };
 const LS_KEY = 'nexus-perms';
 const loadStore = () => { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} } };
 const saveStore = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(_store)) } catch { /* ignore */ } };
@@ -113,7 +119,7 @@ export async function fetchPermissions(force = false) {
         userId: uid,
         role:  r.data?.data?.role || '',
         perms: r.data?.data?.rolePermissions || {},
-        roles: r.data?.data?.customRoles || ['member', 'viewer'],
+        roles: r.data?.data?.customRoles || ['sales_rep'],
       };
       saveStore();
       _notify();
@@ -141,7 +147,7 @@ export function seedPermissions(organizations, userId) {
       userId,
       role:  org.role,
       perms: org.rolePermissions || {},
-      roles: org.customRoles || ['member', 'viewer'],
+      roles: org.customRoles || ['sales_rep'],
     };
     changed = true;
   }
@@ -160,7 +166,7 @@ function moduleCaps(state, module) {
   const { role, perms } = state;
   if (role === 'owner' || role === 'admin') return ['view', 'add', 'edit', 'delete', 'export'];
   const stored = perms?.[role]?.modules?.[module];
-  return Array.isArray(stored) ? stored : defaultCaps(role);
+  return Array.isArray(stored) ? stored : defaultCaps(role, module);
 }
 
 // can(module, action) — action defaults to 'view'.
@@ -248,7 +254,7 @@ export function usePermissions() {
   }, [activeOrgId]);
   return {
     role: state.role,
-    roles: state.roles || ['member', 'viewer'],
+    roles: state.roles || ['sales_rep'],
     ready,
     can: (module, action) => evalCan(state, module, action),
     canAny: (module) => evalCanAny(state, module),

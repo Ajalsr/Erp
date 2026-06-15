@@ -524,6 +524,25 @@ export default function CreateQuote() {
   });
   const [signatory, setSignatory] = useState(prefill?.signatory || { name: "", title: "" });
 
+  // "Create & Send" — pick one or more email recipients before sending.
+  const [sendOpen,    setSendOpen]    = useState(false);
+  const [recipients,  setRecipients]  = useState([""]);
+  const [sendMessage, setSendMessage] = useState("");
+  const openSendModal = () => {
+    if (!customerId) { nexusToast.error("Please select a customer"); return; }
+    setRecipients(customerEmail ? [customerEmail] : [""]);
+    setSendMessage("");
+    setSendOpen(true);
+  };
+  const isEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((e || "").trim());
+  const confirmSend = () => {
+    const clean = recipients.map(r => r.trim()).filter(Boolean);
+    if (!clean.length)            { nexusToast.error("Add at least one recipient"); return; }
+    if (clean.some(e => !isEmail(e))) { nexusToast.error("One or more emails are invalid"); return; }
+    setSendOpen(false);
+    submit("sent", [...new Set(clean)]);
+  };
+
   // Terms & Conditions
   const DEFAULT_TERMS = [
     "Pricing: Above quoted are in AED.",
@@ -559,7 +578,7 @@ export default function CreateQuote() {
   const removeItem = (uid) => setLineItems(prev => prev.filter(li => li._uid !== uid));
   const addItem    = () => setLineItems(prev => [...prev, EMPTY_ITEM()]);
 
-  async function submit(status) {
+  async function submit(status, recipients) {
     if (!customerId) { nexusToast.error("Please select a customer"); return; }
     setSaving(true);
     try {
@@ -594,10 +613,27 @@ export default function CreateQuote() {
       } else {
         r = await axiosInstance.post("/api/quotes/", payload);
       }
-      if (r?.data?.data?.status === "pending_approval") {
+      const saved = r?.data?.data || {};
+      const quoteId = saved._id || saved.id || prefill?._id;
+      const pendingApproval = saved.status === "pending_approval";
+      if (pendingApproval) {
         nexusToast.success("Submitted for approval");
       } else {
         nexusToast.success(isEdit ? "Quote updated" : status === "draft" ? "Quote saved as draft" : "Quote created");
+        // Email the quote to the chosen recipients (only once it's a real saved quote).
+        if (status === "sent" && quoteId && recipients?.length) {
+          try {
+            await axiosInstance.post(`/api/quotes/${quoteId}/send`, { recipients, message: sendMessage });
+            nexusToast.success(`Sent to ${recipients.length} recipient${recipients.length > 1 ? "s" : ""}`);
+          } catch (e) {
+            nexusToast.error(e.response?.data?.message || "Quote saved, but the email failed to send");
+          }
+        }
+      }
+      // Mark the source enquiry as Quoted now that the quote exists (not before — so
+      // cancelling the quote leaves the enquiry untouched).
+      if (fromEnquiry?._id) {
+        axiosInstance.patch(`/api/enquiries/${fromEnquiry._id}/status`, { status: "quoted" }).catch(() => {});
       }
       navigate("/Sales/Quotes");
     } catch (e) {
@@ -639,7 +675,7 @@ export default function CreateQuote() {
               <Btn v="outline" onClick={() => navigate(`/Sales/Quotes/${prefill._id}/print`)} disabled={saving}>🖨 Preview &amp; Print</Btn>
             )}
             <Btn v="outline" onClick={() => submit("draft")} disabled={saving}>{saving ? "Saving…" : "Save Draft"}</Btn>
-            <Btn v="primary" onClick={() => submit("sent")} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
+            <Btn v="primary" onClick={openSendModal} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
           </div>
         </div>
 
@@ -897,9 +933,45 @@ export default function CreateQuote() {
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 8 }}>
             <Btn v="ghost" onClick={() => navigate("/Sales/Quotes")} disabled={saving}>Cancel</Btn>
             <Btn v="outline" onClick={() => submit("draft")} disabled={saving}>{saving ? "Saving…" : "Save Draft"}</Btn>
-            <Btn v="primary" onClick={() => submit("sent")} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
+            <Btn v="primary" onClick={openSendModal} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
           </div>
         </div>
+
+        {sendOpen && (
+          <div onClick={() => !saving && setSendOpen(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: 20 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ width: "100%", maxWidth: 460, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 22, boxShadow: "0 24px 60px rgba(0,0,0,0.4)" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: "Sora, sans-serif" }}>Send quote</div>
+              <div style={{ fontSize: 12.5, color: T.muted, margin: "5px 0 16px" }}>Add one or more email recipients.</div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {recipients.map((rcpt, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input type="email" value={rcpt} placeholder="name@company.com"
+                      onChange={e => setRecipients(rs => rs.map((v, j) => j === i ? e.target.value : v))}
+                      style={{ flex: 1, padding: "9px 12px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.input, color: T.text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+                    {recipients.length > 1 && (
+                      <button onClick={() => setRecipients(rs => rs.filter((_, j) => j !== i))}
+                        style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setRecipients(rs => [...rs, ""])}
+                style={{ marginTop: 8, background: "none", border: "none", color: T.accent || "#3b82f6", fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>+ Add recipient</button>
+
+              <textarea value={sendMessage} onChange={e => setSendMessage(e.target.value)} rows={3}
+                placeholder="Optional message to include in the email…"
+                style={{ width: "100%", boxSizing: "border-box", marginTop: 14, resize: "vertical", padding: "10px 12px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.input, color: T.text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+                <Btn v="ghost" onClick={() => setSendOpen(false)} disabled={saving}>Cancel</Btn>
+                <Btn v="primary" onClick={confirmSend} disabled={saving}>{saving ? "Sending…" : "Send Quote"}</Btn>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </StockCtx.Provider>
     </ThemeCtx.Provider>

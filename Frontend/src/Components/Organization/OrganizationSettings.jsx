@@ -12,14 +12,18 @@ import { PERM_MODULES, PERM_CAPS, invalidatePermissions, usePermissions } from '
 const PERM_GRID = `minmax(104px,1.3fr) repeat(${PERM_CAPS.length}, minmax(58px,1fr))`
 import ApprovalsWorkflow from './ApprovalsWorkflow'
 
-const ROLES = ['admin', 'member', 'viewer']
+const ROLES = ['admin', 'sales_rep']
 
 const ROLE_COLORS = {
-  owner:  { bg: 'rgba(245,158,11,0.15)',  text: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
-  admin:  { bg: 'rgba(59,130,246,0.15)',  text: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
-  member: { bg: 'rgba(34,197,94,0.12)',   text: '#4ade80', border: 'rgba(34,197,94,0.2)'  },
-  viewer: { bg: 'rgba(148,163,184,0.1)',  text: '#94a3b8', border: 'rgba(148,163,184,0.2)' },
+  owner:     { bg: 'rgba(245,158,11,0.15)',  text: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
+  admin:     { bg: 'rgba(59,130,246,0.15)',  text: '#60a5fa', border: 'rgba(59,130,246,0.25)' },
+  sales_rep: { bg: 'rgba(34,197,94,0.12)',   text: '#4ade80', border: 'rgba(34,197,94,0.2)'  },
+  member:    { bg: 'rgba(34,197,94,0.12)',   text: '#4ade80', border: 'rgba(34,197,94,0.2)'  },
+  viewer:    { bg: 'rgba(148,163,184,0.1)',  text: '#94a3b8', border: 'rgba(148,163,184,0.2)' },
 }
+
+// Pretty label for a role key (e.g. sales_rep → "Sales Rep").
+const roleLabel = (r) => (r || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 
 const RoleBadge = ({ role }) => {
   const c = ROLE_COLORS[role] || ROLE_COLORS.viewer
@@ -32,8 +36,7 @@ const RoleBadge = ({ role }) => {
       borderRadius: '999px',
       fontSize: '11px',
       fontWeight: '600',
-      textTransform: 'capitalize',
-    }}>{role}</span>
+    }}>{roleLabel(role)}</span>
   )
 }
 
@@ -248,14 +251,14 @@ const OrganizationSettings = () => {
   const [permCfg, setPermCfg] = useState({}) // { role: { modules:{}, approvals:{} } }
   const [permSaving, setPermSaving] = useState(false)
   // Custom roles (org-defined, assignable besides owner/admin)
-  const [customRoles, setCustomRoles] = useState(['member', 'viewer'])
+  const [customRoles, setCustomRoles] = useState(['sales_rep'])
   const [newRoleName, setNewRoleName] = useState('')
   const [rolesSaving, setRolesSaving] = useState(false)
-  const [selectedRole, setSelectedRole] = useState('member') // role being edited in the panel
+  const [selectedRole, setSelectedRole] = useState('sales_rep') // role being edited in the panel
 
   // Invite form
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('member')
+  const [inviteRole, setInviteRole] = useState('sales_rep')
   const [inviting, setInviting] = useState(false)
   const [inviteLink, setInviteLink] = useState('')
 
@@ -389,7 +392,7 @@ const OrganizationSettings = () => {
       setLetterheadBottomPad(orgData?.letterheadBottomPad || 8)
       setStamp(orgData?.stampImage || '')
       setPermCfg(orgData?.rolePermissions || {})
-      setCustomRoles(orgData?.customRoles?.length ? orgData.customRoles : ['member', 'viewer'])
+      setCustomRoles(orgData?.customRoles?.length ? orgData.customRoles : ['sales_rep'])
       setMembers(membersData)
       setInvitations(invData)
       const me = membersData.find((m) => m.userId === user?.userId)
@@ -500,15 +503,19 @@ const OrganizationSettings = () => {
   // ── Role permissions ──
   // Mirror backend middlewares.defaultModuleCaps: read-only default. member/viewer
   // get view; custom roles get nothing. add/edit/delete/export need explicit grant.
-  const defaultCapsFor = (role) =>
-    (role === 'member' || role === 'viewer') ? ['view'] : []
+  // Sales Rep can create/edit in sales modules by default (mirrors backend salesRepEditModules).
+  const SALES_REP_EDIT_MODULES = new Set(['enquiries', 'quotes', 'sales_orders'])
+  const defaultCapsFor = (role, mod) => {
+    if (role === 'sales_rep') return SALES_REP_EDIT_MODULES.has(mod) ? ['view', 'add', 'edit'] : ['view']
+    return (role === 'member' || role === 'viewer') ? ['view'] : []
+  }
   const moduleCapsOf = (role, mod) => {
     const s = permCfg?.[role]?.modules?.[mod]
-    return Array.isArray(s) ? s : defaultCapsFor(role)
+    return Array.isArray(s) ? s : defaultCapsFor(role, mod)
   }
   const hasModCap = (role, mod, cap) => moduleCapsOf(role, mod).includes(cap)
   const toggleModCap = (role, mod, cap) => setPermCfg(p => {
-    const cur = Array.isArray(p?.[role]?.modules?.[mod]) ? p[role].modules[mod] : defaultCapsFor(role)
+    const cur = Array.isArray(p?.[role]?.modules?.[mod]) ? p[role].modules[mod] : defaultCapsFor(role, mod)
     const next = cur.includes(cap) ? cur.filter(c => c !== cap) : [...cur, cap]
     return { ...p, [role]: { ...(p[role] || {}), modules: { ...(p[role]?.modules || {}), [mod]: next } } }
   })
@@ -823,7 +830,7 @@ const OrganizationSettings = () => {
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value)}
                   >
-                    {['admin', ...customRoles].map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
+                    {['admin', ...customRoles].map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
                   </select>
                   <button onClick={handleInvite} disabled={inviting} style={{ ...btnStyle('primary'), opacity: inviting ? 0.6 : 1 }}>
                     {inviting ? 'Sending...' : 'Send Invite'}
@@ -932,7 +939,7 @@ const OrganizationSettings = () => {
                         onChange={(e) => handleRoleChange(m.userId, e.target.value)}
                         disabled={roleChanging === m.userId}
                       >
-                        {['admin', ...customRoles].map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
+                        {['admin', ...customRoles].map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
                       </select>
                     ) : (
                       <RoleBadge role={m.role} />
@@ -1025,8 +1032,8 @@ const OrganizationSettings = () => {
                   <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 999, background: inputBg, border: `1px solid ${border}`, fontSize: 12, color: textSec, textTransform: 'capitalize' }}>{r} <span style={{ fontSize: 9, opacity: .7 }}>built-in</span></span>
                 ))}
                 {customRoles.map(r => (
-                  <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderRadius: 999, background: accentSoft, border: `1px solid ${accentLine}`, fontSize: 12, color: accent, textTransform: 'capitalize' }}>
-                    {r}
+                  <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderRadius: 999, background: accentSoft, border: `1px solid ${accentLine}`, fontSize: 12, color: accent }}>
+                    {roleLabel(r)}
                     {canManage && <button onClick={() => removeRole(r)} disabled={rolesSaving} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>}
                   </span>
                 ))}
@@ -1052,8 +1059,8 @@ const OrganizationSettings = () => {
                   const on = (selectedRole === r) || (!customRoles.includes(selectedRole) && customRoles[0] === r)
                   return (
                     <button key={r} onClick={() => setSelectedRole(r)}
-                      style={{ padding: '7px 16px', borderRadius: 999, border: `1.5px solid ${on ? accent : border}`, background: on ? accentSoft : inputBg, color: on ? accent : textPri, fontSize: 13, fontWeight: on ? 700 : 500, cursor: 'pointer', textTransform: 'capitalize' }}>
-                      {r}
+                      style={{ padding: '7px 16px', borderRadius: 999, border: `1.5px solid ${on ? accent : border}`, background: on ? accentSoft : inputBg, color: on ? accent : textPri, fontSize: 13, fontWeight: on ? 700 : 500, cursor: 'pointer' }}>
+                      {roleLabel(r)}
                     </button>
                   )
                 })}

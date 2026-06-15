@@ -502,6 +502,7 @@ const Newsalesorders = () => {
   const [successMessage,setSuccessMessage]=useState('');
   const [toasterType,setToasterType]=useState('success');
   const [editStatus,setEditStatus]=useState('');
+  const [approverNote,setApproverNote]=useState('');       // approver → requester message
   const [approvalInfo,setApprovalInfo]=useState(null); // {reasons:[]} when order held for approval
   const [lpoError,setLpoError]=useState('');
 
@@ -622,6 +623,7 @@ const Newsalesorders = () => {
         setAdjustment(o.adjustment!=null?String(o.adjustment):'0');
         setCustomerNotes(o.customerNotes||'');
         setTermsAndConditions(o.termsAndConditions||'');
+        setApproverNote(o.approverNote||'');
         if(o.items?.length){
           setItems(o.items.map((it,idx)=>({
             id: idx+1,
@@ -796,7 +798,7 @@ const Newsalesorders = () => {
   const confirmCancel=()=>{setShowCancelToaster(false);navigate('/Sales/Salesorders');};
   const cancelCancel=()=>setShowCancelToaster(false);
 
-  const prepareSalesOrderData=status=>{
+  const prepareSalesOrderData=(status,opts={})=>{
     const sub=calcSub(),vat=calcVAT(),ship=parseFloat(shippingCharges)||0,adj=parseFloat(adjustment)||0,total=sub+vat+ship+adj;
     const apiItems=items.filter(i=>i.details&&i.quantity>0).map(i=>{
       const qty=parseFloat(i.quantity)||0;
@@ -822,19 +824,24 @@ const Newsalesorders = () => {
     });
     if(apiItems.length===0)throw new Error('Please add at least one item to the sales order');
     if(!selectedCustomer)throw new Error('Please select a customer');
-    if(isAdminOrOwner&&!lpoNumber.trim())throw new Error('LPO Number is required');
-    return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
+    if(isAdminOrOwner&&!opts.skipLpo&&!lpoNumber.trim())throw new Error('LPO Number is required');
+    return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,approverNote,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){if(r?.sentToApproval){guard.reset();setApprovalInfo({reasons:r.approvalReasons||[]});return;}handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setToasterType('success');setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
-  const handleSubmitForApproval=async()=>{try{const d=prepareSalesOrderData('pending_approval'),r=await handleAddSalesOrder(d);if(r?.data?.id){guard.reset();if(r?.sentToApproval){setApprovalInfo({reasons:r.approvalReasons||[]});return;}setToasterType('success');setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){if(r?.sentToApproval){guard.reset();setApprovalInfo({reasons:r.approvalReasons||[]});return;}if(r?.autoApproved){guard.reset();setApprovalInfo({reasons:r.approvalReasons||[],autoApproved:true});return;}handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setToasterType('success');setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleSubmitForApproval=async()=>{try{const d=prepareSalesOrderData('pending_approval'),r=await handleAddSalesOrder(d);if(r?.data?.id){guard.reset();if(r?.sentToApproval){setApprovalInfo({reasons:r.approvalReasons||[]});return;}if(r?.autoApproved){setApprovalInfo({reasons:r.approvalReasons||[],autoApproved:true});return;}setToasterType('success');setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
   const handleResubmit=async()=>{try{const d=prepareSalesOrderData('pending_approval');await axiosInstance.put(`/api/sales-orders/${editId}`,d);setToasterType('success');setSuccessMessage('Order resubmitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to resubmit.');setShowSuccessToaster(true);}};
+  // Approver edits an order still held for approval: save the changes (status stays
+  // pending_approval) and attach the note for the requester. LPO isn't forced here.
+  const handleApproverSave=async()=>{try{const d=prepareSalesOrderData(editStatus||'pending_approval',{skipLpo:true});await axiosInstance.put(`/api/sales-orders/${editId}`,d);guard.reset();setToasterType('success');setSuccessMessage(approverNote.trim()?'Changes saved — note added for requester.':'Changes saved.');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to save changes.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const hasItemsAdded=items.some(i=>i.details&&i.quantity>0);
-  const isCreditHardBlocked=!!(creditStatus?.exceeded&&creditStatus?.creditLimitAction==='block');
+  // A credit-limit "block" stops normal users at submit. Approvers (admin/owner) aren't
+  // blocked — their order self-clears on the backend, so let them submit straight through.
+  const isCreditHardBlocked=!!(creditStatus?.exceeded&&creditStatus?.creditLimitAction==='block')&&!isAdminOrOwner;
 
   const guard=useUnsavedGuard({saveDraft:async()=>{const d=prepareSalesOrderData('draft');await handleAddSalesOrder(d);},hasDraft:true});
 
@@ -850,10 +857,10 @@ const Newsalesorders = () => {
           <div style={{background:T.surface,borderRadius:20,maxWidth:440,width:'100%',boxShadow:isDark?'0 32px 80px rgba(0,0,0,0.7)':'0 32px 80px rgba(0,0,0,0.18)',overflow:'hidden',border:`1.5px solid ${isDark?'rgba(245,158,11,0.3)':'#fde68a'}`}}>
             <div style={{height:4,background:'linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b)'}}/>
             <div style={{padding:'24px 24px 0',display:'flex',alignItems:'flex-start',gap:14}}>
-              <div style={{width:46,height:46,borderRadius:14,background:'rgba(245,158,11,0.12)',border:'1.5px solid rgba(245,158,11,0.25)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:20}}>⏳</div>
+              <div style={{width:46,height:46,borderRadius:14,background:'rgba(245,158,11,0.12)',border:'1.5px solid rgba(245,158,11,0.25)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:20}}>{approvalInfo.autoApproved?'⚠️':'⏳'}</div>
               <div>
-                <p style={{fontSize:16,fontWeight:800,color:'#d97706',margin:'0 0 4px',fontFamily:"'Sora',sans-serif",letterSpacing:'-0.02em'}}>Sent for approval</p>
-                <p style={{fontSize:12,color:T.textSec,margin:0,lineHeight:1.5}}>The order was created but needs a manager's approval before it proceeds, for the following reason{(approvalInfo.reasons||[]).length>1?'s':''}:</p>
+                <p style={{fontSize:16,fontWeight:800,color:'#d97706',margin:'0 0 4px',fontFamily:"'Sora',sans-serif",letterSpacing:'-0.02em'}}>{approvalInfo.autoApproved?'Created — approval auto-cleared':'Sent for approval'}</p>
+                <p style={{fontSize:12,color:T.textSec,margin:0,lineHeight:1.5}}>{approvalInfo.autoApproved?`As an approver, your order was created and set to Open — no approval needed. Heads up on the following risk${(approvalInfo.reasons||[]).length>1?'s':''}:`:`The order was created but needs a manager's approval before it proceeds, for the following reason${(approvalInfo.reasons||[]).length>1?'s':''}:`}</p>
               </div>
             </div>
             <div style={{margin:'18px 24px',display:'flex',flexDirection:'column',gap:8}}>
@@ -901,6 +908,10 @@ const Newsalesorders = () => {
                 ? <button onClick={handleResubmit} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
                     {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Resubmit for Approval</>}
                   </button>
+                : isEditMode&&editStatus&&editStatus!=='draft'
+                  ? <button onClick={handleApproverSave} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
+                      {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Saving…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save Changes</>}
+                    </button>
                 : isAdminOrOwner
                   ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
                       {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
@@ -1321,6 +1332,12 @@ const Newsalesorders = () => {
               <div style={{display:'flex',flexDirection:'column',gap:14}}>
                 <Field label="Customer Notes"><textarea value={customerNotes} onChange={e=>setCustomerNotes(e.target.value)} className="nso-inp" placeholder="Notes visible to the customer…" style={{resize:'none',height:96,lineHeight:1.6}}/></Field>
                 <Field label="Terms & Conditions"><textarea value={termsAndConditions} onChange={e=>setTermsAndConditions(e.target.value)} className="nso-inp" placeholder="Enter terms and conditions…" style={{resize:'none',height:96,lineHeight:1.6}}/></Field>
+                {isEditMode&&['pending_approval','approved'].includes(editStatus)&&isAdminOrOwner&&(
+                  <Field label="Note for Requester">
+                    <textarea value={approverNote} onChange={e=>setApproverNote(e.target.value)} className="nso-inp" placeholder="Optional — explain the changes you made (the requester will see this)…" style={{resize:'none',height:84,lineHeight:1.6,borderColor:'rgba(245,158,11,0.4)'}}/>
+                    <div style={{fontSize:11,color:T.textSec,marginTop:6}}>Visible to whoever submitted this order for approval.</div>
+                  </Field>
+                )}
               </div>
             </div>
           </div>
@@ -1364,6 +1381,10 @@ const Newsalesorders = () => {
               ? <button onClick={handleResubmit} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
                   {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Resubmit for Approval</>}
                 </button>
+              : isEditMode&&editStatus&&editStatus!=='draft'
+                ? <button onClick={handleApproverSave} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
+                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Saving…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save Changes</>}
+                  </button>
               : isAdminOrOwner
                 ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
                     {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}

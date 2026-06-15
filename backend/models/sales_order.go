@@ -121,6 +121,11 @@ type SalesOrder struct {
 	CancelReason         string             `json:"cancelReason,omitempty" bson:"cancelReason,omitempty"`
 	CancelRequestedBy    string             `json:"cancelRequestedBy,omitempty" bson:"cancelRequestedBy,omitempty"`
 	RejectionReason      string             `json:"rejectionReason,omitempty" bson:"rejectionReason,omitempty"`
+	// ApproverNote — a message an approver leaves for the requester when they edit an
+	// order held for approval (e.g. "adjusted qty on line 2"). Surfaced to the requester.
+	ApproverNote         string             `json:"approverNote,omitempty" bson:"approverNote,omitempty"`
+	ApproverNoteBy       string             `json:"approverNoteBy,omitempty" bson:"approverNoteBy,omitempty"`
+	ApproverNoteAt       *time.Time         `json:"approverNoteAt,omitempty" bson:"approverNoteAt,omitempty"`
 	Attachments          []Attachment       `json:"attachments,omitempty" bson:"attachments,omitempty"`
 	OrgID                string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt            time.Time          `json:"createdAt" bson:"createdAt"`
@@ -218,6 +223,9 @@ type UpdateSalesOrderRequest struct {
 	// Notes
 	CustomerNotes      *string `json:"customerNotes,omitempty"`
 	TermsAndConditions *string `json:"termsAndConditions,omitempty"`
+
+	// ApproverNote — message left by an approver for the requester (see SalesOrder).
+	ApproverNote *string `json:"approverNote,omitempty"`
 }
 
 type SalesOrderResponse struct {
@@ -245,6 +253,10 @@ type SalesOrderResponse struct {
 	Status               string           `json:"status"`
 	CancelReason         string           `json:"cancelReason,omitempty"`
 	CancelRequestedBy    string           `json:"cancelRequestedBy,omitempty"`
+	ApproverNote         string           `json:"approverNote,omitempty"`
+	ApproverNoteBy       string           `json:"approverNoteBy,omitempty"`
+	ApproverNoteAt       *time.Time       `json:"approverNoteAt,omitempty"`
+	CreatedBy            string           `json:"createdBy,omitempty"`
 	CreatedAt            time.Time        `json:"createdAt"`
 	UpdatedAt            time.Time        `json:"updatedAt"`
 	StatusHistory        []SOHistoryEntry `json:"statusHistory,omitempty"`

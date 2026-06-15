@@ -192,6 +192,8 @@ func CreateOrganization() gin.HandlerFunc {
 			ID:          primitive.NewObjectID(),
 			Name:        input.Name,
 			Description: input.Description,
+			// Built-in assignable roles: owner + admin (implicit) plus Sales Rep.
+			CustomRoles: []string{"sales_rep"},
 			CreatedBy:   userIDStr,
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
@@ -1252,11 +1254,19 @@ func UpdateCustomRoles() gin.HandlerFunc {
 
 // ── Permission resolution (server-side enforcement helpers) ───────────────────
 
+// salesRepEditModules — modules a Sales Rep can create/edit in by default.
+var salesRepEditModules = map[string]bool{"enquiries": true, "quotes": true, "sales_orders": true}
+
 // defaultModuleCaps returns the fallback capabilities for a role when nothing is stored.
-func defaultModuleCaps(role string) []string {
+func defaultModuleCaps(role, module string) []string {
 	switch role {
 	case "owner", "admin", "member":
 		return []string{"view", "add", "edit"}
+	case "sales_rep":
+		if salesRepEditModules[module] {
+			return []string{"view", "add", "edit"}
+		}
+		return []string{"view"}
 	case "viewer":
 		return []string{"view"}
 	default:
@@ -1281,7 +1291,7 @@ func resolveModuleCaps(ctx context.Context, orgID primitive.ObjectID, userID, mo
 			}
 		}
 	}
-	return defaultModuleCaps(role)
+	return defaultModuleCaps(role, module)
 }
 
 func hasCap(caps []string, action string) bool {

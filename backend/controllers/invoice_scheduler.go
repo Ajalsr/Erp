@@ -72,8 +72,8 @@ func processEnquiryFollowUps(ctx context.Context, todayStr string) {
 			title = "Enquiry follow-up overdue"
 		}
 		who := e.CustomerName
-		if e.Company != "" {
-			who = e.CustomerName + " (" + e.Company + ")"
+		if e.ProjectName != "" {
+			who = e.CustomerName + " (" + e.ProjectName + ")"
 		}
 		msg := fmt.Sprintf("%s — %s. Follow-up was %s", e.EnquiryNumber, who, e.FollowUpDate)
 		if e.AssignedTo != "" {

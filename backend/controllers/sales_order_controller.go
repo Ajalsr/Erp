@@ -200,6 +200,7 @@ func CreateSalesOrder() gin.HandlerFunc {
 		// are surfaced so the UI can show a popup.
 		var creditWarning gin.H
 		needsApproval := false
+		autoApproved := false // creator is an approver → reasons fired but no hold needed
 		var approvalReasons []string
 		invCol := config.GetCollection(config.DB, "invoices")
 
@@ -286,6 +287,19 @@ func CreateSalesOrder() gin.HandlerFunc {
 		// Always assign from the org's configured numbering format — the client only sends
 		// a placeholder for display, never the authoritative number.
 		req.OrderNumber = generateOrderNumber(ctx, fmt.Sprintf("%v", orgID))
+
+		// Self-clearance: if the creator is themselves an approver (owner/admin or a
+		// configured SO approver), holding the order for approval is pointless — they could
+		// just approve it. Skip the hold and let it go straight to open.
+		if needsApproval {
+			if orgObjID, e := primitive.ObjectIDFromHex(orgIDStr); e == nil {
+				if role, ok := getMemberRole(ctx, orgObjID, fmt.Sprintf("%v", userID)); ok && salesOrderApproverRoles(ctx, orgObjID)[role] {
+					needsApproval = false
+					autoApproved = true // keep the reasons — surfaced as a warning, not a hold
+				}
+			}
+		}
+
 		// Approval is required ONLY when a risk reason fires (credit block / expired
 		// license / overdue). A clean order goes straight to open for everyone.
 		soStatus := "open"
@@ -346,6 +360,9 @@ func CreateSalesOrder() gin.HandlerFunc {
 		}
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "create", ID: salesOrder.ID.Hex()})
+		if soStatus == "pending_approval" {
+			ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "create", OrgID: orgIDStr})
+		}
 
 		// Notify admins/owners when a non-privileged user submits for approval
 		if soStatus == "pending_approval" {
@@ -397,6 +414,11 @@ func CreateSalesOrder() gin.HandlerFunc {
 		}
 		if needsApproval {
 			resp["sentToApproval"] = true
+			resp["approvalReasons"] = approvalReasons
+		} else if autoApproved && len(approvalReasons) > 0 {
+			// Approver-created: created straight to open, but still report what would have
+			// triggered approval so the UI can warn.
+			resp["autoApproved"] = true
 			resp["approvalReasons"] = approvalReasons
 		}
 		c.JSON(http.StatusCreated, resp)
@@ -514,6 +536,10 @@ func GetAllSalesOrders() gin.HandlerFunc {
 				Status:               order.Status,
 				CancelReason:         order.CancelReason,
 				CancelRequestedBy:    order.CancelRequestedBy,
+				ApproverNote:         order.ApproverNote,
+				ApproverNoteBy:       order.ApproverNoteBy,
+				ApproverNoteAt:       order.ApproverNoteAt,
+				CreatedBy:            order.CreatedBy,
 				CreatedAt:            order.CreatedAt,
 				UpdatedAt:            order.UpdatedAt,
 			})
@@ -594,6 +620,10 @@ func GetSalesOrderByID() gin.HandlerFunc {
 			CustomerNotes:        salesOrder.CustomerNotes,
 			TermsAndConditions:   salesOrder.TermsAndConditions,
 			Status:               salesOrder.Status,
+			ApproverNote:         salesOrder.ApproverNote,
+			ApproverNoteBy:       salesOrder.ApproverNoteBy,
+			ApproverNoteAt:       salesOrder.ApproverNoteAt,
+			CreatedBy:            salesOrder.CreatedBy,
 			CreatedAt:            salesOrder.CreatedAt,
 			UpdatedAt:            salesOrder.UpdatedAt,
 		}
@@ -660,6 +690,14 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 					return
 				}
 			}
+			// No self-approval: the person who created the order can't approve/reject it.
+			var creatorCheck models.SalesOrder
+			if salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID},
+				options.FindOne().SetProjection(bson.M{"createdBy": 1})).Decode(&creatorCheck) == nil &&
+				creatorCheck.CreatedBy == fmt.Sprintf("%v", statusUserID) {
+				c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can't approve or reject an order you created."})
+				return
+			}
 		} else if req.Status == "confirmed" || req.Status == "cancelled" {
 			statusUserID, _ := c.Get("userId")
 			if statusOrgObjID, err2 := primitive.ObjectIDFromHex(fmt.Sprintf("%v", orgID)); err2 == nil {
@@ -709,6 +747,10 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 		}
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "update", ID: id})
+		// Mirror to the Approvals module — SOs surface there too (see GetApprovalRequests).
+		if req.Status == "pending_approval" || req.Status == "approved" || req.Status == "rejected" {
+			ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "update", OrgID: fmt.Sprintf("%v", orgID)})
+		}
 
 		// Notify admins/owners when any user re-submits for approval
 		if req.Status == "pending_approval" {
@@ -866,6 +908,21 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only edit orders you created"})
 			return
 		}
+		// While held for approval, only an approver may edit (they may also leave a note for
+		// the requester). Every other status follows the normal module edit permission.
+		if existingOrder.Status == "pending_approval" {
+			editUserID, _ := c.Get("userId")
+			isApprover := false
+			if editOrgObjID, e := primitive.ObjectIDFromHex(fmt.Sprintf("%v", orgID)); e == nil {
+				if editRole, ok := getMemberRole(ctx, editOrgObjID, fmt.Sprintf("%v", editUserID)); ok {
+					isApprover = salesOrderApproverRoles(ctx, editOrgObjID)[editRole]
+				}
+			}
+			if !isApprover {
+				c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only an approver can edit an order that's pending approval."})
+				return
+			}
+		}
 
 		setFields := bson.M{"updatedAt": time.Now()}
 
@@ -877,6 +934,29 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		}
 		if req.TermsAndConditions != nil {
 			setFields["termsAndConditions"] = *req.TermsAndConditions
+		}
+
+		// Approver note — only an approver (owner/admin or a configured SO approver) may
+		// leave a note for the requester. Ignored from anyone else.
+		if req.ApproverNote != nil {
+			noteUserID, _ := c.Get("userId")
+			isApprover := false
+			if noteOrgObjID, e := primitive.ObjectIDFromHex(fmt.Sprintf("%v", orgID)); e == nil {
+				if noteRole, ok := getMemberRole(ctx, noteOrgObjID, fmt.Sprintf("%v", noteUserID)); ok {
+					isApprover = salesOrderApproverRoles(ctx, noteOrgObjID)[noteRole]
+				}
+			}
+			if isApprover {
+				note := strings.TrimSpace(*req.ApproverNote)
+				if note == "" {
+					setFields["approverNote"] = ""
+				} else {
+					now := time.Now()
+					setFields["approverNote"] = note
+					setFields["approverNoteBy"] = fmt.Sprintf("%v", noteUserID)
+					setFields["approverNoteAt"] = now
+				}
+			}
 		}
 
 		// Header fields (draft edit)
@@ -898,10 +978,24 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			setFields["orderDate"] = *req.OrderDate
 		}
 		if req.LpoNumber != nil || req.LpoDate != nil || req.LpoValue != nil {
-			// LPO is locked once order is confirmed — no one can change it after that
+			// LPO is locked once order is confirmed — no one can CHANGE it after that. A
+			// no-op resend of the same LPO (e.g. editing other fields) is allowed so the
+			// rest of the order stays editable.
 			if existingOrder.Status == "confirmed" {
-				c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "LPO is locked after confirmation."})
-				return
+				lpoChanged := false
+				if req.LpoNumber != nil && *req.LpoNumber != existingOrder.LpoNumber {
+					lpoChanged = true
+				}
+				if req.LpoValue != nil && *req.LpoValue != existingOrder.LpoValue {
+					lpoChanged = true
+				}
+				if req.LpoDate != nil && (existingOrder.LpoDate == nil || !req.LpoDate.Equal(*existingOrder.LpoDate)) {
+					lpoChanged = true
+				}
+				if lpoChanged {
+					c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "LPO is locked after confirmation."})
+					return
+				}
 			}
 			if req.LpoNumber != nil {
 				// Duplicate LPO check on update — exclude rejected and the current order
@@ -921,8 +1015,9 @@ func UpdateSalesOrder() gin.HandlerFunc {
 					}
 				}
 				setFields["lpoNumber"] = *req.LpoNumber
-				// Admin saving LPO on an approved order auto-confirms it
-				if existingOrder.Status == "approved" && *req.LpoNumber != "" {
+				// Adding an LPO to an approved order (that didn't have one) auto-confirms it.
+				// Re-saving an approved order that already carries an LPO just edits it.
+				if existingOrder.Status == "approved" && existingOrder.LpoNumber == "" && *req.LpoNumber != "" {
 					setFields["status"] = "confirmed"
 				}
 			}

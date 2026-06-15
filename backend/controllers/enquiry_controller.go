@@ -108,7 +108,9 @@ func GetAllEnquiries() gin.HandlerFunc {
 			filter["$or"] = bson.A{
 				bson.M{"enquiryNumber": bson.M{"$regex": q, "$options": "i"}},
 				bson.M{"customerName": bson.M{"$regex": q, "$options": "i"}},
-				bson.M{"company": bson.M{"$regex": q, "$options": "i"}},
+				bson.M{"projectName": bson.M{"$regex": q, "$options": "i"}},
+				bson.M{"supplier": bson.M{"$regex": q, "$options": "i"}},
+				bson.M{"contactPerson": bson.M{"$regex": q, "$options": "i"}},
 				bson.M{"subject": bson.M{"$regex": q, "$options": "i"}},
 			}
 		}

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strconv"
@@ -122,6 +123,101 @@ func SendInvoiceEmail(toEmail string, inv models.Invoice, customMessage string, 
 
 	log.Printf("[email] Invoice email sent to %s", toEmail)
 	return nil
+}
+
+// SendQuoteEmail emails a quote to one or more recipients. When pdfBytes is non-empty
+// it's attached as <quote-number>.pdf.
+func SendQuoteEmail(toEmails []string, q models.Quote, customMessage string, pdfBytes []byte) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return nil
+	}
+	if len(toEmails) == 0 {
+		return fmt.Errorf("no recipients")
+	}
+
+	port := 587
+	if portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Nexus ERP <%s>", from))
+	m.SetHeader("To", toEmails...)
+	m.SetHeader("Subject", fmt.Sprintf("Quote %s from Nexus ERP", q.QuoteNumber))
+	m.SetBody("text/html", buildQuoteEmailHTML(q, customMessage))
+	if len(pdfBytes) > 0 {
+		name := "quote-" + q.QuoteNumber + ".pdf"
+		m.Attach(name, gomail.SetCopyFunc(func(w io.Writer) error {
+			_, err := w.Write(pdfBytes)
+			return err
+		}), gomail.SetHeader(map[string][]string{"Content-Type": {"application/pdf"}}))
+	}
+
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send quote email to %v: %v", toEmails, err)
+		return err
+	}
+
+	log.Printf("[email] Quote email sent to %v", toEmails)
+	return nil
+}
+
+func buildQuoteEmailHTML(q models.Quote, customMessage string) string {
+	msgBlock := ""
+	if strings.TrimSpace(customMessage) != "" {
+		msgBlock = fmt.Sprintf(`<p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;white-space:pre-wrap;">%s</p>`, customMessage)
+	}
+	validBlock := ""
+	if q.ValidUntil != "" {
+		validBlock = fmt.Sprintf(`<tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Valid until</td><td style="padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;">%s</td></tr>`, q.ValidUntil)
+	}
+	subject := q.Subject
+	if subject == "" {
+		subject = "—"
+	}
+	return fmt.Sprintf(`<!DOCTYPE html><html><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:24px;">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+      <div style="background:#3b82f6;padding:20px 24px;">
+        <h1 style="margin:0;color:#ffffff;font-size:18px;">Quote %s</h1>
+      </div>
+      <div style="padding:24px;">
+        <p style="margin:0 0 16px;color:#0f172a;font-size:15px;">Dear %s,</p>
+        %s
+        <p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;">Please find your quotation summary below.</p>
+        <table style="width:100%%;border-collapse:collapse;margin:8px 0 16px;">
+          <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Quote No.</td><td style="padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;">%s</td></tr>
+          <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Subject</td><td style="padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;">%s</td></tr>
+          %s
+          <tr><td style="padding:10px 0 0;color:#0f172a;font-size:15px;font-weight:700;border-top:1px solid #e2e8f0;">Grand Total</td><td style="padding:10px 0 0;text-align:right;color:#0f172a;font-size:15px;font-weight:800;border-top:1px solid #e2e8f0;">AED %s</td></tr>
+        </table>
+        <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Sent via Nexus ERP</p>
+      </div>
+    </div>
+  </div>
+</body></html>`,
+		q.QuoteNumber,
+		q.CustomerName,
+		msgBlock,
+		q.QuoteNumber,
+		subject,
+		validBlock,
+		fmt.Sprintf("%.2f", q.Totals.GrandTotal),
+	)
 }
 
 func buildInvoiceEmailHTML(inv models.Invoice, publicLink, customMessage string, isReminder bool) string {
