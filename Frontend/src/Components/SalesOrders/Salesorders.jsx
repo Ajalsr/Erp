@@ -15,6 +15,7 @@ import useGetAllSalesOrder from "../../helper/useGetAllSalesOrder";
 import useWebSocket from "../../helper/useWebSocket";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useAuthStore from "../../store/useAuthStore";
+import { usePermissions } from "../../helper/permissions";
 import axiosInstance from "../../helper/axiosInstance";
 
 // ── CustomSelect (portal dropdown, unchanged logic) ──────────────
@@ -176,6 +177,10 @@ const transformOrders = (apiData) => {
     vat: o.vat || 0,
     createdAt: o.createdAt,
     rejectionReason: o.rejectionReason || "",
+    createdBy: o.createdBy || "",
+    approverNote: o.approverNote || "",
+    approverNoteBy: o.approverNoteBy || "",
+    approverNoteAt: o.approverNoteAt || null,
     fulfillmentStatus: o.fulfillmentStatus || "",
     linkedPoIds: o.linkedPoIds || [],
   }));
@@ -223,7 +228,24 @@ const Salesorders = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const activeOrg = useAuthStore((s) => s.activeOrg);
+  const myUserId = useAuthStore((s) => s.user?.userId || s.activeOrg?.userId || "");
   const isAdminOrOwner = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase());
+  const { canEditRecord } = usePermissions();
+
+  // An approver may sign off a pending order — but never their own (no self-approval).
+  const canApproveOrder = (o) =>
+    !!o && o.rawStatus === "pending_approval" && isAdminOrOwner && o.createdBy !== myUserId;
+
+  // Who may edit a given order:
+  //  • cancelled → no one (terminal).
+  //  • pending_approval → approver only (admin/owner) — the requester waits for a decision.
+  //  • every other status (draft, open, approved, confirmed, shipped, completed, invoiced,
+  //    rejected) → the user's configured edit permission (Settings).
+  const canEditOrder = (o) => {
+    if (!o || o.rawStatus === "cancelled") return false;
+    if (o.rawStatus === "pending_approval") return isAdminOrOwner;
+    return canEditRecord("sales_orders", o.createdBy);
+  };
 
   const [drawer, setDrawer] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -946,7 +968,7 @@ const Salesorders = () => {
                               View
                             </button>
 
-                            {["draft","rejected"].includes(item.rawStatus) && (
+                            {canEditOrder(item) && (
                               <button className="so-tbl-btn"
                                 onClick={() => navigate(`/Sales/Salesorders/Newsalesorders/${item._id || item.id}`)}
                                 style={{ height: "26px", padding: "0 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500", color: item.rawStatus==="rejected"?"#ef4444":C.blueLight, background: item.rawStatus==="rejected"?"rgba(239,68,68,0.1)":C.blueDim, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}>
@@ -954,7 +976,7 @@ const Salesorders = () => {
                               </button>
                             )}
 
-                            {isAdminOrOwner && item.rawStatus === "pending_approval" && (
+                            {canApproveOrder(item) && (
                               <>
                                 <button className="so-approve"
                                   disabled={approvingId === item.id}
@@ -1187,7 +1209,7 @@ const Salesorders = () => {
                 {activeTab === "overview" && (
                   <>
                     {/* Approve panel */}
-                    {isAdminOrOwner && selected.rawStatus === "pending_approval" && (
+                    {canApproveOrder(selected) && (
                       <div style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.22)", borderRadius: "10px", padding: "14px 16px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "9px", marginBottom: "12px" }}>
                           <div style={{ width: "30px", height: "30px", borderRadius: "8px", background: "rgba(245,158,11,0.14)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>⏳</div>
@@ -1213,6 +1235,20 @@ const Salesorders = () => {
                       </div>
                     )}
 
+                    {/* Approver note — message left by an approver who edited this order. */}
+                    {selected.approverNote && (
+                      <div style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.22)", borderRadius: "10px", padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                        <span style={{ fontSize: "16px", lineHeight: 1.2 }}>📝</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: "12px", fontWeight: "700", color: "#d97706" }}>Note from approver</div>
+                          <div style={{ fontSize: "12px", color: C.textPri, marginTop: "3px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{selected.approverNote}</div>
+                          {selected.approverNoteAt && (
+                            <div style={{ fontSize: "11px", color: C.textSec, marginTop: "4px" }}>{formatDate(selected.approverNoteAt)}</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Rejected banner */}
                     {selected.rawStatus === "rejected" && (
                       <div style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "10px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "10px" }}>
@@ -1225,6 +1261,15 @@ const Salesorders = () => {
                           <div style={{ fontSize: "11px", color: C.textSec, marginTop: "2px" }}>Creator can edit and resubmit.</div>
                         </div>
                       </div>
+                    )}
+
+                    {/* Edit — permission-based for draft/rejected/approved; approver-only
+                        while the order is pending approval (see canEditOrder). */}
+                    {canEditOrder(selected) && (
+                      <button onClick={() => navigate(`/Sales/Salesorders/Newsalesorders/${selected._id || selected.id}`)}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: selected.rawStatus === "rejected" ? "rgba(239,68,68,0.08)" : C.blueDim, color: selected.rawStatus === "rejected" ? "#ef4444" : C.blueLight, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                        <FaEdit size={11} /> {selected.rawStatus === "rejected" ? "Edit & Resubmit" : "Edit Order"}
+                      </button>
                     )}
 
                     {/* Financial card */}
@@ -1324,8 +1369,10 @@ const Salesorders = () => {
                         <span className="so-heading" style={{ fontSize: "14px", fontWeight: "800", color: hue, fontFamily: "'DM Mono', monospace" }}>{fmtM(selected.subTotal)}</span>
                       </div>
 
-                      {/* Procure-to-order: raise PO(s) to source these lines */}
-                      {!["cancelled", "rejected"].includes(selected.rawStatus) && (
+                      {/* Procure-to-order: raise PO(s) to source these lines.
+                          Hidden until the order clears approval — no procurement on a
+                          draft or pending_approval order. */}
+                      {!["cancelled", "rejected", "draft", "pending_approval"].includes(selected.rawStatus) && (
                         <button onClick={() => setPoModalSO(selected)}
                           style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 14px", borderRadius: 9, border: "none", background: "#3b82f6", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                           <FaFileInvoiceDollar size={12} /> Create Purchase Order

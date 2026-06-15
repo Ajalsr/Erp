@@ -27,8 +27,16 @@ const (
 // so a role with no explicit matrix entry behaves identically client- and server-side.
 // owner/admin are handled separately (always full). Default is read-only: every
 // mutation (add/edit/delete/export) must be granted explicitly (least privilege).
-func defaultModuleCaps(role string) []string {
+// salesRepEditModules — modules a Sales Rep can create/edit in by default.
+var salesRepEditModules = map[string]bool{"enquiries": true, "quotes": true, "sales_orders": true}
+
+func defaultModuleCaps(role, module string) []string {
 	switch role {
+	case "sales_rep":
+		if salesRepEditModules[module] {
+			return []string{CapView, CapAdd, CapEdit}
+		}
+		return []string{CapView}
 	case "member", "viewer":
 		return []string{CapView}
 	default: // custom roles: no access unless granted
@@ -89,7 +97,7 @@ func roleCapsForModule(ctx context.Context, orgID primitive.ObjectID, role, modu
 			}
 		}
 	}
-	return defaultModuleCaps(role)
+	return defaultModuleCaps(role, module)
 }
 
 // RequireModule enforces that the caller's role has the capability (derived from the

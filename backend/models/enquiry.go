@@ -19,9 +19,13 @@ type Enquiry struct {
 	EnquiryNumber  string             `json:"enquiryNumber"    bson:"enquiryNumber"`
 	Date           string             `json:"date"             bson:"date"`
 	CustomerName   string             `json:"customerName"     bson:"customerName"`
+	ProjectName    string             `json:"projectName"      bson:"projectName"`
+	Supplier       string             `json:"supplier"         bson:"supplier"`
+	ContactPerson  string             `json:"contactPerson"    bson:"contactPerson"`
+	ContactEmail   string             `json:"contactEmail"     bson:"contactEmail"`
+	ContactPhone   string             `json:"contactPhone"     bson:"contactPhone"`
 	Email          string             `json:"email"            bson:"email"`
 	Phone          string             `json:"phone"            bson:"phone"`
-	Company        string             `json:"company"          bson:"company"`
 	CustomerID     string             `json:"customerId,omitempty" bson:"customerId,omitempty"`
 	Source         string             `json:"source"           bson:"source"`
 	Subject        string             `json:"subject"          bson:"subject"`

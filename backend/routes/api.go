@@ -114,6 +114,7 @@ func QuoteRoutes(router *gin.Engine) {
 		qRoutes.GET("/:id", controllers.GetQuoteByID())
 		qRoutes.PUT("/:id", controllers.UpdateQuote())
 		qRoutes.PATCH("/:id/status", controllers.UpdateQuoteStatus())
+		qRoutes.POST("/:id/send", controllers.SendQuote())
 		qRoutes.POST("/:id/convert", controllers.ConvertQuoteToInvoice())
 		qRoutes.POST("/:id/convert-to-so", controllers.ConvertQuoteToSalesOrder())
 		qRoutes.DELETE("/:id", controllers.DeleteQuote())

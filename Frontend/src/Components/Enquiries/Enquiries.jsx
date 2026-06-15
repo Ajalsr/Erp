@@ -4,12 +4,16 @@ import { useNavigate } from "react-router-dom";
 import {
   FaPlus, FaTimes, FaSearch, FaChevronLeft, FaChevronRight,
   FaPhoneAlt, FaEnvelope, FaBuilding, FaCalendarAlt,
-  FaUserTie, FaFilter, FaEdit, FaSave, FaCheck,
+  FaUserTie, FaFilter, FaEdit, FaSave, FaCheck, FaClipboardList,
 } from "react-icons/fa";
 import DatePicker from "react-datepicker";
 import { format, addDays, addMonths, addYears, isSameDay } from "date-fns";
 import "react-datepicker/dist/react-datepicker.css";
+import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
+import "react-phone-number-input/style.css";
+import CountrySelect from "../common/CountrySelect";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
@@ -60,7 +64,8 @@ const PriorityBadge = ({ priority }) => {
 const EMPTY_LINE = { itemId: "", itemName: "", qty: 1, unitPrice: 0, total: 0 };
 
 const EMPTY_FORM = {
-  customerId: "", customerName: "", email: "", phone: "", company: "",
+  customerId: "", customerName: "", email: "", phone: "",
+  projectName: "", supplier: "", contactPerson: "", contactEmail: "", contactPhone: "",
   source: "Walk-in", subject: "", description: "",
   lineItems: [{ ...EMPTY_LINE }],
   priority: "medium", assignedTo: "",
@@ -518,6 +523,19 @@ export default function Enquiries() {
       .catch(() => {});
   }, []);
 
+  // Sales reps in this org — populate the "Assigned To" dropdown.
+  const activeOrgId = useAuthStore((s) => s.activeOrg?._id || s.user?.orgId || "");
+  const [salesReps, setSalesReps] = useState([]);
+  useEffect(() => {
+    if (!activeOrgId) return;
+    axiosInstance.get(`/api/organizations/${activeOrgId}/members`)
+      .then(r => setSalesReps((r.data?.data || [])
+        .filter(m => m.role === "sales_rep" && m.status === "active")
+        .map(m => m.userId)))
+      .catch(() => setSalesReps([]));
+  }, [activeOrgId]);
+  const assigneeOptions = salesReps.map(u => ({ value: u, label: u }));
+
   const loadEnquiries = useCallback(async () => {
     setLoading(true);
     try {
@@ -560,7 +578,6 @@ export default function Enquiries() {
         lastName:            nameParts.slice(1).join(" ") || "",
         customerEmail:       selected.email || "",
         customerPhone:       selected.phone || "",
-        companyName:         selected.company || "",
         customerType:        "business",
       });
       const newId = res.data?.data?._id || res.data?._id;
@@ -582,6 +599,7 @@ export default function Enquiries() {
   const handleCreate = async () => {
     if (!form.customerName.trim()) { nexusToast.error("Customer name is required"); return; }
     if (!form.subject.trim())      { nexusToast.error("Subject is required"); return; }
+    if (form.contactPhone && !isValidPhoneNumber(form.contactPhone)) { nexusToast.error("Enter a valid contact phone number"); return; }
     setSubmitting(true);
     try {
       const lineItems = (form.lineItems || []).filter(li => li.itemName.trim());
@@ -618,6 +636,7 @@ export default function Enquiries() {
   };
 
   const handleSaveEdit = async () => {
+    if (editForm.contactPhone && !isValidPhoneNumber(editForm.contactPhone)) { nexusToast.error("Enter a valid contact phone number"); return; }
     setSaving(true);
     try {
       const lineItems = (editForm.lineItems || []).filter(li => li.itemName?.trim());
@@ -678,6 +697,14 @@ export default function Enquiries() {
           font-size:12px; font-weight:600; padding:8px 14px; transition:all .15s; }
         .enq-btn:hover { opacity:.85; }
         .enq-input:focus { border-color:${T.borderFoc} !important; }
+        .enq-phone .PhoneInput { width:100%; border:1.5px solid ${border}; border-radius:9px;
+          background:${T.inputBg}; padding:1px 10px; box-sizing:border-box; }
+        .enq-phone .PhoneInput--focus { border-color:${T.borderFoc}; }
+        .enq-phone .PhoneInputInput { border:none; outline:none; background:transparent;
+          color:${T.textPri}; font-size:13px; font-family:inherit; padding:8px 4px; }
+        .enq-phone .PhoneInputInput::placeholder { color:${T.textSec}; }
+        .enq-phone .PhoneInputCountrySelect { color:${T.textPri}; }
+        .enq-phone .PhoneInputCountryIcon { box-shadow:none; }
       `}</style>
 
       <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", padding: "24px 28px" }}>
@@ -767,7 +794,7 @@ export default function Enquiries() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["Enquiry #", "Customer", "Company", "Subject", "Source", "Priority", "Follow Up", "Status", "Value"].map(h => (
+                    {["Enquiry #", "Customer", "Project", "Subject", "Source", "Priority", "Follow Up", "Status", "Value"].map(h => (
                       <th key={h} style={thS}>{h}</th>
                     ))}
                   </tr>
@@ -783,7 +810,7 @@ export default function Enquiries() {
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{enq.customerName || "—"}</div>
                         {enq.email && <div style={{ fontSize: 11, color: T.textSec }}>{enq.email}</div>}
                       </td>
-                      <td style={{ ...tdS, fontSize: 12, color: T.textSec }}>{enq.company || "—"}</td>
+                      <td style={{ ...tdS, fontSize: 12, color: T.textSec }}>{enq.projectName || "—"}</td>
                       <td style={{ ...tdS, maxWidth: 200 }}>
                         <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>{enq.subject || "—"}</div>
                       </td>
@@ -881,14 +908,18 @@ export default function Enquiries() {
                   <div style={{ background: T.surface2, border: `1px solid ${border}`, borderRadius: 12, padding: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Contact Information</div>
                     {[
-                      { icon: <FaUserTie size={11}/>, label: "Customer", val: selected.customerName },
-                      { icon: <FaBuilding size={11}/>, label: "Company",  val: selected.company || "—" },
-                      { icon: <FaEnvelope size={11}/>, label: "Email",    val: selected.email || "—" },
-                      { icon: <FaPhoneAlt size={11}/>, label: "Phone",    val: selected.phone || "—" },
+                      { icon: <FaUserTie size={11}/>,      label: "Customer",       val: selected.customerName },
+                      { icon: <FaEnvelope size={11}/>,     label: "Cust. Email",    val: selected.email || "—" },
+                      { icon: <FaPhoneAlt size={11}/>,     label: "Cust. Phone",    val: selected.phone || "—" },
+                      { icon: <FaClipboardList size={11}/>, label: "Project",       val: selected.projectName || "—" },
+                      { icon: <FaBuilding size={11}/>,     label: "Supplier",       val: selected.supplier || "—" },
+                      { icon: <FaUserTie size={11}/>,      label: "Contact Person", val: selected.contactPerson || "—" },
+                      { icon: <FaEnvelope size={11}/>,     label: "Contact Email",  val: selected.contactEmail || "—" },
+                      { icon: <FaPhoneAlt size={11}/>,     label: "Contact Phone",  val: selected.contactPhone || "—" },
                     ].map(({ icon, label, val }) => (
                       <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                         <span style={{ color: T.textSec, width: 16, flexShrink: 0 }}>{icon}</span>
-                        <span style={{ fontSize: 11, color: T.textSec, width: 70, flexShrink: 0 }}>{label}</span>
+                        <span style={{ fontSize: 11, color: T.textSec, width: 92, flexShrink: 0 }}>{label}</span>
                         <span style={{ fontSize: 13, color: T.textPri, fontWeight: 500 }}>{val}</span>
                       </div>
                     ))}
@@ -986,18 +1017,21 @@ export default function Enquiries() {
                     {selected.status !== "quoted" && selected.status !== "converted" && selected.status !== "lost" && selected.status !== "cancelled" && (
                       <div style={{ padding: 14, background: isDark ? "rgba(59,130,246,0.08)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.25)" : "#bfdbfe"}`, borderRadius: 10 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#60a5fa" : "#1d4ed8", marginBottom: 5 }}>Create Quote from this Enquiry</div>
-                        <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>Mark as Quoted and open a new Quote pre-filled with this enquiry's data.</p>
+                        <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>Open a new Quote pre-filled with this enquiry's data. The enquiry is marked Quoted only once the quote is saved.</p>
                         <button
                           disabled={updatingStatus}
-                          onClick={async () => {
-                            await handleStatusUpdate("quoted");
+                          onClick={() => {
+                            // Don't flip the enquiry to "quoted" here — if the user cancels the
+                            // quote it would lose this button. CreateQuote sets it on save.
                             navigate("/Sales/Quotes/Create", { state: { fromEnquiry: {
                               _id:            selected._id,
                               enquiryNumber:  selected.enquiryNumber,
                               customerId:     selected.customerId || "",
                               customerName:   selected.customerName,
                               email:          selected.email,
-                              company:        selected.company,
+                              projectName:    selected.projectName,
+                              supplier:       selected.supplier,
+                              contactPerson:  selected.contactPerson,
                               subject:        selected.subject,
                               description:    selected.description,
                               estimatedValue: selected.estimatedValue,
@@ -1027,7 +1061,9 @@ export default function Enquiries() {
                               customerName:  selected.customerName,
                               email:         selected.email,
                               phone:         selected.phone,
-                              company:       selected.company,
+                              projectName:   selected.projectName,
+                              supplier:      selected.supplier,
+                              contactPerson: selected.contactPerson,
                               subject:       selected.subject,
                               lineItems:     selected.lineItems || [],
                               notes:         selected.notes || "",
@@ -1061,7 +1097,6 @@ export default function Enquiries() {
                           customerName: name,
                           email:        c.customerEmail || f.email,
                           phone:        c.phone || f.phone,
-                          company:      c.companyName || f.company,
                         }));
                       }}
                       onClear={() => setEditForm(f => ({ ...f, customerId: "" }))}
@@ -1069,19 +1104,35 @@ export default function Enquiries() {
                   </div>
 
                   {[
-                    { key: "customerName", label: "Customer Name *" },
-                    { key: "email",        label: "Email" },
-                    { key: "phone",        label: "Phone" },
-                    { key: "company",      label: "Company" },
-                    { key: "subject",      label: "Subject *" },
-                    { key: "assignedTo",   label: "Assigned To" },
-                    { key: "followUpDate", label: "Follow Up Date", type: "date" },
+                    { key: "customerName",  label: "Customer Name *" },
+                    { key: "email",         label: "Customer Email" },
+                    { key: "phone",         label: "Customer Phone" },
+                    { key: "projectName",   label: "Project Name" },
+                    { key: "supplier",      label: "Supplier" },
+                    { key: "contactPerson", label: "Contact Person" },
+                    { key: "contactEmail",  label: "Contact Email" },
+                    { key: "contactPhone",  label: "Contact Phone" },
+                    { key: "subject",       label: "Subject *" },
+                    { key: "assignedTo",    label: "Assigned To" },
+                    { key: "followUpDate",  label: "Follow Up Date", type: "date" },
                   ].map(({ key, label, type }) => (
                     <div key={key}>
                       <label style={labelStyle}>{label}</label>
-                      <input type={type || "text"} value={editForm[key] || ""} className="enq-input"
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={{ ...inputStyle }}/>
+                      {key === "contactPhone" ? (
+                        <div className="enq-phone">
+                          <PhoneInput international countryCallingCodeEditable={false} defaultCountry="AE"
+                            countrySelectComponent={CountrySelect}
+                            value={editForm.contactPhone || ""} onChange={v => setEditForm(f => ({ ...f, contactPhone: v || "" }))} />
+                        </div>
+                      ) : key === "assignedTo" ? (
+                        <EnqSelect T={T} value={editForm.assignedTo || ""} options={assigneeOptions}
+                          onChange={v => setEditForm(f => ({ ...f, assignedTo: v }))}
+                          placeholder={assigneeOptions.length ? "Select sales rep…" : "No sales reps yet"} />
+                      ) : (
+                        <input type={type || "text"} value={editForm[key] || ""} className="enq-input"
+                          onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                          style={{ ...inputStyle }}/>
+                      )}
                     </div>
                   ))}
 
@@ -1278,26 +1329,41 @@ export default function Enquiries() {
                         customerName: name,
                         email:        c.customerEmail || f.email,
                         phone:        c.phone || f.phone,
-                        company:      c.companyName || f.company,
                       }));
                     }}
-                    onClear={() => setForm(f => ({ ...f, customerId: "", customerName: "", email: "", phone: "", company: "" }))}
+                    onClear={() => setForm(f => ({ ...f, customerId: "", customerName: "", email: "", phone: "" }))}
                   />
                 </div>
 
                 {[
-                  { key: "customerName", label: "Customer Name *", full: true },
-                  { key: "email",        label: "Email" },
-                  { key: "phone",        label: "Phone" },
-                  { key: "company",      label: "Company" },
-                  { key: "subject",      label: "Subject / Product Interest *", full: true },
-                  { key: "assignedTo",   label: "Assigned To" },
+                  { key: "customerName",  label: "Customer Name *", full: true },
+                  { key: "email",         label: "Customer Email" },
+                  { key: "phone",         label: "Customer Phone" },
+                  { key: "projectName",   label: "Project Name" },
+                  { key: "supplier",      label: "Supplier" },
+                  { key: "contactPerson", label: "Contact Person" },
+                  { key: "contactEmail",  label: "Contact Email" },
+                  { key: "contactPhone",  label: "Contact Phone" },
+                  { key: "subject",       label: "Subject / Product Interest *", full: true },
+                  { key: "assignedTo",    label: "Assigned To" },
                 ].map(({ key, label, full }) => (
                   <div key={key} style={{ gridColumn: full ? "1 / -1" : undefined }}>
                     <label style={labelStyle}>{label}</label>
-                    <input type="text" value={form[key] || ""} className="enq-input"
-                      onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                      style={{ ...inputStyle }}/>
+                    {key === "contactPhone" ? (
+                      <div className="enq-phone">
+                        <PhoneInput international countryCallingCodeEditable={false} defaultCountry="AE"
+                          countrySelectComponent={CountrySelect}
+                          value={form.contactPhone || ""} onChange={v => setForm(f => ({ ...f, contactPhone: v || "" }))} />
+                      </div>
+                    ) : key === "assignedTo" ? (
+                      <EnqSelect T={T} value={form.assignedTo || ""} options={assigneeOptions}
+                        onChange={v => setForm(f => ({ ...f, assignedTo: v }))}
+                        placeholder={assigneeOptions.length ? "Select sales rep…" : "No sales reps yet"} />
+                    ) : (
+                      <input type="text" value={form[key] || ""} className="enq-input"
+                        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ ...inputStyle }}/>
+                    )}
                   </div>
                 ))}
 

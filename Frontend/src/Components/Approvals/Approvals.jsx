@@ -76,7 +76,10 @@ export default function Approvals() {
   const approve = async (req) => {
     setBusy(req._id)
     try {
-      const r = await axiosInstance.post(`/api/approvals/${req._id}/approve`)
+      // Sales orders use a bespoke status-based approval, not the generic engine.
+      const r = req.docType === 'sales_order'
+        ? await axiosInstance.patch(`/api/sales-orders/${req._id}/status`, { status: 'approved' })
+        : await axiosInstance.post(`/api/approvals/${req._id}/approve`)
       nexusToast.success(r.data?.message || 'Approved')
       setDetail(null)
       load()
@@ -90,7 +93,11 @@ export default function Approvals() {
     if (!req) return
     setBusy(req._id)
     try {
-      await axiosInstance.post(`/api/approvals/${req._id}/reject`, { reason: rejectReason.trim() })
+      if (req.docType === 'sales_order') {
+        await axiosInstance.patch(`/api/sales-orders/${req._id}/status`, { status: 'rejected', rejectionReason: rejectReason.trim() })
+      } else {
+        await axiosInstance.post(`/api/approvals/${req._id}/reject`, { reason: rejectReason.trim() })
+      }
       nexusToast.success('Rejected')
       setRejectTarget(null)
       setRejectReason('')

@@ -504,6 +504,64 @@ func GetApprovalRequests() gin.HandlerFunc {
 			out = append(out, gin.H{"req": r, "canAct": canAct})
 		}
 
+		// ── Sales orders ──────────────────────────────────────────────────────
+		// SOs run a bespoke status-based approval (status="pending_approval" on the
+		// order itself), not the generic approval_requests engine. Surface them here
+		// so they show up in this module like every other held document. Actions are
+		// routed back to /api/sales-orders/:id/status by the client (docType=sales_order).
+		soPend, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{"orgId": orgIDStr, "status": "pending_approval"})
+		pendingCount += soPend
+
+		soFilter := bson.M{"orgId": orgIDStr}
+		switch status {
+		case "all":
+			soFilter["status"] = bson.M{"$in": []string{"pending_approval", "approved", "rejected"}}
+		case "approved", "rejected":
+			soFilter["status"] = status
+		default: // pending
+			soFilter["status"] = "pending_approval"
+		}
+		soApprover := salesOrderApproverRoles(ctx, orgObjID)
+		if soCur, soErr := salesOrdersCollection.Find(ctx, soFilter,
+			options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})); soErr == nil {
+			var sos []models.SalesOrder
+			soCur.All(ctx, &sos)
+			soCur.Close(ctx)
+			for _, so := range sos {
+				synth := "pending"
+				switch so.Status {
+				case "approved":
+					synth = "approved"
+				case "rejected":
+					synth = "rejected"
+				}
+				items := make([]gin.H, 0, len(so.Items))
+				for _, it := range so.Items {
+					items = append(items, gin.H{"details": it.Details, "quantity": it.Quantity, "rate": it.Rate, "amount": it.Amount})
+				}
+				out = append(out, gin.H{"req": gin.H{
+					"_id":             so.ID.Hex(),
+					"docType":         "sales_order",
+					"action":          "create",
+					"title":           so.OrderNumber,
+					"amount":          so.Total,
+					"status":          synth,
+					"reason":          so.RejectionReason,
+					"requestedBy":     so.CreatedBy,
+					"requestedByName": so.CreatedBy,
+					"requestedAt":     so.CreatedAt,
+					"steps":           []gin.H{},
+					"currentStep":     0,
+					"payload": gin.H{
+						"customerName": so.CustomerName,
+						"lpoNumber":    so.LpoNumber,
+						"items":        items,
+						"totals":       gin.H{"subTotal": so.SubTotal, "vat": so.VAT, "grandTotal": so.Total},
+					},
+				}, "canAct": synth == "pending" && soApprover[role] && so.CreatedBy != fmt.Sprintf("%v", userID)})
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{"requests": out, "pendingCount": pendingCount, "myRole": role}})
 	}
 }
