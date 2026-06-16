@@ -402,6 +402,134 @@ func ApprovePurchaseOrder() gin.HandlerFunc {
 	}
 }
 
+// UpdatePurchaseOrder edits an existing PO (header + items). Gated by the org's
+// "purchase_orders" approval policy for the "update" action — when required, the edit is
+// held and only applied once approved (replayed through this same handler).
+func UpdatePurchaseOrder() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid purchase order ID"})
+			return
+		}
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+
+		var existing models.PurchaseOrder
+		if err := purchaseOrderCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}).Decode(&existing); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Purchase order not found"})
+			return
+		}
+
+		var req models.PurchaseOrder
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+
+		// Approval gate — hold the edit for an approver when the org requires it.
+		if !c.GetBool("approvalReplay") {
+			userIDVal, _ := c.Get("userId")
+			userName := ""
+			title := req.VendorName
+			if title == "" {
+				title = existing.OrderNumber
+			}
+			if holdActionForApproval(c, ctx, orgIDStr, fmt.Sprintf("%v", userIDVal), userName, "po", "update", "purchase_orders", title, req.Total, objectID.Hex(), req) {
+				return
+			}
+		}
+
+		// VAT rate from vendor origin (same rule as create).
+		appliedTaxRate := 0.05
+		vendorOrigin := existing.VendorOrigin
+		if req.VendorID != "" {
+			if vObjID, e := primitive.ObjectIDFromHex(req.VendorID); e == nil {
+				var vendor struct {
+					Origin string `bson:"origin"`
+				}
+				vendorCollection.FindOne(ctx, bson.M{"_id": vObjID, "orgId": orgIDStr}).Decode(&vendor)
+				vendorOrigin = normaliseOrigin(vendor.Origin)
+				if vendorOrigin == "free_zone" || vendorOrigin == "overseas" {
+					appliedTaxRate = 0.0
+				}
+			}
+		}
+
+		var processedItems []models.PurchaseOrderItem
+		var subTotal float64
+		for _, item := range req.Items {
+			base := calcLineBase(item.Quantity, item.Rate, item.Discount, item.DiscountType)
+			tax := round2(base * appliedTaxRate)
+			freight := round2(item.Freight)
+			freightTax := round2(freight * item.FreightTaxRate / 100)
+			amount := round2(base + tax + freight + freightTax)
+			processedItems = append(processedItems, models.PurchaseOrderItem{
+				ID: primitive.NewObjectID(), ItemID: item.ItemID, Details: item.Details,
+				Quantity: item.Quantity, Rate: item.Rate, Discount: item.Discount, DiscountType: item.DiscountType,
+				BaseAmount: base, TaxRate: appliedTaxRate * 100, TaxAmount: tax, Amount: amount, Unit: item.Unit,
+				Freight: freight, FreightTaxRate: item.FreightTaxRate, FreightTaxAmount: freightTax,
+			})
+			subTotal += base + freight
+		}
+		subTotal = round2(subTotal)
+		taxGroups := buildTaxGroups(processedItems)
+		totalTax := 0.0
+		for _, it := range processedItems {
+			totalTax += it.TaxAmount + it.FreightTaxAmount
+		}
+		totalTax = round2(totalTax)
+		shipping := round2(req.ShippingCharges)
+		adjustment := round2(req.Adjustment)
+		total := round2(subTotal + totalTax + shipping + adjustment)
+
+		poType := req.POType
+		if poType == "" {
+			poType = existing.POType
+		}
+
+		set := bson.M{
+			"vendorId": req.VendorID, "vendorName": req.VendorName, "vendorOrigin": vendorOrigin,
+			"poType": poType, "orderDate": req.OrderDate, "expectedDeliveryDate": req.ExpectedDeliveryDate,
+			"paymentTerms": req.PaymentTerms, "deliveryAddress": req.DeliveryAddress, "shipmentPreference": req.ShipmentPreference,
+			"referenceNo": req.ReferenceNo, "items": processedItems, "subTotal": subTotal, "taxGroups": taxGroups,
+			"totalTax": totalTax, "shippingCharges": shipping, "adjustment": adjustment, "total": total,
+			"customerNotes": req.CustomerNotes, "termsAndConditions": req.TermsAndConditions, "updatedAt": time.Now(),
+		}
+		if _, err := purchaseOrderCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}, bson.M{"$set": set}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update purchase order", "error": err.Error()})
+			return
+		}
+
+		// Re-sync quantity_ordered on stock for goods POs: back out the old line quantities,
+		// add the new ones.
+		stockCol := config.GetCollection(config.DB, "stocks")
+		if existing.POType == "goods" {
+			for _, it := range existing.Items {
+				if oid, e := primitive.ObjectIDFromHex(it.ItemID); e == nil {
+					stockCol.UpdateOne(ctx, bson.M{"_id": oid, "orgId": orgIDStr}, bson.M{"$inc": bson.M{"quantity_ordered": -it.Quantity}})
+				}
+			}
+		}
+		if poType == "goods" {
+			for _, it := range processedItems {
+				if oid, e := primitive.ObjectIDFromHex(it.ItemID); e == nil {
+					stockCol.UpdateOne(ctx, bson.M{"_id": oid, "orgId": orgIDStr}, bson.M{"$inc": bson.M{"quantity_ordered": it.Quantity}})
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Purchase order updated successfully",
+			"data":    gin.H{"id": objectID.Hex(), "orderNumber": existing.OrderNumber, "total": total, "status": existing.Status},
+		})
+	}
+}
+
 func UpdatePurchaseOrderStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -589,7 +717,18 @@ func CancelPurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Purchase order cancelled"})
+		// Cancel any DRAFT GRNs raised against this PO — they can't be received now.
+		grnCol := config.GetCollection(config.DB, "grns")
+		grnRes, _ := grnCol.UpdateMany(ctx,
+			bson.M{"orgId": orgIDStr, "purchaseOrderId": objID.Hex(), "status": "draft"},
+			bson.M{"$set": bson.M{"status": "cancelled", "updatedAt": time.Now()}},
+		)
+
+		msg := "Purchase order cancelled"
+		if grnRes != nil && grnRes.ModifiedCount > 0 {
+			msg = fmt.Sprintf("Purchase order cancelled — %d draft GRN(s) also cancelled", grnRes.ModifiedCount)
+		}
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": msg})
 	}
 }
 

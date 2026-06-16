@@ -35,6 +35,8 @@ type Payment struct {
 	// or code). Empty → defaults to 1001 Cash on Hand. Resolved to a code for the JE.
 	DepositAccount string            `json:"depositAccount,omitempty" bson:"depositAccount,omitempty"`
 	Reference     string             `json:"reference,omitempty"    bson:"reference,omitempty"`
+	// ReceiptNumber: mandatory receipt no. captured when recording the payment.
+	ReceiptNumber string             `json:"receiptNumber,omitempty" bson:"receiptNumber,omitempty"`
 	Notes         string             `json:"notes,omitempty"        bson:"notes,omitempty"`
 	OrgID          string             `json:"orgId,omitempty"         bson:"orgId,omitempty"`
 	IsRefunded     bool               `json:"isRefunded,omitempty"    bson:"isRefunded,omitempty"`

@@ -142,6 +142,7 @@ function App() {
               <Route path="/Sales/Salesorders/Newsalesorders/:id" element={<Newsalesorders />} />
               <Route path="/Purchase/Purchaseorders" element={<Purchaseorders />} />
               <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
+              <Route path="/Purchase/Purchaseorders/Newpurchaseorders/:id" element={<Newpurchaseorders />} />
               <Route path="/Purchase/Vendors" element={<Vendors />} />
               <Route path="/Purchase/Vendors/NewVendor" element={<NewVendor />} />
               <Route path="/Purchase/Vendors/Edit/:id" element={<NewVendor />} />

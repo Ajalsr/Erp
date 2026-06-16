@@ -428,7 +428,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   const [accounts, setAccounts] = useState([]);    // cash/bank accounts for "Deposit To"
 
   const [form, setForm] = useState({
-    customerId: "", customerName: "",
+    customerId: "", customerName: "", receiptNumber: "",
     amount: "", date: new Date().toISOString().split("T")[0],
     paymentMode: "Bank Transfer", depositAccount: "", details: {}, notes: "",
   });
@@ -541,6 +541,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
   const validate = () => {
     const e = {};
     if (!form.customerId) e.customerId = "Select a customer";
+    if (!form.receiptNumber.trim()) e.receiptNumber = "Receipt number is required";
     if (!enteredAmt || enteredAmt <= 0) e.amount = "Enter a valid amount";
     if (!form.date) e.date = "Select a date";
     if (overAllocated) e.amount = "Allocated more than the amount received";
@@ -562,6 +563,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
       await axiosInstance.post("/api/payments/", {
         customerId:   form.customerId,
         customerName: form.customerName,
+        receiptNumber: form.receiptNumber.trim(),
         amount:       Number(enteredAmt),
         date:         form.date,
         paymentMode:  form.paymentMode,
@@ -684,6 +686,18 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* ── Receipt number (mandatory) ── */}
+          <div>
+            <label style={lbl}>Receipt Number <span style={{ color: "#ef4444" }}>*</span></label>
+            <input
+              style={{ ...inp, fontFamily: "'DM Mono', monospace", borderColor: errors.receiptNumber ? "#ef4444" : T.inputBdr }}
+              type="text" placeholder="e.g. RCPT-001"
+              value={form.receiptNumber}
+              onChange={e => setForm(f => ({ ...f, receiptNumber: e.target.value }))}
+            />
+            {errors.receiptNumber && <div style={errTxt}>{errors.receiptNumber}</div>}
           </div>
 
           {/* ── Amount received ── */}

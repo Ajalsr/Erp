@@ -5,7 +5,7 @@ import {
   FaFileInvoiceDollar, FaBan,
   FaCheckCircle, FaClock, FaSpinner,
   FaTruck, FaDownload, FaFilter, FaEllipsisV,
-  FaTools, FaBox,
+  FaTools, FaBox, FaEdit,
 } from 'react-icons/fa';
 import { MdMoveToInbox } from 'react-icons/md';
 import { useNavigate } from 'react-router-dom';
@@ -315,7 +315,12 @@ export default function Purchaseorders() {
                   <p style={{ fontFamily:"'Sora',sans-serif", fontSize:16, fontWeight:800, color:T.textPri, margin:0 }}>{selected.vendorName||'Unknown Vendor'}</p>
                   <p style={{ fontSize:11, color:T.textSec, margin:'3px 0 0' }}>{fmtDate(selected.orderDate)}</p>
                 </div>
-                <button onClick={closeDrawer} className="po-icon-btn" style={{ padding:8, marginTop:-4 }}><FaTimes size={14}/></button>
+                <div style={{ display:'flex', gap:6, marginTop:-4 }}>
+                  {!['cancelled','received'].includes(selected.status) && (
+                    <button onClick={() => navigate(`/Purchase/Purchaseorders/Newpurchaseorders/${selected._id}`)} className="po-icon-btn" title="Edit" style={{ padding:8, color:T.blue }}><FaEdit size={13}/></button>
+                  )}
+                  <button onClick={closeDrawer} className="po-icon-btn" style={{ padding:8 }}><FaTimes size={14}/></button>
+                </div>
               </div>
               <div style={{ marginTop:14, padding:'12px 16px', borderRadius:12, background:isDark?'rgba(59,130,246,.1)':'#eff6ff', border:`1.5px solid ${isDark?'rgba(59,130,246,.25)':'#bfdbfe'}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                 <span style={{ fontSize:11, fontWeight:700, color:T.textSec, textTransform:'uppercase', letterSpacing:'0.06em' }}>Order Total</span>
@@ -379,7 +384,7 @@ export default function Purchaseorders() {
                   <DRow label="Expected By"   value={fmtDate(selected.expectedDeliveryDate||selected.expectedDate)} T={T}/>
                   <DRow label="Payment Terms" value={selected.paymentTerms} T={T}/>
                   <DRow label="Delivery To"   value={selected.deliveryAddress||selected.warehouse} T={T}/>
-                  <DRow label="Reference No." value={selected.referenceNo||selected.lpoNumber} T={T}/>
+                  <DRow label="Supplier Reference" value={selected.referenceNo||selected.lpoNumber} T={T}/>
                   <DRow label="Created By"    value={selected.createdBy} T={T}/>
                   <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>
                   {(() => {
