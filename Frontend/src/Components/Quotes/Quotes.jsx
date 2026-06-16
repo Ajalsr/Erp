@@ -170,6 +170,23 @@ export default function Quotes() {
     }
   }
 
+  // Open the Sales Order form pre-filled from a quote (customer, items, terms, salesperson).
+  const goToSOFromQuote = (q) => {
+    if (!q) return;
+    navigate("/Sales/Salesorders/Newsalesorders", { state: { fromQuote: {
+      quoteId:      q._id,
+      quoteNumber:  q.quoteNumber,
+      customerId:   q.customerId,
+      customerName: q.customerName,
+      paymentTerms: q.paymentTerms,
+      currency:     q.currency,
+      grandTotal:   q.totals?.grandTotal,
+      notes:        q.notes?.customer,
+      salesperson:  q.salesperson || "",
+      lineItems:    q.lineItems || [],
+    }}});
+  };
+
   async function handleStatusChange(q, newStatus) {
     try {
       await axiosInstance.patch(`/api/quotes/${q._id}/status`, { status: newStatus });
@@ -707,6 +724,7 @@ export default function Quotes() {
                     />
 
                     {/* PDF download */}
+                    {canExport && (
                     <ActionBtn
                       onClick={() => {
                         const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -730,6 +748,7 @@ export default function Quotes() {
                       color="#10b981" glow="rgba(16,185,129,0.15)"
                       outline
                     />
+                    )}
 
                     {selected.status === "draft" && canEditRecord("quotes", selected.createdBy) && (
                       <ActionBtn
@@ -771,30 +790,10 @@ export default function Quotes() {
 
                     {selected.status === "accepted" && (
                       <ActionBtn
-                        onClick={() => navigate("/Sales/Salesorders/Newsalesorders", { state: { fromQuote: {
-                          quoteId:      selected._id,
-                          quoteNumber:  selected.quoteNumber,
-                          customerId:   selected.customerId,
-                          customerName: selected.customerName,
-                          paymentTerms: selected.paymentTerms,
-                          currency:     selected.currency,
-                          grandTotal:   selected.totals?.grandTotal,
-                          notes:        selected.notes?.customer,
-                          lineItems:    selected.lineItems || [],
-                        }}})}
+                        onClick={() => goToSOFromQuote(selected)}
                         icon={<FaBoxOpen />}
                         label="Create Sales Order"
                         color="#10b981" glow="rgba(16,185,129,0.2)"
-                      />
-                    )}
-
-                    {selected.status === "accepted" && (
-                      <ActionBtn
-                        onClick={() => setConvertSOTarget(selected)}
-                        icon={<FaExchangeAlt />}
-                        label={convertingToSO ? "Converting…" : "Quick Convert to SO"}
-                        color="#10b981" glow="rgba(16,185,129,0.15)"
-                        disabled={convertingToSO}
                       />
                     )}
 

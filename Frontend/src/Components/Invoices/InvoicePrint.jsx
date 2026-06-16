@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FaChevronLeft, FaPrint, FaFileDownload, FaSpinner } from 'react-icons/fa';
 import api from '../../helper/axiosInstance';
 import useAuthStore from '../../store/useAuthStore';
+import { usePermissions } from '../../helper/permissions';
 
 const fmt = (n) => `${Number(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return d; } };
@@ -41,6 +42,8 @@ export default function InvoicePrint() {
   const { id } = useParams();
   const navigate = useNavigate();
   const activeOrg = useAuthStore((s) => s.activeOrg);
+  const { can } = usePermissions();
+  const canExport = can('invoices', 'export');
 
   const [inv, setInv]   = useState(null);
   const [cust, setCust] = useState(null);
@@ -146,9 +149,11 @@ export default function InvoicePrint() {
           <FaChevronLeft size={10} /> Back
         </button>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => { window.print(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#0a0e1a', cursor: 'pointer' }}>
-            <FaFileDownload size={11} /> Save as PDF
-          </button>
+          {canExport && (
+            <button onClick={() => { window.print(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#0a0e1a', cursor: 'pointer' }}>
+              <FaFileDownload size={11} /> Save as PDF
+            </button>
+          )}
           <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#1e3a5f', cursor: 'pointer' }}>
             <FaPrint size={11} /> Print
           </button>

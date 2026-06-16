@@ -9,6 +9,7 @@ import {
   FaEye, FaMapMarkerAlt, FaBox, FaClipboardList,
 } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { usePermissions } from '../../helper/permissions';
 import useAuthStore from '../../store/useAuthStore';
 import api from '../../helper/axiosInstance';
 
@@ -147,6 +148,8 @@ export default function DeliveryNote() {
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
+  const { can }   = usePermissions();
+  const canExport = can('delivery_notes', 'export');
   const activeOrg = useAuthStore((s) => s.activeOrg);
 
   const cardRef = useRef(null);
@@ -593,10 +596,12 @@ export default function DeliveryNote() {
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: '#3b82f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff' }}>
                   <FaPrint size={11} /> Print
                 </button>
+                {canExport && (
                 <button className="dn-btn" onClick={() => { showToast('Choose "Save as PDF" in the print dialog', '📄'); setTimeout(() => window.print(), 350); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff' }}>
                   <FaFileDownload size={11} /> Save as PDF
                 </button>
+                )}
                 <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)' }} />
                 <button className="dn-btn" onClick={() => setPrintPreview(false)}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>
@@ -650,10 +655,12 @@ export default function DeliveryNote() {
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   <FaEye size={11} /> Preview
                 </button>
+                {canExport && (
                 <button className="dn-btn" onClick={() => { showToast('Choose "Save as PDF" in print dialog', '📄'); setTimeout(() => window.print(), 300); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   <FaFileDownload size={11} /> PDF
                 </button>
+                )}
                 <button className="dn-btn" onClick={() => window.print()}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.blue, border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#fff' }}>
                   <FaPrint size={11} /> Print

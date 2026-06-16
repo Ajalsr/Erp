@@ -66,12 +66,14 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", style,
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState(null);
   const btnRef = useRef(null);
+  const dropRef = useRef(null);
   const sel = options.find(o => o.value === value);
   const measure = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setCoords({ top: r.bottom + 4, left: r.left, width: r.width }); };
   useEffect(() => {
     if (!open) return;
     const close = (e) => { if (!btnRef.current?.contains(e.target)) setOpen(false); };
-    const reposition = () => setOpen(false);
+    // Close on page scroll, but ignore scrolling inside the dropdown list itself.
+    const reposition = (e) => { if (e?.target && dropRef.current?.contains(e.target)) return; setOpen(false); };
     window.addEventListener("mousedown", close);
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
@@ -86,7 +88,7 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", style,
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0, opacity: .6, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="M6 9l6 6 6-6" /></svg>
       </button>
       {open && coords && createPortal(
-        <div style={{ position: "fixed", top: coords.top, left: coords.left, width: Math.max(coords.width, 90), zIndex: 9999, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: T.shadow, padding: 4, maxHeight: 240, overflowY: "auto", animation: "qPop .12s ease" }}>
+        <div ref={dropRef} style={{ position: "fixed", top: coords.top, left: coords.left, width: Math.max(coords.width, 90), zIndex: 9999, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: T.shadow, padding: 4, maxHeight: 240, overflowY: "auto", animation: "qPop .12s ease" }}>
           {options.map(o => (
             <div key={o.value} onMouseDown={() => { onChange(o.value); setOpen(false); }}
               style={{ padding: "8px 10px", borderRadius: 6, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", color: o.value === value ? T.accent : T.text, background: o.value === value ? `${T.accent}14` : "transparent", fontWeight: o.value === value ? 600 : 400 }}
@@ -513,10 +515,12 @@ export default function CreateQuote() {
   );
 
   // Reference / document fields
-  const [attentionTo,  setAttentionTo]  = useState(prefill?.attentionTo  || "");
+  const [attentionTo,  setAttentionTo]  = useState(prefill?.attentionTo  || fromEnquiry?.contactPerson || "");
   const [subject,      setSubject]      = useState(prefill?.subject      || fromEnquiry?.subject || "");
-  const [projectName,  setProjectName]  = useState(prefill?.projectName  || "");
+  const [projectName,  setProjectName]  = useState(prefill?.projectName  || fromEnquiry?.projectName || "");
   const [introText,    setIntroText]    = useState(prefill?.introText    || "");
+  // Salesperson — carried from the source enquiry so a converted Sales Order can auto-fill it.
+  const [salesperson] = useState(prefill?.salesperson || fromEnquiry?.assignedTo || "");
 
   // Sender company details
   const [company, setCompany] = useState(prefill?.company || {
@@ -587,7 +591,7 @@ export default function CreateQuote() {
         customerId, customerName, customerEmail,
         billTo,
         quoteDate, validUntil, currency, paymentTerms,
-        attentionTo, subject, projectName, introText,
+        attentionTo, subject, projectName, introText, salesperson,
         company, signatory,
         termsAndConditions: terms,
         lineItems: lineItems.map((li, i) => {
@@ -605,6 +609,10 @@ export default function CreateQuote() {
         notes: { customer: custNote, internal: internalNote },
         sourceEnquiryId:     fromEnquiry?._id || null,
         sourceEnquiryNumber: fromEnquiry?.enquiryNumber || null,
+        // Recipients ride in the payload so the backend can email on create AND after an
+        // approval hold is replayed. (Re-send later uses the /send endpoint.)
+        recipients:  status === "sent" ? (recipients || []) : [],
+        sendMessage: status === "sent" ? sendMessage : "",
       };
 
       let r;
@@ -614,21 +622,18 @@ export default function CreateQuote() {
         r = await axiosInstance.post("/api/quotes/", payload);
       }
       const saved = r?.data?.data || {};
-      const quoteId = saved._id || saved.id || prefill?._id;
       const pendingApproval = saved.status === "pending_approval";
       if (pendingApproval) {
-        nexusToast.success("Submitted for approval");
-      } else {
-        nexusToast.success(isEdit ? "Quote updated" : status === "draft" ? "Quote saved as draft" : "Quote created");
-        // Email the quote to the chosen recipients (only once it's a real saved quote).
-        if (status === "sent" && quoteId && recipients?.length) {
-          try {
-            await axiosInstance.post(`/api/quotes/${quoteId}/send`, { recipients, message: sendMessage });
-            nexusToast.success(`Sent to ${recipients.length} recipient${recipients.length > 1 ? "s" : ""}`);
-          } catch (e) {
-            nexusToast.error(e.response?.data?.message || "Quote saved, but the email failed to send");
-          }
+        nexusToast.success("Submitted for approval — it'll be emailed once approved");
+      } else if (status === "sent") {
+        // Backend auto-emails on create; reflect the real result.
+        if (saved.emailSent) {
+          nexusToast.success(`Quote created & sent to ${recipients?.length || 1} recipient${(recipients?.length || 1) > 1 ? "s" : ""}`);
+        } else {
+          nexusToast.error(saved.emailError ? `Quote saved, but email failed: ${saved.emailError}` : "Quote saved, but no email was sent");
         }
+      } else {
+        nexusToast.success(isEdit ? "Quote updated" : "Quote saved as draft");
       }
       // Mark the source enquiry as Quoted now that the quote exists (not before — so
       // cancelling the quote leaves the enquiry untouched).

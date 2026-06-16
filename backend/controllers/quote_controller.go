@@ -35,6 +35,35 @@ func CreateQuote() gin.HandlerFunc {
 			return
 		}
 
+		// One quote per enquiry — block a duplicate even if the enquiry status was
+		// flipped back or the form re-submitted. Runs on the approval-replay path too.
+		if strings.TrimSpace(q.SourceEnquiryId) != "" {
+			dup, _ := quoteCollection.CountDocuments(ctx, bson.M{
+				"orgId":           orgID,
+				"sourceEnquiryId": q.SourceEnquiryId,
+				"status":          bson.M{"$nin": []string{"cancelled", "declined", "expired"}},
+			})
+			if dup > 0 {
+				c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "A quote already exists for this enquiry"})
+				return
+			}
+			// Also block when an earlier quote for this enquiry is still pending approval
+			// (no quote row exists yet). Skipped on the replay of that same approval.
+			if !c.GetBool("approvalReplay") {
+				pend, _ := approvalRequestCollection.CountDocuments(ctx, bson.M{
+					"orgId":                   fmt.Sprintf("%v", orgID),
+					"docType":                 "quote",
+					"action":                  "create",
+					"status":                  "pending",
+					"payload.sourceEnquiryId": q.SourceEnquiryId,
+				})
+				if pend > 0 {
+					c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "A quote for this enquiry is already pending approval"})
+					return
+				}
+			}
+		}
+
 		// Approval gate — hold the create for an approver when the org requires it.
 		if !c.GetBool("approvalReplay") {
 			title := q.CustomerName
@@ -72,10 +101,28 @@ func CreateQuote() gin.HandlerFunc {
 			return
 		}
 
+		// Auto-email when the quote is finalized as "sent". This runs for both the
+		// direct create and the approval-replay path (recipients ride in the payload),
+		// so an approved quote actually reaches the customer.
+		emailSent := false
+		emailError := ""
+		if q.Status == "sent" {
+			if to, err := mailQuote(ctx, q, q.Recipients, q.SendMessage); err != nil {
+				emailError = err.Error()
+			} else {
+				emailSent = len(to) > 0
+			}
+		}
+
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
 			"message": "Quote created successfully",
-			"data":    gin.H{"id": q.ID.Hex(), "quoteNumber": q.QuoteNumber},
+			"data": gin.H{
+				"id":          q.ID.Hex(),
+				"quoteNumber": q.QuoteNumber,
+				"emailSent":   emailSent,
+				"emailError":  emailError,
+			},
 		})
 	}
 }
@@ -111,6 +158,9 @@ func GetAllQuotes() gin.HandlerFunc {
 		}
 		if customerId := c.Query("customerId"); customerId != "" {
 			filter["customerId"] = customerId
+		}
+		if seid := c.Query("sourceEnquiryId"); seid != "" {
+			filter["sourceEnquiryId"] = seid
 		}
 		// Record scope is "show all, lock others": the list shows every record; access
 		// to details/edit/delete is restricted per-record (see GetQuoteByID/Update/Delete).
@@ -293,7 +343,33 @@ func UpdateQuote() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote updated successfully"})
+		// Auto-email when the edit finalizes the quote as "sent" (mirrors CreateQuote,
+		// incl. the approval-replay path). Build from the submitted payload so the PDF
+		// reflects the latest content.
+		emailSent := false
+		emailError := ""
+		if payload.Status == "sent" {
+			payload.OrgID = orgID.(string)
+			payload.ID = objectID
+			if payload.QuoteNumber == "" {
+				payload.QuoteNumber = existing.QuoteNumber
+			}
+			if to, err := mailQuote(ctx, payload, payload.Recipients, payload.SendMessage); err != nil {
+				emailError = err.Error()
+			} else {
+				emailSent = len(to) > 0
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  http.StatusOK,
+			"message": "Quote updated successfully",
+			"data": gin.H{
+				"id":         objectID.Hex(),
+				"emailSent":  emailSent,
+				"emailError": emailError,
+			},
+		})
 	}
 }
 
@@ -526,6 +602,7 @@ func ConvertQuoteToSalesOrder() gin.HandlerFunc {
 			SalesType:         "SO",
 			OrderDate:         time.Now(),
 			PaymentTerms:      q.PaymentTerms,
+			Salesperson:       q.Salesperson,
 			Items:             soItems,
 			SubTotal:          q.Totals.Subtotal,
 			VAT:               q.Totals.TaxTotal,
@@ -597,6 +674,48 @@ func DeleteQuote() gin.HandlerFunc {
 }
 
 // SendQuote emails a quote to one or more recipients and marks it as sent.
+// resolveQuoteRecipients de-dupes/trims the given list and falls back to the quote's
+// own email, then the linked customer's email. Returns the final recipient list.
+func resolveQuoteRecipients(ctx context.Context, q models.Quote, recipients []string) []string {
+	seen := map[string]bool{}
+	var to []string
+	for _, e := range recipients {
+		e = strings.TrimSpace(e)
+		if e != "" && !seen[strings.ToLower(e)] {
+			seen[strings.ToLower(e)] = true
+			to = append(to, e)
+		}
+	}
+	if len(to) == 0 {
+		if q.CustomerEmail != "" {
+			to = append(to, q.CustomerEmail)
+		} else if cid, e2 := primitive.ObjectIDFromHex(q.CustomerID); e2 == nil {
+			var cust models.Customer
+			if customersCollection.FindOne(ctx, bson.M{"_id": cid}).Decode(&cust) == nil && cust.CustomerEmail != "" {
+				to = append(to, cust.CustomerEmail)
+			}
+		}
+	}
+	return to
+}
+
+// mailQuote builds the quote PDF and emails it to the resolved recipients. Shared by
+// the explicit /send endpoint and the auto-send on create (incl. approval replay).
+func mailQuote(ctx context.Context, q models.Quote, recipients []string, message string) (to []string, err error) {
+	to = resolveQuoteRecipients(ctx, q, recipients)
+	if len(to) == 0 {
+		return nil, fmt.Errorf("no recipient email provided for this quote")
+	}
+	var pdfBuf bytes.Buffer
+	if perr := buildQuotePDF(q).Output(&pdfBuf); perr != nil {
+		pdfBuf.Reset() // fall back to a body-only email rather than failing the send
+	}
+	if serr := utils.SendQuoteEmail(to, q, message, pdfBuf.Bytes()); serr != nil {
+		return to, serr
+	}
+	return to, nil
+}
+
 // POST /api/quotes/:id/send  body: { recipients: []string, message: string }
 func SendQuote() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -622,38 +741,12 @@ func SendQuote() gin.HandlerFunc {
 		}
 		c.ShouldBindJSON(&req)
 
-		// De-dupe + trim recipients; fall back to the quote's / customer's email.
-		seen := map[string]bool{}
-		var to []string
-		for _, e := range req.Recipients {
-			e = strings.TrimSpace(e)
-			if e != "" && !seen[strings.ToLower(e)] {
-				seen[strings.ToLower(e)] = true
-				to = append(to, e)
+		to, err := mailQuote(ctx, q, req.Recipients, req.Message)
+		if err != nil {
+			if len(to) == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "No recipient email provided for this quote"})
+				return
 			}
-		}
-		if len(to) == 0 {
-			if q.CustomerEmail != "" {
-				to = append(to, q.CustomerEmail)
-			} else if cid, e2 := primitive.ObjectIDFromHex(q.CustomerID); e2 == nil {
-				var cust models.Customer
-				if customersCollection.FindOne(ctx, bson.M{"_id": cid}).Decode(&cust) == nil && cust.CustomerEmail != "" {
-					to = append(to, cust.CustomerEmail)
-				}
-			}
-		}
-		if len(to) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "No recipient email provided for this quote"})
-			return
-		}
-
-		// Attach the same PDF as Preview & Print / Download.
-		var pdfBuf bytes.Buffer
-		if err := buildQuotePDF(q).Output(&pdfBuf); err != nil {
-			pdfBuf.Reset() // fall back to a body-only email rather than failing the send
-		}
-
-		if err := utils.SendQuoteEmail(to, q, req.Message, pdfBuf.Bytes()); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send quote email", "error": err.Error()})
 			return
 		}

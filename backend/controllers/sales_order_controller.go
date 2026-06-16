@@ -110,15 +110,16 @@ func CreateSalesOrder() gin.HandlerFunc {
 		// ── Duplicate LPO check ───────────────────────────────────────────────
 		// Rejected SOs free up their LPO number — only block on active/pending/approved SOs.
 		if req.LpoNumber != "" {
-			count, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
+			var existing models.SalesOrder
+			err := salesOrdersCollection.FindOne(ctx, bson.M{
 				"orgId":     fmt.Sprintf("%v", orgID),
 				"lpoNumber": req.LpoNumber,
 				"status":    bson.M{"$ne": "rejected"},
-			})
-			if count > 0 {
+			}).Decode(&existing)
+			if err == nil {
 				c.JSON(http.StatusConflict, gin.H{
 					"status":  http.StatusConflict,
-					"message": fmt.Sprintf("LPO number '%s' is already in use by an active order.", req.LpoNumber),
+					"message": fmt.Sprintf("LPO number '%s' is already in use by sales order %s.", req.LpoNumber, existing.OrderNumber),
 				})
 				return
 			}
@@ -1000,16 +1001,17 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			if req.LpoNumber != nil {
 				// Duplicate LPO check on update — exclude rejected and the current order
 				if *req.LpoNumber != "" && *req.LpoNumber != existingOrder.LpoNumber {
-					dupCount, _ := salesOrdersCollection.CountDocuments(ctx, bson.M{
+					var dup models.SalesOrder
+					dupErr := salesOrdersCollection.FindOne(ctx, bson.M{
 						"orgId":     fmt.Sprintf("%v", orgID),
 						"lpoNumber": *req.LpoNumber,
 						"status":    bson.M{"$ne": "rejected"},
 						"_id":       bson.M{"$ne": objectID},
-					})
-					if dupCount > 0 {
+					}).Decode(&dup)
+					if dupErr == nil {
 						c.JSON(http.StatusConflict, gin.H{
 							"status":  http.StatusConflict,
-							"message": fmt.Sprintf("LPO number '%s' is already in use by an active order.", *req.LpoNumber),
+							"message": fmt.Sprintf("LPO number '%s' is already in use by sales order %s.", *req.LpoNumber, dup.OrderNumber),
 						})
 						return
 					}

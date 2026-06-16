@@ -411,7 +411,7 @@ const Navbar = ({ onToggleSidebar }) => {
           border: 1px solid ${D.dropdownBorder};
           box-shadow: ${D.dropdownShadow};
           position: absolute; right: 0; top: calc(100% + 8px);
-          border-radius: 14px; overflow: hidden; z-index: 50;
+          border-radius: 14px; overflow: hidden; z-index: 1100;
         }
         .nx-dropdown-item {
           width: 100%; text-align: left; display: flex; align-items: center;
@@ -501,7 +501,7 @@ const Navbar = ({ onToggleSidebar }) => {
               position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
               background: D.dropdownBg, border: `1px solid ${D.dropdownBorder}`,
               borderRadius: '12px', boxShadow: D.dropdownShadow, overflow: 'hidden',
-              zIndex: 50, maxHeight: '420px', overflowY: 'auto',
+              zIndex: 1100, maxHeight: '420px', overflowY: 'auto',
             }}>
               {searchLoading && results.length === 0 && (
                 <div style={{ padding: '14px 16px', fontSize: '12px', color: D.textSec }}>Searching…</div>

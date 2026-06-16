@@ -179,7 +179,7 @@ const AcceptInvitation = () => {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ color: '#64748b', fontSize: '12px' }}>Sent to</span>
-                    <span style={{ color: '#e2e8f0', fontSize: '12px' }}>{invite?.email}</span>
+                    <span style={{ color: '#e2e8f0', fontSize: '12px' }}>{invite?.userId}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ color: '#64748b', fontSize: '12px' }}>Expires</span>

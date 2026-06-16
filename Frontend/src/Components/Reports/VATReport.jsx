@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
+import { usePermissions } from "../../helper/permissions";
 
 const fmt = (n) =>
   `AED ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -16,6 +17,8 @@ const firstOfQuarter = () => {
 export default function VATReport() {
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
+  const { can } = usePermissions();
+  const canExport = can("reports", "export");
 
   const [from,    setFrom]    = useState(firstOfQuarter());
   const [to,      setTo]      = useState(today());
@@ -81,7 +84,7 @@ export default function VATReport() {
           <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.text, margin: "0 0 4px", letterSpacing: "-0.4px" }}>VAT Report</h1>
           <p style={{ fontSize: 12, color: T.textSec || T.muted, margin: 0 }}>UAE VAT 201 summary — output tax, input tax, net payable</p>
         </div>
-        {data && (
+        {data && canExport && (
           <button onClick={exportCSV} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.text, fontFamily: "inherit" }}>
             ⬇ Export CSV
           </button>

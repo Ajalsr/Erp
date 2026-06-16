@@ -257,7 +257,7 @@ const OrganizationSettings = () => {
   const [selectedRole, setSelectedRole] = useState('sales_rep') // role being edited in the panel
 
   // Invite form
-  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteUserId, setInviteUserId] = useState('')
   const [inviteRole, setInviteRole] = useState('sales_rep')
   const [inviting, setInviting] = useState(false)
   const [inviteLink, setInviteLink] = useState('')
@@ -625,18 +625,18 @@ const OrganizationSettings = () => {
   }
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim()) { nexusToast.error('Email is required'); return }
+    if (!inviteUserId.trim()) { nexusToast.error('User ID is required'); return }
     setInviting(true)
     try {
-      const res = await inviteMember(id, { email: inviteEmail.trim(), role: inviteRole })
+      const res = await inviteMember(id, { userId: inviteUserId.trim(), role: inviteRole })
       const token = res?.data?.token
       if (token) {
         const link = `${window.location.origin}/invitations/accept?token=${token}`
        //const link = `ephemeral-cat-104b46.netlify.app/inviations/accept?token=${token}` // Frontend route only; backend accepts token without origin for flexibility across environments.
         setInviteLink(link)
       }
-      nexusToast.success(`Invitation sent to ${inviteEmail.trim()}`)
-      setInviteEmail('')
+      nexusToast.success(`Invitation sent to ${inviteUserId.trim()}`)
+      setInviteUserId('')
       setInviteRole('member')
       load()
     } catch (err) {
@@ -815,11 +815,11 @@ const OrganizationSettings = () => {
                 </h3>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
                   <input
-                    type="email"
+                    type="text"
                     style={{ ...inputStyle, flex: '1', minWidth: '200px' }}
-                    placeholder="Email address to invite"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="User ID to invite"
+                    value={inviteUserId}
+                    onChange={(e) => setInviteUserId(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleInvite()}
                   />
                 </div>
@@ -837,7 +837,7 @@ const OrganizationSettings = () => {
                   </button>
                 </div>
                 <p style={{ color: textSec, fontSize: '11px', marginTop: '8px' }}>
-                  Enter the person's email. They'll receive a link — no existing account needed.
+                  Enter the person's user ID. They must sign in with that exact ID to accept. They'll get an in-app notification (and an email too if the ID is an email address).
                 </p>
 
                 {/* Invite link — shown after a successful invite */}
