@@ -721,6 +721,8 @@ func replayApprovedCreate(ctx context.Context, orgIDStr, requestedBy string, ar 
 			return syntheticReplay(UpdateVendor(), http.MethodPut, idParam, orgIDStr, requestedBy, ar.Payload, ar.DocID)
 		case "quote":
 			return syntheticReplay(UpdateQuote(), http.MethodPut, idParam, orgIDStr, requestedBy, ar.Payload, ar.DocID)
+		case "po":
+			return syntheticReplay(UpdatePurchaseOrder(), http.MethodPut, idParam, orgIDStr, requestedBy, ar.Payload, ar.DocID)
 		}
 	case "delete":
 		switch ar.DocType {

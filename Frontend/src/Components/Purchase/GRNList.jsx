@@ -19,6 +19,7 @@ const STATUSES = [
 const SM = {
   ...Object.fromEntries(STATUSES.map(s => [s.key, s])),
   draft: { key: "draft", label: "Draft", color: "#64748b", dim: "rgba(100,116,139,.12)" },
+  cancelled: { key: "cancelled", label: "Cancelled", color: "#ef4444", dim: "rgba(239,68,68,.12)" },
 };
 
 const fmtAED = (n) =>

@@ -183,6 +183,7 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 		poRoutes.GET("/getorders", controllers.GetAllPurchaseOrders())
 		poRoutes.GET("/stats", controllers.GetPurchaseOrderStats())
 		poRoutes.GET("/:id", controllers.GetPurchaseOrderByID())
+		poRoutes.PUT("/:id", controllers.UpdatePurchaseOrder())
 		poRoutes.PATCH("/:id/status", controllers.UpdatePurchaseOrderStatus())
 		poRoutes.PATCH("/:id/approve", controllers.ApprovePurchaseOrder())
 		poRoutes.PATCH("/:id/cancel", controllers.CancelPurchaseOrder())

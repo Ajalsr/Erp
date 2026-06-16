@@ -56,13 +56,53 @@ func GetAllStocks() gin.HandlerFunc {
 			}
 		}
 
+		// Weighted-average purchase cost per item, from purchase-order lines:
+		// Σ(baseAmount) / Σ(quantity). Used as the stock-value cost when an item has no
+		// cost_price set (e.g. only a PO amount was ever entered).
+		avgCostMap := map[string]float64{}
+		poCol := config.GetCollection(config.DB, "purchase_orders")
+		poPipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.M{"orgId": orgIDStr, "status": bson.M{"$ne": "cancelled"}}}},
+			{{Key: "$unwind", Value: "$items"}},
+			{{Key: "$group", Value: bson.M{
+				"_id": "$items.itemId",
+				"val": bson.M{"$sum": "$items.baseAmount"},
+				"qty": bson.M{"$sum": "$items.quantity"},
+			}}},
+		}
+		if cur, e := poCol.Aggregate(ctx, poPipe); e == nil {
+			var rows []bson.M
+			cur.All(ctx, &rows)
+			toF := func(v interface{}) float64 {
+				switch n := v.(type) {
+				case float64:
+					return n
+				case int64:
+					return float64(n)
+				case int32:
+					return float64(n)
+				}
+				return 0
+			}
+			for _, r := range rows {
+				id, _ := r["_id"].(string)
+				qty, val := toF(r["qty"]), toF(r["val"])
+				if id != "" && qty > 0 {
+					avgCostMap[id] = val / qty
+				}
+			}
+		}
+
 		type StockWithCategory struct {
 			models.Stock
 			CategoryName string `json:"categoryName,omitempty"`
+			// PurchaseAvgCost: weighted-avg unit cost from POs — fallback for stock value
+			// when cost_price is unset. 0 when the item was never purchased via a PO.
+			PurchaseAvgCost float64 `json:"purchaseAvgCost,omitempty"`
 		}
 		enriched := make([]StockWithCategory, len(stocks))
 		for i, s := range stocks {
-			enriched[i] = StockWithCategory{Stock: s, CategoryName: igMap[s.Category]}
+			enriched[i] = StockWithCategory{Stock: s, CategoryName: igMap[s.Category], PurchaseAvgCost: avgCostMap[s.ID.Hex()]}
 		}
 
 		c.JSON(http.StatusOK, gin.H{

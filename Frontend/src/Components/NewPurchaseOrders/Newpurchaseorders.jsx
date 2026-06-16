@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useGetItem from '../../helper/useGetItem';
 import axiosInstance from '../../helper/axiosInstance';
@@ -546,6 +546,8 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
 /* ════════════════════ MAIN ══════════════════════════════════════════ */
 export default function Newpurchaseorders() {
   const navigate = useNavigate();
+  const { id: editId } = useParams();
+  const isEdit = !!editId;
   const isDark   = useThemeStore(s => s.isDark);
   const T        = getTheme(isDark);
 
@@ -591,6 +593,40 @@ export default function Newpurchaseorders() {
     };
     fetch();
   }, []);
+
+  /* ── Load PO for editing ── */
+  const [loadedVendorId, setLoadedVendorId] = useState('');
+  useEffect(() => {
+    if (!editId) return;
+    axiosInstance.get(`/api/purchase-orders/${editId}`).then(r => {
+      const po = r.data?.data || r.data;
+      if (!po) return;
+      setPoType(po.poType || 'goods');
+      if (po.orderDate) setOrderDate(new Date(po.orderDate).toLocaleDateString('en-CA'));
+      setExpectedDate(po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('en-CA') : '');
+      setPaymentTerms(po.paymentTerms || 'Due on Receipt');
+      setDeliveryAddr(po.deliveryAddress || 'organization');
+      setShipPref(po.shipmentPreference || '');
+      setReferenceNo(po.referenceNo || '');
+      setCustomerNotes(po.customerNotes || '');
+      setTerms(po.termsAndConditions || '');
+      setShipping(String(po.shippingCharges ?? 0));
+      setAdjustment(String(po.adjustment ?? 0));
+      if (po.items?.length) setItems(po.items.map((it, i) => ({
+        id: i + 1, itemId: it.itemId || '', details: it.details || '', sku: '', quantity: it.quantity || 1,
+        rate: it.rate ?? '', discount: it.discount ?? '', discountType: it.discountType || 'percentage',
+        amount: String(it.amount ?? ''), unit: it.unit || '',
+        freight: it.freight ?? '', freightTaxRate: it.freightTaxRate ?? '',
+      })));
+      setLoadedVendorId(po.vendorId || '');
+    }).catch(() => nexusToast.error('Failed to load purchase order'));
+  }, [editId]);
+  // Resolve the vendor object once both the PO and the vendor list are loaded.
+  useEffect(() => {
+    if (!loadedVendorId || !vendors.length) return;
+    const v = vendors.find(x => (x._id || x.id) === loadedVendorId);
+    if (v) setSelectedVendor(v);
+  }, [loadedVendorId, vendors]);
 
   /* ── Filter items ── */
   useEffect(() => {
@@ -729,11 +765,17 @@ export default function Newpurchaseorders() {
         })),
         shippingCharges: shipAmt, adjustment: adjAmt, customerNotes, termsAndConditions: terms, status,
       };
-      await axiosInstance.post('/api/purchase-orders/', payload);
-      nexusToast.success('Purchase order created successfully!');
+      if (isEdit) {
+        const res = await axiosInstance.put(`/api/purchase-orders/${editId}`, payload);
+        nexusToast.success(res.data?.data?.status === 'pending_approval'
+          ? 'Edit submitted for approval' : 'Purchase order updated');
+      } else {
+        await axiosInstance.post('/api/purchase-orders/', payload);
+        nexusToast.success('Purchase order created successfully!');
+      }
       setTimeout(() => navigate('/Purchase/Purchaseorders'), 1500);
     } catch (err) {
-      nexusToast.error(err?.response?.data?.message || 'Failed to create purchase order');
+      nexusToast.error(err?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} purchase order`);
     } finally { setSaving(false); }
   };
 
@@ -764,18 +806,18 @@ export default function Newpurchaseorders() {
               </button>
               <div style={{ width: 1, height: 24, background: T.border }} />
               <div>
-                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-.02em' }}>New Purchase Order</h1>
+                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-.02em' }}>{isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}</h1>
                 <p style={{ fontSize: 11, color: T.textSec, margin: '2px 0 0' }}>Purchase → Purchase Orders</p>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>
+              {!isEdit && <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>}
               <button onClick={() => navigate('/Purchase/Purchaseorders')} className="npo-bg">Cancel</button>
-              <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save Draft'}</button>
+              {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save Draft'}</button>}
               <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
                 {saving
                   ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
-                  : <><FaCheckCircle size={12} />Save & Submit</>}
+                  : <><FaCheckCircle size={12} />{isEdit ? 'Save Changes' : 'Save & Submit'}</>}
               </button>
             </div>
           </div>
@@ -821,8 +863,8 @@ export default function Newpurchaseorders() {
                   </div>
                 )}
               </div>
-              <Field label="Reference #">
-                <input className="npo-inp" value={referenceNo} onChange={e => setReferenceNo(e.target.value)} placeholder="PO-REF-001" style={{ fontFamily: "'DM Mono',monospace" }} />
+              <Field label="Supplier Reference">
+                <input className="npo-inp" value={referenceNo} onChange={e => setReferenceNo(e.target.value)} placeholder="Supplier quotation reference" style={{ fontFamily: "'DM Mono',monospace" }} />
               </Field>
               <Field label="PO Type">
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -1122,11 +1164,11 @@ export default function Newpurchaseorders() {
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={() => navigate('/Purchase/Purchaseorders')} className="npo-bg">Cancel</button>
-            <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save as Draft'}</button>
+            {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save as Draft'}</button>}
             <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
               {saving
                 ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
-                : <><FaCheckCircle size={12} />Save & Submit</>}
+                : <><FaCheckCircle size={12} />{isEdit ? 'Save Changes' : 'Save & Submit'}</>}
             </button>
           </div>
         </div>

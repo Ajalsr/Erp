@@ -88,7 +88,8 @@ export default function StockSummary() {
   const enriched = items.map(item => {
     const qty     = parseFloat(item.quantity || 0);
     const reorder = parseFloat(item.reorder_point || 0);
-    const cost    = parseFloat(item.cost_price || 0);
+    // Use the item's own cost; fall back to weighted-avg purchase cost from POs.
+    const cost    = parseFloat(item.cost_price || 0) || parseFloat(item.purchaseAvgCost || 0);
     return { ...item, qty, reorder, cost, status: stockStatus(qty, reorder), stockValue: qty * cost };
   });
 
