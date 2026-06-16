@@ -59,10 +59,10 @@ const useOrganization = () => {
     return res.data.data || []
   }
 
-  const inviteMember = async (orgId, { email, role }) => {
+  const inviteMember = async (orgId, { userId, role }) => {
     const res = await axios.post(
       `${BASE_URL}/api/organizations/${orgId}/invite`,
-      { email, role },
+      { userId, role },
       authHeaders()
     )
     return res.data

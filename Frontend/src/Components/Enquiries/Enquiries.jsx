@@ -97,6 +97,15 @@ function ItemSearch({ value, onSelect, onType, allItems, T }) {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
+  // Re-anchor the portal to the input on scroll/resize (ignore scrolls inside the list).
+  useEffect(() => {
+    if (!open) return;
+    const onScroll = e => { if (dropRef.current?.contains(e.target)) return; measure(); };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", measure);
+    return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", measure); };
+  }, [open]);
+
   return (
     <div ref={wrapRef}>
       <input
@@ -173,6 +182,16 @@ function EnqDatePicker({ value, onChange, placeholder = "Select date", T }) {
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
+
+  // Keep the portal anchored to the trigger when the modal/page scrolls or resizes.
+  // Ignore scrolls that originate inside the dropdown itself.
+  useEffect(() => {
+    if (!open) return;
+    const onScroll = e => { if (dropRef.current?.contains(e.target)) return; measure(); };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", measure);
+    return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", measure); };
+  }, [open]);
 
   const pick = (d) => {
     onChange(d.toISOString().split("T")[0]);
@@ -326,6 +345,16 @@ function EnqSelect({ value, onChange, options, placeholder = "Select…", T }) {
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
+
+  // Keep the portal anchored to the trigger when the modal/page scrolls or resizes.
+  // Ignore scrolls that originate inside the dropdown itself.
+  useEffect(() => {
+    if (!open) return;
+    const onScroll = e => { if (dropRef.current?.contains(e.target)) return; measure(); };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", measure);
+    return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", measure); };
+  }, [open]);
 
   const selected = options.find(o => (o.value ?? o) === value);
   const label = selected ? (selected.label ?? selected) : value;
@@ -527,14 +556,44 @@ export default function Enquiries() {
   const activeOrgId = useAuthStore((s) => s.activeOrg?._id || s.user?.orgId || "");
   const [salesReps, setSalesReps] = useState([]);
   useEffect(() => {
-    if (!activeOrgId) return;
-    axiosInstance.get(`/api/organizations/${activeOrgId}/members`)
-      .then(r => setSalesReps((r.data?.data || [])
-        .filter(m => m.role === "sales_rep" && m.status === "active")
-        .map(m => m.userId)))
-      .catch(() => setSalesReps([]));
+    let cancelled = false;
+    // Resolve the org id: prefer the store, but if it's stale/empty (e.g. session
+    // persisted before the org existed) fall back to the user's first org.
+    const resolveOrgId = async () => {
+      if (activeOrgId) return activeOrgId;
+      try {
+        const r = await axiosInstance.get(`/api/organizations`);
+        return r.data?.data?.[0]?._id || "";
+      } catch { return ""; }
+    };
+    (async () => {
+      const orgId = await resolveOrgId();
+      if (!orgId || cancelled) { setSalesReps([]); return; }
+      try {
+        const r = await axiosInstance.get(`/api/organizations/${orgId}/members`);
+        // Assignable = any active member who isn't owner/admin (covers sales_rep and
+        // any custom sales-type role the org defines).
+        const reps = (r.data?.data || [])
+          .filter(m => m.status === "active" && m.role !== "owner" && m.role !== "admin")
+          .map(m => m.userId);
+        if (!cancelled) setSalesReps(reps);
+      } catch { if (!cancelled) setSalesReps([]); }
+    })();
+    return () => { cancelled = true; };
   }, [activeOrgId]);
   const assigneeOptions = salesReps.map(u => ({ value: u, label: u }));
+
+  // When the open enquiry is already quoted, load its quote so we can link to it and
+  // convert to a Sales Order from the (richer) quote data.
+  const [linkedQuote, setLinkedQuote] = useState(null);
+  useEffect(() => {
+    setLinkedQuote(null);
+    if (!selected?._id || selected.status !== "quoted") return;
+    axiosInstance.get(`/api/quotes/?sourceEnquiryId=${selected._id}&limit=1`)
+      .then(r => { const qs = r.data?.data?.quotes || []; if (qs.length) setLinkedQuote(qs[0]); })
+      .catch(() => {});
+  }, [selected?._id, selected?.status]);
+  const linkedQuoteId = linkedQuote?._id || null;
 
   const loadEnquiries = useCallback(async () => {
     setLoading(true);
@@ -995,7 +1054,7 @@ export default function Enquiries() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {STATUSES.filter(s => s.key !== "all").map(s => (
                       <button key={s.key}
-                        disabled={updatingStatus || selected.status === s.key || ["converted", "lost", "cancelled"].includes(selected.status)}
+                        disabled={updatingStatus || selected.status === s.key || ["converted", "lost", "cancelled"].includes(selected.status) || (selected.status === "quoted" && ["new", "contacted"].includes(s.key))}
                         onClick={() => handleStatusUpdate(s.key)}
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
                           border: `1.5px solid ${selected.status === s.key ? s.color : border}`,
@@ -1035,12 +1094,28 @@ export default function Enquiries() {
                               subject:        selected.subject,
                               description:    selected.description,
                               estimatedValue: selected.estimatedValue,
+                              assignedTo:     selected.assignedTo,
                               lineItems:      selected.lineItems || [],
                             }}});
                           }}
                           style={{ padding: "8px 16px", background: isDark ? "#2563eb" : "#1d4ed8", color: "#fff", border: "none",
                             borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                           Create Quote →
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Already quoted — link to the existing quote instead of creating a new one */}
+                    {selected.status === "quoted" && (
+                      <div style={{ padding: 14, background: isDark ? "rgba(139,92,246,0.08)" : "#f5f3ff", border: `1px solid ${isDark ? "rgba(139,92,246,0.25)" : "#ddd6fe"}`, borderRadius: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#a78bfa" : "#6d28d9", marginBottom: 5 }}>Already Quoted</div>
+                        <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>A quote already exists for this enquiry. Open it instead of creating a duplicate.</p>
+                        <button
+                          disabled={!linkedQuoteId}
+                          onClick={() => linkedQuoteId && navigate(`/Sales/Quotes/${linkedQuoteId}/print`)}
+                          style={{ padding: "8px 16px", background: isDark ? "#7c3aed" : "#6d28d9", color: "#fff", border: "none",
+                            borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: linkedQuoteId ? "pointer" : "not-allowed", opacity: linkedQuoteId ? 1 : 0.6, fontFamily: "inherit" }}>
+                          {linkedQuoteId ? "View Quote →" : "Loading quote…"}
                         </button>
                       </div>
                     )}
@@ -1054,6 +1129,23 @@ export default function Enquiries() {
                           disabled={updatingStatus}
                           onClick={async () => {
                             await handleStatusUpdate("converted");
+                            // If a quote already exists, convert from the quote (richer data:
+                            // priced line items, payment terms, salesperson). Else from the enquiry.
+                            if (linkedQuote) {
+                              navigate("/Sales/Salesorders/Newsalesorders", { state: { fromQuote: {
+                                quoteId:      linkedQuote._id,
+                                quoteNumber:  linkedQuote.quoteNumber,
+                                customerId:   linkedQuote.customerId,
+                                customerName: linkedQuote.customerName,
+                                paymentTerms: linkedQuote.paymentTerms,
+                                currency:     linkedQuote.currency,
+                                grandTotal:   linkedQuote.totals?.grandTotal,
+                                notes:        linkedQuote.notes?.customer,
+                                salesperson:  linkedQuote.salesperson || selected.assignedTo || "",
+                                lineItems:    linkedQuote.lineItems || [],
+                              }}});
+                              return;
+                            }
                             navigate("/Sales/Salesorders/Newsalesorders", { state: { fromEnquiry: {
                               enquiryId:     selected._id,
                               enquiryNumber: selected.enquiryNumber,
@@ -1065,6 +1157,7 @@ export default function Enquiries() {
                               supplier:      selected.supplier,
                               contactPerson: selected.contactPerson,
                               subject:       selected.subject,
+                              salesperson:   selected.assignedTo || "",
                               lineItems:     selected.lineItems || [],
                               notes:         selected.notes || "",
                             }}});

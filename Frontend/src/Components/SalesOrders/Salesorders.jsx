@@ -230,7 +230,8 @@ const Salesorders = () => {
   const activeOrg = useAuthStore((s) => s.activeOrg);
   const myUserId = useAuthStore((s) => s.user?.userId || s.activeOrg?.userId || "");
   const isAdminOrOwner = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase());
-  const { canEditRecord } = usePermissions();
+  const { canEditRecord, can } = usePermissions();
+  const canExport = can("sales_orders", "export");
 
   // An approver may sign off a pending order — but never their own (no self-approval).
   const canApproveOrder = (o) =>
@@ -691,11 +692,13 @@ const Salesorders = () => {
 
             {/* Actions */}
             <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+              {canExport && (
               <button className="so-ghost-btn so-icon-btn"
                 onClick={() => exportOrdersCSV(filtered)}
                 style={{ height: "32px", padding: "0 12px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit", background: "transparent", color: C.textSec, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "5px" }}>
                 <FaDownload size={11} /> Export CSV
               </button>
+              )}
               <button className="so-primary-btn" onClick={() => navigate("/Sales/Salesorders/Newsalesorders")}
                 style={{ height: "32px", padding: "0 14px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", background: C.blue, color: "white", border: "none", display: "flex", alignItems: "center", gap: "5px" }}>
                 <FaPlus size={10} /> New Order

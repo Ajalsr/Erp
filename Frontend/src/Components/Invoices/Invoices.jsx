@@ -1413,6 +1413,7 @@ const Invoices = () => {
                       </button>
 
                       {/* Download PDF */}
+                      {canExport && (
                       <button
                         onClick={() => {
                           const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -1434,6 +1435,7 @@ const Invoices = () => {
                         style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                         ⬇ Download PDF
                       </button>
+                      )}
 
                       {/* Send Invoice / Send Reminder */}
                       {["draft", "unpaid", "overdue", "partial"].includes(selected.status) && (

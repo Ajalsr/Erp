@@ -26,6 +26,7 @@ const VENDOR_IMPORT_FIELDS = [
 ];
 import debounce from "lodash/debounce";
 import axiosInstance from "../../helper/axiosInstance";
+import { usePermissions } from "../../helper/permissions";
 import useRealtime from "../../helper/useRealtime";
 
 // ─── CustomSelect ────────────────────────────────────────────────
@@ -140,6 +141,8 @@ const Vendors = () => {
   const navigate = useNavigate();
   const isDark   = useThemeStore(s => s.isDark);
   const T        = getTheme(isDark);
+  const { can }  = usePermissions();
+  const canExport = can("vendors", "export");
 
   const AVATAR_PALETTES = [
     [T.blueDim,   T.blueLight],
@@ -376,7 +379,7 @@ const Vendors = () => {
               {[
                 { label: "Refresh", icon: <FaSync size={11} />,    onClick: loadVendors },
                 { label: "Import",  icon: <FaFileImport size={11} />, onClick: () => setShowImport(true) },
-                { label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport },
+                ...(canExport ? [{ label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport }] : []),
               ].map(btn => (
                 <button key={btn.label} title={btn.label} onClick={btn.onClick}
                   style={{ width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer" }}>

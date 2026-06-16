@@ -26,6 +26,7 @@ import debounce from "lodash/debounce";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
+import { usePermissions } from "../../helper/permissions";
 
 
 
@@ -222,6 +223,8 @@ const Customers = () => {
     .fade-up      { animation: fadeUp 0.3s ease forwards; }
   `;
 
+  const { can } = usePermissions();
+  const canExport = can("customers", "export");
   const [selectedItem, setSelectedItem]       = useState(null);
   const [activeTab, setActiveTab]             = useState("overview");
   const [previewDoc,  setPreviewDoc]          = useState(null);
@@ -510,7 +513,7 @@ const Customers = () => {
             {[
               { label: "Refresh", icon: <FaSync size={11} />,    onClick: handleRefresh },
               { label: "Import",  icon: <FaFileImport size={11} />, onClick: () => setShowImport(true) },
-              { label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport },
+              ...(canExport ? [{ label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport }] : []),
             ].map(btn => (
               <button key={btn.label} title={btn.label} onClick={btn.onClick}
                 style={{ width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer" }}>

@@ -509,6 +509,17 @@ const Newsalesorders = () => {
   const activeOrg=useAuthStore(s=>s.activeOrg);
   const isAdminOrOwner=['owner','admin'].includes((activeOrg?.role||'').toLowerCase());
 
+  // Salesperson dropdown — org members (active, non owner/admin), same as the enquiry list.
+  const [salesReps,setSalesReps]=useState([]);
+  useEffect(()=>{
+    const orgId=activeOrg?._id;
+    if(!orgId)return;
+    axiosInstance.get(`/api/organizations/${orgId}/members`)
+      .then(r=>setSalesReps((r.data?.data||[]).filter(m=>m.status==='active'&&m.role!=='owner'&&m.role!=='admin').map(m=>m.userId)))
+      .catch(()=>setSalesReps([]));
+  },[activeOrg]);
+  const salespersonOptions=salesReps.map(u=>({value:u,label:u}));
+
   const {handleGetItem,data:inventoryData,loading:inventoryLoading}=useGetItem();
   const {handleGetCustomers,data:customersData,loading:customersLoading}=useGetCustomers();
   const {handleAddSalesOrder,loading:addSalesOrderLoading}=useAddSalesOrder();
@@ -666,11 +677,15 @@ const Newsalesorders = () => {
     const fq=location.state?.fromQuote;
     if(!fq||isEditMode||!customersData)return;
     if(fq.paymentTerms){const pt=fq.paymentTerms.toLowerCase().replace(' ','_');setPaymentTerms(pt);}
+    if(fq.salesperson){setSalesperson(fq.salesperson);}
     if(fq.notes){setCustomerNotes(fq.notes);}
     if(fq.quoteNumber){setCustomerNotes(n=>(n?n+'\n':'')+'Ref Quote: '+fq.quoteNumber);}
     if(fq.customerId){
       const found=customersData.find(c=>c._id===fq.customerId);
       if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+      else if(fq.customerName){setCustomerSearch(fq.customerName);}
+    } else if(fq.customerName){
+      setCustomerSearch(fq.customerName);
     }
     if(fq.lineItems?.length){
       const mapped=resolveItems(fq.lineItems,(li,idx)=>({
@@ -688,6 +703,7 @@ const Newsalesorders = () => {
   useEffect(()=>{
     const fe=location.state?.fromEnquiry;
     if(!fe||isEditMode||!customersData)return;
+    if(fe.salesperson){setSalesperson(fe.salesperson);}
     if(fe.notes){setCustomerNotes(fe.notes);}
     if(fe.enquiryNumber){setCustomerNotes(n=>(n?n+'\n':'')+'Ref Enquiry: '+fe.enquiryNumber);}
     if(fe.customerId){
@@ -825,6 +841,13 @@ const Newsalesorders = () => {
     if(apiItems.length===0)throw new Error('Please add at least one item to the sales order');
     if(!selectedCustomer)throw new Error('Please select a customer');
     if(isAdminOrOwner&&!opts.skipLpo&&!lpoNumber.trim())throw new Error('LPO Number is required');
+    // LPO value must match the line-items amount (subtotal, excl. VAT) — drafts too.
+    {
+      const lpoVal=parseFloat(lpoValue)||0;
+      if(lpoVal>0&&Math.abs(lpoVal-sub)>0.01){
+        throw new Error(`LPO value (AED ${lpoVal.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}) does not match the line items amount (AED ${sub.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}). Please reconcile the LPO value with the line items amount.`);
+      }
+    }
     return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,approverNote,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   const handleSaveAsDraft=async()=>{try{const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to save draft');setShowSuccessToaster(true);}};
@@ -1108,7 +1131,7 @@ const Newsalesorders = () => {
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>
             <Field label="Payment Terms" req><Sel value={paymentTerms} onChange={e=>setPaymentTerms(e.target.value)} required options={paymentTermsOptions} placeholder="Select payment terms…" icon="💳"/></Field>
-            <Field label="Salesperson" req><input className="nso-inp" value={salesperson} onChange={e=>setSalesperson(e.target.value)} placeholder="e.g. Jane Smith"/></Field>
+            <Field label="Salesperson" req><Sel value={salesperson} onChange={e=>setSalesperson(e.target.value)} options={salespersonOptions} placeholder={salespersonOptions.length?'Select salesperson…':'No sales reps yet'} icon="🧑‍💼"/></Field>
           </div>
         </Section>
 
@@ -1123,10 +1146,20 @@ const Newsalesorders = () => {
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>
             <Field label="LPO Value (AED)" req={isAdminOrOwner}>
-              <div style={{position:'relative'}}>
-                <span style={{position:'absolute',left:13,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:T.textSec,fontFamily:"'DM Mono',monospace"}}>AED</span>
-                <input type="number" value={lpoValue} onChange={e=>setLpoValue(e.target.value)} className="nso-inp" placeholder="0.00" step="0.01" style={{paddingLeft:46,fontFamily:"'DM Mono',monospace"}}/>
-              </div>
+              {(() => {
+                const lpoVal=parseFloat(lpoValue)||0;
+                const sub=calcSub();
+                const mismatch=lpoVal>0&&Math.abs(lpoVal-sub)>0.01;
+                return (
+                  <>
+                    <div style={{position:'relative'}}>
+                      <span style={{position:'absolute',left:13,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:T.textSec,fontFamily:"'DM Mono',monospace"}}>AED</span>
+                      <input type="number" value={lpoValue} onChange={e=>setLpoValue(e.target.value)} className="nso-inp" placeholder="0.00" step="0.01" style={{paddingLeft:46,fontFamily:"'DM Mono',monospace",borderColor:mismatch?'#ef4444':undefined}}/>
+                    </div>
+                    {mismatch&&<div style={{color:'#ef4444',fontSize:12,marginTop:5,display:'flex',alignItems:'center',gap:5}}><span>⚠</span>LPO value must equal the line items amount (AED {sub.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}).</div>}
+                  </>
+                );
+              })()}
             </Field>
             <ModernDatePicker value={expectedShipmentDate} onChange={setExpectedShipmentDate} label="Expected Shipment Date" placeholder="Select shipment date"/>
           </div>

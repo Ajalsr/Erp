@@ -66,6 +66,10 @@ type Quote struct {
 	CustomerEmail string             `json:"customerEmail"    bson:"customerEmail"`
 	BillTo        QuoteParty         `json:"billTo"           bson:"billTo"`
 
+	// Salesperson (rep userId) — carried from the source enquiry so a Sales Order
+	// converted from this quote can auto-fill it.
+	Salesperson string `json:"salesperson,omitempty" bson:"salesperson,omitempty"`
+
 	// Reference / document fields
 	AttentionTo string `json:"attentionTo"  bson:"attentionTo"`
 	Subject     string `json:"subject"      bson:"subject"`
@@ -90,6 +94,11 @@ type Quote struct {
 	ConvertedToSONumber string `json:"convertedToSONumber,omitempty" bson:"convertedToSONumber,omitempty"`
 	SourceEnquiryId     string `json:"sourceEnquiryId,omitempty"     bson:"sourceEnquiryId,omitempty"`
 	SourceEnquiryNumber string `json:"sourceEnquiryNumber,omitempty" bson:"sourceEnquiryNumber,omitempty"`
+
+	// Email-on-send: who to mail and the cover note. Carried in the create payload so
+	// the email also fires after an approval hold is replayed (see CreateQuote).
+	Recipients  []string `json:"recipients,omitempty"  bson:"recipients,omitempty"`
+	SendMessage string   `json:"sendMessage,omitempty" bson:"sendMessage,omitempty"`
 
 	OrgID     string    `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedBy string    `json:"createdBy"       bson:"createdBy"`

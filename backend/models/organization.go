@@ -118,8 +118,7 @@ type Invitation struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
 	OrgID     primitive.ObjectID `bson:"orgId" json:"orgId"`
 	OrgName   string             `bson:"orgName" json:"orgName"`
-	Email     string             `bson:"email" json:"email"`                     // the email the invite was sent to
-	UserID    string             `bson:"userId,omitempty" json:"userId,omitempty"` // set after accepted
+	UserID    string             `bson:"userId" json:"userId"` // the userId this invite is for (must match login on accept)
 	Role      string             `bson:"role" json:"role"`
 	Token     string             `bson:"token" json:"token"`
 	InvitedBy string             `bson:"invitedBy" json:"invitedBy"`

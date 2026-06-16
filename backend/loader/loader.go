@@ -3,6 +3,7 @@ package loader
 import (
 	"encoding/base64"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -18,6 +19,13 @@ var EnvBlob string
 func init() {
 	// Dev path: load ./.env from the working directory if present.
 	_ = godotenv.Load()
+
+	// Also try ./.env next to the executable — covers the case where the server is
+	// launched from a different working directory (godotenv.Load doesn't override
+	// vars already set, so the cwd .env above still wins).
+	if exe, err := os.Executable(); err == nil {
+		_ = godotenv.Load(filepath.Join(filepath.Dir(exe), ".env"))
+	}
 
 	// Shipped path: apply build-time embedded vars for anything not already set.
 	// Real OS env and a present .env always take precedence (set-only-if-missing).

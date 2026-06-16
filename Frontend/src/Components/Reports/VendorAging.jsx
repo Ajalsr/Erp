@@ -3,6 +3,7 @@ import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
 import { useBaseCurrency, baseCurrency } from '../../helper/currency';
+import { usePermissions } from '../../helper/permissions';
 
 const fmt = (n) =>
   Number(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -20,6 +21,8 @@ export default function VendorAging() {
   useBaseCurrency();
   const isDark  = useThemeStore((s) => s.isDark);
   const T       = getTheme(isDark);
+  const { can } = usePermissions();
+  const canExport = can('reports', 'export');
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -61,7 +64,7 @@ export default function VendorAging() {
           <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Outstanding payables bucketed by days past due</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {data && (
+          {data && canExport && (
             <button onClick={exportCSV} style={{ padding: '9px 16px', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'transparent', border: `1.5px solid ${T.border}`, color: T.textPri || T.text, fontFamily: 'inherit' }}>
               ⬇ Export CSV
             </button>

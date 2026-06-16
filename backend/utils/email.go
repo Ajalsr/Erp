@@ -28,7 +28,7 @@ func SendInvitationEmail(toEmail, _, orgName, invitedBy, role, token string) err
 
 	if host == "" || user == "" || pass == "" {
 		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
-		return nil
+		return fmt.Errorf("email service not configured (SMTP_HOST/SMTP_USER/SMTP_PASS missing)")
 	}
 
 	port := 587
@@ -77,7 +77,7 @@ func SendInvoiceEmail(toEmail string, inv models.Invoice, customMessage string, 
 
 	if host == "" || user == "" || pass == "" {
 		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
-		return nil
+		return fmt.Errorf("email service not configured (SMTP_HOST/SMTP_USER/SMTP_PASS missing)")
 	}
 
 	port := 587
@@ -135,7 +135,7 @@ func SendQuoteEmail(toEmails []string, q models.Quote, customMessage string, pdf
 
 	if host == "" || user == "" || pass == "" {
 		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
-		return nil
+		return fmt.Errorf("email service not configured (SMTP_HOST/SMTP_USER/SMTP_PASS missing)")
 	}
 	if len(toEmails) == 0 {
 		return fmt.Errorf("no recipients")

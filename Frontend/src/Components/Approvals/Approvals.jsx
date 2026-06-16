@@ -278,7 +278,7 @@ export default function Approvals() {
                         <tbody>
                           {items.map((it, i) => (
                             <tr key={i} style={{ borderTop: `1px solid ${T.border}` }}>
-                              <td style={{ padding: '8px 12px' }}>{pick(it, ['details', 'name', 'description', 'itemName', 'item']) ?? '—'}</td>
+                              <td style={{ padding: '8px 12px' }}>{pick(it, ['details', 'name', 'description', 'desc', 'itemName', 'item', 'partNumber']) ?? '—'}</td>
                               <td style={{ padding: '8px 12px', textAlign: 'right' }}>{pick(it, ['quantity', 'qty']) ?? '—'}</td>
                               <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: "'DM Mono', monospace" }}>{(() => { const r = pick(it, ['rate', 'price', 'unitPrice']); return r != null ? fmtAED(r) : '—' })()}</td>
                               <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>{(() => { const a = pick(it, ['amount', 'total', 'lineTotal']); return a != null ? fmtAED(a) : '—' })()}</td>

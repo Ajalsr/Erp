@@ -557,13 +557,14 @@ func InviteMember() gin.HandlerFunc {
 		}
 
 		var input struct {
-			Email string `json:"email" binding:"required"`
-			Role  string `json:"role" binding:"required"`
+			UserId string `json:"userId" binding:"required"`
+			Role   string `json:"role" binding:"required"`
 		}
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "error", "error": err.Error()})
 			return
 		}
+		input.UserId = strings.TrimSpace(input.UserId)
 
 		var invOrg models.Organization
 		orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&invOrg)
@@ -572,12 +573,21 @@ func InviteMember() gin.HandlerFunc {
 			return
 		}
 
-		// Already a pending invite for this email in this org?
+		// Already a pending invite for this userId in this org?
 		pendingCount, _ := invitationCollection.CountDocuments(ctx, bson.M{
-			"orgId": orgID, "email": input.Email, "status": "pending",
+			"orgId": orgID, "userId": input.UserId, "status": "pending",
 		})
 		if pendingCount > 0 {
-			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "An invitation has already been sent to this email"})
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "An invitation has already been sent to this user"})
+			return
+		}
+
+		// Already an active member?
+		existingMember, _ := orgMemberCollection.CountDocuments(ctx, bson.M{
+			"orgId": orgID, "userId": input.UserId, "status": "active",
+		})
+		if existingMember > 0 {
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "This user is already a member of the organization"})
 			return
 		}
 
@@ -593,7 +603,7 @@ func InviteMember() gin.HandlerFunc {
 			ID:        primitive.NewObjectID(),
 			OrgID:     orgID,
 			OrgName:   org.Name,
-			Email:     input.Email,
+			UserID:    input.UserId,
 			Role:      input.Role,
 			Token:     token,
 			InvitedBy: userID.(string),
@@ -608,22 +618,32 @@ func InviteMember() gin.HandlerFunc {
 			return
 		}
 
-		// Send invite email asynchronously
-		go func() {
-			if emailErr := utils.SendInvitationEmail(
-				input.Email, "", org.Name, userID.(string), input.Role, token,
-			); emailErr != nil {
-				log.Printf("invite email to %s failed: %v", input.Email, emailErr)
-			}
-		}()
+		// In-app notification — the invitee logs in by userId, so reach them directly.
+		go pushNotification(
+			input.UserId, "invite",
+			"You've been invited",
+			userID.(string)+" invited you to join "+org.Name+" as "+input.Role,
+			orgID.Hex(), org.Name,
+		)
+
+		// If the userId is email-shaped, also send the invite link by email.
+		if strings.Contains(input.UserId, "@") {
+			go func() {
+				if emailErr := utils.SendInvitationEmail(
+					input.UserId, "", org.Name, userID.(string), input.Role, token,
+				); emailErr != nil {
+					log.Printf("invite email to %s failed: %v", input.UserId, emailErr)
+				}
+			}()
+		}
 
 		c.JSON(http.StatusCreated, gin.H{
 			"status":  http.StatusCreated,
-			"message": "Invitation sent to " + input.Email,
+			"message": "Invitation sent to " + input.UserId,
 			"data": gin.H{
-				"token": token,
-				"email": input.Email,
-				"role":  input.Role,
+				"token":  token,
+				"userId": input.UserId,
+				"role":   input.Role,
 			},
 		})
 	}
@@ -778,10 +798,10 @@ func AcceptInvitation() gin.HandlerFunc {
 			return
 		}
 
-		// The invite is bound to a specific email — the accepting account must match it,
+		// The invite is bound to a specific userId — the accepting account must match it,
 		// so a forwarded/leaked link can't be used to join under a different identity.
-		if !strings.EqualFold(strings.TrimSpace(invitation.Email), strings.TrimSpace(fmt.Sprintf("%v", userID))) {
-			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "This invitation was sent to " + invitation.Email + ". Sign in with that email to accept it."})
+		if !strings.EqualFold(strings.TrimSpace(invitation.UserID), strings.TrimSpace(fmt.Sprintf("%v", userID))) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "This invitation was sent to " + invitation.UserID + ". Sign in as that user to accept it."})
 			return
 		}
 
@@ -856,7 +876,7 @@ func GetInvitationByToken() gin.HandlerFunc {
 			"status": http.StatusOK,
 			"data": gin.H{
 				"orgName":   invitation.OrgName,
-				"email":     invitation.Email,
+				"userId":    invitation.UserID,
 				"role":      invitation.Role,
 				"status":    invitation.Status,
 				"expiresAt": invitation.ExpiresAt,

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FaChevronLeft, FaPrint, FaFileDownload, FaSpinner } from 'react-icons/fa';
 import api from '../../helper/axiosInstance';
 import useAuthStore from '../../store/useAuthStore';
+import { usePermissions } from '../../helper/permissions';
 
 const fmt = (n) => `${Number(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return d; } };
@@ -41,6 +42,8 @@ export default function QuotePrint() {
   const { id } = useParams();
   const navigate = useNavigate();
   const activeOrg = useAuthStore((s) => s.activeOrg);
+  const { can } = usePermissions();
+  const canExport = can('quotes', 'export');
 
   const [q, setQ] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -72,17 +75,63 @@ export default function QuotePrint() {
     }).catch(() => {});
   }, [activeOrg]);
 
+  const [lhHeight, setLhHeight] = useState(0);
   useEffect(() => {
-    if (!letterhead) { setTopPadPx(0); setBotPadPx(0); return; }
+    if (!letterhead) { setTopPadPx(0); setBotPadPx(0); setLhHeight(0); return; }
     const img = new Image();
     img.onload = () => {
       const w = cardRef.current?.offsetWidth || 820;
       const h = w * (img.naturalHeight / img.naturalWidth);
       setTopPadPx(Math.round(h * letterTop / 100));
       setBotPadPx(Math.round(h * letterBot / 100));
+      setLhHeight(Math.round(h)); // so the letterhead footer (image bottom) lands at the page bottom
     };
     img.src = letterhead;
   }, [letterhead, letterTop, letterBot]);
+
+  const [downloading, setDownloading] = useState(false);
+  const fetchPdfUrl = async () => {
+    const res = await api.get(`/api/quotes/${id}/pdf`, { responseType: 'blob' });
+    return URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+  };
+  const downloadPdf = async () => {
+    setDownloading(true);
+    try {
+      const url = await fetchPdfUrl();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `quote-${q?.quoteNumber || id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      alert('Could not generate the PDF (' + (e?.response?.status || e?.message || 'error') + '). Try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+  // Print the server PDF (correct layout) via a hidden iframe — avoids the HTML gap.
+  const printPdf = async () => {
+    setDownloading(true);
+    try {
+      const url = await fetchPdfUrl();
+      const ifr = document.createElement('iframe');
+      ifr.style.position = 'fixed';
+      ifr.style.right = '0';
+      ifr.style.bottom = '0';
+      ifr.style.width = '0';
+      ifr.style.height = '0';
+      ifr.style.border = '0';
+      ifr.src = url;
+      ifr.onload = () => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch { window.open(url); } };
+      document.body.appendChild(ifr);
+    } catch {
+      window.print();
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}><FaSpinner style={{ animation: 'spin 0.8s linear infinite', fontSize: 22, color: '#1e3a5f' }} /></div>;
   if (!q) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9', color: '#64748b' }}>Quote not found</div>;
@@ -129,10 +178,12 @@ export default function QuotePrint() {
           <FaChevronLeft size={10} /> Back
         </button>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => { window.print(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#0a0e1a', cursor: 'pointer' }}>
-            <FaFileDownload size={11} /> Save as PDF
-          </button>
-          <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#1e3a5f', cursor: 'pointer' }}>
+          {canExport && (
+            <button onClick={downloadPdf} disabled={downloading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#0a0e1a', cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.7 : 1 }}>
+              <FaFileDownload size={11} /> {downloading ? 'Generating…' : 'Save as PDF'}
+            </button>
+          )}
+          <button onClick={canExport ? printPdf : () => window.print()} disabled={downloading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#1e3a5f', cursor: downloading ? 'wait' : 'pointer' }}>
             <FaPrint size={11} /> Print
           </button>
         </div>
@@ -140,7 +191,7 @@ export default function QuotePrint() {
 
       <div style={{ background: '#f1f5f9', minHeight: '100vh', padding: '28px 16px 60px' }}>
         <div ref={cardRef} className="qt-doc" style={{ maxWidth: 820, margin: '0 auto', background: '#fff', border: '1px solid #e2e8f0', boxShadow: '0 2px 24px rgba(0,0,0,0.1)', fontFamily: 'Inter, sans-serif', color: '#0f172a', overflow: 'hidden', position: 'relative' }}>
-          <div style={{ ...(letterhead ? { backgroundImage: `url(${letterhead})`, backgroundSize: '100% auto', backgroundPosition: 'top center', backgroundRepeat: 'no-repeat', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact', paddingTop: topPadPx, paddingBottom: botPadPx } : {}) }}>
+          <div style={{ ...(letterhead ? { backgroundImage: `url(${letterhead})`, backgroundSize: '100% auto', backgroundPosition: 'top center', backgroundRepeat: 'no-repeat', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact', paddingTop: topPadPx, paddingBottom: botPadPx, minHeight: lhHeight || undefined } : {}) }}>
 
             {/* Fallback header — full company details */}
             {!letterhead && (
@@ -312,8 +363,8 @@ export default function QuotePrint() {
               </div>
             </div>
 
-            {/* Company contact footer — always shown so the form's "Your Company" details appear even over a letterhead */}
-            {(company.name || company.address || company.phone || company.email || company.website || company.trn) && (
+            {/* Company contact footer — only when there's no letterhead (the letterhead supplies its own footer) */}
+            {!letterhead && (company.name || company.address || company.phone || company.email || company.website || company.trn) && (
               <div style={{ borderTop: '1px solid #e2e8f0', padding: '10px 20px', background: '#f8fafc', textAlign: 'center' }}>
                 {company.name && <p style={{ fontSize: 11, fontWeight: 700, color: '#1e3a5f', margin: 0 }}>{company.name}</p>}
                 {company.address && <p style={{ fontSize: 10, color: '#64748b', margin: '2px 0 0', whiteSpace: 'pre-line', lineHeight: 1.4 }}>{company.address}</p>}
