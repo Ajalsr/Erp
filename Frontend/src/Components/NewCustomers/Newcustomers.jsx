@@ -752,14 +752,14 @@ const CustomFieldsTab = ({ customFields, setFormData, customerType, T, isDark })
       {customerType === 'business' && (
         <>
           <div>
-            <Label T={T}>Trade License Number</Label>
+            <Label required T={T}>Trade License Number</Label>
             <input className="nc-input" type="text" value={customFields?.tradeLicenseNumber || ''} placeholder="TL-XXXXXXXX"
               onChange={e => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, tradeLicenseNumber: e.target.value } }))} />
           </div>
-          <DatePicker label="Registration Date" T={T} isDark={isDark}
+          <DatePicker label="Registration Date *" T={T} isDark={isDark}
             value={customFields?.registrationDate || ''}
             onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, registrationDate: v } }))} />
-          <DatePicker label="License Expiry Date" T={T} isDark={isDark}
+          <DatePicker label="License Expiry Date *" T={T} isDark={isDark}
             value={customFields?.licenseExpiryDate || ''}
             onChange={v => setFormData(prev => ({ ...prev, customFields: { ...prev.customFields, licenseExpiryDate: v } }))} />
         </>
@@ -1090,6 +1090,13 @@ const Newcustomers = () => {
     e.preventDefault();
     if (!formData.customerDisplayName.trim()) { toast.error("Customer display name is required"); return; }
     if (!formData.trnNumber.trim()) { toast.error("TRN Number is required"); return; }
+    // Custom Fields are mandatory for business customers.
+    if (formData.customerType === 'business') {
+      const cf = formData.customFields || {};
+      if (!String(cf.tradeLicenseNumber || '').trim()) { toast.error("Trade License Number is required"); setActiveTab('custom-fields'); return; }
+      if (!cf.registrationDate)  { toast.error("Registration Date is required"); setActiveTab('custom-fields'); return; }
+      if (!cf.licenseExpiryDate) { toast.error("License Expiry Date is required"); setActiveTab('custom-fields'); return; }
+    }
     setIsSubmitting(true);
     console.log('[handleSubmit] formData.documents at submit:', JSON.stringify(formData.documents, null, 2));
     try {

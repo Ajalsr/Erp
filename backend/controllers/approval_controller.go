@@ -343,6 +343,9 @@ func notifyRequester(orgIDStr string, ar models.ApprovalRequest, approved bool, 
 		if docNumber != "" {
 			msg += " — " + docNumber
 		}
+		if reason != "" {
+			msg += " · Note: " + reason
+		}
 	} else {
 		title = label + " rejected"
 		msg = fmt.Sprintf("Your %s (%s) was rejected", strings.ToLower(label), ar.Title)
@@ -580,6 +583,11 @@ func ApproveRequest() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid approval ID"})
 			return
 		}
+		// Optional approver note — shown to the requester on the approval notification.
+		var body struct {
+			Note string `json:"note"`
+		}
+		c.ShouldBindJSON(&body)
 		var ar models.ApprovalRequest
 		if err := approvalRequestCollection.FindOne(ctx, bson.M{"_id": reqObjID, "orgId": orgIDStr}).Decode(&ar); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"message": "Approval request not found"})
@@ -634,9 +642,9 @@ func ApproveRequest() gin.HandlerFunc {
 			approvalRequestCollection.UpdateOne(ctx, bson.M{"_id": reqObjID}, bson.M{"$set": bson.M{
 				"steps": ar.Steps, "currentStep": ar.CurrentStep,
 				"status": "approved", "decidedBy": userIDStr, "decidedAt": time.Now(),
-				"resultDocId": docID, "resultDocNumber": docNumber,
+				"resultDocId": docID, "resultDocNumber": docNumber, "approvalNote": body.Note,
 			}})
-			go notifyRequester(orgIDStr, ar, true, "", docNumber)
+			go notifyRequester(orgIDStr, ar, true, body.Note, docNumber)
 			go ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "update", OrgID: orgIDStr})
 			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Approved — document created", "data": gin.H{"docId": docID, "docNumber": docNumber, "complete": true}})
 			return

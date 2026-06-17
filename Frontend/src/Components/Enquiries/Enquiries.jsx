@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { matchItem } from "../../helper/itemSearch";
 import {
   FaPlus, FaTimes, FaSearch, FaChevronLeft, FaChevronRight,
   FaPhoneAlt, FaEnvelope, FaBuilding, FaCalendarAlt,
@@ -61,7 +62,14 @@ const PriorityBadge = ({ priority }) => {
   );
 };
 
-const EMPTY_LINE = { itemId: "", itemName: "", qty: 1, unitPrice: 0, total: 0 };
+const EMPTY_LINE = { itemId: "", itemName: "", qty: 1, unitPrice: 0, discount: 0, total: 0 };
+
+// Net line total after a percentage discount.
+const lineTot = (li) => {
+  const base = (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0);
+  const d = parseFloat(li.discount) || 0;
+  return Math.max(0, base - base * d / 100);
+};
 
 const EMPTY_FORM = {
   customerId: "", customerName: "", email: "", phone: "",
@@ -78,10 +86,7 @@ function ItemSearch({ value, onSelect, onType, allItems, T }) {
   const wrapRef = useRef(null);
   const dropRef = useRef(null);
 
-  const filtered = allItems.filter(i =>
-    (i.name || "").toLowerCase().includes((value || "").toLowerCase()) ||
-    (i.item_code || "").toLowerCase().includes((value || "").toLowerCase())
-  ).slice(0, 20);
+  const filtered = allItems.filter(i => matchItem(i, value)).slice(0, 20);
 
   const measure = () => {
     const r = wrapRef.current?.getBoundingClientRect();
@@ -663,7 +668,7 @@ export default function Enquiries() {
     try {
       const lineItems = (form.lineItems || []).filter(li => li.itemName.trim());
       const estimatedValue = lineItems.reduce((s, li) =>
-        s + (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0), 0);
+        s + lineTot(li), 0);
       await axiosInstance.post("/api/enquiries/", {
         ...form,
         lineItems,
@@ -700,7 +705,7 @@ export default function Enquiries() {
     try {
       const lineItems = (editForm.lineItems || []).filter(li => li.itemName?.trim());
       const estimatedValue = lineItems.reduce((s, li) =>
-        s + (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0), 0);
+        s + lineTot(li), 0);
       await axiosInstance.put(`/api/enquiries/${selected._id}`, {
         ...editForm,
         lineItems,
@@ -1240,17 +1245,18 @@ export default function Enquiries() {
                       </button>
                     </div>
                     <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 52px 80px 72px 20px", gap: 0,
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 52px 72px 50px 72px 20px", gap: 0,
                         background: T.surface2, padding: "5px 8px", fontSize: 10, fontWeight: 700,
                         letterSpacing: "0.06em", textTransform: "uppercase", color: T.textSec }}>
                         <span>Item</span><span style={{ textAlign: "right" }}>Qty</span>
                         <span style={{ textAlign: "right" }}>Price</span>
+                        <span style={{ textAlign: "right" }}>Disc %</span>
                         <span style={{ textAlign: "right" }}>Total</span><span/>
                       </div>
                       {(editForm.lineItems || [{ ...EMPTY_LINE }]).map((li, idx) => {
-                        const total = (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0);
+                        const total = lineTot(li);
                         return (
-                          <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 52px 80px 72px 20px",
+                          <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 52px 72px 50px 72px 20px",
                             gap: 0, padding: "5px 8px", borderTop: `1px solid ${T.border}`, alignItems: "center" }}>
                             <ItemSearch
                               value={li.itemName || ""}
@@ -1265,7 +1271,8 @@ export default function Enquiries() {
                                 const items = [...(f.lineItems || [])];
                                 const up = parseFloat(item.selling_price || 0);
                                 items[idx] = { ...items[idx], itemId: item._id, itemName: item.name,
-                                  unitPrice: up, total: (parseFloat(items[idx].qty) || 1) * up };
+                                  unitPrice: up };
+                              items[idx].total = lineTot(items[idx]);
                                 return { ...f, lineItems: items };
                               })}
                             />
@@ -1273,7 +1280,7 @@ export default function Enquiries() {
                               onChange={e => setEditForm(f => {
                                 const items = [...(f.lineItems || [])];
                                 const q = parseFloat(e.target.value) || 0;
-                                items[idx] = { ...items[idx], qty: q, total: q * (parseFloat(items[idx].unitPrice) || 0) };
+                                items[idx] = { ...items[idx], qty: q }; items[idx].total = lineTot(items[idx]);
                                 return { ...f, lineItems: items };
                               })}
                               style={{ width: "100%", padding: "5px 4px", border: `1px solid ${T.border}`,
@@ -1283,7 +1290,17 @@ export default function Enquiries() {
                               onChange={e => setEditForm(f => {
                                 const items = [...(f.lineItems || [])];
                                 const up = parseFloat(e.target.value) || 0;
-                                items[idx] = { ...items[idx], unitPrice: up, total: (parseFloat(items[idx].qty) || 0) * up };
+                                items[idx] = { ...items[idx], unitPrice: up }; items[idx].total = lineTot(items[idx]);
+                                return { ...f, lineItems: items };
+                              })}
+                              style={{ width: "100%", padding: "5px 4px", border: `1px solid ${T.border}`,
+                                borderRadius: 5, fontSize: 12, background: T.surface, color: T.textPri,
+                                outline: "none", textAlign: "right", fontFamily: "'DM Mono', monospace" }}/>
+                            <input type="number" min="0" max="100" value={li.discount ?? 0}
+                              onChange={e => setEditForm(f => {
+                                const items = [...(f.lineItems || [])];
+                                const d = parseFloat(e.target.value) || 0;
+                                items[idx] = { ...items[idx], discount: d }; items[idx].total = lineTot(items[idx]);
                                 return { ...f, lineItems: items };
                               })}
                               style={{ width: "100%", padding: "5px 4px", border: `1px solid ${T.border}`,
@@ -1307,7 +1324,7 @@ export default function Enquiries() {
                         fontSize: 12, fontWeight: 700, color: T.textPri }}>
                         <span style={{ color: T.textSec }}>Total:</span>
                         <span style={{ fontFamily: "'DM Mono', monospace" }}>
-                          AED {(editForm.lineItems || []).reduce((s, li) => s + ((parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0)), 0).toFixed(2)}
+                          AED {(editForm.lineItems || []).reduce((s, li) => s + (lineTot(li)), 0).toFixed(2)}
                         </span>
                       </div>
                     </div>
@@ -1482,17 +1499,18 @@ export default function Enquiries() {
                     </button>
                   </div>
                   <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 80px 24px", gap: 0,
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 56px 82px 54px 78px 24px", gap: 0,
                       background: T.surface2, padding: "5px 10px", fontSize: 10, fontWeight: 700,
                       letterSpacing: "0.06em", textTransform: "uppercase", color: T.textSec }}>
                       <span>Item</span><span style={{ textAlign: "right" }}>Qty</span>
                       <span style={{ textAlign: "right" }}>Price/Unit</span>
+                      <span style={{ textAlign: "right" }}>Disc %</span>
                       <span style={{ textAlign: "right" }}>Total</span><span/>
                     </div>
                     {form.lineItems.map((li, idx) => {
-                      const total = (parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0);
+                      const total = lineTot(li);
                       return (
-                        <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 80px 24px",
+                        <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 56px 82px 54px 78px 24px",
                           gap: 0, padding: "6px 10px", borderTop: `1px solid ${T.border}`, alignItems: "center" }}>
                           <ItemSearch
                             value={li.itemName}
@@ -1507,7 +1525,8 @@ export default function Enquiries() {
                               const items = [...f.lineItems];
                               const up = parseFloat(item.selling_price || 0);
                               items[idx] = { ...items[idx], itemId: item._id, itemName: item.name,
-                                unitPrice: up, total: (parseFloat(items[idx].qty) || 1) * up };
+                                unitPrice: up };
+                              items[idx].total = lineTot(items[idx]);
                               return { ...f, lineItems: items };
                             })}
                           />
@@ -1515,7 +1534,7 @@ export default function Enquiries() {
                             onChange={e => setForm(f => {
                               const items = [...f.lineItems];
                               const q = parseFloat(e.target.value) || 0;
-                              items[idx] = { ...items[idx], qty: q, total: q * (parseFloat(items[idx].unitPrice) || 0) };
+                              items[idx] = { ...items[idx], qty: q }; items[idx].total = lineTot(items[idx]);
                               return { ...f, lineItems: items };
                             })}
                             style={{ width: "100%", padding: "6px 6px", border: `1px solid ${T.border}`,
@@ -1525,7 +1544,17 @@ export default function Enquiries() {
                             onChange={e => setForm(f => {
                               const items = [...f.lineItems];
                               const up = parseFloat(e.target.value) || 0;
-                              items[idx] = { ...items[idx], unitPrice: up, total: (parseFloat(items[idx].qty) || 0) * up };
+                              items[idx] = { ...items[idx], unitPrice: up }; items[idx].total = lineTot(items[idx]);
+                              return { ...f, lineItems: items };
+                            })}
+                            style={{ width: "100%", padding: "6px 6px", border: `1px solid ${T.border}`,
+                              borderRadius: 6, fontSize: 12, background: T.surface, color: T.textPri,
+                              outline: "none", textAlign: "right", fontFamily: "'DM Mono', monospace" }}/>
+                          <input type="number" min="0" max="100" value={li.discount ?? 0}
+                            onChange={e => setForm(f => {
+                              const items = [...f.lineItems];
+                              const d = parseFloat(e.target.value) || 0;
+                              items[idx] = { ...items[idx], discount: d }; items[idx].total = lineTot(items[idx]);
                               return { ...f, lineItems: items };
                             })}
                             style={{ width: "100%", padding: "6px 6px", border: `1px solid ${T.border}`,
@@ -1549,7 +1578,7 @@ export default function Enquiries() {
                       fontSize: 12, fontWeight: 700, color: T.textPri }}>
                       <span style={{ color: T.textSec }}>Total:</span>
                       <span style={{ fontFamily: "'DM Mono', monospace" }}>
-                        AED {form.lineItems.reduce((s, li) => s + ((parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0)), 0).toFixed(2)}
+                        AED {form.lineItems.reduce((s, li) => s + (lineTot(li)), 0).toFixed(2)}
                       </span>
                     </div>
                   </div>

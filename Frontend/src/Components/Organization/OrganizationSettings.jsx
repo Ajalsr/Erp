@@ -313,6 +313,20 @@ const OrganizationSettings = () => {
   const [savingNum, setSavingNum] = useState(false)
   const numFormatsRef = useRef({}) // all saved entity formats, preserved on save
 
+  // Quote numbering by salesperson: <INITIALS>/<MMYY>/<MM><NN>, e.g. MS/0626/0601.
+  const [quoteBySalesperson, setQuoteBySalesperson] = useState(false)
+  const toggleQuoteBySalesperson = async () => {
+    const next = !quoteBySalesperson
+    setQuoteBySalesperson(next)
+    try {
+      await axiosInstance.put('/api/org/settings', { quoteNumberBySalesperson: next })
+      nexusToast.success(next ? 'Quote numbering set to salesperson format' : 'Quote numbering reverted to default')
+    } catch {
+      setQuoteBySalesperson(!next)
+      nexusToast.error('Failed to update quote numbering')
+    }
+  }
+
   // Segments for an entity: saved format if present, else the legacy default.
   const segsForEntity = (key) => {
     const saved = numFormatsRef.current?.[key]?.segments
@@ -325,6 +339,7 @@ const OrganizationSettings = () => {
         const all = res.data?.data?.numberingFormats
         if (all && typeof all === 'object') numFormatsRef.current = all
         setNumSegs(segsForEntity(numEntity))
+        setQuoteBySalesperson(!!res.data?.data?.quoteNumberBySalesperson)
       })
       .catch(() => {})
   }, [])
@@ -1419,6 +1434,17 @@ const OrganizationSettings = () => {
                   Build the format for any auto-generated number. Pick a document, order the pieces — e.g. Text + Year + Counter.
                   The counter resets each period when a Month or Year piece comes before it.
                 </p>
+
+                {/* Quote-by-salesperson toggle */}
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '11px 14px', borderRadius: 10, background: bgInset, border: `1px solid ${quoteBySalesperson ? accent : border}`, marginBottom: 16, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ color: textPri, fontSize: 13, fontWeight: 600 }}>Quote number by salesperson</div>
+                    <div style={{ color: textSec, fontSize: 11.5, marginTop: 2 }}>
+                      Overrides the Quote format below. Pattern: <strong style={{ fontFamily: 'ui-monospace, monospace' }}>INITIALS/MMYY/MM##</strong> — e.g. <strong style={{ fontFamily: 'ui-monospace, monospace' }}>MS/0626/0601</strong> (counter resets monthly per salesperson).
+                    </div>
+                  </div>
+                  <input type="checkbox" checked={quoteBySalesperson} onChange={toggleQuoteBySalesperson} style={{ width: 18, height: 18, accentColor: accent, cursor: 'pointer', flexShrink: 0 }} />
+                </label>
 
                 {/* Entity picker */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>

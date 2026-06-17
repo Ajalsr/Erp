@@ -7,6 +7,7 @@ import useGetCustomers from '../../helper/useGetCustomers';
 import useAddSalesOrder from '../../helper/useAddSalesOrder';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import axiosInstance from '../../helper/axiosInstance';
+import { matchItem } from '../../helper/itemSearch';
 import { debounce } from 'lodash';
 import DatePicker from 'react-datepicker';
 import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
@@ -518,7 +519,10 @@ const Newsalesorders = () => {
       .then(r=>setSalesReps((r.data?.data||[]).filter(m=>m.status==='active'&&m.role!=='owner'&&m.role!=='admin').map(m=>m.userId)))
       .catch(()=>setSalesReps([]));
   },[activeOrg]);
-  const salespersonOptions=salesReps.map(u=>({value:u,label:u}));
+  // Include the saved salesperson (e.g. an old free-text name) so it still shows when editing.
+  const salespersonOptions=(salesperson&&!salesReps.includes(salesperson)
+    ?[salesperson,...salesReps]
+    :salesReps).map(u=>({value:u,label:u}));
 
   const {handleGetItem,data:inventoryData,loading:inventoryLoading}=useGetItem();
   const {handleGetCustomers,data:customersData,loading:customersLoading}=useGetCustomers();
@@ -585,6 +589,10 @@ const Newsalesorders = () => {
   const calcSub=()=>items.reduce((t,i)=>t+(parseFloat(i.amount)||0),0);
   const calcVAT=()=>calcSub()*0.05;
   const calcTotal=()=>calcSub()+calcVAT()+(parseFloat(shippingCharges)||0)+(parseFloat(adjustment)||0);
+
+  // Quote conversion only: lock LPO value to the line-items subtotal. Straight create
+  // and edit keep the manual field (with the mismatch check).
+  useEffect(()=>{ if(fromQuoteLock) setLpoValue(calcSub().toFixed(2)); },[items,fromQuoteLock]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Stock availability cache ──────────────────────────────────────
   const [stockInfo,setStockInfo]=useState({});
@@ -672,14 +680,20 @@ const Newsalesorders = () => {
     return{...base,itemId:match._id,sku:match.sku||base.sku||'',unit:match.unit||match.Unit||base.unit||''};
   });
 
-  // Pre-fill from Quote conversion
+  // Pre-fill from Quote conversion — run once; the effect's deps (inventory/customers)
+  // change reference across renders, so without this guard the notes append repeatedly.
+  const quotePrefillDone=useRef(false);
   useEffect(()=>{
     const fq=location.state?.fromQuote;
-    if(!fq||isEditMode||!customersData)return;
+    // Wait for inventory too — items resolve to stock (itemId) by name match against
+    // the catalog; without it the In Stock/Available/Status columns stay blank.
+    if(!fq||isEditMode||!customersData||!inventoryData)return;
+    if(quotePrefillDone.current)return;
+    quotePrefillDone.current=true;
     if(fq.paymentTerms){const pt=fq.paymentTerms.toLowerCase().replace(' ','_');setPaymentTerms(pt);}
     if(fq.salesperson){setSalesperson(fq.salesperson);}
-    if(fq.notes){setCustomerNotes(fq.notes);}
-    if(fq.quoteNumber){setCustomerNotes(n=>(n?n+'\n':'')+'Ref Quote: '+fq.quoteNumber);}
+    // Build notes deterministically so a re-run can't duplicate the Ref Quote line.
+    {const parts=[];if(fq.notes)parts.push(fq.notes);if(fq.quoteNumber)parts.push('Ref Quote: '+fq.quoteNumber);if(parts.length)setCustomerNotes(parts.join('\n'));}
     if(fq.customerId){
       const found=customersData.find(c=>c._id===fq.customerId);
       if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
@@ -688,24 +702,31 @@ const Newsalesorders = () => {
       setCustomerSearch(fq.customerName);
     }
     if(fq.lineItems?.length){
-      const mapped=resolveItems(fq.lineItems,(li,idx)=>({
-        id:idx+1, itemId:li.stockId||li.itemId||'', details:li.desc||li.itemName||'',
-        sku:'', quantity:li.qty||1, rate:String(li.unitPrice||li.rate||''),
-        discount:String(li.discount||'0'), discountType:'percentage',
-        amount:String(li.total||''), unit:'',
-      }),inventoryData);
+      const mapped=resolveItems(fq.lineItems,(li,idx)=>{
+        const qty=li.qty||1, rate=li.unitPrice||li.rate||0, disc=li.discount||0;
+        return {
+          id:idx+1, itemId:li.stockId||li.itemId||'', details:li.desc||li.itemName||'',
+          sku:'', quantity:qty, rate:String(rate),
+          discount:String(disc), discountType:'percentage',
+          // Net (excl. VAT) — same basis the SO recomputes on, so editing discount
+          // doesn't jump the amount. (Quote line `total` includes VAT.)
+          amount:String(calcAmt(qty,rate,disc,'percentage')), unit:'',
+        };
+      },inventoryData);
       setItems(mapped);
       mapped.forEach(it=>{ if(it.itemId) fetchStockAvailability(it.itemId); });
     }
   },[location.state,isEditMode,customersData,inventoryData,fetchStockAvailability]);
 
-  // Pre-fill from Enquiry conversion
+  // Pre-fill from Enquiry conversion — run once (same re-run guard as the quote effect).
+  const enquiryPrefillDone=useRef(false);
   useEffect(()=>{
     const fe=location.state?.fromEnquiry;
-    if(!fe||isEditMode||!customersData)return;
+    if(!fe||isEditMode||!customersData||!inventoryData)return;
+    if(enquiryPrefillDone.current)return;
+    enquiryPrefillDone.current=true;
     if(fe.salesperson){setSalesperson(fe.salesperson);}
-    if(fe.notes){setCustomerNotes(fe.notes);}
-    if(fe.enquiryNumber){setCustomerNotes(n=>(n?n+'\n':'')+'Ref Enquiry: '+fe.enquiryNumber);}
+    {const parts=[];if(fe.notes)parts.push(fe.notes);if(fe.enquiryNumber)parts.push('Ref Enquiry: '+fe.enquiryNumber);if(parts.length)setCustomerNotes(parts.join('\n'));}
     if(fe.customerId){
       const found=customersData.find(c=>c._id===fe.customerId);
       if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
@@ -713,12 +734,15 @@ const Newsalesorders = () => {
       setCustomerSearch(fe.customerName);
     }
     if(fe.lineItems?.length){
-      const mapped=resolveItems(fe.lineItems,(li,idx)=>({
-        id:idx+1, itemId:li.itemId||'', details:li.itemName||li.desc||'',
-        sku:'', quantity:li.qty||1, rate:String(li.unitPrice||''),
-        discount:'0', discountType:'percentage',
-        amount:String(li.total||''), unit:'',
-      }),inventoryData);
+      const mapped=resolveItems(fe.lineItems,(li,idx)=>{
+        const qty=li.qty||1, rate=li.unitPrice||0;
+        return {
+          id:idx+1, itemId:li.itemId||'', details:li.itemName||li.desc||'',
+          sku:'', quantity:qty, rate:String(rate),
+          discount:'0', discountType:'percentage',
+          amount:String(calcAmt(qty,rate,0,'percentage')), unit:'',
+        };
+      },inventoryData);
       setItems(mapped);
       mapped.forEach(it=>{ if(it.itemId) fetchStockAvailability(it.itemId); });
     }
@@ -726,7 +750,7 @@ const Newsalesorders = () => {
 
   useEffect(()=>{
     if(!inventoryData)return;
-    setFilteredItems(!searchTerm?inventoryData.slice(0,10):inventoryData.filter(i=>i.name?.toLowerCase().includes(searchTerm.toLowerCase())||i._id?.toString().includes(searchTerm)||i.item_code?.toLowerCase().includes(searchTerm.toLowerCase())||i.sku?.toLowerCase().includes(searchTerm.toLowerCase())).slice(0,10));
+    setFilteredItems(!searchTerm?inventoryData.slice(0,10):inventoryData.filter(i=>matchItem(i,searchTerm)).slice(0,10));
   },[searchTerm,inventoryData]);
   useEffect(()=>{
     if(!customersData)return;
@@ -857,6 +881,9 @@ const Newsalesorders = () => {
   // Approver edits an order still held for approval: save the changes (status stays
   // pending_approval) and attach the note for the requester. LPO isn't forced here.
   const handleApproverSave=async()=>{try{const d=prepareSalesOrderData(editStatus||'pending_approval',{skipLpo:true});await axiosInstance.put(`/api/sales-orders/${editId}`,d);guard.reset();setToasterType('success');setSuccessMessage(approverNote.trim()?'Changes saved — note added for requester.':'Changes saved.');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to save changes.');setShowSuccessToaster(true);}};
+  // Approver decision on a pending order — save any edits first, then set the status.
+  const handleApproverApprove=async()=>{try{const d=prepareSalesOrderData(editStatus||'pending_approval',{skipLpo:true});await axiosInstance.put(`/api/sales-orders/${editId}`,d);await axiosInstance.patch(`/api/sales-orders/${editId}/status`,{status:'approved'});guard.reset();setToasterType('success');setSuccessMessage('Order approved.');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to approve.');setShowSuccessToaster(true);}};
+  const handleApproverReject=async()=>{const reason=window.prompt('Reason for rejection (optional):');if(reason===null)return;try{await axiosInstance.patch(`/api/sales-orders/${editId}/status`,{status:'rejected',rejectionReason:(reason||'').trim()});guard.reset();setToasterType('success');setSuccessMessage('Order rejected.');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to reject.');setShowSuccessToaster(true);}};
 
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
@@ -921,6 +948,8 @@ const Newsalesorders = () => {
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               {editStatus==='rejected'
                 ? <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(239,68,68,0.1)',border:'1.5px solid rgba(239,68,68,0.3)',fontSize:11,fontWeight:700,color:'#ef4444',letterSpacing:'.04em'}}>✕ REJECTED</span>
+                : isEditMode&&editStatus==='pending_approval'
+                  ? <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(251,191,36,0.12)',border:'1.5px solid rgba(251,191,36,0.3)',fontSize:11,fontWeight:700,color:'#d97706',letterSpacing:'.04em'}}>⏳ PENDING APPROVAL</span>
                 : isAdminOrOwner
                   ? <span style={{padding:'5px 12px',borderRadius:99,background:'#fef9c3',border:'1.5px solid #fef08a',fontSize:11,fontWeight:700,color:'#854d0e',letterSpacing:'.04em'}}>● DRAFT</span>
                   : <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(251,191,36,0.12)',border:'1.5px solid rgba(251,191,36,0.3)',fontSize:11,fontWeight:700,color:'#d97706',letterSpacing:'.04em'}}>⏳ PENDING APPROVAL</span>
@@ -931,6 +960,14 @@ const Newsalesorders = () => {
                 ? <button onClick={handleResubmit} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
                     {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Resubmit for Approval</>}
                   </button>
+                : isEditMode&&editStatus==='pending_approval'&&isAdminOrOwner
+                  ? <>
+                      <button onClick={handleApproverReject} disabled={addSalesOrderLoading} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'8px 16px',borderRadius:8,cursor:'pointer',background:'transparent',color:'#ef4444',border:'1.5px solid rgba(239,68,68,.4)',fontSize:13,fontWeight:700,fontFamily:'inherit'}}>✕ Reject</button>
+                      <button onClick={handleApproverSave} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save Changes'}</button>
+                      <button onClick={handleApproverApprove} disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'8px 16px',borderRadius:8,border:'none',cursor:'pointer',background:'#10b981',color:'#fff',fontSize:13,fontWeight:700,fontFamily:'inherit',opacity:addSalesOrderLoading?0.6:1}}>
+                        {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Working…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Approve</>}
+                      </button>
+                    </>
                 : isEditMode&&editStatus&&editStatus!=='draft'
                   ? <button onClick={handleApproverSave} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
                       {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Saving…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save Changes</>}
@@ -1146,7 +1183,15 @@ const Newsalesorders = () => {
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>
             <Field label="LPO Value (AED)" req={isAdminOrOwner}>
-              {(() => {
+              {fromQuoteLock ? (
+                <>
+                  <div style={{position:'relative'}}>
+                    <span style={{position:'absolute',left:13,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:T.textSec,fontFamily:"'DM Mono',monospace"}}>AED</span>
+                    <input type="number" value={lpoValue} readOnly className="nso-inp" placeholder="0.00" style={{paddingLeft:46,fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.06)',cursor:'default'}}/>
+                  </div>
+                  <div style={{fontSize:11,color:T.textSec,marginTop:5}}>Auto-set to the line items subtotal.</div>
+                </>
+              ) : (() => {
                 const lpoVal=parseFloat(lpoValue)||0;
                 const sub=calcSub();
                 const mismatch=lpoVal>0&&Math.abs(lpoVal-sub)>0.01;

@@ -176,7 +176,11 @@ func GetItemStockAvailability() gin.HandlerFunc {
 			committed = committedRes[0].Committed
 		}
 
-		// ── 3. Requested qty — pending_approval SOs + unshipped DNs ─────
+		// ── 3. Requested qty — pending_approval SOs only ──────────────────
+		// NOTE: do NOT also add draft/confirmed delivery notes here. A DN derives from
+		// an SO that is already counted in `committed` (fulfilledQty only increments at
+		// dispatch), so adding the DN qty double-counts the same reservation. Stock on
+		// hand is deducted at dispatch, at which point committed drops in lockstep.
 		reqPipeline := []bson.M{
 			{"$match": bson.M{
 				"orgId":        orgIDStr,
@@ -200,32 +204,6 @@ func GetItemStockAvailability() gin.HandlerFunc {
 		requested := 0.0
 		if len(requestedRes) > 0 {
 			requested = requestedRes[0].Requested
-		}
-
-		// Add qty from delivery notes that are draft or confirmed (not yet dispatched/delivered)
-		dnCol := config.GetCollection(config.DB, "delivery_notes")
-		dnPipeline := []bson.M{
-			{"$match": bson.M{
-				"orgId":        orgIDStr,
-				"status":       bson.M{"$in": []string{"draft", "confirmed"}},
-				"items.itemId": itemIDStr,
-			}},
-			{"$unwind": "$items"},
-			{"$match": bson.M{"items.itemId": itemIDStr}},
-			{"$group": bson.M{
-				"_id": nil,
-				"qty": bson.M{"$sum": "$items.quantity"},
-			}},
-		}
-		dnCur, err3 := dnCol.Aggregate(ctx, dnPipeline)
-		var dnRes []struct {
-			Qty float64 `bson:"qty"`
-		}
-		if err3 == nil {
-			_ = dnCur.All(ctx, &dnRes)
-		}
-		if len(dnRes) > 0 {
-			requested += dnRes[0].Qty
 		}
 
 		available := inHand - committed

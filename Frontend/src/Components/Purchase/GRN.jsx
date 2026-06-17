@@ -157,7 +157,7 @@ const pageCss = (isDark) => `
 `;
 
 // ── Print document ─────────────────────────────────────────────
-function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, totalTax, grandTotal, grnNote, inFlow, taxRate, letterhead, stamp, orgName, topPadPx, botPadPx, charges = [], landed = [], hasLanded = false, shipCharge = 0, adjustAmt = 0 }) {
+function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, grandTotal, grnNote, inFlow, taxRate, letterhead, stamp, orgName, topPadPx, botPadPx, charges = [], landed = [], hasLanded = false, shipCharge = 0, adjustAmt = 0 }) {
   const vatPct = Math.round((taxRate ?? 0.05) * 100);
   return (
     <div className="grn-doc" style={{
@@ -431,9 +431,6 @@ export default function GRN() {
     img.src = letterhead;
   }, [letterhead, letterTop, letterBot]);
 
-  const updateLineExtra = (idx, field, val) =>
-    setLineExtras((prev) => ({ ...prev, [idx]: { ...(prev[idx] || {}), [field]: val } }));
-
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
@@ -441,6 +438,66 @@ export default function GRN() {
     window.addEventListener('afterprint', handler);
     return () => window.removeEventListener('afterprint', handler);
   }, []);
+
+  // ── Server-PDF preview/print (mirrors quote/DN/invoice) ──
+  // The PDF engine owns pagination + the per-page letterhead, so on-screen preview
+  // matches print. /preview needs only `view`; /pdf (download) needs `export`.
+  const [pdfUrl,     setPdfUrl]     = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfErr,     setPdfErr]     = useState('');
+  const pdfIframeRef = useRef(null);
+  const grnIdForPdf = () => savedGRN?.id || id;
+
+  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
+
+  const fetchGrnBlobUrl = async (suffix) => {
+    const res = await api.get(`/api/grns/${grnIdForPdf()}/${suffix}`, { responseType: 'blob' });
+    return URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+  };
+
+  const openPreview = async () => {
+    if (!grnIdForPdf() || grnIdForPdf() === 'new') { showToast('Save the GRN first to preview', '📄'); return; }
+    setPrintPreview(true);
+    setPdfLoading(true);
+    setPdfErr('');
+    try {
+      setPdfUrl(await fetchGrnBlobUrl('preview'));
+    } catch (e) {
+      setPdfErr(e?.response?.status ? `Error ${e.response.status}` : (e?.message || 'Failed to load PDF'));
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const printPdf = async () => {
+    const w = pdfIframeRef.current?.contentWindow;
+    if (w) { try { w.focus(); w.print(); return; } catch { /* fall through */ } }
+    if (!grnIdForPdf() || grnIdForPdf() === 'new') { showToast('Save the GRN first to print', '📄'); return; }
+    try {
+      const url = await fetchGrnBlobUrl('preview');
+      const ifr = document.createElement('iframe');
+      Object.assign(ifr.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' });
+      ifr.src = url;
+      ifr.onload = () => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch { window.open(url); } };
+      document.body.appendChild(ifr);
+    } catch { window.print(); }
+  };
+
+  const downloadPdf = async () => {
+    if (!grnIdForPdf() || grnIdForPdf() === 'new') { showToast('Save the GRN first to export', '📄'); return; }
+    try {
+      const url = await fetchGrnBlobUrl('pdf');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `grn-${grn?.number || grnIdForPdf()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      showToast('Could not generate the PDF (' + (e?.response?.status || e?.message || 'error') + ')', '⚠️');
+    }
+  };
 
   // Vendors for the "payee" picker on each other-charge row (customs authority, agent…)
   useEffect(() => {
@@ -900,13 +957,13 @@ export default function GRN() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button className="grn-btn" onClick={() => window.print()}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: '#3b82f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff' }}>
+                <button className="grn-btn" onClick={printPdf} disabled={!pdfUrl}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: '#3b82f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', opacity: pdfUrl ? 1 : 0.6 }}>
                   <FaPrint size={11} /> Print
                 </button>
                 {canExport && (
-                <button className="grn-btn" onClick={() => { showToast('Choose "Save as PDF" in the print dialog', '📄'); setTimeout(() => window.print(), 350); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff' }}>
+                <button className="grn-btn" onClick={downloadPdf} disabled={!pdfUrl}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', opacity: pdfUrl ? 1 : 0.6 }}>
                   <FaFileDownload size={11} /> Save as PDF
                 </button>
                 )}
@@ -918,8 +975,20 @@ export default function GRN() {
               </div>
             </div>
 
-            <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 56px' }}>
-              <PrintDocument {...docProps} inFlow={true} />
+            {/* Server PDF preview — paginated, per-page letterhead, matches print */}
+            <div style={{ height: 'calc(100vh - 60px)', padding: '12px 20px 20px', background: '#f1f5f9' }}>
+              {pdfLoading ? (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FaSpinner size={22} className="grn-spin" style={{ color: '#1e3a5f' }} />
+                </div>
+              ) : pdfErr ? (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                  Could not load the GRN PDF ({pdfErr}).
+                </div>
+              ) : (
+                <iframe ref={pdfIframeRef} src={pdfUrl} title="GRN PDF"
+                  style={{ width: '100%', height: '100%', border: 'none', background: '#fff', borderRadius: 6, boxShadow: '0 2px 24px rgba(0,0,0,0.1)' }} />
+              )}
             </div>
           </>
 
@@ -972,17 +1041,17 @@ export default function GRN() {
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   {sendLoading ? <><FaSpinner size={11} className="grn-spin" /> Sending…</> : <><FaPaperPlane size={11} /> Send</>}
                 </button>
-                <button className="grn-btn" onClick={() => setPrintPreview(true)}
+                <button className="grn-btn" onClick={openPreview}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   <FaEye size={11} /> Preview
                 </button>
                 {canExport && (
-                <button className="grn-btn" onClick={() => { showToast('Choose "Save as PDF" in print dialog', '📄'); setTimeout(() => window.print(), 300); }}
+                <button className="grn-btn" onClick={downloadPdf}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   <FaFileDownload size={11} /> PDF
                 </button>
                 )}
-                <button className="grn-btn" onClick={() => window.print()}
+                <button className="grn-btn" onClick={printPdf}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.blue, border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#fff' }}>
                   <FaPrint size={11} /> Print
                 </button>

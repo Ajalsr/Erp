@@ -101,6 +101,7 @@ func InvoiceRoutes(router *gin.Engine) {
 		invRoutes.POST("/:id/return", controllers.CreateSalesReturn())
 		invRoutes.GET("/:id/history", controllers.GetInvoiceHistory())
 		invRoutes.GET("/:id/pdf", controllers.DownloadInvoicePDF())
+		invRoutes.GET("/:id/preview", controllers.PreviewInvoicePDF())
 	}
 }
 
@@ -119,6 +120,7 @@ func QuoteRoutes(router *gin.Engine) {
 		qRoutes.POST("/:id/convert-to-so", controllers.ConvertQuoteToSalesOrder())
 		qRoutes.DELETE("/:id", controllers.DeleteQuote())
 		qRoutes.GET("/:id/pdf", controllers.DownloadQuotePDF())
+		qRoutes.GET("/:id/preview", controllers.PreviewQuotePDF())
 	}
 }
 
@@ -202,6 +204,8 @@ func GRNRoutes(router *gin.Engine) {
 		grnRoutes.GET("/:id", controllers.GetGRNByID())
 		grnRoutes.PATCH("/:id", controllers.UpdateGRN())
 		grnRoutes.POST("/:id/confirm", controllers.ConfirmGRN())
+		grnRoutes.GET("/:id/pdf", controllers.DownloadGRNPDF())
+		grnRoutes.GET("/:id/preview", controllers.PreviewGRNPDF())
 		grnRoutes.DELETE("/:id", controllers.DiscardDraftGRN())
 	}
 }
@@ -390,6 +394,8 @@ func DeliveryNoteRoutes(router *gin.Engine) {
 		dnRoutes.PATCH("/:id/location", controllers.UpdateDeliveryNoteLocation())
 		dnRoutes.GET("/sales-by-emirate", controllers.GetSalesByEmirate())
 		dnRoutes.PATCH("/:id/invoice", controllers.MarkDeliveryNoteInvoiced())
+		dnRoutes.GET("/:id/pdf", controllers.DownloadDeliveryNotePDF())
+		dnRoutes.GET("/:id/preview", controllers.PreviewDeliveryNotePDF())
 	}
 }
 

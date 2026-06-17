@@ -72,8 +72,6 @@ export default function Quotes() {
   const [selected,   setSelected]   = useState(null);
   const [stats,      setStats]      = useState({});
   const [converting,    setConverting]    = useState(false);
-  const [convertingToSO, setConvertingToSO] = useState(false);
-  const [convertSOTarget, setConvertSOTarget] = useState(null); // quote pending SO conversion
   const [deleting,      setDeleting]      = useState(false);
 
   const exportQuotesCSV = () => {
@@ -150,23 +148,6 @@ export default function Quotes() {
       nexusToast.error(e.response?.data?.message || "Delete failed");
     } finally {
       setDeleting(false);
-    }
-  }
-
-  async function confirmConvertToSO() {
-    const q = convertSOTarget;
-    if (!q) return;
-    setConvertingToSO(true);
-    try {
-      const res = await axiosInstance.post(`/api/quotes/${q._id}/convert-to-so`);
-      nexusToast.success(`Sales Order ${res.data?.data?.orderNumber} created`);
-      setConvertSOTarget(null);
-      setSelected(null);
-      load();
-    } catch (e) {
-      nexusToast.error(e.response?.data?.message || "Conversion failed");
-    } finally {
-      setConvertingToSO(false);
     }
   }
 
@@ -835,32 +816,6 @@ export default function Quotes() {
           </div>
         )}
 
-        {convertSOTarget && (
-          <div onClick={() => !convertingToSO && setConvertSOTarget(null)}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-            <div onClick={e => e.stopPropagation()}
-              style={{ width: "100%", maxWidth: 420, background: isDark ? T.surface : "#fff", border: `1px solid ${T.border}`, borderRadius: 14, padding: 22, fontFamily: "inherit" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                <span style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(16,185,129,0.12)", color: "#10b981", display: "flex", alignItems: "center", justifyContent: "center" }}><FaExchangeAlt size={14} /></span>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.textPri }}>Convert to Sales Order</h3>
-              </div>
-              <p style={{ margin: "4px 0 16px", fontSize: 13, color: T.textSec || T.muted, lineHeight: 1.5 }}>
-                Create a draft Sales Order from <strong style={{ color: T.textPri }}>{convertSOTarget.quoteNumber}</strong>
-                {convertSOTarget.customerName ? <> for <strong style={{ color: T.textPri }}>{convertSOTarget.customerName}</strong></> : null}? The quote will be marked as converted.
-              </p>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button onClick={() => setConvertSOTarget(null)} disabled={convertingToSO}
-                  style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec || T.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-                  Cancel
-                </button>
-                <button onClick={confirmConvertToSO} disabled={convertingToSO}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: "none", background: "#10b981", color: "#fff", fontSize: 13, fontWeight: 700, cursor: convertingToSO ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: convertingToSO ? 0.6 : 1 }}>
-                  <FaExchangeAlt size={11} /> {convertingToSO ? "Converting…" : "Convert"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
