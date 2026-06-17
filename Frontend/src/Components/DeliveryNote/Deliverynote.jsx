@@ -171,6 +171,10 @@ export default function DeliveryNote() {
   const [toast,            setToast]            = useState(null);
   const [printPreview,     setPrintPreview]     = useState(false);
   const [mounted,          setMounted]          = useState(false);
+  const [pdfUrl,           setPdfUrl]           = useState('');
+  const [pdfLoading,       setPdfLoading]       = useState(false);
+  const [pdfErr,           setPdfErr]           = useState('');
+  const pdfIframeRef = useRef(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -215,6 +219,60 @@ export default function DeliveryNote() {
     window.addEventListener('afterprint', handler);
     return () => window.removeEventListener('afterprint', handler);
   }, []);
+
+  // Revoke the preview blob URL on unmount / change to avoid leaks.
+  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
+
+  // Preview/print/save all use the server-generated PDF — it owns pagination and
+  // the per-page letterhead, so on-screen preview matches the printed output.
+  // /preview needs only `view`; /pdf (download) needs `export`.
+  const fetchBlobUrl = async (suffix) => {
+    const res = await api.get(`/api/delivery-notes/${note._id}/${suffix}`, { responseType: 'blob' });
+    return URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+  };
+
+  const openPreview = async () => {
+    setPrintPreview(true);
+    setPdfLoading(true);
+    setPdfErr('');
+    try {
+      const url = await fetchBlobUrl('preview');
+      setPdfUrl(url);
+    } catch (e) {
+      setPdfErr(e?.response?.status ? `Error ${e.response.status}` : (e?.message || 'Failed to load PDF'));
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const printPdf = async () => {
+    // Print the already-loaded preview iframe when available.
+    const w = pdfIframeRef.current?.contentWindow;
+    if (w) { try { w.focus(); w.print(); return; } catch { /* fall through */ } }
+    try {
+      const url = await fetchBlobUrl('preview');
+      const ifr = document.createElement('iframe');
+      Object.assign(ifr.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' });
+      ifr.src = url;
+      ifr.onload = () => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch { window.open(url); } };
+      document.body.appendChild(ifr);
+    } catch { window.print(); }
+  };
+
+  const downloadPdf = async () => {
+    try {
+      const url = await fetchBlobUrl('pdf');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `delivery-note-${note?.dnNumber || note?._id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      showToast('Could not generate the PDF (' + (e?.response?.status || e?.message || 'error') + ')', '⚠️');
+    }
+  };
 
   const showToast = useCallback((msg, icon = '✅') => {
     setToast({ msg, icon });
@@ -592,13 +650,13 @@ export default function DeliveryNote() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button className="dn-btn" onClick={() => window.print()}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: '#3b82f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff' }}>
+                <button className="dn-btn" onClick={printPdf} disabled={!pdfUrl}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: '#3b82f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', opacity: pdfUrl ? 1 : 0.6 }}>
                   <FaPrint size={11} /> Print
                 </button>
                 {canExport && (
-                <button className="dn-btn" onClick={() => { showToast('Choose "Save as PDF" in the print dialog', '📄'); setTimeout(() => window.print(), 350); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff' }}>
+                <button className="dn-btn" onClick={downloadPdf} disabled={!pdfUrl}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', opacity: pdfUrl ? 1 : 0.6 }}>
                   <FaFileDownload size={11} /> Save as PDF
                 </button>
                 )}
@@ -610,9 +668,20 @@ export default function DeliveryNote() {
               </div>
             </div>
 
-            {/* Document in flow */}
-            <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 56px' }}>
-              <PrintDocument inFlow={true} />
+            {/* Server PDF preview — paginated, per-page letterhead, matches print */}
+            <div style={{ height: 'calc(100vh - 60px)', padding: '12px 20px 20px', background: '#f1f5f9' }}>
+              {pdfLoading ? (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FaSpinner size={22} className="dn-spin" style={{ color: '#1e3a5f' }} />
+                </div>
+              ) : pdfErr ? (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                  Could not load the delivery note PDF ({pdfErr}).
+                </div>
+              ) : (
+                <iframe ref={pdfIframeRef} src={pdfUrl} title="Delivery Note PDF"
+                  style={{ width: '100%', height: '100%', border: 'none', background: '#fff', borderRadius: 6, boxShadow: '0 2px 24px rgba(0,0,0,0.1)' }} />
+              )}
             </div>
           </>
 
@@ -651,17 +720,17 @@ export default function DeliveryNote() {
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   {sendLoading ? <><FaSpinner size={11} className="dn-spin" /> Sending…</> : <><FaPaperPlane size={11} /> Send</>}
                 </button>
-                <button className="dn-btn" onClick={() => setPrintPreview(true)}
+                <button className="dn-btn" onClick={openPreview}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   <FaEye size={11} /> Preview
                 </button>
                 {canExport && (
-                <button className="dn-btn" onClick={() => { showToast('Choose "Save as PDF" in print dialog', '📄'); setTimeout(() => window.print(), 300); }}
+                <button className="dn-btn" onClick={downloadPdf}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, color: T.textSec }}>
                   <FaFileDownload size={11} /> PDF
                 </button>
                 )}
-                <button className="dn-btn" onClick={() => window.print()}
+                <button className="dn-btn" onClick={printPdf}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: T.blue, border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#fff' }}>
                   <FaPrint size={11} /> Print
                 </button>

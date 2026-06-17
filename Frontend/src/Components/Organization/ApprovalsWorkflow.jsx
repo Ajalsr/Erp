@@ -21,7 +21,7 @@ const modGroup = (k) => (APPROVAL_MODULES.find(m => m.key === k) || {}).group ||
 
 /* Actions each module's gate is wired for in the backend. Only these can be toggled. */
 const MODULE_ACTIONS = {
-  purchase_orders: ['create'],
+  purchase_orders: ['create', 'update'],
   bills:           ['create', 'update', 'delete'],
   vendor_payments: ['create'],
   payments:        ['create'],

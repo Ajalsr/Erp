@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { FaCheck, FaTimes, FaInbox } from 'react-icons/fa'
 import useThemeStore, { getTheme } from '../../store/useThemeStore'
 import axiosInstance from '../../helper/axiosInstance'
@@ -40,12 +40,16 @@ export default function Approvals() {
   const [busy, setBusy]       = useState(null)       // id being approved/rejected
   const [rejectTarget, setRejectTarget] = useState(null) // req pending rejection
   const [rejectReason, setRejectReason] = useState('')
+  const [approveTarget, setApproveTarget] = useState(null) // req pending approval (note modal)
+  const [approveNote, setApproveNote] = useState('')
   const [detail, setDetail] = useState(null) // { req, canAct } open in the detail modal
 
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const focusId = searchParams.get('id')
   const rowRefs = useRef({})
   const autoWidenedFor = useRef(null) // focusId we've already widened to "All" for
+  const autoOpenedFor = useRef(null)  // focusId we've already auto-opened the modal for
 
   const load = useCallback(() => {
     setLoading(true)
@@ -58,29 +62,40 @@ export default function Approvals() {
   useEffect(() => { load() }, [load])
   useRealtime(['approvals_updated'], load)
 
-  // Deep-link from a notification: scroll the targeted request into view. If it isn't
-  // in the pending list (already decided), widen the filter to reveal it.
+  // Deep-link from a notification: scroll the targeted request into view AND open its
+  // detail modal (the same modal you get by clicking the row). If it isn't in the
+  // pending list (already decided), widen the filter to reveal it.
   useEffect(() => {
     if (!focusId || loading) return
-    const found = reqs.some(it => (it.req || it)._id === focusId)
+    const hit = reqs.find(it => (it.req || it)._id === focusId)
     // Widen to "All" at most once per target — otherwise it fights a manual filter switch.
-    if (!found && filter === 'pending' && autoWidenedFor.current !== focusId) {
+    if (!hit && filter === 'pending' && autoWidenedFor.current !== focusId) {
       autoWidenedFor.current = focusId
       setFilter('all')
       return
     }
     const el = rowRefs.current[focusId]
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // Open the modal once per target so a manual close isn't immediately undone.
+    if (hit && autoOpenedFor.current !== focusId) {
+      autoOpenedFor.current = focusId
+      setDetail({ req: hit.req || hit, canAct: hit.canAct })
+    }
   }, [focusId, reqs, loading, filter])
 
-  const approve = async (req) => {
+  const confirmApprove = async () => {
+    const req = approveTarget
+    if (!req) return
+    const note = approveNote.trim()
     setBusy(req._id)
     try {
       // Sales orders use a bespoke status-based approval, not the generic engine.
       const r = req.docType === 'sales_order'
-        ? await axiosInstance.patch(`/api/sales-orders/${req._id}/status`, { status: 'approved' })
-        : await axiosInstance.post(`/api/approvals/${req._id}/approve`)
+        ? await axiosInstance.patch(`/api/sales-orders/${req._id}/status`, { status: 'approved', approverNote: note })
+        : await axiosInstance.post(`/api/approvals/${req._id}/approve`, { note })
       nexusToast.success(r.data?.message || 'Approved')
+      setApproveTarget(null)
+      setApproveNote('')
       setDetail(null)
       load()
     } catch (e) {
@@ -186,7 +201,7 @@ export default function Approvals() {
                   <td style={{ padding: '12px 16px', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                     {req.status === 'pending' && (canAct ? (
                       <div style={{ display: 'inline-flex', gap: 6 }}>
-                        <button onClick={() => approve(req)} disabled={busy === req._id} title="Approve"
+                        <button onClick={() => { setApproveNote(''); setApproveTarget(req) }} disabled={busy === req._id} title="Approve"
                           style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', background: '#10b981', color: '#fff', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', opacity: busy === req._id ? 0.6 : 1 }}>
                           <FaCheck size={10} /> Approve
                         </button>
@@ -302,14 +317,24 @@ export default function Approvals() {
 
               {/* Footer actions */}
               {req.status === 'pending' && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px', borderTop: `1px solid ${T.border}`, position: 'sticky', bottom: 0, background: T.surface }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '14px 22px', borderTop: `1px solid ${T.border}`, position: 'sticky', bottom: 0, background: T.surface }}>
+                  {/* Sales orders are edited on the order itself — let the approver jump there */}
+                  <div>
+                    {req.docType === 'sales_order' && (
+                      <button onClick={() => { setDetail(null); navigate(`/Sales/Salesorders/Newsalesorders/${req._id}`) }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', background: 'transparent', color: T.blue, border: `1px solid ${T.blue}55`, fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
+                        Open &amp; Edit
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
                   {detail.canAct ? (
                     <>
                       <button onClick={() => { setRejectReason(''); setRejectTarget(req) }} disabled={busy !== null}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', background: 'transparent', color: '#ef4444', border: '1px solid rgba(239,68,68,.35)', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
                         <FaTimes size={11} /> Reject
                       </button>
-                      <button onClick={() => approve(req)} disabled={busy !== null}
+                      <button onClick={() => { setApproveNote(''); setApproveTarget(req) }} disabled={busy !== null}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#10b981', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', opacity: busy !== null ? 0.6 : 1 }}>
                         <FaCheck size={11} /> {busy === req._id ? 'Approving…' : 'Approve'}
                       </button>
@@ -317,6 +342,7 @@ export default function Approvals() {
                   ) : (
                     <span style={{ fontSize: 12, color: T.textSec }}>Awaiting other approver</span>
                   )}
+                  </div>
                 </div>
               )}
             </div>
@@ -344,6 +370,32 @@ export default function Approvals() {
               <button onClick={confirmReject} disabled={busy !== null}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: busy !== null ? 0.6 : 1 }}>
                 <FaTimes size={11} /> {busy !== null ? 'Rejecting…' : 'Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {approveTarget && (
+        <div onClick={() => busy === null && setApproveTarget(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ ...card, width: '100%', maxWidth: 440, padding: 22 }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: 'Sora, sans-serif' }}>Approve request</h3>
+            <p style={{ margin: '6px 0 14px', fontSize: 12.5, color: T.textSec }}>
+              Approving this {DOC_LABEL[(approveTarget.req || approveTarget).docType]?.label?.toLowerCase() || 'request'} proceeds it. Add a note (optional) — the requester is notified.
+            </p>
+            <textarea autoFocus value={approveNote} onChange={e => setApproveNote(e.target.value)}
+              placeholder="Note for the requester (optional)…" rows={3}
+              style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', padding: '10px 12px', borderRadius: 9, border: `1px solid ${T.border}`, background: isDark ? T.surface2 : T.bg, color: T.textPri, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button onClick={() => setApproveTarget(null)} disabled={busy !== null}
+                style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${T.border}`, background: 'transparent', color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Cancel
+              </button>
+              <button onClick={confirmApprove} disabled={busy !== null}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', background: '#10b981', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: busy !== null ? 0.6 : 1 }}>
+                <FaCheck size={11} /> {busy !== null ? 'Approving…' : 'Approve'}
               </button>
             </div>
           </div>

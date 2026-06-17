@@ -89,6 +89,36 @@ func AddCustomers() gin.HandlerFunc {
 			return
 		}
 
+		// TRN + custom fields are mandatory for business customers (mirrors the form).
+		if strings.TrimSpace(item.TrnNumber) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "TRN Number is required"})
+			return
+		}
+		if item.CustomerType == "business" {
+			cf := item.CustomFields
+			cfStr := func(k string) string {
+				if cf == nil {
+					return ""
+				}
+				if v, ok := cf[k]; ok && v != nil {
+					return strings.TrimSpace(fmt.Sprintf("%v", v))
+				}
+				return ""
+			}
+			if cfStr("tradeLicenseNumber") == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Trade License Number is required"})
+				return
+			}
+			if cfStr("registrationDate") == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Registration Date is required"})
+				return
+			}
+			if cfStr("licenseExpiryDate") == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "License Expiry Date is required"})
+				return
+			}
+		}
+
 		// Approval gate — hold the create for an approver when the org requires it.
 		if !c.GetBool("approvalReplay") {
 			orgIDStr := fmt.Sprintf("%v", func() interface{} { v, _ := c.Get("orgId"); return v }())

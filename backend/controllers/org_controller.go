@@ -1051,6 +1051,9 @@ func UpdateLetterhead() gin.HandlerFunc {
 			return
 		}
 
+		// Drop the cached letterhead so PDFs pick up the change immediately.
+		lhCache.Delete(orgID.Hex())
+
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Letterhead updated", "letterheadImage": url})
 	}
 }

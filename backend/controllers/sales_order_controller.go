@@ -663,6 +663,7 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 			CancelReason      string `json:"cancelReason"`
 			CancelRequestedBy string `json:"cancelRequestedBy"`
 			RejectionReason   string `json:"rejectionReason"`
+			ApproverNote      string `json:"approverNote"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil || req.Status == "" {
@@ -720,6 +721,13 @@ func UpdateSalesOrderStatus() gin.HandlerFunc {
 		if req.Status == "rejected" {
 			setFields["rejectionReason"] = req.RejectionReason
 			histNote = req.RejectionReason
+		}
+		// Optional approver note on approval — recorded on the order + history.
+		if req.Status == "approved" && req.ApproverNote != "" {
+			setFields["approverNote"] = req.ApproverNote
+			setFields["approverNoteBy"] = fmt.Sprintf("%v", statusUserID)
+			setFields["approverNoteAt"] = time.Now()
+			histNote = req.ApproverNote
 		}
 		histEntry := models.SOHistoryEntry{
 			Action:    "status_changed",

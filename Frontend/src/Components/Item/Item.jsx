@@ -6,6 +6,7 @@ import {
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
+import { matchItem } from "../../helper/itemSearch";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
@@ -139,11 +140,8 @@ export default function Item() {
   const allItems = Array.isArray(data) ? data : [];
 
   const filteredItems = allItems.filter((item) => {
-    const q = searchTerm.toLowerCase();
-    const matchSearch = !q ||
-      (item.name||"").toLowerCase().includes(q) ||
-      (item.item_code||"").toLowerCase().includes(q) ||
-      (item.brand||"").toLowerCase().includes(q);
+    const matchSearch = matchItem(item, searchTerm) ||
+      (item.brand||"").toLowerCase().includes(searchTerm.trim().toLowerCase());
     const s = stockState(item.quantity, item.reorder_point);
     const matchStatus =
       filterStatus === "all" ||
@@ -615,8 +613,8 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
           </div>
         )}
 
-        {/* KPI grid — 5 cols */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,padding:"14px 24px 6px"}}>
+        {/* KPI grid — 6 cols */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10,padding:"14px 24px 6px"}}>
           <KpiCard
             label="Stock on hand"
             value={`${qty} ${item.unit||"units"}`}
@@ -654,6 +652,14 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
             tone={requested>0?"warn":""}
             sub={requested>0?"Reserved for orders":"No pending orders"}
             icon={<FaExclamationTriangle size={12}/>}
+            T={T} isDark={isDark} muted={muted} text={text}
+          />
+          <KpiCard
+            label="Free stock"
+            value={`${fmtN(Math.max(0, qty - requested))} ${item.unit||"units"}`}
+            tone={Math.max(0, qty - requested)>0?"good":"bad"}
+            sub="Available to sell"
+            icon={<FaBox size={12}/>}
             T={T} isDark={isDark} muted={muted} text={text}
           />
         </div>
@@ -703,6 +709,7 @@ function KpiCard({ label, value, tone, sub, icon, bar, T, isDark, muted, text })
   const toneStyle = {
     bad:  { ico:{ bg:isDark?"rgba(239,68,68,.15)":"#fee2e2", color:"#ef4444" }, val:{ color:"#ef4444" } },
     warn: { ico:{ bg:isDark?"rgba(245,158,11,.15)":"#fef3c7", color:"#f59e0b" }, val:{ color:"#f59e0b" } },
+    good: { ico:{ bg:isDark?"rgba(16,185,129,.15)":"#d1fae5", color:T.green }, val:{ color:T.green } },
     "":   { ico:{ bg:isDark?"rgba(255,255,255,.07)":"rgba(0,0,0,.05)", color:muted }, val:{ color:text } },
   };
   const ts = toneStyle[tone||""] || toneStyle[""];
@@ -728,19 +735,11 @@ function KpiCard({ label, value, tone, sub, icon, bar, T, isDark, muted, text })
 }
 
 /* ─── Overview tab ────────────────────────────────────────────────────── */
-function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, itemOrders, availability = {}, onEdit }) {
+function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, itemOrders }) {
   const qty = parseFloat(item.quantity||0);
   const fmtD = (d)=>d?new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}):"—";
   const recentTxns = itemOrders.slice(-5).reverse();
 
-  // Stock buckets (from /availability). Accounting commits at sales-order confirmation;
-  // Physical commits when goods are picked into an un-dispatched delivery note.
-  const inHand    = parseFloat(availability.inHand ?? qty) || 0;
-  const committed = parseFloat(availability.committed ?? 0) || 0; // confirmed SOs
-  const requestedQ= parseFloat(availability.requested ?? 0) || 0; // unshipped DNs + pending-approval SOs
-  const acctFree  = Math.max(0, inHand - committed);
-  const physFree  = Math.max(0, inHand - requestedQ);
-  const fmtU      = (n)=>`${(Math.round((n+Number.EPSILON)*100)/100)}`;
 
   const cardStyle = { background:surface, border:`1px solid ${border}`, borderRadius:11, overflow:"hidden" };
   const cardH     = { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"11px 14px", borderBottom:`1px solid ${border}`, fontSize:12, fontWeight:600, color:text, letterSpacing:".01em" };
@@ -805,53 +804,6 @@ function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, i
             </div>
           </div>
         </div>
-
-        {/* Stock breakdown card — Opening / Accounting / Physical */}
-        {(() => {
-          const u = item.unit || "units";
-          const rowStyle = { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 0" };
-          const labelStyle = { fontSize:12, color:muted, borderBottom:`1px dashed ${border2}`, paddingBottom:1 };
-          const valStyle = { fontSize:12.5, fontWeight:600, color:text, fontFamily:"'DM Mono',monospace" };
-          const Section = ({ title, hint, onHand, reqLabel, reqVal, freeLabel, freeVal }) => (
-            <div style={{ marginTop:14 }}>
-              <div style={{ fontSize:12.5, fontWeight:700, color:text, marginBottom:2 }} title={hint}>{title} <span style={{color:muted,fontWeight:400}}>ⓘ</span></div>
-              <div style={rowStyle}><span style={labelStyle}>Stock on Hand</span><span style={valStyle}>{fmtU(onHand)}</span></div>
-              <div style={rowStyle}><span style={labelStyle}>{reqLabel}</span><span style={valStyle}>{fmtU(reqVal)}</span></div>
-              <div style={rowStyle}><span style={labelStyle}>{freeLabel}</span><span style={{...valStyle, color: freeVal>0?T.green:muted}}>{fmtU(freeVal)}</span></div>
-            </div>
-          );
-          return (
-            <div style={cardStyle}>
-              <div style={cardH}>Stock <span style={{fontSize:11.5,fontWeight:500,color:muted}}>in {u}</span></div>
-              <div style={cardB}>
-                {/* Opening stock */}
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", paddingBottom:6, borderBottom:`1px solid ${border}` }}>
-                  <span style={{ fontSize:12.5, fontWeight:700, color:text }}>Opening Stock <span style={valStyle}>: {fmtU(parseFloat(item.opening_stock||0))}</span></span>
-                  {onEdit && (
-                    <span onClick={()=>onEdit(item)} style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:12, fontWeight:600, color:T.blue, cursor:"pointer" }}>
-                      <FaEdit size={11}/> Edit
-                    </span>
-                  )}
-                </div>
-
-                <Section
-                  title="Accounting Stock"
-                  hint="Reserved when a sales order is confirmed. Free = on hand − committed sales orders."
-                  onHand={inHand}
-                  reqLabel="Requested Stock" reqVal={committed}
-                  freeLabel="Free Stock"      freeVal={acctFree}
-                />
-                <Section
-                  title="Physical Stock"
-                  hint="Reserved when goods are picked into an un-dispatched delivery note. Free = on hand − goods awaiting dispatch."
-                  onHand={inHand}
-                  reqLabel="Requested Stock" reqVal={requestedQ}
-                  freeLabel="Free Stock"      freeVal={physFree}
-                />
-              </div>
-            </div>
-          );
-        })()}
 
         {/* Recent transactions card */}
         <div style={cardStyle}>

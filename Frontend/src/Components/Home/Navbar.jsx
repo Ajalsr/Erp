@@ -628,7 +628,14 @@ const Navbar = ({ onToggleSidebar }) => {
                     const onClickNotif = isCancelReq
                       ? () => { setNotifOpen(false); navigate('/Sales/Outbound'); }
                       : isApproval
-                        ? () => { setNotifOpen(false); navigate(n.metadata?.approvalId ? `/Approvals?id=${n.metadata.approvalId}` : '/Approvals'); }
+                        // All approval notifications open the Approvals page focused on the
+                        // request — the page auto-opens its detail modal (review + Open & Edit).
+                        // SOs carry orderId (= the approvals row id); generic docs carry approvalId.
+                        ? () => {
+                            setNotifOpen(false);
+                            const focus = n.metadata?.orderId || n.metadata?.approvalId;
+                            navigate(focus ? `/Approvals?id=${focus}` : '/Approvals');
+                          }
                         : isEnquiry
                           ? () => { setNotifOpen(false); navigate('/Sales/Enquiries'); }
                           : undefined
@@ -668,7 +675,7 @@ const Navbar = ({ onToggleSidebar }) => {
                           )}
                         </div>
                         <button
-                          onClick={() => deleteNotification(n._id)}
+                          onClick={(e) => { e.stopPropagation(); deleteNotification(n._id); }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: D.textSec, padding: '2px', flexShrink: 0, opacity: 0.5, lineHeight: 1 }}
                           title="Dismiss"
                         >

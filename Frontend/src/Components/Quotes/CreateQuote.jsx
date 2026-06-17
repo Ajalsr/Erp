@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef, createContext, useContext } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
+import { matchItem } from "../../helper/itemSearch";
 import useGetCustomers from "../../helper/useGetCustomers";
+import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import useThemeStore from "../../store/useThemeStore";
@@ -306,7 +308,7 @@ const ItemCombo = ({ value, stockId, onChange }) => {
   useEffect(() => { setQ(value || ""); }, [value]);
 
   const filtered = q.trim()
-    ? stocks.filter(s => s.name?.toLowerCase().includes(q.toLowerCase()) || s.sku?.toLowerCase().includes(q.toLowerCase())).slice(0, 8)
+    ? stocks.filter(s => matchItem(s, q)).slice(0, 8)
     : stocks.slice(0, 8);
 
   const measure = () => {
@@ -519,8 +521,18 @@ export default function CreateQuote() {
   const [subject,      setSubject]      = useState(prefill?.subject      || fromEnquiry?.subject || "");
   const [projectName,  setProjectName]  = useState(prefill?.projectName  || fromEnquiry?.projectName || "");
   const [introText,    setIntroText]    = useState(prefill?.introText    || "");
-  // Salesperson — carried from the source enquiry so a converted Sales Order can auto-fill it.
-  const [salesperson] = useState(prefill?.salesperson || fromEnquiry?.assignedTo || "");
+  // Salesperson — selectable; drives the quote number (initials) when the org enables
+  // salesperson numbering, and carries to a converted Sales Order.
+  const [salesperson, setSalesperson] = useState(prefill?.salesperson || fromEnquiry?.assignedTo || "");
+  const activeOrgId = useAuthStore((s) => s.activeOrg?._id || s.user?.orgId || "");
+  const [salesReps, setSalesReps] = useState([]);
+  useEffect(() => {
+    if (!activeOrgId) return;
+    axiosInstance.get(`/api/organizations/${activeOrgId}/members`)
+      .then(r => setSalesReps((r.data?.data || []).filter(m => m.status === "active" && m.role !== "owner" && m.role !== "admin").map(m => m.userId)))
+      .catch(() => setSalesReps([]));
+  }, [activeOrgId]);
+  const salespersonOptions = (salesperson && !salesReps.includes(salesperson) ? [salesperson, ...salesReps] : salesReps).map(u => ({ value: u, label: u }));
 
   // Sender company details
   const [company, setCompany] = useState(prefill?.company || {
@@ -776,7 +788,7 @@ export default function CreateQuote() {
                   options={["Due on Receipt","Net 15","Net 30","Net 60","End of Month","30 Days PDC"].map(t => ({ value: t, label: t }))} />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Attention To (Contact Person)">
                 <Inp value={attentionTo} onChange={e => setAttentionTo(e.target.value)} placeholder="e.g. Mr. John Smith - Procurement" />
               </Field>
@@ -785,6 +797,13 @@ export default function CreateQuote() {
               </Field>
               <Field label="Project Name">
                 <Inp value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. Nashama School" />
+              </Field>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+              <Field label="Salesperson">
+                <CustomSelect value={salesperson} onChange={setSalesperson}
+                  options={salespersonOptions}
+                  placeholder={salespersonOptions.length ? "Select salesperson…" : "No sales reps yet"} />
               </Field>
             </div>
           </Section>

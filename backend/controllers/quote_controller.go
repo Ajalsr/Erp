@@ -21,6 +21,53 @@ import (
 
 var quoteCollection *mongo.Collection = config.GetCollection(config.DB, "quotes")
 
+// salespersonInitials derives 2-letter initials from a salesperson name/id:
+// "Muhammed Shahid" → "MS"; single token "mshahid" → "MS".
+func salespersonInitials(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "XX"
+	}
+	parts := strings.Fields(s)
+	if len(parts) >= 2 {
+		a := []rune(parts[0])
+		b := []rune(parts[1])
+		return strings.ToUpper(string(a[0]) + string(b[0]))
+	}
+	r := []rune(s)
+	if len(r) >= 2 {
+		return strings.ToUpper(string(r[0]) + string(r[1]))
+	}
+	return strings.ToUpper(string(r[0]))
+}
+
+// nextQuoteNumber generates a quote number. When the org enables
+// quoteNumberBySalesperson, the format is  <INITIALS>/<MMYY>/<MM><NN>  (NN is a
+// 2-digit counter that resets monthly per salesperson), e.g. "MS/0626/0601".
+// Otherwise it falls back to the org's configured/default quote format.
+func nextQuoteNumber(ctx context.Context, orgID, salesperson string) string {
+	var doc struct {
+		QuoteNumberBySalesperson bool `bson:"quoteNumberBySalesperson"`
+	}
+	_ = orgSettingsCollection.FindOne(ctx, bson.M{"orgId": orgID}).Decode(&doc)
+
+	if doc.QuoteNumberBySalesperson && strings.TrimSpace(salesperson) != "" {
+		ini := salespersonInitials(salesperson)
+		format := utils.NumberFormat{Segments: []utils.NumberSegment{
+			{Type: "literal", Value: ini + "/"},
+			{Type: "month", Digits: 2},
+			{Type: "year", Digits: 2},
+			{Type: "literal", Value: "/"},
+			{Type: "month", Digits: 2},
+			{Type: "sequence", Mode: "digit", Digits: 2, Start: 1},
+		}}
+		if n, err := utils.GenerateFormattedNumber(ctx, quoteCollection, "quoteNumber", bson.M{"orgId": orgID}, format, time.Now()); err == nil && n != "" {
+			return n
+		}
+	}
+	return nextNumber(ctx, orgID, "quote", quoteCollection, "quoteNumber")
+}
+
 func CreateQuote() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -76,7 +123,7 @@ func CreateQuote() gin.HandlerFunc {
 		}
 
 		q.ID = primitive.NewObjectID()
-		q.QuoteNumber = nextNumber(ctx, fmt.Sprintf("%v", orgID), "quote", quoteCollection, "quoteNumber")
+		q.QuoteNumber = nextQuoteNumber(ctx, fmt.Sprintf("%v", orgID), q.Salesperson)
 		q.OrgID = orgID.(string)
 		q.CreatedBy = func() string {
 			if userID != nil {

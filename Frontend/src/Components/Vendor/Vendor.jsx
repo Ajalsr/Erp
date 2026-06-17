@@ -382,8 +382,8 @@ const Vendors = () => {
                 ...(canExport ? [{ label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport }] : []),
               ].map(btn => (
                 <button key={btn.label} title={btn.label} onClick={btn.onClick}
-                  style={{ width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer" }}>
-                  {btn.icon}
+                  style={{ height: "30px", padding: "0 12px", display: "flex", alignItems: "center", gap: "6px", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }}>
+                  {btn.icon}{btn.label}
                 </button>
               ))}
               <button onClick={() => navigate("/Purchase/Vendors/NewVendor")}
