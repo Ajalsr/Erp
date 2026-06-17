@@ -160,9 +160,8 @@ export default function Outbound() {
   useEffect(() => {
     if (salesOrdersData === null) return;
     const items = transformItems();
-    const ids = new Set(items.map(i => i._id));
-    setSelectedIds(ids);
-    setOutboundItems(items.map(i => ({ ...i, isSelected: true })));
+    setSelectedIds(new Set());
+    setOutboundItems(items.map(i => ({ ...i, isSelected: false })));
 
   }, [itemsData, salesOrdersData, activeDnSoIds]); // eslint-disable-line react-hooks/exhaustive-deps
 

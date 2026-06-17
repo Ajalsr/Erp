@@ -601,7 +601,7 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
   const [refunding,      setRefunding]      = useState(false);
   const [drawerTab,      setDrawerTab]      = useState("details");
 
-  const LIMIT = 15;
+  const LIMIT = 20;
 
   const openModal = (prefillForm = null) => {
     setForm(prefillForm || DEFAULT_FORM);

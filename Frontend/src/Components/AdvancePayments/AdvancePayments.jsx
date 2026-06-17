@@ -269,6 +269,8 @@ export default function AdvancePayments() {
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [applyAdv, setApplyAdv] = useState(null);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -291,6 +293,10 @@ export default function AdvancePayments() {
     const q = search.toLowerCase();
     return advances.filter(a => a.advanceNumber?.toLowerCase().includes(q) || a.customerName?.toLowerCase().includes(q) || a.reference?.toLowerCase().includes(q));
   }, [advances, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
+  useEffect(() => { setPage(1); }, [search]);
 
   const totals = useMemo(() => ({
     total:     advances.reduce((s, a) => s + (a.amount || 0), 0),
@@ -342,10 +348,10 @@ export default function AdvancePayments() {
             <p style={{ fontSize: 14, fontWeight: 700, color: T.text, margin: "0 0 6px" }}>No advances recorded</p>
             <p style={{ fontSize: 12, color: T.muted, margin: 0 }}>Record an advance when a customer pays before an invoice exists.</p>
           </div>
-        ) : filtered.map((a, i) => {
+        ) : paged.map((a, i) => {
           const sc = STATUS_CFG[a.status] || STATUS_CFG.unallocated;
           return (
-            <div key={a._id} className="adv-row" style={{ display: "grid", gridTemplateColumns: "130px 1fr 120px 120px 120px 110px 90px", padding: "13px 16px", borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : "none", alignItems: "center" }}>
+            <div key={a._id} className="adv-row" style={{ display: "grid", gridTemplateColumns: "130px 1fr 120px 120px 120px 110px 90px", padding: "13px 16px", borderBottom: i < paged.length - 1 ? `1px solid ${T.border}` : "none", alignItems: "center" }}>
               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 600, color: T.blue }}>{a.advanceNumber}</span>
               <div>
                 <p style={{ fontSize: 13, fontWeight: 600, color: T.text, margin: 0 }}>{a.customerName}</p>
@@ -364,6 +370,40 @@ export default function AdvancePayments() {
           );
         })}
       </div>
+
+      {filtered.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginTop: 14 }}>
+          <span style={{ fontSize: 12, color: T.muted }}>
+            Showing {Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} advances
+          </span>
+          {totalPages > 1 && (
+            <div style={{ display: "flex", gap: 4 }}>
+              <button
+                disabled={page === 1}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: page === 1 ? "not-allowed" : "pointer", background: "transparent", border: `1px solid ${T.border}`, color: page === 1 ? T.muted : T.text, fontFamily: "'DM Sans',sans-serif" }}
+              >← Prev</button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                    background: page === p ? T.accent : "transparent",
+                    color:      page === p ? "#0a0e1a" : T.muted,
+                    border:     page === p ? "none" : `1px solid ${T.border}`,
+                    fontWeight: page === p ? 700 : 400,
+                  }}
+                >{p}</button>
+              ))}
+              <button
+                disabled={page === totalPages}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: page === totalPages ? "not-allowed" : "pointer", background: "transparent", border: `1px solid ${T.border}`, color: page === totalPages ? T.muted : T.text, fontFamily: "'DM Sans',sans-serif" }}
+              >Next →</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {showCreate && <CreateAdvanceModal T={T} customers={customers} inputStyle={inputStyle} labelStyle={labelStyle} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
       {applyAdv && <ApplyAdvanceModal T={T} advance={applyAdv} inputStyle={inputStyle} labelStyle={labelStyle} onClose={() => setApplyAdv(null)} onApplied={() => { setApplyAdv(null); load(); }} />}

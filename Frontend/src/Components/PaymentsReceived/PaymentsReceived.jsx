@@ -961,6 +961,8 @@ const PaymentsReceived = () => {
   const [search,     setSearch]    = useState("");
   const [modeFilter, setModeFilter] = useState("all");
   const [showModal,  setShowModal] = useState(false);
+  const [page,       setPage]      = useState(1);
+  const PAGE_SIZE = 20;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -992,6 +994,13 @@ const PaymentsReceived = () => {
     }
     return data;
   }, [payments, search, modeFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page]
+  );
+  useEffect(() => { setPage(1); }, [search, modeFilter]);
 
   const inputStyle = {
     background: T.input, border: `1px solid ${T.border}`, color: T.text,
@@ -1106,7 +1115,7 @@ const PaymentsReceived = () => {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p, i) => (
+                {paged.map((p, i) => (
                   <tr key={p._id || i} className="pmt-row">
                     <td style={tdStyle}>
                       <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.accent, fontWeight: 500 }}>
@@ -1136,12 +1145,38 @@ const PaymentsReceived = () => {
 
         {/* Footer */}
         {filtered.length > 0 && (
-          <div style={{ padding: "0 28px 24px", fontSize: 12, color: T.muted }}>
-            Showing {filtered.length} of {payments.length} payments
-            {filtered.length > 0 && (
+          <div style={{ padding: "0 28px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ fontSize: 12, color: T.muted }}>
+              Showing {Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} payments
               <span style={{ marginLeft: 16, fontFamily: "'DM Mono', monospace", color: T.accent2 }}>
                 Total: {fmt(filtered.reduce((s, p) => s + (p.amount || 0), 0))}
               </span>
+            </div>
+            {totalPages > 1 && (
+              <div style={{ display: "flex", gap: 4 }}>
+                <button
+                  disabled={page === 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: page === 1 ? "not-allowed" : "pointer", background: "transparent", border: `1px solid ${T.border}`, color: page === 1 ? T.subtle : T.muted, fontFamily: "'DM Sans', sans-serif" }}
+                >← Prev</button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+                      background: page === p ? T.accent : "transparent",
+                      color:      page === p ? "#0a0e1a" : T.muted,
+                      border:     page === p ? "none" : `1px solid ${T.border}`,
+                      fontWeight: page === p ? 700 : 400,
+                    }}
+                  >{p}</button>
+                ))}
+                <button
+                  disabled={page === totalPages}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: page === totalPages ? "not-allowed" : "pointer", background: "transparent", border: `1px solid ${T.border}`, color: page === totalPages ? T.subtle : T.muted, fontFamily: "'DM Sans', sans-serif" }}
+                >Next →</button>
+              </div>
             )}
           </div>
         )}
