@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FaUniversity, FaCheckCircle, FaSync } from 'react-icons/fa';
+import AppDatePicker from '../common/AppDatePicker';
 import toast from 'react-hot-toast';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -120,7 +121,7 @@ export default function BankReconciliation() {
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec, display: 'block', marginBottom: 4 }}>Statement date</label>
-          <input type="date" value={stmtDate} onChange={e => setStmtDate(e.target.value)} style={inputStyle} />
+          <AppDatePicker value={stmtDate} onChange={setStmtDate} />
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec, display: 'block', marginBottom: 4 }}>Statement ending balance</label>

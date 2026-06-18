@@ -144,7 +144,7 @@ const MODE_ICONS = {
 };
 const MODE_ACCENT = ["#2563eb","#9333ea","#16a34a","#ea580c","#94a3b8"];
 const MODE_FIELDS = {
-  "Cash":             [{ key: "receiptNo",    label: "Receipt No.",          placeholder: "e.g. RCP-001" }],
+  "Cash":             [], // Receipt No. auto-generated (the payment number) — no manual entry.
   "Bank Transfer":    [{ key: "bankName",     label: "Bank Name",            placeholder: "e.g. Emirates NBD" },
                        { key: "txnRef",       label: "Transaction Ref No.",  placeholder: "e.g. TXN-001234", required: true },
                        { key: "accountNo",    label: "Account / IBAN",       placeholder: "e.g. AE070331234567890123456" }],
@@ -410,6 +410,7 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
     amount:       invoice.balance > 0 ? invoice.balance.toFixed(2) : "",
     date:         new Date().toISOString().split("T")[0],
     paymentMode:  "Bank Transfer",
+    receiptNo:    "",
     details:      {},
     notes:        "",
   });
@@ -424,15 +425,18 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
   const handleSubmit = async () => {
     const e = {};
     if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) e.amount = "Enter a valid amount";
+    // Receipt No. required for every mode except Cash (cash auto-numbers).
+    if (form.paymentMode !== "Cash" && !form.receiptNo.trim()) e.receiptNo = "Receipt number is required";
     if (!form.date) e.date = "Select a date";
     if (Object.keys(e).length) { setErrors(e); return; }
     setLoading(true);
     try {
+      const receiptNo = form.receiptNo.trim();
       await axiosInstance.post("/api/payments/", {
         ...form,
         amount:         Number(form.amount),
-        reference:      getPrimaryRef(form.paymentMode, form.details),
-        paymentDetails: form.details,
+        reference:      receiptNo || getPrimaryRef(form.paymentMode, form.details),
+        paymentDetails: { ...form.details, ...(receiptNo ? { receiptNo } : {}) },
       });
       nexusToast.success(`Payment of ${fmt(Number(form.amount))} recorded`);
       onSaved();
@@ -490,6 +494,20 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
               </div>
             ))}
           </div>
+
+          {/* Receipt No. — required for all modes except Cash (cash auto-numbers) */}
+          {form.paymentMode !== "Cash" && (
+            <div>
+              <label style={lbl}>Receipt No. <span style={{ color: "#ef4444" }}>*</span></label>
+              <input
+                type="text" placeholder="e.g. RCP-001"
+                value={form.receiptNo}
+                onChange={e => setForm(f => ({ ...f, receiptNo: e.target.value }))}
+                style={{ ...inp, borderColor: errors.receiptNo ? "#ef4444" : T.inputBdr }}
+              />
+              {errors.receiptNo && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 3 }}>{errors.receiptNo}</div>}
+            </div>
+          )}
 
           {/* Amount */}
           <div>

@@ -49,6 +49,10 @@ func OrgRoutes(router *gin.Engine) {
 	userRoutes.Use(middlewares.Authenticate)
 	{
 		userRoutes.GET("/invitations", controllers.GetUserInvitations())
+		userRoutes.GET("/me", controllers.GetMyProfile())
+		userRoutes.PUT("/me", controllers.UpdateMyProfile())
+		userRoutes.GET("/me/devices", controllers.ListMyDevices())
+		userRoutes.DELETE("/me/devices/:id", controllers.RevokeMyDevice())
 	}
 
 	// Org settings (salutations, etc.) — requires org context

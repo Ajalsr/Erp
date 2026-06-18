@@ -3,6 +3,7 @@ import { FiPlus, FiRefreshCw } from "react-icons/fi";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import api from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
+import AppDatePicker from "../common/AppDatePicker";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -93,7 +94,7 @@ export default function ExchangeRates() {
           </div>
           <div>
             <label style={label}>As of Date</label>
-            <input style={input} type="date" value={form.asOfDate} onChange={(e) => setForm((f) => ({ ...f, asOfDate: e.target.value }))} />
+            <AppDatePicker value={form.asOfDate} onChange={(v) => setForm((f) => ({ ...f, asOfDate: v }))} />
           </div>
           <button onClick={add} disabled={saving} style={{
             display: "flex", alignItems: "center", gap: 6, height: 34, padding: "0 16px",

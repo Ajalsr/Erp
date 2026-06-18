@@ -138,19 +138,6 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Approval gate — hold the PO for an approver when the org requires it.
-		if !c.GetBool("approvalReplay") {
-			orgIDVal, _ := c.Get("orgId")
-			userIDVal, _ := c.Get("userId")
-			title := req.VendorName
-			if title == "" {
-				title = "Purchase order"
-			}
-			if holdForApproval(c, ctx, fmt.Sprintf("%v", orgIDVal), fmt.Sprintf("%v", userIDVal), "", "po", "purchase_orders", title, req.Total, req) {
-				return
-			}
-		}
-
 		// ── Determine VAT rate based on vendor origin ─────────────────────
 		// mainland → 5% | free_zone / overseas → 0%
 		appliedTaxRate := 0.05
@@ -216,6 +203,29 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 		shipping := round2(req.ShippingCharges)
 		adjustment := round2(req.Adjustment)
 		total := round2(subTotal + totalTax + shipping + adjustment)
+
+		// Approval gate — hold the PO for an approver when the org requires it.
+		// Held after totals are computed so the approval snapshot shows the real amount
+		// + line totals (otherwise the modal reads the uncomputed payload → AED 0.00).
+		if !c.GetBool("approvalReplay") {
+			orgIDVal, _ := c.Get("orgId")
+			userIDVal, _ := c.Get("userId")
+			title := req.VendorName
+			if title == "" {
+				title = "Purchase order"
+			}
+			snapshot := req
+			snapshot.Items = processedItems
+			snapshot.SubTotal = subTotal
+			snapshot.TaxGroups = taxGroups
+			snapshot.TotalTax = totalTax
+			snapshot.ShippingCharges = shipping
+			snapshot.Adjustment = adjustment
+			snapshot.Total = total
+			if holdForApproval(c, ctx, fmt.Sprintf("%v", orgIDVal), fmt.Sprintf("%v", userIDVal), "", "po", "purchase_orders", title, total, snapshot) {
+				return
+			}
+		}
 
 		// ── Generate order number ─────────────────────────────────────────
 		if req.OrderNumber == "" {
@@ -430,19 +440,6 @@ func UpdatePurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
-		// Approval gate — hold the edit for an approver when the org requires it.
-		if !c.GetBool("approvalReplay") {
-			userIDVal, _ := c.Get("userId")
-			userName := ""
-			title := req.VendorName
-			if title == "" {
-				title = existing.OrderNumber
-			}
-			if holdActionForApproval(c, ctx, orgIDStr, fmt.Sprintf("%v", userIDVal), userName, "po", "update", "purchase_orders", title, req.Total, objectID.Hex(), req) {
-				return
-			}
-		}
-
 		// VAT rate from vendor origin (same rule as create).
 		appliedTaxRate := 0.05
 		vendorOrigin := existing.VendorOrigin
@@ -485,6 +482,29 @@ func UpdatePurchaseOrder() gin.HandlerFunc {
 		shipping := round2(req.ShippingCharges)
 		adjustment := round2(req.Adjustment)
 		total := round2(subTotal + totalTax + shipping + adjustment)
+
+		// Approval gate — hold the edit for an approver when the org requires it.
+		// Compute totals first so the held snapshot shows the real amount + line totals
+		// (otherwise the approval modal reads the uncomputed payload → AED 0.00).
+		if !c.GetBool("approvalReplay") {
+			userIDVal, _ := c.Get("userId")
+			userName := ""
+			title := req.VendorName
+			if title == "" {
+				title = existing.OrderNumber
+			}
+			snapshot := req
+			snapshot.Items = processedItems
+			snapshot.SubTotal = subTotal
+			snapshot.TaxGroups = taxGroups
+			snapshot.TotalTax = totalTax
+			snapshot.ShippingCharges = shipping
+			snapshot.Adjustment = adjustment
+			snapshot.Total = total
+			if holdActionForApproval(c, ctx, orgIDStr, fmt.Sprintf("%v", userIDVal), userName, "po", "update", "purchase_orders", title, total, objectID.Hex(), snapshot) {
+				return
+			}
+		}
 
 		poType := req.POType
 		if poType == "" {

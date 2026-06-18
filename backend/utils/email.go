@@ -67,6 +67,47 @@ func SendInvitationEmail(toEmail, _, orgName, invitedBy, role, token string) err
 	return nil
 }
 
+// SendLoginOTPEmail sends a one-time login code to verify a new/changed device.
+func SendLoginOTPEmail(toEmail, otp string) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return fmt.Errorf("email service not configured")
+	}
+	port := 587
+	if portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+	html := fmt.Sprintf(`<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">
+<h2 style="color:#1e3a5f;margin:0 0 8px">Your login verification code</h2>
+<p style="color:#475569;font-size:14px;margin:0 0 18px">We noticed a sign-in from a new device. Enter this code to continue:</p>
+<div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#1e3a5f;background:#f1f5f9;border-radius:10px;padding:16px;text-align:center">%s</div>
+<p style="color:#94a3b8;font-size:12px;margin:18px 0 0">This code expires in 10 minutes. If you didn't try to sign in, change your password.</p>
+</div>`, otp)
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Nexus ERP <%s>", from))
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", "Your Nexus ERP login code")
+	m.SetBody("text/html", html)
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send OTP to %s: %v", toEmail, err)
+		return err
+	}
+	log.Printf("[email] Login OTP sent to %s", toEmail)
+	return nil
+}
+
 // SendInvoiceEmail sends an invoice or payment reminder email to a customer.
 // isReminder=true sends the overdue reminder variant.
 func SendInvoiceEmail(toEmail string, inv models.Invoice, customMessage string, isReminder bool) error {

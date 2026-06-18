@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
 import { FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft, FaChevronRight, FaBan, FaCheck } from "react-icons/fa";
+import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
@@ -1088,8 +1089,7 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
                   />
                 </F>
                 <F label="Date" req T={T}>
-                  <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                    style={{ ...inputSt, colorScheme: isDark ? "dark" : "light" }} />
+                  <AppDatePicker value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} />
                 </F>
               </div>
 

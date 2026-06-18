@@ -12,6 +12,14 @@ func AuthRoutes(router *gin.Engine) {
 	{
 		authRoutes.POST("/signup", controllers.SignUp())
 		authRoutes.POST("/signin", controllers.SignIn())
+		authRoutes.POST("/verify-otp", controllers.VerifyLoginOTP())
+	}
+
+	// Admin user cleanup — gated by the X-Admin-Secret header (ADMIN_SECRET env).
+	adminRoutes := router.Group("/api/admin")
+	{
+		adminRoutes.GET("/users", controllers.AdminListUsers())
+		adminRoutes.DELETE("/users/:id", controllers.AdminDeleteUser())
 	}
 }
 

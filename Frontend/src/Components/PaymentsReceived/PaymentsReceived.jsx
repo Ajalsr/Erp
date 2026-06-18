@@ -39,7 +39,7 @@ const MODES = [
 ];
 
 const MODE_FIELDS = {
-  "Cash":             [{ key: "receiptNo",   label: "Receipt No.",         placeholder: "e.g. RCP-001" }],
+  "Cash":             [], // Receipt No. auto-generated (the payment number) — no manual entry.
   "Bank Transfer":    [{ key: "bankName",    label: "Bank Name",           placeholder: "e.g. Emirates NBD" },
                        { key: "txnRef",      label: "Transaction Ref No.", placeholder: "e.g. TXN-001234", required: true },
                        { key: "accountNo",   label: "Account / IBAN",      placeholder: "e.g. AE070331234567890123456" }],
@@ -961,6 +961,8 @@ const PaymentsReceived = () => {
   const [search,     setSearch]    = useState("");
   const [modeFilter, setModeFilter] = useState("all");
   const [showModal,  setShowModal] = useState(false);
+  const [detail,     setDetail]    = useState(null); // payment shown in the detail modal
+  const [acctMap,    setAcctMap]   = useState({});   // accountId → "[code] name" for Deposit To
   const [page,       setPage]      = useState(1);
   const PAGE_SIZE = 20;
 
@@ -973,6 +975,17 @@ const PaymentsReceived = () => {
       setPayments(pRes.data?.data?.payments || []);
       setStats(sRes.data?.data || { totalReceived: 0, count: 0, thisMonth: 0 });
     }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  // Cash/bank accounts → resolve a payment's depositAccount id to a readable label.
+  useEffect(() => {
+    axiosInstance.get("/api/accounts/?limit=500&status=active")
+      .then(r => {
+        const m = {};
+        for (const a of (r.data?.data?.accounts || [])) m[a._id] = `[${a.accountCode}] ${a.accountName}`;
+        setAcctMap(m);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -1009,7 +1022,7 @@ const PaymentsReceived = () => {
   };
   const thStyle = {
     fontSize: 10, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase",
-    color: T.muted, padding: "0 12px 10px", textAlign: "left",
+    color: T.muted, padding: "14px 12px 10px", textAlign: "left",
     borderBottom: `1px solid ${T.border}`,
   };
   const tdStyle = {
@@ -1026,7 +1039,7 @@ const PaymentsReceived = () => {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }
         .pmt-row:hover td { background: rgba(245,158,11,.03) !important; }
-        .pmt-row { cursor: default; }
+        .pmt-row { cursor: pointer; }
         input:focus { border-color: rgba(245,158,11,.5) !important; box-shadow: 0 0 0 3px rgba(245,158,11,.08) !important; }
         select:focus { outline: none; }
         select option { background: ${T.surface}; color: ${T.text}; }
@@ -1115,8 +1128,13 @@ const PaymentsReceived = () => {
                 </tr>
               </thead>
               <tbody>
-                {paged.map((p, i) => (
-                  <tr key={p._id || i} className="pmt-row">
+                {paged.map((p, i) => {
+                  const allocs = p.allocations || [];
+                  const invLabel = p.invoiceNumber
+                    || (allocs.length === 1 ? allocs[0].invoiceNumber
+                      : allocs.length > 1 ? `${allocs.length} invoices` : "");
+                  return (
+                  <tr key={p._id || i} className="pmt-row" onClick={() => setDetail(p)}>
                     <td style={tdStyle}>
                       <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.accent, fontWeight: 500 }}>
                         {p.paymentNumber}
@@ -1125,7 +1143,7 @@ const PaymentsReceived = () => {
                     <td style={{ ...tdStyle, color: T.muted, fontSize: 12 }}>{fmtDate(p.date || p.createdAt)}</td>
                     <td style={{ ...tdStyle, fontWeight: 500 }}>{p.customerName || "—"}</td>
                     <td style={{ ...tdStyle, color: T.muted, fontSize: 12, fontFamily: "'DM Mono', monospace" }}>
-                      {p.invoiceNumber || <span style={{ color: T.subtle }}>—</span>}
+                      {invLabel || <span style={{ color: T.subtle }}>—</span>}
                     </td>
                     <td style={{ ...tdStyle, textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 600, color: T.accent2 }}>
                       {fmt(p.amount)}
@@ -1137,7 +1155,8 @@ const PaymentsReceived = () => {
                       {p.reference || "—"}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -1189,6 +1208,76 @@ const PaymentsReceived = () => {
           onSaved={load}
         />
       )}
+
+      {detail && (() => {
+        const allocs = detail.allocations || [];
+        const det = detail.paymentDetails || {};
+        const meta = [
+          ["Payment #", detail.paymentNumber || "—"],
+          ["Date", fmtDate(detail.date || detail.createdAt)],
+          ["Customer", detail.customerName || "—"],
+          ["Amount", fmt(detail.amount)],
+          ["Mode", detail.paymentMode || "—"],
+          ["Reference", detail.reference || "—"],
+          ["Deposit To", acctMap[detail.depositAccount] || detail.depositAccount || "—"],
+        ];
+        const lab = { fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: ".05em" };
+        return (
+          <div onClick={e => e.target === e.currentTarget && setDetail(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.55)", backdropFilter: "blur(6px)", padding: 20 }}>
+            <div style={{ background: T.surface, borderRadius: 18, width: 540, maxHeight: "88vh", overflowY: "auto", border: `1.5px solid ${T.border}`, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+              <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, color: T.text }}>💳 {detail.paymentNumber || "Payment"}</div>
+                  <ModeBadge mode={detail.paymentMode || "Other"} />
+                </div>
+                <button onClick={() => setDetail(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, width: 30, height: 30, cursor: "pointer", color: T.muted, fontSize: 14 }}>✕</button>
+              </div>
+              <div style={{ padding: "18px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 12 }}>
+                  {meta.map(([k, v]) => (
+                    <div key={k}><div style={lab}>{k}</div><div style={{ fontSize: 13, fontWeight: 600, marginTop: 3, color: T.text, wordBreak: "break-word" }}>{v}</div></div>
+                  ))}
+                </div>
+
+                {allocs.length > 0 && (
+                  <div>
+                    <div style={{ ...lab, marginBottom: 8 }}>Applied to Invoices ({allocs.length})</div>
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                        <thead><tr style={{ background: T.surface2 }}>
+                          <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase" }}>Invoice</th>
+                          <th style={{ padding: "8px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase" }}>Amount</th>
+                        </tr></thead>
+                        <tbody>
+                          {allocs.map((a, i) => (
+                            <tr key={i} style={{ borderTop: `1px solid ${T.border}` }}>
+                              <td style={{ padding: "8px 12px", fontFamily: "'DM Mono', monospace", color: T.text }}>{a.invoiceNumber || a.invoiceId || "—"}</td>
+                              <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 600, color: T.text }}>{fmt(a.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {Object.keys(det).length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
+                    {Object.entries(det).filter(([, v]) => v != null && v !== "").map(([k, v]) => (
+                      <div key={k}><div style={lab}>{k}</div><div style={{ fontSize: 13, marginTop: 2, color: T.text, wordBreak: "break-word" }}>{String(v)}</div></div>
+                    ))}
+                  </div>
+                )}
+
+                {detail.notes && (
+                  <div><div style={lab}>Notes</div><div style={{ fontSize: 13, marginTop: 3, color: T.text, whiteSpace: "pre-wrap" }}>{detail.notes}</div></div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 };

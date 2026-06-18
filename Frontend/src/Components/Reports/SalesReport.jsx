@@ -437,7 +437,7 @@ export default function SalesReport() {
     .sr-pill{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 11px;border-radius:8px;background:${T.surface2};border:1px solid ${T.border};color:${T.textSec};font-size:12px;font-weight:500;cursor:pointer;transition:all .15s}
     .sr-pill:hover{background:${T.surface3||T.surface2}}
     .sr-pill.on{background:rgba(99,102,241,.12);color:#818cf8;border-color:rgba(99,102,241,.25)}
-    .sr-menu{position:absolute;top:calc(100% + 6px);right:0;background:${T.surface};border:1px solid ${T.border};border-radius:11px;box-shadow:0 8px 32px rgba(0,0,0,${isDark?.45:.12});padding:6px;min-width:190px;z-index:50}
+    .sr-menu{position:absolute;top:calc(100% + 6px);right:0;background:${T.surface};border:1px solid ${T.border};border-radius:11px;box-shadow:0 8px 32px rgba(0,0,0,${isDark?.45:.12});padding:6px;min-width:190px;z-index:200}
     .sr-menu button{width:100%;text-align:left;display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;background:transparent;border:0;color:${T.textSec};font:inherit;font-size:12.5px;cursor:pointer}
     .sr-menu button:hover{background:${T.surface2};color:${T.textPri}}
     .sr-menu .sep{height:1px;background:${T.border};margin:5px 2px}
@@ -472,7 +472,7 @@ export default function SalesReport() {
       <style>{css}</style>
 
       {/* ── Page header ── */}
-      <div className="sr-s0" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+      <div className="sr-s0" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10, position: "relative", zIndex: 1000 }}>
         <div>
           <h1 className="sora" style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>Sales Performance</h1>
           <p style={{ fontSize: 12.5, color: muted, margin: "3px 0 0" }}>
@@ -481,7 +481,7 @@ export default function SalesReport() {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {/* Period picker */}
-          <div style={{ position: "relative" }} ref={periodRef}>
+          <div style={{ position: "relative", zIndex: 100 }} ref={periodRef}>
             <button className="sr-btn" onClick={() => { setPeriodOpen(v => !v); setExportOpen(false); }}>
               📅 {PERIOD_LABELS[period]} <FaChevronDown size={10} style={{ opacity: .6 }} />
             </button>
@@ -498,7 +498,7 @@ export default function SalesReport() {
           </div>
           <button className="sr-btn" onClick={load}><FaSync size={11} /> Refresh</button>
           {/* Export */}
-          <div style={{ position: "relative" }} ref={exportRef}>
+          <div style={{ position: "relative", zIndex: 100 }} ref={exportRef}>
             <button className="sr-btn primary" onClick={() => { setExportOpen(v => !v); setPeriodOpen(false); }}>
               <FaDownload size={11} /> Export <FaChevronDown size={10} style={{ opacity: .8 }} />
             </button>

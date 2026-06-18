@@ -18,7 +18,6 @@ const AcceptInvitation = () => {
 
   const { acceptInvitation, getInvitationByToken, getMyOrganizations } = useOrganization()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const user = useAuthStore((s) => s.user)
   const setActiveOrg = useAuthStore((s) => s.setActiveOrg)
 
   const [invite, setInvite] = useState(null)
@@ -178,7 +177,7 @@ const AcceptInvitation = () => {
                     <span style={{ color: '#e2e8f0', fontSize: '12px' }}>{invite?.invitedBy}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: '#64748b', fontSize: '12px' }}>Sent to</span>
+                    <span style={{ color: '#64748b', fontSize: '12px' }}>Email</span>
                     <span style={{ color: '#e2e8f0', fontSize: '12px' }}>{invite?.userId}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -222,7 +221,7 @@ const AcceptInvitation = () => {
                 {/* Not logged in — offer both login and signup paths */}
                 {!isAuthenticated && invite?.status === 'pending' && (
                   <button
-                    onClick={() => navigate(`/Signup?redirect=${encodeURIComponent(`/invitations/accept?token=${token}`)}`)}
+                    onClick={() => navigate(`/Signup?redirect=${encodeURIComponent(`/invitations/accept?token=${token}`)}&email=${encodeURIComponent(invite?.userId || '')}`)}
                     className="ai-btn-ghost w-full py-3 rounded-xl text-sm font-semibold"
                     style={{ color: '#94a3b8' }}
                   >

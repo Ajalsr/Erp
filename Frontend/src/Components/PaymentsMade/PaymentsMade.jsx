@@ -1009,6 +1009,8 @@ export default function PaymentsMade() {
   const [prefill,    setPrefill]    = useState(null);
   const [search,     setSearch]     = useState("");
   const [page,       setPage]       = useState(1);
+  const [detail,     setDetail]     = useState(null); // payment shown in the detail modal
+  const [acctMap,    setAcctMap]    = useState({});   // accountId → "[code] name" for Paid From
 
   const LIMIT = 15;
 
@@ -1030,6 +1032,17 @@ export default function PaymentsMade() {
 
   useEffect(() => { load(); }, [load]);
   useRealtime(['vendor_payments_updated','bills_updated','vendor_credits_updated'], load);
+
+  // Cash/bank accounts → resolve a payment's paidThroughAccount id to a readable label.
+  useEffect(() => {
+    axiosInstance.get("/api/accounts/?limit=500&status=active")
+      .then(r => {
+        const m = {};
+        for (const a of (r.data?.data?.accounts || [])) m[a._id] = `[${a.accountCode}] ${a.accountName}`;
+        setAcctMap(m);
+      })
+      .catch(() => {});
+  }, []);
 
   // Pre-fill from URL params (from Bills "Record Payment" button)
   useEffect(() => {
@@ -1140,19 +1153,25 @@ export default function PaymentsMade() {
             <tbody>
               {loading ? (
                 <tr><td colSpan="7" style={{ padding: "60px 20px", textAlign: "center", color: T.textSec }}>Loading…</td></tr>
-              ) : paged.length > 0 ? paged.map((p, i) => (
-                <tr key={p._id || i} className="pm-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+              ) : paged.length > 0 ? paged.map((p, i) => {
+                const allocs = p.allocations || [];
+                const billLabel = p.billNumber
+                  || (allocs.length === 1 ? allocs[0].billNumber
+                    : allocs.length > 1 ? `${allocs.length} bills` : "");
+                return (
+                <tr key={p._id || i} className="pm-row" onClick={() => setDetail(p)} style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer" }}>
                   <td style={{ padding: "12px 16px" }}><span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: T.blueLight }}>{p.paymentNumber}</span></td>
                   <td style={{ padding: "12px 16px", fontSize: 12, color: T.textSec }}>{fmtDate(p.date)}</td>
                   <td style={{ padding: "12px 16px", fontWeight: 600, color: T.textPri }}>{p.vendorName || "—"}</td>
-                  <td style={{ padding: "12px 16px", fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.textSec }}>{p.billNumber || "—"}</td>
+                  <td style={{ padding: "12px 16px", fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.textSec }}>{billLabel || "—"}</td>
                   <td style={{ padding: "12px 16px" }}>
                     <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 999, background: T.surface2, border: `1px solid ${T.border}`, color: T.textSec }}>{p.paymentMode}</span>
                   </td>
                   <td style={{ padding: "12px 16px", fontSize: 12, color: T.textSec }}>{p.reference || "—"}</td>
                   <td style={{ padding: "12px 16px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: "#10b981" }}>{fmtAED(p.amount)}</td>
                 </tr>
-              )) : (
+                );
+              }) : (
                 <tr><td colSpan="7" style={{ padding: "72px 20px", textAlign: "center" }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
                     <div style={{ width: 52, height: 52, borderRadius: 14, background: T.surface2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: T.textSec }}><FaMoneyBillWave /></div>
@@ -1196,6 +1215,76 @@ export default function PaymentsMade() {
           onSaved={() => { load(); nexusToast.success("Payment recorded successfully"); }}
         />
       )}
+
+      {detail && (() => {
+        const allocs = detail.allocations || [];
+        const det = detail.paymentDetails || {};
+        const meta = [
+          ["Payment #", detail.paymentNumber || "—"],
+          ["Date", fmtDate(detail.date || detail.createdAt)],
+          ["Vendor", detail.vendorName || "—"],
+          ["Amount", fmtAED(detail.amount)],
+          ["Mode", detail.paymentMode || "—"],
+          ["Reference", detail.reference || "—"],
+          ["Paid From", acctMap[detail.paidThroughAccount] || detail.paidThroughAccount || "—"],
+        ];
+        const lab = { fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: ".05em" };
+        return (
+          <div onClick={e => e.target === e.currentTarget && setDetail(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.55)", backdropFilter: "blur(6px)", padding: 20 }}>
+            <div style={{ background: T.surface, borderRadius: 18, width: 540, maxHeight: "88vh", overflowY: "auto", border: `1.5px solid ${T.border}`, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+              <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri }}>💸 {detail.paymentNumber || "Payment"}</div>
+                  <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 999, background: T.surface2, border: `1px solid ${T.border}`, color: T.textSec }}>{detail.paymentMode || "Other"}</span>
+                </div>
+                <button onClick={() => setDetail(null)} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, width: 30, height: 30, cursor: "pointer", color: T.textSec, fontSize: 14 }}>✕</button>
+              </div>
+              <div style={{ padding: "18px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 12 }}>
+                  {meta.map(([k, v]) => (
+                    <div key={k}><div style={lab}>{k}</div><div style={{ fontSize: 13, fontWeight: 600, marginTop: 3, color: T.textPri, wordBreak: "break-word" }}>{v}</div></div>
+                  ))}
+                </div>
+
+                {allocs.length > 0 && (
+                  <div>
+                    <div style={{ ...lab, marginBottom: 8 }}>Applied to Bills ({allocs.length})</div>
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                        <thead><tr style={{ background: T.surface2 }}>
+                          <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase" }}>Bill</th>
+                          <th style={{ padding: "8px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase" }}>Amount</th>
+                        </tr></thead>
+                        <tbody>
+                          {allocs.map((a, i) => (
+                            <tr key={i} style={{ borderTop: `1px solid ${T.border}` }}>
+                              <td style={{ padding: "8px 12px", fontFamily: "'DM Mono', monospace", color: T.textPri }}>{a.billNumber || a.billId || "—"}</td>
+                              <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 600, color: T.textPri }}>{fmtAED(a.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {Object.keys(det).length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
+                    {Object.entries(det).filter(([, v]) => v != null && v !== "").map(([k, v]) => (
+                      <div key={k}><div style={lab}>{k}</div><div style={{ fontSize: 13, marginTop: 2, color: T.textPri, wordBreak: "break-word" }}>{String(v)}</div></div>
+                    ))}
+                  </div>
+                )}
+
+                {detail.notes && (
+                  <div><div style={lab}>Notes</div><div style={{ fontSize: 13, marginTop: 3, color: T.textPri, whiteSpace: "pre-wrap" }}>{detail.notes}</div></div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }

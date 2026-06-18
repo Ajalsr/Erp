@@ -798,10 +798,16 @@ func AcceptInvitation() gin.HandlerFunc {
 			return
 		}
 
-		// The invite is bound to a specific userId — the accepting account must match it,
-		// so a forwarded/leaked link can't be used to join under a different identity.
-		if !strings.EqualFold(strings.TrimSpace(invitation.UserID), strings.TrimSpace(fmt.Sprintf("%v", userID))) {
-			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "This invitation was sent to " + invitation.UserID + ". Sign in as that user to accept it."})
+		// The invite is bound to the invited email. The accepting account must own that
+		// email (its login userId may differ). Fall back to userId match for legacy invites.
+		invTarget := strings.TrimSpace(invitation.UserID)
+		loginID := strings.TrimSpace(fmt.Sprintf("%v", userID))
+		var acct models.Users
+		_ = usersCollection.FindOne(ctx, bson.M{"userId": loginID}).Decode(&acct)
+		emailMatch := acct.Email != "" && strings.EqualFold(invTarget, strings.TrimSpace(acct.Email))
+		idMatch := strings.EqualFold(invTarget, loginID)
+		if !emailMatch && !idMatch {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "This invitation was sent to " + invitation.UserID + ". Sign in with that email to accept it."})
 			return
 		}
 

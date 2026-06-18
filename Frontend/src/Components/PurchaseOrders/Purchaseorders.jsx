@@ -89,6 +89,8 @@ export default function Purchaseorders() {
   const [linkedGRNs,     setLinkedGRNs]     = useState([]);
   const [grnsLoading,    setGrnsLoading]    = useState(false);
   const [poBills,        setPoBills]        = useState([]);
+  const [selectedRows,   setSelectedRows]   = useState(new Set());
+  const [bulkBusy,       setBulkBusy]       = useState(false);
   const PER_PAGE = 15;
 
   const fetchOrders = useCallback(async () => {
@@ -109,7 +111,7 @@ export default function Purchaseorders() {
       const res = await axiosInstance.get('/api/purchase-orders/stats');
       const d   = res.data?.data ?? {};
       setStats({ total: d.totalOrders??0, pending: d.pendingOrders??0, ordered: d.orderedOrders??0, received: d.receivedOrders??0, totalValue: d.totalAmount??0 });
-    } catch {}
+    } catch { /* stats are best-effort */ }
   }, []);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
@@ -140,6 +142,49 @@ export default function Purchaseorders() {
     const q = search.toLowerCase();
     return (o.orderNumber||'').toLowerCase().includes(q)||(o.vendorName||'').toLowerCase().includes(q)||(o.status||'').toLowerCase().includes(q);
   });
+
+  // ── Row selection + bulk actions (mirrors Sales Orders) ──
+  const rowId        = (o) => o._id || o.id;
+  const toggleRow    = (id) => setSelectedRows(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll    = () => setSelectedRows(prev => (prev.size === displayed.length && displayed.length > 0) ? new Set() : new Set(displayed.map(rowId)));
+  const clearSel     = () => setSelectedRows(new Set());
+  const selectedOrders = () => displayed.filter(o => selectedRows.has(rowId(o)));
+
+  const bulkApprove = async () => {
+    const ids = selectedOrders().filter(o => o.status === 'pending_approval').map(rowId);
+    if (!ids.length) { nexusToast.error('No pending-approval POs selected'); return; }
+    setBulkBusy(true);
+    try {
+      await Promise.all(ids.map(id => axiosInstance.patch(`/api/purchase-orders/${id}/approve`)));
+      nexusToast.success(`Approved ${ids.length} PO(s)`); clearSel(); fetchOrders(); fetchStats();
+    } catch (e) { nexusToast.error(e?.response?.data?.message || 'Bulk approve failed'); }
+    finally { setBulkBusy(false); }
+  };
+
+  const bulkCancel = async () => {
+    const ids = selectedOrders().filter(o => !['cancelled','received'].includes(o.status)).map(rowId);
+    if (!ids.length) { nexusToast.error('No cancellable POs selected'); return; }
+    if (!window.confirm(`Cancel ${ids.length} PO(s)?`)) return;
+    setBulkBusy(true);
+    try {
+      await Promise.all(ids.map(id => axiosInstance.patch(`/api/purchase-orders/${id}/cancel`)));
+      nexusToast.success(`Cancelled ${ids.length} PO(s)`); clearSel(); fetchOrders(); fetchStats();
+    } catch (e) { nexusToast.error(e?.response?.data?.message || 'Bulk cancel failed'); }
+    finally { setBulkBusy(false); }
+  };
+
+  const exportSelected = () => {
+    const rows = selectedOrders();
+    if (!rows.length) return;
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const head = ['Order No','Vendor','Order Date','Expected By','Payment Terms','Status','Total'];
+    const lines = [head.join(',')].concat(rows.map(o => [
+      o.orderNumber, o.vendorName, o.orderDate, o.expectedDeliveryDate || o.expectedDate, o.paymentTerms, o.status, o.total,
+    ].map(esc).join(',')));
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = `purchase-orders-${Date.now()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
 
   const border   = T.border;
   const thS = (f) => ({ padding:'11px 14px', fontSize:10, fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase', color:T.textSec, textAlign:'left', background:T.surface2, borderBottom:`1.5px solid ${border}`, cursor:f?'pointer':'default', userSelect:'none', whiteSpace:'nowrap' });
@@ -225,6 +270,21 @@ export default function Purchaseorders() {
             ))}
           </div>
 
+          {/* Bulk actions bar */}
+          {selectedRows.size > 0 && (
+            <div style={{ display:'flex', alignItems:'center', gap:12, padding:'8px 16px', background:T.blueDim, border:`1px solid ${border}`, borderRadius:8, margin:'0 0 10px' }}>
+              <span style={{ fontSize:12, fontWeight:700, color:T.blue }}>{selectedRows.size} selected</span>
+              <button onClick={clearSel} style={{ fontSize:11, color:T.textSec, background:'none', border:'none', cursor:'pointer', fontFamily:'inherit' }}>Clear</button>
+              <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
+                {isAdmin && (
+                  <button disabled={bulkBusy} onClick={bulkApprove} style={{ padding:'6px 12px', borderRadius:7, fontSize:11, fontWeight:600, color:'#10b981', background:'rgba(16,185,129,0.1)', border:'none', cursor:bulkBusy?'not-allowed':'pointer', fontFamily:'inherit' }}>Bulk Approve</button>
+                )}
+                <button disabled={bulkBusy} onClick={bulkCancel} style={{ padding:'6px 12px', borderRadius:7, fontSize:11, fontWeight:600, color:'#ef4444', background:'rgba(239,68,68,0.1)', border:'none', cursor:bulkBusy?'not-allowed':'pointer', fontFamily:'inherit' }}>Bulk Cancel</button>
+                <button disabled={bulkBusy} onClick={exportSelected} style={{ padding:'6px 12px', borderRadius:7, fontSize:11, fontWeight:600, color:T.textSec, background:T.surface2, border:`1px solid ${border}`, cursor:'pointer', fontFamily:'inherit' }}>Export Selected</button>
+              </div>
+            </div>
+          )}
+
           {/* Table */}
           {loading ? (
             <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'60px 0', gap:10, color:T.textSec }}>
@@ -238,7 +298,7 @@ export default function Purchaseorders() {
               <table style={{ width:'100%', borderCollapse:'collapse' }}>
                 <thead>
                   <tr>
-                    <th style={{ ...thS(), width:40, textAlign:'center' }}><input type="checkbox" style={{ accentColor:T.blue }}/></th>
+                    <th style={{ ...thS(), width:40, textAlign:'center' }}><input type="checkbox" style={{ accentColor:T.blue, cursor:'pointer' }} checked={displayed.length>0 && selectedRows.size===displayed.length} onChange={toggleAll}/></th>
                     <th style={thS('orderNumber')} onClick={()=>handleSort('orderNumber')}>Order No. <SortIcon field="orderNumber"/></th>
                     <th style={thS('vendorName')}  onClick={()=>handleSort('vendorName')}>Vendor <SortIcon field="vendorName"/></th>
                     <th style={thS('orderDate')}   onClick={()=>handleSort('orderDate')}>Order Date <SortIcon field="orderDate"/></th>
@@ -252,7 +312,7 @@ export default function Purchaseorders() {
                 <tbody>
                   {displayed.map((o,i) => (
                     <tr key={o._id||o.id||i} className="po-row">
-                      <td style={{ ...tdS, textAlign:'center' }}><input type="checkbox" style={{ accentColor:T.blue }}/></td>
+                      <td style={{ ...tdS, textAlign:'center' }}><input type="checkbox" style={{ accentColor:T.blue, cursor:'pointer' }} checked={selectedRows.has(rowId(o))} onChange={()=>toggleRow(rowId(o))}/></td>
                       <td style={tdS}><span className="po-num" onClick={()=>openDrawer(o)}>{o.orderNumber||`PO-${String(i+1).padStart(4,'0')}`}</span></td>
                       <td style={tdS}>
                         <div style={{ display:'flex', alignItems:'center', gap:9 }}>

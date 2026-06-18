@@ -3,6 +3,7 @@ import { FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft, FaChevro
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
+import AppDatePicker from "../common/AppDatePicker";
 
 const fmt = (n) =>
   `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -375,7 +376,7 @@ export default function DebitNotes() {
                     T={T} />
                 </F>
                 <F label="Date" req>
-                  <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={inputSt} />
+                  <AppDatePicker value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} />
                 </F>
               </div>
 
