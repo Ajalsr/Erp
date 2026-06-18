@@ -6,7 +6,7 @@ import {
   FaChevronLeft, FaCheckCircle, FaFileInvoiceDollar,
   FaPaperPlane, FaSpinner, FaArrowLeft, FaEraser, FaSave,
   FaTimes, FaBuilding, FaEnvelope, FaPhone,
-  FaEye, FaMapMarkerAlt, FaBox, FaClipboardList,
+  FaEye, FaMapMarkerAlt, FaBox, FaClipboardList, FaChevronDown,
 } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import { usePermissions } from '../../helper/permissions';
@@ -14,6 +14,45 @@ import useAuthStore from '../../store/useAuthStore';
 import api from '../../helper/axiosInstance';
 
 const EMIRATES = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'];
+
+// Custom emirate dropdown (replaces the native <select>).
+function EmirateSelect({ value, onChange, T, isDark }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  const item = (active) => ({
+    display: 'block', width: '100%', textAlign: 'right', padding: '7px 10px', borderRadius: 6,
+    fontSize: 12.5, fontWeight: active ? 700 : 500, cursor: 'pointer', border: 'none',
+    background: active ? (T.blueDim || 'rgba(59,130,246,0.12)') : 'transparent',
+    color: active ? (T.blue || '#3b82f6') : T.textPri, fontFamily: 'inherit',
+  });
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 150,
+        fontSize: 12.5, fontWeight: 600, color: value ? T.textPri : T.textSec,
+        background: isDark ? T.surface2 : '#fff', border: `1px solid ${open ? (T.blue || '#3b82f6') : T.border}`,
+        borderRadius: 7, padding: '5px 10px', cursor: 'pointer', fontFamily: 'inherit',
+      }}>
+        <span>{value || 'Select emirate…'}</span>
+        <FaChevronDown size={9} style={{ opacity: 0.6, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 50, minWidth: 160, maxHeight: 240, overflowY: 'auto',
+          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: '0 8px 28px rgba(0,0,0,0.18)', padding: 4 }}>
+          <button type="button" onClick={() => { onChange(''); setOpen(false); }} style={item(!value)}>Select emirate…</button>
+          {EMIRATES.map(em => (
+            <button key={em} type="button" onClick={() => { onChange(em); setOpen(false); }} style={item(value === em)}>{em}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const today = () =>
   new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -835,11 +874,7 @@ export default function DeliveryNote() {
                     {/* Location — editable emirate dropdown (location-based sales tracking) */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500, flexShrink: 0 }}>Location</span>
-                      <select value={note.deliveryLocation || ''} onChange={(e) => saveLocation(e.target.value)}
-                        style={{ fontSize: 12.5, fontWeight: 600, color: note.deliveryLocation ? T.textPri : T.textSec, background: isDark ? T.surface2 : '#fff', border: `1px solid ${T.border}`, borderRadius: 7, padding: '4px 8px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'right', maxWidth: 160 }}>
-                        <option value="">Select emirate…</option>
-                        {EMIRATES.map((em) => <option key={em} value={em}>{em}</option>)}
-                      </select>
+                      <EmirateSelect value={note.deliveryLocation || ''} onChange={saveLocation} T={T} isDark={isDark} />
                     </div>
                     {[
                       { label: 'Delivery Date',    value: fmtDate(note.date),                 mono: false },

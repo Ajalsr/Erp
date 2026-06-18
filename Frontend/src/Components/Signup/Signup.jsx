@@ -1,48 +1,56 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import axios from 'axios'
 import useSignup from '../../helper/useSignup'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
-import useAuthStore from '../../store/useAuthStore'
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+// Password policy: 6+ chars with upper, lower, number and a symbol.
+const PW_RULES = [
+  { label: 'At least 6 characters', test: (p) => p.length >= 6 },
+  { label: 'One uppercase letter (A-Z)', test: (p) => /[A-Z]/.test(p) },
+  { label: 'One lowercase letter (a-z)', test: (p) => /[a-z]/.test(p) },
+  { label: 'One number (0-9)', test: (p) => /[0-9]/.test(p) },
+  { label: 'One symbol (!@#$ etc.)', test: (p) => /[^A-Za-z0-9]/.test(p) },
+]
+const pwValid = (p) => PW_RULES.every((r) => r.test(p))
 
 const Signup = () => {
   const { handleSignup } = useSignup()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const setAuth = useAuthStore((s) => s.setAuth)
-  const [inputs, setInputs] = useState({ userId: '', password: '' })
+  // Prefill only the email from an invite link (?email=). userId is chosen freely.
+  const [inputs, setInputs] = useState({
+    userId: '',
+    email: searchParams.get('email') || '',
+    password: '',
+  })
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = async () => {
-    if (!inputs.userId || !inputs.password) {
+    if (!inputs.userId || !inputs.email || !inputs.password) {
       toast.error('Please fill in all fields')
       return
     }
-    if (inputs.password.length < 6) {
-      toast.error('Password must be at least 6 characters')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inputs.email)) {
+      toast.error('Enter a valid email')
+      return
+    }
+    if (!pwValid(inputs.password)) {
+      toast.error('Password must be 6+ chars with uppercase, lowercase, number and a symbol')
       return
     }
     setLoading(true)
     try {
-      // 1. Create the user account
-      await handleSignup({ userId: inputs.userId, password: inputs.password })
+      // Create the account. No auto sign-in: the first login must clear an emailed
+      // OTP (device-verification), then only a new/changed device triggers another.
+      await handleSignup({ userId: inputs.userId, email: inputs.email.trim().toLowerCase(), password: inputs.password })
 
-      // 2. Auto sign-in to get token
-      const signinRes = await axios.post(`${BASE_URL}/api/auth/signin`, {
-        userId: inputs.userId,
-        password: inputs.password,
-      })
-      const { data: userData, token } = signinRes.data
-      setAuth(token, userData)
-
-      setInputs({ userId: '', password: '' })
-      toast.success('Account created! Welcome to Nexus ERP.')
+      setInputs({ userId: '', email: '', password: '' })
+      toast.success('Account created! Sign in to continue.')
       const redirectTo = searchParams.get('redirect')
-      setTimeout(() => navigate(redirectTo ? decodeURIComponent(redirectTo) : '/Home'), 800)
+      const loginUrl = redirectTo ? `/?redirect=${encodeURIComponent(redirectTo)}` : '/'
+      setTimeout(() => navigate(loginUrl), 900)
     } catch (error) {
       const msg = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Signup failed'
       toast.error(msg)
@@ -145,6 +153,22 @@ const Signup = () => {
 
             <div className="su-fade su-3">
               <label className="block text-slate-400 text-xs font-medium uppercase tracking-widest mb-2">
+                Email
+              </label>
+              <input
+                type="email"
+                className="su-input w-full px-4 py-3 rounded-xl text-sm"
+                placeholder="you@example.com"
+                value={inputs.email}
+                onChange={(e) => setInputs({ ...inputs, email: e.target.value })}
+                onKeyDown={handleKeyDown}
+                autoComplete="email"
+              />
+              <p className="text-slate-600 text-xs mt-1.5">Used to verify new devices with a login code</p>
+            </div>
+
+            <div className="su-fade su-3">
+              <label className="block text-slate-400 text-xs font-medium uppercase tracking-widest mb-2">
                 Password
               </label>
               <div className="relative">
@@ -173,24 +197,18 @@ const Signup = () => {
                   )}
                 </button>
               </div>
-              {/* Password strength bar */}
+              {/* Password requirements checklist */}
               {inputs.password && (
-                <div className="mt-2">
-                  <div className="flex gap-1">
-                    {[1,2,3,4].map(i => (
-                      <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${
-                        inputs.password.length >= i * 3
-                          ? inputs.password.length >= 10 ? 'bg-green-500'
-                          : inputs.password.length >= 7 ? 'bg-yellow-500'
-                          : 'bg-red-500'
-                        : 'bg-slate-700'
-                      }`} />
-                    ))}
-                  </div>
-                  <p className="text-xs mt-1 text-slate-500">
-                    {inputs.password.length < 6 ? 'Too short' : inputs.password.length < 10 ? 'Fair' : 'Strong'}
-                  </p>
-                </div>
+                <ul className="mt-2.5 space-y-1">
+                  {PW_RULES.map((r) => {
+                    const ok = r.test(inputs.password)
+                    return (
+                      <li key={r.label} className={`text-xs flex items-center gap-1.5 ${ok ? 'text-green-400' : 'text-slate-500'}`}>
+                        <span className="inline-block w-3">{ok ? '✓' : '○'}</span>{r.label}
+                      </li>
+                    )
+                  })}
+                </ul>
               )}
             </div>
 

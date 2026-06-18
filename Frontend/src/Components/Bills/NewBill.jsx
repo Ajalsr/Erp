@@ -5,6 +5,7 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import axiosInstance from '../../helper/axiosInstance';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import nexusToast from '../../helper/nexusToast';
+import AppDatePicker from '../common/AppDatePicker';
 
 // Normalise vendor origin variants → canonical form for RCM logic
 const normOrigin = (o) => {
@@ -418,15 +419,15 @@ export default function NewBill() {
             </div>
             <div>
               <label style={lbl}>Bill Date</label>
-              <input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} style={inp} />
+              <AppDatePicker value={billDate} onChange={setBillDate} />
             </div>
             <div>
               <label style={lbl}>Due Date</label>
-              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inp} />
+              <AppDatePicker value={dueDate} onChange={setDueDate} />
             </div>
             <div>
               <label style={lbl}>Accounting Date</label>
-              <input type="date" value={accountingDate} onChange={(e) => setAccountingDate(e.target.value)} style={inp} />
+              <AppDatePicker value={accountingDate} onChange={setAccountingDate} />
             </div>
             <div>
               <label style={lbl}>Currency</label>

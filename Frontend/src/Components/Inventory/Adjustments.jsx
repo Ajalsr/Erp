@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FaPlus, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import { IoClose } from 'react-icons/io5';
+import AppDatePicker from '../common/AppDatePicker';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
@@ -263,7 +264,7 @@ function AdjustmentForm({ T, isDark, onClose, onSaved }) {
           </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>Date</label>
-            <input type="date" value={form.adjustedAt} onChange={e => set('adjustedAt', e.target.value)} style={inp} />
+            <AppDatePicker value={form.adjustedAt} onChange={v => set('adjustedAt', v)} />
           </div>
         </div>
 

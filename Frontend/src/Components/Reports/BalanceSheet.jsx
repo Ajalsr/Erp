@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FaBalanceScale, FaFilter } from 'react-icons/fa';
+import AppDatePicker from '../common/AppDatePicker';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import { useBaseCurrency, baseCurrency } from '../../helper/currency';
@@ -64,7 +65,7 @@ export default function BalanceSheet() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ color: T.textSec, fontSize: 12 }}>As of</span>
-          <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} style={{ padding: '7px 12px', border: `1.5px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.textPri, fontSize: 12, fontFamily: 'inherit', outline: 'none' }} />
+          <AppDatePicker value={asOf} onChange={setAsOf} />
           <button onClick={fetchData} style={{ padding: '8px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
             <FaFilter size={10} /> Apply
           </button>

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
 import axiosInstance from "../../helper/axiosInstance";
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
+import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
 
@@ -860,8 +861,8 @@ const CreateInvoice = () => {
             <Section title="Invoice Details">
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <Field label="Invoice #"><Inp value={invoiceNumber} readOnly style={{ color: T.muted }} /></Field>
-                <Field label="Issue Date"><Inp type="date" value={issueDate} onChange={e => setIssueDate(e.target.value)} /></Field>
-                <Field label="Due Date"><Inp type="date" value={dueDate} onChange={e => { if (!isFromDN) setDueDate(e.target.value); }} readOnly={isFromDN} style={isFromDN ? { color: T.muted, cursor: "not-allowed", opacity: 0.7 } : {}} /></Field>
+                <Field label="Issue Date"><AppDatePicker value={issueDate} onChange={setIssueDate} /></Field>
+                <Field label="Due Date"><AppDatePicker value={dueDate} onChange={(v) => { if (!isFromDN) setDueDate(v); }} disabled={isFromDN} /></Field>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Field label="Currency">

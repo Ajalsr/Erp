@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FaBook, FaPlus, FaTimes, FaTrash, FaChevronDown, FaChevronRight } from 'react-icons/fa';
+import AppDatePicker from '../common/AppDatePicker';
 import toast from 'react-hot-toast';
 import axiosInstance from '../../helper/axiosInstance';
 import useRealtime from '../../helper/useRealtime';
@@ -113,9 +114,9 @@ export default function JournalEntries() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} />
+          <AppDatePicker value={startDate} onChange={setStartDate} />
           <span style={{ color: T.textSec, fontSize: 12 }}>to</span>
-          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} />
+          <AppDatePicker value={endDate} onChange={setEndDate} />
           <button onClick={() => { resetForm(); setShowModal(true); }} style={{ padding: '8px 16px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
             <FaPlus size={10} /> New Entry
           </button>
@@ -186,7 +187,7 @@ export default function JournalEntries() {
             <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, marginBottom: 16 }}>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec, display: 'block', marginBottom: 4 }}>Date</label>
-                <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+                <AppDatePicker value={form.date} onChange={v => setForm({ ...form, date: v })} />
               </div>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec, display: 'block', marginBottom: 4 }}>Reference (optional)</label>

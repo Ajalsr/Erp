@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import AppDatePicker from "../common/AppDatePicker";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
 
@@ -95,13 +96,11 @@ export default function VATReport() {
       <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 28, flexWrap: "wrap" }}>
         <div>
           <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec || T.muted, display: "block", marginBottom: 4 }}>From</label>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-            style={{ background: T.surface, border: `1.5px solid ${T.border}`, color: T.text, padding: "8px 12px", borderRadius: 9, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+          <AppDatePicker value={from} onChange={setFrom} placeholder="From" />
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec || T.muted, display: "block", marginBottom: 4 }}>To</label>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)}
-            style={{ background: T.surface, border: `1.5px solid ${T.border}`, color: T.text, padding: "8px 12px", borderRadius: 9, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+          <AppDatePicker value={to} onChange={setTo} placeholder="To" />
         </div>
         {/* Quick presets */}
         {[

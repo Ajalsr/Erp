@@ -4,6 +4,7 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useAuthStore from "../../store/useAuthStore";
 import api from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
+import AppDatePicker from "../common/AppDatePicker";
 
 const FREQUENCIES = ["weekly", "monthly", "quarterly", "yearly"];
 
@@ -362,11 +363,11 @@ export default function RecurringInvoices() {
                 </div>
                 <div>
                   <label style={label}>Start Date</label>
-                  <input style={input} type="date" value={form.startDate} onChange={(e) => setField("startDate", e.target.value)} />
+                  <AppDatePicker value={form.startDate} onChange={(v) => setField("startDate", v)} />
                 </div>
                 <div>
                   <label style={label}>End Date (optional)</label>
-                  <input style={input} type="date" value={form.endDate} onChange={(e) => setField("endDate", e.target.value)} />
+                  <AppDatePicker value={form.endDate} onChange={(v) => setField("endDate", v)} placeholder="No end date" />
                 </div>
               </div>
 

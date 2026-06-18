@@ -7,6 +7,7 @@ import {
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
+import AppDatePicker from "../common/AppDatePicker";
 import nexusToast from "../../helper/nexusToast";
 
 const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -552,8 +553,7 @@ export default function VendorCredits() {
                   />
                 </F>
                 <F label="Date" req T={T}>
-                  <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="vc-inp"
-                    style={{ ...iStyle(T) }} />
+                  <AppDatePicker value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} />
                 </F>
               </div>
 

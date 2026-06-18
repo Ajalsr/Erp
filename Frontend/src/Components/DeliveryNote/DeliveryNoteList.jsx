@@ -236,6 +236,15 @@ export default function DeliveryNoteList() {
               style={{display:"flex",alignItems:"center",gap:5,padding:"6px 14px",background:surface,border:`1px solid ${border}`,borderRadius:8,fontSize:12,fontWeight:600,color:page===1?muted:text,cursor:page===1?"not-allowed":"pointer",opacity:page===1?.5:1}}>
               <FaChevronLeft size={10}/> Prev
             </button>
+            {Array.from({length:Math.min(totalPages,5)},(_,i)=>{
+              const pg=totalPages<=5?i+1:page<=3?i+1:page>=totalPages-2?totalPages-4+i:page-2+i;
+              return (
+                <button key={pg} onClick={()=>setPage(pg)}
+                  style={{minWidth:32,height:32,borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",
+                    background:page===pg?"#3b82f6":surface,border:`1px solid ${page===pg?"#3b82f6":border}`,
+                    color:page===pg?"#fff":text}}>{pg}</button>
+              );
+            })}
             <button className="dnl-btn" onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages}
               style={{display:"flex",alignItems:"center",gap:5,padding:"6px 14px",background:surface,border:`1px solid ${border}`,borderRadius:8,fontSize:12,fontWeight:600,color:page===totalPages?muted:text,cursor:page===totalPages?"not-allowed":"pointer",opacity:page===totalPages?.5:1}}>
               Next <FaChevronRight size={10}/>

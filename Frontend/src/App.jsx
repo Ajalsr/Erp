@@ -32,6 +32,7 @@ const ReorderAlerts = lazy(() => import("./Components/Inventory/ReorderAlerts"))
 const BatchExpiry = lazy(() => import("./Components/Inventory/BatchExpiry"))
 const CreateOrganization = lazy(() => import("./Components/Organization/CreateOrganization"))
 const OrganizationSettings = lazy(() => import("./Components/Organization/OrganizationSettings"))
+const Profile = lazy(() => import("./Components/Profile/Profile"))
 const AcceptInvitation = lazy(() => import("./Components/Organization/AcceptInvitation"))
 const Invoices = lazy(() => import("./Components/Invoices/Invoices"))
 const InvoicePrint = lazy(() => import("./Components/Invoices/InvoicePrint"))
@@ -153,6 +154,7 @@ function App() {
               <Route path="/Inventory/reorder-alerts" element={<ReorderAlerts />} />
               <Route path="/Inventory/batch-expiry"   element={<BatchExpiry />} />
               <Route path="/organizations/:id/settings" element={<OrganizationSettings />} />
+              <Route path="/profile" element={<Profile />} />
               <Route path="/Sales/Invoices" element={<Invoices />} />
               <Route path="/Sales/Invoices/:id/print" element={<InvoicePrint />} />
               <Route path="/Sales/Createinvoices" element={<Createinvoices />} />

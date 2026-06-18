@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { FaSync, FaMapMarkerAlt } from "react-icons/fa";
+import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import { baseCurrency } from "../../helper/currency";
@@ -55,9 +56,9 @@ export default function SalesByEmirate() {
           <p style={{ color: T.textSec, fontSize: 13, marginTop: 4 }}>Dispatched &amp; delivered value grouped by delivery location.</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={inp} title="From" />
+          <AppDatePicker value={from} onChange={setFrom} placeholder="From" />
           <span style={{ color: T.textSec }}>–</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={inp} title="To" />
+          <AppDatePicker value={to} onChange={setTo} placeholder="To" />
           <button onClick={load} style={{ ...inp, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
             <FaSync size={11} /> Refresh
           </button>

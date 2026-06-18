@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../helper/axiosInstance";
+import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
 import { useBaseCurrency, baseCurrency } from "../../helper/currency";
@@ -36,6 +37,7 @@ export default function CustomerStatement() {
   const [toDate,        setToDate]        = useState(today());
   const [statement,     setStatement]     = useState(null);
   const [loading,       setLoading]       = useState(false);
+  const [exporting,     setExporting]     = useState(false);
   const ddRef = useRef(null);
 
   useEffect(() => {
@@ -84,6 +86,46 @@ export default function CustomerStatement() {
 
   const handlePrint = () => window.print();
 
+  // Export the customer's OUTSTANDING invoices (remaining balance per invoice) to an
+  // Excel-openable .xls. Answers "what's still owed and on which invoices".
+  const balanceOf = (i) => Math.max(0, (i.totals?.grandTotal ?? 0) - (i.amountPaid ?? 0));
+  const exportExcel = async () => {
+    if (!customerId) { nexusToast.error("Select a customer first"); return; }
+    setExporting(true);
+    try {
+      const res = await axiosInstance.get(`/api/invoices?customerId=${customerId}&limit=500`);
+      const list = res.data?.data?.invoices || res.data?.data || [];
+      const open = list
+        .filter(i => i.status !== "paid" && i.status !== "void" && i.type !== "proforma" && balanceOf(i) > 0)
+        .sort((a, b) => new Date(a.issueDate || 0) - new Date(b.issueDate || 0));
+      if (!open.length) { nexusToast.error("No outstanding invoices to export"); return; }
+      const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const num = (n) => Number(n || 0).toFixed(2);
+      const rows = open.map(i => {
+        const total = i.totals?.grandTotal ?? 0, paid = i.amountPaid ?? 0;
+        return `<tr><td>${esc(i.invoiceNumber)}</td><td>${esc(fmtDate(i.issueDate))}</td><td>${esc(fmtDate(i.dueDate))}</td><td>${num(total)}</td><td>${num(paid)}</td><td>${num(balanceOf(i))}</td><td>${esc(i.status)}</td></tr>`;
+      }).join("");
+      const totalRem = open.reduce((s, i) => s + balanceOf(i), 0);
+      const html =
+        `<table border="1">` +
+        `<tr><th colspan="7" style="text-align:left">Outstanding Statement — ${esc(customerLabel)}</th></tr>` +
+        `<tr><th>Invoice #</th><th>Invoice Date</th><th>Due Date</th><th>Invoice Amount</th><th>Paid</th><th>Remaining</th><th>Status</th></tr>` +
+        rows +
+        `<tr><td colspan="5"><b>Total Remaining</b></td><td><b>${num(totalRem)}</b></td><td></td></tr>` +
+        `</table>`;
+      const bom = String.fromCharCode(0xFEFF);
+      const blob = new Blob([`${bom}<html><head><meta charset="utf-8"></head><body>${html}</body></html>`], { type: "application/vnd.ms-excel" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `statement-${(customerLabel || "customer").replace(/\s+/g, "_")}.xls`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      nexusToast.success("Customer statement downloaded");
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Export failed");
+    } finally { setExporting(false); }
+  };
+
   const inputStyle = {
     padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.border}`,
     background: T.surface2, color: T.text, fontSize: 13, fontFamily: "inherit", outline: "none",
@@ -114,6 +156,11 @@ export default function CustomerStatement() {
           <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 800, margin: 0, color: T.textPri || T.text }}>Customer Statement</h1>
           <p style={{ fontSize: 11, color: T.muted, margin: "2px 0 0" }}>Account statement with running balance</p>
         </div>
+        {customerId && (
+          <button onClick={exportExcel} disabled={exporting} style={{ padding: "8px 18px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: exporting ? "not-allowed" : "pointer", background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "inherit", opacity: exporting ? 0.6 : 1 }}>
+            {exporting ? "Exporting…" : "⬇ Export Excel"}
+          </button>
+        )}
         {statement && (
           <button onClick={handlePrint} style={{ padding: "8px 18px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface2, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit" }}>
             🖨 Print / PDF
@@ -203,11 +250,11 @@ export default function CustomerStatement() {
           {/* Date range */}
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, display: "block", marginBottom: 6 }}>From</label>
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={inputStyle} />
+            <AppDatePicker value={fromDate} onChange={setFromDate} />
           </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, display: "block", marginBottom: 6 }}>To</label>
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={inputStyle} />
+            <AppDatePicker value={toDate} onChange={setToDate} />
           </div>
 
           <button onClick={load} disabled={loading} style={{ padding: "8px 22px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", background: T.accent || "#f59e0b", color: "#0a0e1a", border: "none", fontFamily: "inherit", opacity: loading ? 0.7 : 1 }}>

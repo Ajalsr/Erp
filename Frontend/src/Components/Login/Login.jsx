@@ -1,16 +1,24 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import useLogin from '../../helper/useLogin'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 
 const Login = () => {
-  const { handleSignin } = useLogin()
+  const { handleSignin, verifyOtp } = useLogin()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [inputs, setInputs] = useState({ userId: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [otpStep, setOtpStep] = useState(null) // { userId, email } when a new device needs OTP
+  const [otp, setOtp] = useState('')
+  const [resendIn, setResendIn] = useState(0) // cooldown seconds before another resend
+
+  const goAfterLogin = () => {
+    const redirectTo = searchParams.get('redirect')
+    navigate(redirectTo ? decodeURIComponent(redirectTo) : '/Home')
+  }
 
   const handleSubmit = async () => {
     if (!inputs.userId || !inputs.password) {
@@ -19,11 +27,13 @@ const Login = () => {
     }
     setLoading(true)
     try {
-      await handleSignin(inputs)
+      const res = await handleSignin(inputs)
+      if (res?.otpRequired) {
+        setOtpStep({ userId: res.userId, email: res.email })
+        return
+      }
       setInputs({ userId: '', password: '' })
-      // If an invite (or any page) redirected here, go back there after login
-      const redirectTo = searchParams.get('redirect')
-      navigate(redirectTo ? decodeURIComponent(redirectTo) : '/Home')
+      goAfterLogin()
     } catch (error) {
       toast.error(error?.error || 'Sign in failed')
     } finally {
@@ -31,8 +41,38 @@ const Login = () => {
     }
   }
 
+  useEffect(() => {
+    if (resendIn <= 0) return
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000)
+    return () => clearTimeout(t)
+  }, [resendIn])
+
+  const handleResend = async () => {
+    if (resendIn > 0) return
+    try {
+      const res = await handleSignin(inputs)
+      if (res?.otpRequired) { setResendIn(30); toast.success('Code resent to your email') }
+    } catch (error) {
+      toast.error(error?.error || 'Could not resend code')
+    }
+  }
+
+  const handleVerify = async () => {
+    if (!otp.trim()) { toast.error('Enter the code from your email'); return }
+    setLoading(true)
+    try {
+      await verifyOtp(otpStep.userId, otp.trim())
+      setInputs({ userId: '', password: '' }); setOtp(''); setOtpStep(null)
+      goAfterLogin()
+    } catch (error) {
+      toast.error(error?.error || 'Verification failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') handleSubmit()
+    if (e.key === 'Enter') (otpStep ? handleVerify : handleSubmit)()
   }
 
   return (
@@ -187,14 +227,45 @@ const Login = () => {
               </div>
 
               <div className="mt-8 space-y-5">
+                {otpStep && (
+                  <div className="fade-up fade-up-2">
+                    <label className="block text-slate-400 text-xs font-medium uppercase tracking-widest mb-2">
+                      Verification Code
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      className="input-field w-full px-4 py-3 rounded-xl text-lg tracking-[0.4em] text-center"
+                      placeholder="••••••"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                      onKeyDown={handleKeyDown}
+                      autoFocus
+                    />
+                    <p className="text-slate-400 text-xs mt-3">
+                      New device detected. We sent a 6-digit code to <span className="text-slate-200">{otpStep.email}</span>.
+                    </p>
+                    <div className="flex items-center justify-between mt-2">
+                      <button type="button" onClick={() => { setOtpStep(null); setOtp('') }} className="text-blue-400 text-xs hover:text-blue-300">
+                        ← Back to login
+                      </button>
+                      <button type="button" onClick={handleResend} disabled={resendIn > 0} className="text-blue-400 text-xs hover:text-blue-300 disabled:text-slate-600 disabled:cursor-not-allowed">
+                        {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {!otpStep && (<>
                 <div className="fade-up fade-up-2">
                   <label className="block text-slate-400 text-xs font-medium uppercase tracking-widest mb-2">
-                    User ID
+                    User ID or Email
                   </label>
                   <input
                     type="text"
                     className="input-field w-full px-4 py-3 rounded-xl text-sm"
-                    placeholder="Enter your user ID"
+                    placeholder="Enter your user ID or email"
                     value={inputs.userId}
                     onChange={(e) => setInputs({ ...inputs, userId: e.target.value })}
                     onKeyDown={handleKeyDown}
@@ -240,10 +311,11 @@ const Login = () => {
                     Forgot password?
                   </button>
                 </div>
+                </>)}
 
                 <div className="fade-up fade-up-5">
                   <button
-                    onClick={handleSubmit}
+                    onClick={otpStep ? handleVerify : handleSubmit}
                     disabled={loading}
                     className="btn-primary w-full py-3 rounded-xl text-white text-sm font-semibold tracking-wide"
                   >
@@ -253,9 +325,9 @@ const Login = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                         </svg>
-                        Signing in...
+                        {otpStep ? 'Verifying...' : 'Signing in...'}
                       </span>
-                    ) : 'Sign In'}
+                    ) : (otpStep ? 'Verify & Sign In' : 'Sign In')}
                   </button>
 
                   <p className="text-center text-slate-500 text-xs mt-5">

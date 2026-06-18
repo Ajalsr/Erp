@@ -640,7 +640,9 @@ const OrganizationSettings = () => {
   }
 
   const handleInvite = async () => {
-    if (!inviteUserId.trim()) { nexusToast.error('User ID is required'); return }
+    const target = inviteUserId.trim()
+    if (!target) { nexusToast.error('Email is required'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) { nexusToast.error('Enter a valid email'); return }
     setInviting(true)
     try {
       const res = await inviteMember(id, { userId: inviteUserId.trim(), role: inviteRole })
@@ -830,29 +832,27 @@ const OrganizationSettings = () => {
                 </h3>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
                   <input
-                    type="text"
+                    type="email"
                     style={{ ...inputStyle, flex: '1', minWidth: '200px' }}
-                    placeholder="User ID to invite"
+                    placeholder="Email to invite"
                     value={inviteUserId}
                     onChange={(e) => setInviteUserId(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleInvite()}
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <select
-                    className="os-select"
-                    style={{ ...inputStyle, width: 'auto', minWidth: '110px', paddingRight: '32px', cursor: 'pointer' }}
+                  <CustomSelect
                     value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value)}
-                  >
-                    {['admin', ...customRoles].map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-                  </select>
+                    options={['admin', ...customRoles].map((r) => ({ value: r, label: roleLabel(r) }))}
+                    onChange={setInviteRole}
+                    colors={{ accent, border, inputBg, textPri, bgCard, shadow: shadowSm, accentSoft }}
+                  />
                   <button onClick={handleInvite} disabled={inviting} style={{ ...btnStyle('primary'), opacity: inviting ? 0.6 : 1 }}>
                     {inviting ? 'Sending...' : 'Send Invite'}
                   </button>
                 </div>
                 <p style={{ color: textSec, fontSize: '11px', marginTop: '8px' }}>
-                  Enter the person's user ID. They must sign in with that exact ID to accept. They'll get an in-app notification (and an email too if the ID is an email address).
+                  Enter the person's email. We email them an invite link; if they don't have an account yet, sign-up pre-fills this email. They sign in with this email to accept.
                 </p>
 
                 {/* Invite link — shown after a successful invite */}
@@ -941,21 +941,13 @@ const OrganizationSettings = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     {/* Role selector (only for non-owner members, only if you're admin/owner) */}
                     {canManage && m.role !== 'owner' && m.userId !== user?.userId ? (
-                      <select
-                        className="os-select"
-                        style={{
-                          ...inputStyle,
-                          width: 'auto',
-                          padding: '5px 10px',
-                          fontSize: '12px',
-                          opacity: roleChanging === m.userId ? 0.6 : 1,
-                        }}
+                      <CustomSelect
                         value={m.role}
-                        onChange={(e) => handleRoleChange(m.userId, e.target.value)}
+                        options={['admin', ...customRoles].map((r) => ({ value: r, label: roleLabel(r) }))}
+                        onChange={(v) => handleRoleChange(m.userId, v)}
                         disabled={roleChanging === m.userId}
-                      >
-                        {['admin', ...customRoles].map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-                      </select>
+                        colors={{ accent, border, inputBg, textPri, bgCard, shadow: shadowSm, accentSoft }}
+                      />
                     ) : (
                       <RoleBadge role={m.role} />
                     )}
