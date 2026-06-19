@@ -19,9 +19,11 @@ const Signup = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   // Prefill only the email from an invite link (?email=). userId is chosen freely.
+  const inviteEmail = searchParams.get('email') || ''
+  const inviteToken = searchParams.get('token') || ''
   const [inputs, setInputs] = useState({
     userId: '',
-    email: searchParams.get('email') || '',
+    email: inviteEmail,
     password: '',
   })
   const [loading, setLoading] = useState(false)
@@ -44,7 +46,7 @@ const Signup = () => {
     try {
       // Create the account. No auto sign-in: the first login must clear an emailed
       // OTP (device-verification), then only a new/changed device triggers another.
-      await handleSignup({ userId: inputs.userId, email: inputs.email.trim().toLowerCase(), password: inputs.password })
+      await handleSignup({ userId: inputs.userId, email: inputs.email.trim().toLowerCase(), password: inputs.password, inviteToken })
 
       setInputs({ userId: '', email: '', password: '' })
       toast.success('Account created! Sign in to continue.')
@@ -160,11 +162,13 @@ const Signup = () => {
                 className="su-input w-full px-4 py-3 rounded-xl text-sm"
                 placeholder="you@example.com"
                 value={inputs.email}
-                onChange={(e) => setInputs({ ...inputs, email: e.target.value })}
+                onChange={(e) => { if (!inviteEmail) setInputs({ ...inputs, email: e.target.value }) }}
                 onKeyDown={handleKeyDown}
                 autoComplete="email"
+                readOnly={!!inviteEmail}
+                style={inviteEmail ? { opacity: 0.75, cursor: 'not-allowed' } : undefined}
               />
-              <p className="text-slate-600 text-xs mt-1.5">Used to verify new devices with a login code</p>
+              <p className="text-slate-600 text-xs mt-1.5">{inviteEmail ? 'From your invitation — sign up with this email' : 'Used to verify new devices with a login code'}</p>
             </div>
 
             <div className="su-fade su-3">

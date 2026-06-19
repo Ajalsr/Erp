@@ -221,7 +221,7 @@ const AcceptInvitation = () => {
                 {/* Not logged in — offer both login and signup paths */}
                 {!isAuthenticated && invite?.status === 'pending' && (
                   <button
-                    onClick={() => navigate(`/Signup?redirect=${encodeURIComponent(`/invitations/accept?token=${token}`)}&email=${encodeURIComponent(invite?.userId || '')}`)}
+                    onClick={() => navigate(`/Signup?redirect=${encodeURIComponent(`/invitations/accept?token=${token}`)}&email=${encodeURIComponent(invite?.userId || '')}&token=${encodeURIComponent(token || '')}`)}
                     className="ai-btn-ghost w-full py-3 rounded-xl text-sm font-semibold"
                     style={{ color: '#94a3b8' }}
                   >

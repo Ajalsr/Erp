@@ -233,6 +233,7 @@ const OrganizationSettings = () => {
   // Settings form
   const [orgName, setOrgName] = useState('')
   const [orgDesc, setOrgDesc] = useState('')
+  const [orgAddress, setOrgAddress] = useState('')
   const [baseCurrency, setBaseCurrency] = useState('AED')
   const [saving, setSaving] = useState(false)
 
@@ -401,6 +402,7 @@ const OrganizationSettings = () => {
       setOrg(orgData)
       setOrgName(orgData?.name || '')
       setOrgDesc(orgData?.description || '')
+      setOrgAddress(orgData?.address || '')
       setBaseCurrency(orgData?.baseCurrency || 'AED')
       setLetterhead(orgData?.letterheadImage || '')
       setLetterheadTopPad(orgData?.letterheadTopPad || 13)
@@ -431,7 +433,7 @@ const OrganizationSettings = () => {
     if (!orgName.trim()) { nexusToast.error('Name is required'); return }
     setSaving(true)
     try {
-      await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim(), baseCurrency: (baseCurrency || 'AED').trim().toUpperCase() })
+      await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim(), address: orgAddress.trim(), baseCurrency: (baseCurrency || 'AED').trim().toUpperCase() })
       if (activeOrg?._id === id) setActiveOrg({ ...activeOrg, name: orgName.trim() })
       nexusToast.success('Organization updated')
       load()
@@ -1205,6 +1207,19 @@ const OrganizationSettings = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', color: textSec, fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
+                    Address
+                  </label>
+                  <textarea
+                    style={{ ...inputStyle, resize: 'none' }}
+                    rows={3}
+                    placeholder="Company address (shown on documents)"
+                    value={orgAddress}
+                    onChange={(e) => setOrgAddress(e.target.value)}
+                    disabled={!canManage}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: textSec, fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
                     Base Currency
                   </label>
                   <input
@@ -1371,26 +1386,6 @@ const OrganizationSettings = () => {
                 </div>
               </div>
             )}
-
-            {/* Role reference */}
-            <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
-              <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 14px', fontFamily: 'inherit' }}>
-                Role Permissions
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {[
-                  { role: 'owner',  desc: 'Full control. Can delete organization, manage all members and settings.' },
-                  { role: 'admin',  desc: 'Can invite/remove members, change roles, and update organization settings.' },
-                  { role: 'member', desc: 'Can access all data, create and edit records.' },
-                  { role: 'viewer', desc: 'Read-only access to all organization data.' },
-                ].map(({ role, desc }) => (
-                  <div key={role} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: bgInset, border: `1px solid ${border}` }}>
-                    <RoleBadge role={role} />
-                    <p style={{ color: textSec, fontSize: '12px', margin: 0, lineHeight: 1.5 }}>{desc}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
 
             {/* Danger zone */}
             {myRole === 'owner' && (
