@@ -118,8 +118,6 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 
-		// Both userId and email are globally unique (case-insensitive). This keeps the
-		// login identity unambiguous.
 		user.UserID = strings.TrimSpace(user.UserID)
 		user.Email = strings.ToLower(strings.TrimSpace(user.Email))
 		if user.UserID == "" {
@@ -130,14 +128,24 @@ func SignUp() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "A valid email is required", "error": "email required"})
 			return
 		}
-		ci := func(v string) bson.M { return bson.M{"$regex": "^" + regexp.QuoteMeta(v) + "$", "$options": "i"} }
-		if n, _ := userCollection.CountDocuments(ctx, bson.M{"userId": ci(user.UserID)}); n > 0 {
+		// userId is globally unique, case-insensitive EXACT. So "AJAL S R" blocks
+		// "ajal s r" but not the distinct "AJAL M S".
+		if n, _ := userCollection.CountDocuments(ctx, bson.M{
+			"userId": bson.M{"$regex": "^" + regexp.QuoteMeta(user.UserID) + "$", "$options": "i"},
+		}); n > 0 {
 			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "User ID already exists", "error": "userId already exists"})
 			return
 		}
-		if n, _ := userCollection.CountDocuments(ctx, bson.M{"email": ci(user.Email)}); n > 0 {
-			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "An account with this email already exists", "error": "email already exists"})
-			return
+		// Email is unique PER ORG, not globally. When signing up from an invite, block
+		// if the email already belongs to a member of that org.
+		if strings.TrimSpace(user.InviteToken) != "" {
+			var inv models.Invitation
+			if invitationCollection.FindOne(ctx, bson.M{"token": user.InviteToken}).Decode(&inv) == nil {
+				if emailIsActiveMemberInOrg(ctx, inv.OrgID, user.Email, "") {
+					c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "This email already belongs to a member of this organization", "error": "email exists in org"})
+					return
+				}
+			}
 		}
 
 		if !passwordPolicyOK(user.Password) {

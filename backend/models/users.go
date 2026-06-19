@@ -33,4 +33,7 @@ type Users struct {
 	Updated_at    time.Time          `json:"updated_at"`
 	// DeviceID is request-only (sent by the client at login) — never stored.
 	DeviceID string `json:"deviceId,omitempty" bson:"-"`
+	// InviteToken is request-only (signup-from-invite) — used to enforce per-org email
+	// uniqueness against the inviting org. Never stored.
+	InviteToken string `json:"inviteToken,omitempty" bson:"-"`
 }

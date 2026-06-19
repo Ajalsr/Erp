@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -415,6 +416,7 @@ func GetOrganization() gin.HandlerFunc {
 			"_id":                 org.ID,
 			"name":                org.Name,
 			"description":         org.Description,
+			"address":             org.Address,
 			"baseCurrency":        org.BaseCurrency,
 			"letterheadImage":     org.LetterheadImage,
 			"letterheadTopPad":    org.LetterheadTopPad,
@@ -452,6 +454,7 @@ func UpdateOrganization() gin.HandlerFunc {
 		var input struct {
 			Name         string `json:"name"`
 			Description  string `json:"description"`
+			Address      string `json:"address"`
 			BaseCurrency string `json:"baseCurrency"`
 		}
 		c.ShouldBindJSON(&input)
@@ -459,6 +462,7 @@ func UpdateOrganization() gin.HandlerFunc {
 		set := bson.M{
 			"name":        input.Name,
 			"description": input.Description,
+			"address":     strings.TrimSpace(input.Address),
 			"updatedAt":   time.Now(),
 		}
 		// Only touch baseCurrency when supplied, so name/description-only saves don't
@@ -538,6 +542,32 @@ func GetOrgMembers() gin.HandlerFunc {
 }
 
 // POST /api/organizations/:id/invite
+// emailIsActiveMemberInOrg reports whether any active member of orgID has the given
+// email (compared lowercased; signup stores emails lowercased), excluding excludeUserID.
+func emailIsActiveMemberInOrg(ctx context.Context, orgID primitive.ObjectID, email, excludeUserID string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return false
+	}
+	cur, err := userCollection.Find(ctx, bson.M{"email": email}, options.Find().SetProjection(bson.M{"userId": 1}))
+	if err != nil {
+		return false
+	}
+	var us []bson.M
+	_ = cur.All(ctx, &us)
+	ids := []string{}
+	for _, u := range us {
+		if id, _ := u["userId"].(string); id != "" && id != excludeUserID {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return false
+	}
+	n, _ := orgMemberCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "userId": bson.M{"$in": ids}, "status": "active"})
+	return n > 0
+}
+
 func InviteMember() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -564,7 +594,12 @@ func InviteMember() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "error", "error": err.Error()})
 			return
 		}
-		input.UserId = strings.TrimSpace(input.UserId)
+		// Invites are keyed by email (lowercased).
+		input.UserId = strings.ToLower(strings.TrimSpace(input.UserId))
+		if !strings.Contains(input.UserId, "@") {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Enter a valid email"})
+			return
+		}
 
 		var invOrg models.Organization
 		orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&invOrg)
@@ -573,21 +608,20 @@ func InviteMember() gin.HandlerFunc {
 			return
 		}
 
-		// Already a pending invite for this userId in this org?
+		// Already a pending invite to this email in this org? (case-insensitive)
 		pendingCount, _ := invitationCollection.CountDocuments(ctx, bson.M{
-			"orgId": orgID, "userId": input.UserId, "status": "pending",
+			"orgId": orgID,
+			"userId": bson.M{"$regex": "^" + regexp.QuoteMeta(input.UserId) + "$", "$options": "i"},
+			"status": "pending",
 		})
 		if pendingCount > 0 {
-			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "An invitation has already been sent to this user"})
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "An invitation has already been sent to this email"})
 			return
 		}
 
-		// Already an active member?
-		existingMember, _ := orgMemberCollection.CountDocuments(ctx, bson.M{
-			"orgId": orgID, "userId": input.UserId, "status": "active",
-		})
-		if existingMember > 0 {
-			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "This user is already a member of the organization"})
+		// Already an active member with this email (they accepted earlier)?
+		if emailIsActiveMemberInOrg(ctx, orgID, input.UserId, "") {
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "This email is already a member of the organization"})
 			return
 		}
 
@@ -819,6 +853,12 @@ func AcceptInvitation() gin.HandlerFunc {
 		})
 		if alreadyMember > 0 {
 			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "You are already a member of this organization"})
+			return
+		}
+
+		// Per-org email uniqueness: another account with this email already accepted.
+		if emailIsActiveMemberInOrg(ctx, invitation.OrgID, acct.Email, loginID) {
+			c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "This email has already accepted an invitation to this organization"})
 			return
 		}
 
