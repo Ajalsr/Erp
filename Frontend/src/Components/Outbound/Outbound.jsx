@@ -74,11 +74,11 @@ export default function Outbound() {
   const [filteredItems,    setFilteredItems]    = useState([]);
   const [outboundItems,    setOutboundItems]    = useState([]);
   const [selectedIds,      setSelectedIds]      = useState(new Set());
-  const [outboundNote,     setOutboundNote]     = useState("");
+  const [outboundNote]     = useState("");
   const [showCancelModal,  setShowCancelModal]  = useState(false);
   const [itemToCancel,     setItemToCancel]     = useState(null);
   const [cancelReason,     setCancelReason]     = useState("");
-  const [requiresApproval, setRequiresApproval] = useState(false);
+  const [requiresApproval] = useState(false);
   const [approvedItems,    setApprovedItems]    = useState(new Set());
   const [approvingCancel,  setApprovingCancel]  = useState(false);
   const [activeDnSoIds,    setActiveDnSoIds]    = useState(new Set());
@@ -577,23 +577,6 @@ export default function Outbound() {
             </span>
           </label>
 
-          <div style={{ width: "1px", height: "20px", background: T.border }} />
-
-          {/* Approval toggle */}
-          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", userSelect: "none" }}>
-            <div onClick={() => setRequiresApproval(v => !v)}
-              style={{ width: "36px", height: "20px", borderRadius: "999px", background: requiresApproval ? T.blue : (isDark ? "rgba(255,255,255,0.1)" : "#e2e8f0"), position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}>
-              <div style={{ position: "absolute", top: "2px", left: requiresApproval ? "18px" : "2px", width: "16px", height: "16px", borderRadius: "50%", background: "white", transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }} />
-            </div>
-            <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>Requires Approval</span>
-          </label>
-
-          <div style={{ width: "1px", height: "20px", background: T.border }} />
-
-          {/* Note input */}
-          <input value={outboundNote} onChange={e => setOutboundNote(e.target.value)}
-            placeholder="Add dispatch note (optional)…"
-            style={{ flex: 1, minWidth: "200px", padding: "7px 12px", border: `1px solid ${T.border}`, borderRadius: "8px", fontSize: "12px", background: T.surface2, color: T.textPri, fontFamily: "inherit" }} />
 
           {/* Stock warning badge */}
           {stockWarn > 0 && (

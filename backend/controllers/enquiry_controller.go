@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -105,13 +106,18 @@ func GetAllEnquiries() gin.HandlerFunc {
 			filter["status"] = bson.M{"$nin": bson.A{"converted", "won", "lost", "closed", "cancelled"}}
 		}
 		if q := c.Query("q"); q != "" {
+			rx := bson.M{"$regex": regexp.QuoteMeta(q), "$options": "i"}
 			filter["$or"] = bson.A{
-				bson.M{"enquiryNumber": bson.M{"$regex": q, "$options": "i"}},
-				bson.M{"customerName": bson.M{"$regex": q, "$options": "i"}},
-				bson.M{"projectName": bson.M{"$regex": q, "$options": "i"}},
-				bson.M{"supplier": bson.M{"$regex": q, "$options": "i"}},
-				bson.M{"contactPerson": bson.M{"$regex": q, "$options": "i"}},
-				bson.M{"subject": bson.M{"$regex": q, "$options": "i"}},
+				bson.M{"enquiryNumber": rx},
+				bson.M{"customerName": rx},
+				bson.M{"projectName": rx},
+				bson.M{"supplier": rx},
+				bson.M{"contactPerson": rx},
+				bson.M{"contactEmail": rx},
+				bson.M{"contactPhone": rx},
+				bson.M{"email": rx},
+				bson.M{"phone": rx},
+				bson.M{"subject": rx},
 			}
 		}
 
