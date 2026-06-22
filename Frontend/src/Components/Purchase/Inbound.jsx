@@ -133,8 +133,8 @@ export default function Inbound() {
   const [filteredItems,    setFilteredItems]    = useState([]);
   const [drawer,           setDrawer]           = useState(false);
   const [selected,         setSelected]         = useState(null);
-  const [inboundNote,      setInboundNote]      = useState("");
-  const [requiresApproval, setRequiresApproval] = useState(false);
+  const [inboundNote]      = useState("");
+  const [requiresApproval] = useState(false);
   const [approvedItems,    setApprovedItems]    = useState(new Set());
   const [showCancelModal,  setShowCancelModal]  = useState(false);
   const [itemToCancel,     setItemToCancel]     = useState(null);
@@ -167,10 +167,9 @@ export default function Inbound() {
   useEffect(() => {
     const transformed = transformPOsToItems(poData, stockData);
     setItems(transformed);
-    // If navigated from a specific PO, pre-select only that PO's items
-    const toSelect = filterPoId
-      ? transformed.filter(i => i.poId === filterPoId)
-      : transformed;
+    // Nothing selected by default — user picks rows. Exception: deep-linked from a
+    // specific PO → pre-select that PO's items only.
+    const toSelect = filterPoId ? transformed.filter(i => i.poId === filterPoId) : [];
     setSelectedIds(new Set(toSelect.map(i => i._id)));
   }, [poData, stockData]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -498,23 +497,6 @@ export default function Inbound() {
             </span>
           </label>
 
-          <div style={{ width: "1px", height: "20px", background: T.border }} />
-
-          {/* Approval toggle */}
-          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", userSelect: "none" }}>
-            <div onClick={() => setRequiresApproval(v => !v)}
-              style={{ width: "36px", height: "20px", borderRadius: "999px", background: requiresApproval ? T.blue : (isDark ? "rgba(255,255,255,0.1)" : "#e2e8f0"), position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}>
-              <div style={{ position: "absolute", top: "2px", left: requiresApproval ? "18px" : "2px", width: "16px", height: "16px", borderRadius: "50%", background: "white", transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }} />
-            </div>
-            <span style={{ fontSize: "12px", color: T.textSec, fontWeight: "500" }}>Requires Approval</span>
-          </label>
-
-          <div style={{ width: "1px", height: "20px", background: T.border }} />
-
-          {/* Note input */}
-          <input value={inboundNote} onChange={e => setInboundNote(e.target.value)}
-            placeholder="Add receiving note (optional)…"
-            style={{ flex: 1, minWidth: "200px", padding: "7px 12px", border: `1px solid ${T.border}`, borderRadius: "8px", fontSize: "12px", background: T.surface2, color: T.textPri, fontFamily: "inherit", outline: "none" }} />
 
           {(shipCharge !== 0 || adjustAmt !== 0) && (
             <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 10px", background: isDark ? "rgba(59,130,246,0.08)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe"}`, borderRadius: "7px", whiteSpace: "nowrap" }}>

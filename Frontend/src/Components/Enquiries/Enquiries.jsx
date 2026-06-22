@@ -953,12 +953,21 @@ export default function Enquiries() {
                   {tab === "update" ? "Update Status" : "Overview"}
                 </button>
               ))}
-              <button onClick={() => { setDrawerTab("edit"); setEditForm({ ...selected, estimatedValue: selected.estimatedValue || "" }); setEditing(true); }}
-                className="enq-tab"
-                style={{ color: drawerTab === "edit" ? T.blue : T.textSec,
-                  background: drawerTab === "edit" ? T.blueDim : "transparent", marginLeft: "auto" }}>
-                <FaEdit size={11} style={{ marginRight: 5 }}/>Edit
-              </button>
+              {(() => {
+                const isConverted = selected?.status === "converted";
+                return (
+                  <button
+                    onClick={() => { if (isConverted) return; setDrawerTab("edit"); setEditForm({ ...selected, estimatedValue: selected.estimatedValue || "" }); setEditing(true); }}
+                    className="enq-tab"
+                    disabled={isConverted}
+                    title={isConverted ? "Converted enquiries can't be edited" : "Edit"}
+                    style={{ color: drawerTab === "edit" ? T.blue : T.textSec,
+                      background: drawerTab === "edit" ? T.blueDim : "transparent", marginLeft: "auto",
+                      cursor: isConverted ? "not-allowed" : "pointer", opacity: isConverted ? 0.45 : 1 }}>
+                    <FaEdit size={11} style={{ marginRight: 5 }}/>Edit
+                  </button>
+                );
+              })()}
             </div>
 
             {/* Drawer body */}

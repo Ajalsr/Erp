@@ -69,7 +69,18 @@ export default function AppDatePicker({ value, onChange, placeholder = "Select d
   const blueDim = T.blueDim || "rgba(59,130,246,0.12)";
   const inputBg = T.inputBg || T.surface2 || T.surface;
   const [open, setOpen] = useState(false);
+  const [alignRight, setAlignRight] = useState(false); // flip panel when near viewport right edge
   const ref = useRef(null);
+
+  // Decide alignment before opening so the 264px panel never overflows the screen.
+  const toggle = () => {
+    if (disabled) return;
+    if (!open && ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setAlignRight(r.left + 270 > window.innerWidth);
+    }
+    setOpen((o) => !o);
+  };
 
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -83,7 +94,7 @@ export default function AppDatePicker({ value, onChange, placeholder = "Select d
 
   return (
     <div ref={ref} style={{ position: "relative", ...style }}>
-      <button type="button" onClick={() => !disabled && setOpen(o => !o)} disabled={disabled} style={{
+      <button type="button" onClick={toggle} disabled={disabled} style={{
         width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px",
         borderRadius: 8, border: `1px solid ${open ? blue : T.border}`,
         background: inputBg, color: value ? T.textPri : T.textSec,
@@ -95,7 +106,7 @@ export default function AppDatePicker({ value, onChange, placeholder = "Select d
         <span style={{ flex: 1, textAlign: "left" }}>{display}</span>
       </button>
       {open && !disabled && (
-        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 1000,
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", ...(alignRight ? { right: 0 } : { left: 0 }), zIndex: 1000,
           background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.25)" }}>
           <MiniCalendar value={value} onChange={(v) => { onChange(v); setOpen(false); }} T={T} />
         </div>
