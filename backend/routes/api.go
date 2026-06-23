@@ -261,6 +261,20 @@ func BillRoutes(router *gin.Engine) {
 	}
 }
 
+func ExpenseRoutes(router *gin.Engine) {
+	// Fast spend entries (salary, petrol, rent…). Reuses the "bills" module for
+	// permissions — expenses are payables-adjacent, so no new module to seed.
+	expenseRoutes := router.Group("/api/expenses")
+	expenseRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("bills"))
+	{
+		expenseRoutes.POST("/", controllers.CreateExpense())
+		expenseRoutes.GET("/", controllers.GetAllExpenses())
+		expenseRoutes.GET("/:id", controllers.GetExpenseByID())
+		expenseRoutes.PATCH("/:id/pay", controllers.PayExpense())
+		expenseRoutes.PATCH("/:id/void", controllers.VoidExpense())
+	}
+}
+
 func VendorPaymentRoutes(router *gin.Engine) {
 	vpRoutes := router.Group("/api/vendor-payments")
 	vpRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("vendor_payments"))

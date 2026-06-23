@@ -33,6 +33,10 @@ type CreditNote struct {
 	AppliedAmount   float64 `json:"appliedAmount"   bson:"appliedAmount"`
 	RefundedAmount  float64 `json:"refundedAmount"  bson:"refundedAmount"`
 
+	// GLPosted guards the return journal entry + restock from double-posting across
+	// the create / approve / void transitions.
+	GLPosted bool `json:"glPosted" bson:"glPosted"`
+
 	Notes     string    `json:"notes,omitempty" bson:"notes,omitempty"`
 	OrgID     string    `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt time.Time `json:"createdAt"       bson:"createdAt"`

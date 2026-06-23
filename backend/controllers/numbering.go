@@ -36,6 +36,7 @@ func GetNextNumberPreview() gin.HandlerFunc {
 			"quote":          {quoteCollection, "quoteNumber"},
 			"invoice":        {invoiceCollection, "invoiceNumber"},
 			"bill":           {billCollection, "billNumber"},
+		"expense":        {expenseCollection, "expenseNumber"},
 			"customer":       {customersCollection, "customerCode"},
 			"credit_note":    {creditNoteCollection, "creditNoteNumber"},
 			"debit_note":     {debitNoteCollection, "debitNoteNumber"},
@@ -96,6 +97,7 @@ var entityDefaultFormats = map[string]utils.NumberFormat{
 
 	// PREFIX-YYYYMM-0001
 	"bill":           fmtSeg("BILL-", segYear4, segMonth2, segDash, seg4),
+	"expense":        fmtSeg("EXP-", segYear4, segMonth2, segDash, seg4),
 	"payment":        fmtSeg("PAY-", segYear4, segMonth2, segDash, seg4),
 	"vendor_payment": fmtSeg("VPAY-", segYear4, segMonth2, segDash, seg4),
 	"advance":        fmtSeg("ADV-", segYear4, segMonth2, segDash, seg4),

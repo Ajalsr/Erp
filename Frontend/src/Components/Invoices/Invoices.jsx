@@ -1759,11 +1759,14 @@ const Invoices = () => {
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <p style={{ fontSize: 13, fontWeight: 600, color: T.text, margin: 0 }}>Credit Notes Applied</p>
-                      <button
-                        onClick={() => openCreditNote(selected)}
-                        style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue }}>
-                        + New Credit Note
-                      </button>
+                      {/* No credit note against a void / draft / proforma invoice. */}
+                      {selected.status !== "void" && selected.status !== "draft" && selected.type !== "proforma" && (
+                        <button
+                          onClick={() => openCreditNote(selected)}
+                          style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", color: T.blue }}>
+                          + New Credit Note
+                        </button>
+                      )}
                     </div>
 
                     {cnLoading ? (

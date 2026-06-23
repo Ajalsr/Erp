@@ -1252,44 +1252,68 @@ func CreateSalesReturn() gin.HandlerFunc {
 			createdByStr = userID.(string)
 		}
 
-		// Stock increase for items that have a stockId
+		// Return totals (split for the revenue-reversal journal entry).
+		retSub, retVat := 0.0, 0.0
 		for _, item := range activeItems {
-			if item.StockID == "" {
-				continue
-			}
-			itemObjID, err := primitive.ObjectIDFromHex(item.StockID)
-			if err != nil {
-				continue
-			}
-			var stock models.Stock
-			if err := stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgIDStr}).Decode(&stock); err != nil {
-				continue
-			}
-			currentQty := 0.0
-			fmt.Sscanf(stock.Quantity, "%f", &currentQty)
-			newQty := currentQty + item.Qty
-			stockCollection.UpdateOne(ctx,
-				bson.M{"_id": itemObjID, "orgId": orgIDStr},
-				bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "updated_at": time.Now()}},
-			)
-			adj := models.StockAdjustment{
-				ID:          primitive.NewObjectID(),
-				OrgID:       orgIDStr,
-				ItemID:      item.StockID,
-				ItemName:    stock.Name,
-				ItemCode:    stock.ItemCode,
-				Quantity:    item.Qty,
-				Type:        "increase",
-				Reason:      "return",
-				Reference:   inv.InvoiceNumber,
-				PreviousQty: currentQty,
-				NewQty:      newQty,
-				AdjustedAt:  time.Now(),
-				CreatedAt:   time.Now(),
-				CreatedBy:   createdByStr,
-			}
-			adjustmentCollection.InsertOne(ctx, adj)
+			s := round2(item.Qty * item.UnitPrice)
+			retSub += s
+			retVat += round2(s * item.TaxRate / 100)
 		}
+		retSub = round2(retSub)
+		retVat = round2(retVat)
+		retGrand := round2(retSub + retVat)
+
+		// credit mode raises a Credit Note and posts its GL (revenue + COGS reversal) +
+		// restock through postCreditNoteGL — so we must NOT restock inline for it, or
+		// stock would double. reduce/refund have no CN, so they restock here and we
+		// accumulate COGS to reverse.
+		isCreditMode := body.Mode != "reduce" && body.Mode != "refund"
+		totalCOGS := 0.0
+		if !isCreditMode {
+			defWh, _ := defaultWarehouse(ctx, orgIDStr)
+			for _, item := range activeItems {
+				if item.StockID == "" {
+					continue
+				}
+				itemObjID, err := primitive.ObjectIDFromHex(item.StockID)
+				if err != nil {
+					continue
+				}
+				var stock models.Stock
+				if err := stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgIDStr}).Decode(&stock); err != nil {
+					continue
+				}
+				currentQty, unitCost := 0.0, 0.0
+				fmt.Sscanf(stock.Quantity, "%f", &currentQty)
+				fmt.Sscanf(stock.CostPrice, "%f", &unitCost)
+				newQty := currentQty + item.Qty
+				// Warehouse-aware: returned goods go back into the default warehouse.
+				whMap := addToWarehouse(seedWarehouseMap(stock.WarehouseStock, currentQty, defWh), defWh, item.Qty)
+				stockCollection.UpdateOne(ctx,
+					bson.M{"_id": itemObjID, "orgId": orgIDStr},
+					bson.M{"$set": bson.M{"quantity": fmt.Sprintf("%g", newQty), "warehouseStock": whMap, "updated_at": time.Now()}},
+				)
+				totalCOGS += item.Qty * unitCost
+				adj := models.StockAdjustment{
+					ID:          primitive.NewObjectID(),
+					OrgID:       orgIDStr,
+					ItemID:      item.StockID,
+					ItemName:    stock.Name,
+					ItemCode:    stock.ItemCode,
+					Quantity:    item.Qty,
+					Type:        "increase",
+					Reason:      "return",
+					Reference:   inv.InvoiceNumber,
+					PreviousQty: currentQty,
+					NewQty:      newQty,
+					AdjustedAt:  time.Now(),
+					CreatedAt:   time.Now(),
+					CreatedBy:   createdByStr,
+				}
+				adjustmentCollection.InsertOne(ctx, adj)
+			}
+		}
+		totalCOGS = round2(totalCOGS)
 
 		retNum := fmt.Sprintf("RET-%04d", len(inv.SalesReturns)+1)
 		salesReturn := models.SalesReturn{
@@ -1304,6 +1328,7 @@ func CreateSalesReturn() gin.HandlerFunc {
 		}
 
 		responseExtra := gin.H{}
+		var createdCNID string // set in credit mode → drives postCreditNoteGL below
 
 		if body.Mode == "reduce" {
 			// ── Direct balance reduction (unpaid / overdue / partial) ─────────────
@@ -1491,6 +1516,7 @@ func CreateSalesReturn() gin.HandlerFunc {
 			creditNoteCollection.InsertOne(ctx, cnDoc)
 			salesReturn.CreditNoteID = cnOID.Hex()
 			salesReturn.CreditNoteNum = cnNumber
+			createdCNID = cnOID.Hex()
 			responseExtra = gin.H{"creditNoteId": cnOID.Hex(), "creditNoteNum": cnNumber}
 		}
 
@@ -1501,6 +1527,33 @@ func CreateSalesReturn() gin.HandlerFunc {
 				"$set":  bson.M{"updatedAt": time.Now()},
 			},
 		)
+
+		// ── Sales-return GL ──────────────────────────────────────────────────────
+		// credit mode: the engine posts revenue + COGS reversal and restocks the CN.
+		// reduce/refund: no CN, so post the reversal here (restock already done above).
+		if isCreditMode {
+			if createdCNID != "" {
+				go postCreditNoteGL(context.Background(), orgIDStr, createdCNID)
+			}
+		} else if retGrand > 0 {
+			// Revenue reversal: Dr Revenue + Dr VAT → Cr Accounts Receivable.
+			go autoJE(orgIDStr, "sales_return", inv.ID.Hex(), retNum, time.Now().Format("2006-01-02"),
+				"Sales return - "+retNum+" ("+inv.InvoiceNumber+")",
+				[]jeLineInput{
+					{AccountCode: "4000", Debit: retSub},
+					{AccountCode: "2100", Debit: retVat},
+					{AccountCode: "1100", Credit: retGrand},
+				})
+			// Cost reversal: Dr Inventory → Cr COGS at item cost.
+			if totalCOGS > 0 {
+				go autoJE(orgIDStr, "sales_return", inv.ID.Hex(), retNum, time.Now().Format("2006-01-02"),
+					"Sales return cost - "+retNum,
+					[]jeLineInput{
+						{AccountCode: "1200", Debit: totalCOGS},
+						{AccountCode: "5000", Credit: totalCOGS},
+					})
+			}
+		}
 
 		resp := gin.H{"message": "Return processed", "returnNumber": retNum}
 		for k, v := range responseExtra {
