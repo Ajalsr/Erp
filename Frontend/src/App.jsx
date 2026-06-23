@@ -43,6 +43,8 @@ const AdvancePayments = lazy(() => import("./Components/AdvancePayments/AdvanceP
 const Bills = lazy(() => import("./Components/Bills/Bills"))
 const NewBill = lazy(() => import("./Components/Bills/NewBill"))
 const PaymentsMade = lazy(() => import("./Components/PaymentsMade/PaymentsMade"))
+const Expenses = lazy(() => import("./Components/Expenses/Expenses"))
+const NewExpense = lazy(() => import("./Components/Expenses/NewExpense"))
 const Approvals = lazy(() => import("./Components/Approvals/Approvals"))
 const VendorCredits = lazy(() => import("./Components/VendorCredits/VendorCredits"))
 const SalesReport = lazy(() => import("./Components/Reports/SalesReport"))
@@ -164,6 +166,8 @@ function App() {
               <Route path="/Purchase/Bills" element={<Bills />} />
               <Route path="/Purchase/Bills/New" element={<NewBill />} />
               <Route path="/Purchase/Bills/Edit/:id" element={<NewBill />} />
+              <Route path="/Purchase/Expenses" element={<Expenses />} />
+              <Route path="/Purchase/Expenses/New" element={<NewExpense />} />
               <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
               <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
               <Route path="/Approvals" element={<Approvals />} />
@@ -182,6 +186,7 @@ function App() {
               <Route path="/Reports/vendor-aging"         element={<VendorAging />} />
               <Route path="/Finance/Accounts"        element={<Accounts />} />
               <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
+              <Route path="/Finance/Accounts/:id/edit" element={<NewAccount />} />
               <Route path="/Finance/JournalEntries"  element={<JournalEntries />} />
               <Route path="/Finance/BankReconciliation" element={<BankReconciliation />} />
               <Route path="/Finance/ExchangeRates" element={<ExchangeRates />} />

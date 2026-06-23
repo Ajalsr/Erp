@@ -119,6 +119,7 @@ func main() {
 	routes.PaymentRoutes(router)
 	routes.VendorRoutes(router)
 	routes.BillRoutes(router)
+	routes.ExpenseRoutes(router)
 	routes.VendorPaymentRoutes(router)
 	routes.VendorCreditRoutes(router)
 	routes.GRNRoutes(router)

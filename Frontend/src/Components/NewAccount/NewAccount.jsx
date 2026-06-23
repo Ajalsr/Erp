@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { IoMdClose } from 'react-icons/io';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -49,10 +49,13 @@ const TYPE_COLORS = {
 
 export default function NewAccount() {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const isEdit = !!id;
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
 
   const [saving, setSaving] = useState(false);
+  const [isSystem, setIsSystem] = useState(false);
   const [errors, setErrors] = useState({});
   const [form, setForm] = useState({
     accountCode: '',
@@ -62,6 +65,23 @@ export default function NewAccount() {
     description: '',
     status: 'active',
   });
+
+  // Edit mode — load the existing account into the form.
+  useEffect(() => {
+    if (!isEdit) return;
+    axiosInstance.get(`/api/accounts/${id}`).then(res => {
+      const a = res.data?.data || res.data || {};
+      setForm({
+        accountCode: a.accountCode || '',
+        accountName: a.accountName || '',
+        accountType: a.accountType || '',
+        subType:     a.subType     || '',
+        description: a.description || '',
+        status:      a.status      || 'active',
+      });
+      setIsSystem(!!a.isSystem);
+    }).catch(() => nexusToast.error('Failed to load account'));
+  }, [id]); // eslint-disable-line
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -82,11 +102,16 @@ export default function NewAccount() {
 
     setSaving(true);
     try {
-      await axiosInstance.post('/api/accounts/', form);
-      nexusToast.success('Account created successfully!');
+      if (isEdit) {
+        await axiosInstance.put(`/api/accounts/${id}`, form);
+        nexusToast.success('Account updated successfully!');
+      } else {
+        await axiosInstance.post('/api/accounts/', form);
+        nexusToast.success('Account created successfully!');
+      }
       setTimeout(() => navigate('/Finance/Accounts'), 1200);
     } catch (err) {
-      const msg = err?.response?.data?.message || 'Failed to create account';
+      const msg = err?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} account`;
       nexusToast.error(msg);
     } finally {
       setSaving(false);
@@ -127,7 +152,7 @@ export default function NewAccount() {
             <IoMdClose size={16} />
           </button>
           <div style={{ width: 1, height: 22, background: T.border }} />
-          <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>New Account</p>
+          <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>{isEdit ? 'Edit Account' : 'New Account'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => navigate('/Finance/Accounts')}
@@ -136,7 +161,7 @@ export default function NewAccount() {
           </button>
           <button onClick={handleSubmit} disabled={saving}
             style={{ padding: '8px 22px', borderRadius: 10, border: 'none', background: saving ? '#94a3b8' : accent, color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', boxShadow: saving ? 'none' : `0 4px 16px ${accent}55` }}>
-            {saving ? 'Saving…' : 'Save Account'}
+            {saving ? 'Saving…' : (isEdit ? 'Update Account' : 'Save Account')}
           </button>
         </div>
       </div>
@@ -170,8 +195,11 @@ export default function NewAccount() {
               <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>
                 Account Code <span style={{ color: '#ef4444' }}>*</span>
               </label>
-              <input name="accountCode" value={form.accountCode} onChange={handleChange} placeholder="e.g. 1000" style={inputStyle('accountCode')} />
-              {errors.accountCode && <p style={{ fontSize: 11, color: '#ef4444', margin: '4px 0 0' }}>{errors.accountCode}</p>}
+              <input name="accountCode" value={form.accountCode} onChange={handleChange} readOnly={isSystem} placeholder="e.g. 1000"
+                style={{ ...inputStyle('accountCode'), ...(isSystem ? { background: T.surface2, color: T.textSec, cursor: 'not-allowed' } : {}) }} />
+              {isSystem
+                ? <p style={{ fontSize: 11, color: T.textSec, margin: '4px 0 0' }}>System account — code locked (used by automatic postings).</p>
+                : errors.accountCode && <p style={{ fontSize: 11, color: '#ef4444', margin: '4px 0 0' }}>{errors.accountCode}</p>}
             </div>
             <div>
               <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>

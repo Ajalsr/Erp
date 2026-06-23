@@ -44,6 +44,7 @@ const MENU = [
     { name: 'Inbound',          route: '/Purchase/Inbound',       mod: 'grns' },
     { name: 'GRN',              route: '/Purchase/GRN',           mod: 'grns' },
     { name: 'Bills',            route: '/Purchase/Bills',         mod: 'bills' },
+    { name: 'Expenses',         route: '/Purchase/Expenses',      mod: 'bills' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits', mod: 'vendor_credits' },
     { name: 'Payments Made',    route: '/Purchase/PaymentsMade',  mod: 'vendor_payments' },
   ]},

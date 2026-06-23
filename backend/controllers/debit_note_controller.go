@@ -185,9 +185,31 @@ func SubmitDebitNote() gin.HandlerFunc {
 	return dnTransition("draft", "pending_approval", "only draft debit notes can be submitted")
 }
 
-// PATCH /api/debit-notes/:id/approve — pending_approval → approved
+// PATCH /api/debit-notes/:id/approve — pending_approval → approved.
+// Posts the purchase-return journal entry on success.
 func ApproveDebitNote() gin.HandlerFunc {
-	return dnTransition("pending_approval", "approved", "only pending_approval debit notes can be approved")
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid id"})
+			return
+		}
+		res, err := debitNoteCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgIDStr, "status": "pending_approval"},
+			bson.M{"$set": bson.M{"status": "approved", "updatedAt": time.Now()}},
+		)
+		if err != nil || res.MatchedCount == 0 {
+			c.JSON(http.StatusConflict, gin.H{"message": "only pending_approval debit notes can be approved"})
+			return
+		}
+		go postDebitNoteGL(context.Background(), orgIDStr, objectID.Hex())
+		c.JSON(http.StatusOK, gin.H{"message": "status updated to approved"})
+	}
 }
 
 // PATCH /api/debit-notes/:id/close — approved → closed
@@ -372,19 +394,23 @@ func VoidDebitNote() gin.HandlerFunc {
 			return
 		}
 
-		var dn bson.M
+		var dn models.DebitNote
 		if err = debitNoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&dn); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"message": "debit note not found"})
 			return
 		}
-		switch dn["status"] {
+		switch dn.Status {
 		case "closed":
 			c.JSON(http.StatusConflict, gin.H{"message": "closed debit notes cannot be voided"})
 			return
 		}
 
+		// Back out the purchase-return GL before voiding.
+		reverseDebitNoteGL(ctx, fmt.Sprintf("%v", orgID), dn)
+
 		debitNoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{
 			"status":    "void",
+			"glPosted":  false,
 			"updatedAt": time.Now(),
 		}})
 		c.JSON(http.StatusOK, gin.H{"message": "debit note voided"})

@@ -115,6 +115,11 @@ func CreateCreditNote() gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{"message": "source invoice not found"})
 				return
 			}
+			// No credit note against a void / draft / proforma invoice — it's not a live AR document.
+			if inv.Status == "void" || inv.Status == "draft" || inv.Type == "proforma" {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"message": "Cannot raise a credit note against a " + inv.Status + " invoice"})
+				return
+			}
 			// CN total must not exceed the invoice grand total (not balance due — paid invoices are valid returns)
 			if body.Totals.GrandTotal > inv.Totals.GrandTotal+0.005 {
 				c.JSON(http.StatusBadRequest, gin.H{
@@ -226,6 +231,12 @@ func CreateCreditNote() gin.HandlerFunc {
 			}})
 		}
 
+		// Post the sales-return GL + restock once the CN is a live document
+		// (direct-from-invoice CNs are born approved/closed; standalone ones post on approve).
+		if cnStatus == "approved" || cnStatus == "closed" {
+			go postCreditNoteGL(context.Background(), body.OrgID, oid.Hex())
+		}
+
 		c.JSON(http.StatusCreated, gin.H{
 			"message": "credit note created",
 			"data": gin.H{
@@ -297,9 +308,31 @@ func SubmitCreditNote() gin.HandlerFunc {
 	return cnTransition("draft", "pending_approval", "only draft credit notes can be submitted")
 }
 
-// PATCH /api/credit-notes/:id/approve — pending_approval → approved
+// PATCH /api/credit-notes/:id/approve — pending_approval → approved.
+// Posts the sales-return journal entry (+ restock) on success.
 func ApproveCreditNote() gin.HandlerFunc {
-	return cnTransition("pending_approval", "approved", "only pending_approval credit notes can be approved")
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid id"})
+			return
+		}
+		res, err := creditNoteCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgIDStr, "status": "pending_approval"},
+			bson.M{"$set": bson.M{"status": "approved", "updatedAt": time.Now()}},
+		)
+		if err != nil || res.MatchedCount == 0 {
+			c.JSON(http.StatusConflict, gin.H{"message": "only pending_approval credit notes can be approved"})
+			return
+		}
+		go postCreditNoteGL(context.Background(), orgIDStr, objectID.Hex())
+		c.JSON(http.StatusOK, gin.H{"message": "status updated to approved"})
+	}
 }
 
 // PATCH /api/credit-notes/:id/close — applied → closed
@@ -657,19 +690,23 @@ func VoidCreditNote() gin.HandlerFunc {
 			return
 		}
 
-		var cn bson.M
+		var cn models.CreditNote
 		if err = creditNoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&cn); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"message": "credit note not found"})
 			return
 		}
-		switch cn["status"] {
+		switch cn.Status {
 		case "applied", "closed":
 			c.JSON(http.StatusConflict, gin.H{"message": "applied or closed credit notes cannot be voided"})
 			return
 		}
 
+		// Back out the return GL + restock before voiding.
+		reverseCreditNoteGL(ctx, fmt.Sprintf("%v", orgID), cn)
+
 		creditNoteCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{
 			"status":    "void",
+			"glPosted":  false,
 			"updatedAt": time.Now(),
 		}})
 		c.JSON(http.StatusOK, gin.H{"message": "credit note voided"})
