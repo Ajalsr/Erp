@@ -13,3 +13,8 @@ src-tauri/binaries/
 
 # Electron
 node_modules/electron/
+
+# Secrets — never commit. Use Render/host env vars instead. (.env.example is fine.)
+.env
+.env.local
+.env.*.local

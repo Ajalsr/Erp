@@ -73,7 +73,9 @@ const MENU = [
   { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },
 ]
 
-const Sidebar = ({ isCollapsed }) => {
+const Sidebar = ({ isCollapsed, isMobile = false, mobileOpen = false, onClose = () => {} }) => {
+  // On mobile the rail never collapses to icons — it slides in full-width.
+  if (isMobile) isCollapsed = false
   const navigate    = useNavigate()
   const location    = useLocation()
   const user        = useAuthStore((s) => s.user)
@@ -174,8 +176,11 @@ const Sidebar = ({ isCollapsed }) => {
         zIndex:      20,
         height:      '100vh',
         flexShrink:  0,
-        width:       isCollapsed ? '60px' : '220px',
-        transition:  'background 0.25s ease, border-color 0.25s ease, width 0.3s ease',
+        width:       isMobile ? '240px' : (isCollapsed ? '60px' : '220px'),
+        // Mobile: slide off-canvas; show only when mobileOpen.
+        transform:   isMobile ? (mobileOpen ? 'translateX(0)' : 'translateX(-100%)') : 'translateX(0)',
+        boxShadow:   isMobile && mobileOpen ? '4px 0 24px rgba(0,0,0,0.3)' : 'none',
+        transition:  'background 0.25s ease, border-color 0.25s ease, width 0.3s ease, transform 0.3s ease',
       }}>
 
         {/* Logo */}
@@ -219,7 +224,7 @@ const Sidebar = ({ isCollapsed }) => {
                   title={isCollapsed ? item.label : ''}
                   data-tour={item.tourKey}
                   onClick={() => {
-                    if (item.settings) { guardNav(() => navigate(orgId ? `/organizations/${orgId}/settings` : '/Home')) }
+                    if (item.settings) { guardNav(() => { navigate(orgId ? `/organizations/${orgId}/settings` : '/Home'); if (isMobile) onClose() }) }
                     else if (hasSub) {
                       // Expanded rail: toggle the section. Collapsed rail (no room to
                       // expand): jump straight to the first sub-item the role can open,
@@ -230,7 +235,7 @@ const Sidebar = ({ isCollapsed }) => {
                         if (first) guardNav(() => navigate(first.route))
                       }
                     }
-                    else guardNav(() => navigate(item.route))
+                    else guardNav(() => { navigate(item.route); if (isMobile) onClose() })
                   }}
                   className={`nx-nav-item ${active ? 'active' : ''}`}
                   style={{
@@ -253,7 +258,7 @@ const Sidebar = ({ isCollapsed }) => {
                   <div style={{ overflow: 'hidden', maxHeight: isOpen ? '400px' : 0, transition: 'max-height 0.25s ease' }}>
                     <div style={{ paddingLeft: '16px', paddingRight: '4px', paddingTop: '2px', paddingBottom: '4px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
                       {item.subItems.filter((sub) => !sub.mod || canAny(sub.mod)).map((sub) => (
-                        <button key={sub.name} onClick={() => guardNav(() => navigate(sub.route))}
+                        <button key={sub.name} onClick={() => guardNav(() => { navigate(sub.route); if (isMobile) onClose() })}
                           className={`nx-sub ${isSubActive(sub.route) ? 'active' : ''}`}
                           style={subBtnStyle}>
                           {sub.name}

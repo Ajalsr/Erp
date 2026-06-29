@@ -9,9 +9,12 @@ import useWebSocket from '../helper/useWebSocket'
 import useNotifications from '../helper/useNotifications'
 import useOrganization from '../helper/useOrganization'
 import useAuthStore from '../store/useAuthStore'
+import useIsMobile from '../helper/useIsMobile'
 
 export default function Layout() {
+  const isMobile = useIsMobile()
   const [sidebarToggle, setSidebarToggle] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   // Only show the full-screen gate when we have NO org info yet (first login).
   // On a refresh/return the active org is restored from sessionStorage, so render
   // the app immediately and refresh orgs in the background — no blank "Loading...".
@@ -39,8 +42,12 @@ export default function Layout() {
 
   useWebSocket(onEvent)
 
-  const sidebarWidth = sidebarToggle ? '60px' : '220px'
+  // Mobile: sidebar is an off-canvas drawer, main takes full width.
+  const sidebarWidth = isMobile ? '0px' : (sidebarToggle ? '60px' : '220px')
   const bg = isDark ? '#080d1a' : '#f1f5f9'
+
+  // Hamburger: toggles the drawer on mobile, collapse on desktop.
+  const onToggleSidebar = () => isMobile ? setMobileOpen(o => !o) : setSidebarToggle(t => !t)
 
   // Show "no org" screen while loading or if user has no org
   if (orgLoading) {
@@ -108,7 +115,18 @@ export default function Layout() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: bg, transition: 'background 0.25s ease' }}>
-      <Sidebar isCollapsed={sidebarToggle} />
+      <Sidebar
+        isCollapsed={!isMobile && sidebarToggle}
+        isMobile={isMobile}
+        mobileOpen={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+      />
+
+      {/* Mobile drawer backdrop */}
+      {isMobile && mobileOpen && (
+        <div onClick={() => setMobileOpen(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 19, background: 'rgba(0,0,0,0.5)' }} />
+      )}
 
       <div style={{
         marginLeft:    sidebarWidth,
@@ -118,11 +136,12 @@ export default function Layout() {
         minWidth:      0,
         transition:    'margin-left 0.3s ease',
       }}>
-        <Navbar onToggleSidebar={() => setSidebarToggle(!sidebarToggle)} />
+        <Navbar onToggleSidebar={onToggleSidebar} />
 
         <main style={{
           flex:       1,
           overflowY:  'auto',
+          overflowX:  'hidden',
           background: bg,
           transition: 'background 0.25s ease',
         }}>

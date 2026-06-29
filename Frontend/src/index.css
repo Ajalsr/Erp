@@ -23,3 +23,16 @@ code, pre, .mono {
   -ms-overflow-style: none;  /* IE, Edge */
   scrollbar-width: none;     /* Firefox */
 }
+
+/* ── Mobile safety net ─────────────────────────────────────────────
+   Most screens use inline styles; these are conservative global rules
+   so phones don't get a horizontally-scrolling page. Per-screen tuning
+   rides on top of the responsive shell (off-canvas sidebar + full-width
+   main in Layout). */
+html, body, #root { max-width: 100vw; }
+
+@media (max-width: 768px) {
+  body { overflow-x: hidden; }
+  table { font-size: 12px; }
+  button { touch-action: manipulation; }
+}
