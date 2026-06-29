@@ -1,0 +1,7 @@
+# Keep the Docker build context small + the image clean.
+binaries/          # desktop sidecar builds (mac/win/linux) — not needed on server
+backend.exe        # Windows binary
+target/            # any local build output
+*.log
+.env               # secrets come from Render env vars, never bake into image
+.git
