@@ -434,11 +434,12 @@ const Navbar = ({ onToggleSidebar }) => {
       <nav className="nx-navbar" style={{
         background:   D.navBg,
         borderBottom: `1px solid ${D.border}`,
-        height:       '56px',
+        minHeight:    '56px',
+        // Pad past the device status bar — Android/iOS draw edge-to-edge.
+        padding:      'var(--safe-top) 16px 0 16px',
         display:      'flex',
         alignItems:   'center',
         justifyContent: 'space-between',
-        padding:      '0 16px',
         flexShrink:   0,
       }}>
 
