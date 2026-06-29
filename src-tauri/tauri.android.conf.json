@@ -1,6 +1,5 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "comment": "Android override. Merged over tauri.conf.json for the android target. The Go backend.exe sidecar is desktop-only — on mobile the app talks to a remote API (set VITE_API_URL), so externalBin is emptied here to avoid Tauri looking for an android-target backend binary.",
   "bundle": {
     "externalBin": []
   }

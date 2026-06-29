@@ -209,6 +209,17 @@ export default function Dashboard() {
     *::-webkit-scrollbar-thumb{background:${isDark ? "rgba(255,255,255,.1)" : "rgba(0,0,0,.1)"};border-radius:99px}
     .sec-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:${T.textSec};margin:0 0 10px;display:flex;align-items:center;gap:8px}
     .sec-label::after{content:'';flex:1;height:1px;background:${bdr}}
+    /* Mobile: collapse the fixed multi-column dashboard grids so nothing
+       overflows or squishes on a phone. */
+    @media (max-width:768px){
+      .hd{padding:14px 12px !important}
+      .s1{grid-template-columns:repeat(3,1fr) !important}
+      .s3{grid-template-columns:repeat(2,1fr) !important}
+      .s2,.s5,.s6,.s7{grid-template-columns:1fr !important}
+    }
+    @media (max-width:420px){
+      .s1{grid-template-columns:repeat(2,1fr) !important}
+    }
   `;
 
   return (
