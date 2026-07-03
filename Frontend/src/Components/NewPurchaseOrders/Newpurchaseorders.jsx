@@ -5,6 +5,7 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useGetItem from '../../helper/useGetItem';
 import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import { debounce } from 'lodash';
 import RDatePicker from 'react-datepicker';
 import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
@@ -545,6 +546,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
 
 /* ════════════════════ MAIN ══════════════════════════════════════════ */
 export default function Newpurchaseorders() {
+  const guard = useUnsavedGuard({ hasDraft: false });
   const navigate = useNavigate();
   const { id: editId } = useParams();
   const isEdit = !!editId;
@@ -773,6 +775,7 @@ export default function Newpurchaseorders() {
         await axiosInstance.post('/api/purchase-orders/', payload);
         nexusToast.success('Purchase order created successfully!');
       }
+      guard.reset();
       setTimeout(() => navigate('/Purchase/Purchaseorders'), 1500);
     } catch (err) {
       nexusToast.error(err?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} purchase order`);
@@ -791,7 +794,7 @@ export default function Newpurchaseorders() {
 
   /* ─────────────────────────── RENDER ──────────────────────────── */
   return (
-    <div className="npo-root" style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px' }}>
+    <div className="npo-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px' }}>
       {/* useMemo: only re-generate the style block when theme changes, not every keystroke */}
       <style>{useMemo(() => buildCSS(isDark), [isDark])}</style>
 

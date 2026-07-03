@@ -5,6 +5,7 @@ import useAddCustomer from '../../helper/useAddCustomer';
 import useUpdateCustomer from '../../helper/useUpdateCustomer';
 import axiosInstance from '../../helper/axiosInstance';
 import toast from "../../helper/nexusToast";
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import CountrySelect from '../common/CountrySelect';
@@ -905,6 +906,7 @@ function SalutationInput({ value, onChange, name, T, isDark }) {
 
 // ── Main Component ─────────────────────────────────────────────────
 const Newcustomers = () => {
+  const guard = useUnsavedGuard({ hasDraft: false });
   const { handleAddcustomer }    = useAddCustomer();
   const { handleUpdateCustomer } = useUpdateCustomer();
   const { id: editId }           = useParams();
@@ -1116,6 +1118,7 @@ const Newcustomers = () => {
         setContactPersons([]);
         toast.success("Customer created successfully!");
       }
+      guard.reset();
       setTimeout(() => navigate("/Sales/Customers"), 1800);
     } catch {
       // toast already shown by helper
@@ -1145,7 +1148,7 @@ const Newcustomers = () => {
   const card    = { background: T.surface, borderRadius: '16px', padding: '24px', border: `1px solid ${T.border}`, boxShadow: isDark ? '0 1px 8px rgba(0,0,0,0.3)' : '0 1px 4px rgba(0,0,0,0.04)' };
 
   return (
-    <div className="nc-root" style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px' }}>
+    <div className="nc-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px' }}>
       <style>{makeStyles(T, isDark)}</style>
 
       {showDiscard && (

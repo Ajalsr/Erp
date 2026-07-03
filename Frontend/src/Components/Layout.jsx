@@ -10,6 +10,7 @@ import useNotifications from '../helper/useNotifications'
 import useOrganization from '../helper/useOrganization'
 import useAuthStore from '../store/useAuthStore'
 import useIsMobile from '../helper/useIsMobile'
+import KeyboardShortcuts from './common/KeyboardShortcuts'
 
 export default function Layout() {
   const isMobile = useIsMobile()
@@ -115,6 +116,7 @@ export default function Layout() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: bg, transition: 'background 0.25s ease' }}>
+      <KeyboardShortcuts />
       <Sidebar
         isCollapsed={!isMobile && sidebarToggle}
         isMobile={isMobile}
