@@ -5,6 +5,7 @@ import PhoneInput, { getCountryCallingCode } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import axiosInstance from '../../helper/axiosInstance/';
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -497,6 +498,7 @@ const normaliseOrigin = (o) => {
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════ */
 export default function NewVendor() {
+  const guard     = useUnsavedGuard({ hasDraft: false });
   const navigate  = useNavigate();
   const { id }    = useParams();
   const isEdit    = !!id;
@@ -664,6 +666,7 @@ export default function NewVendor() {
         await axiosInstance.post('/api/vendors/', payload);
         nexusToast.success('Vendor created successfully!');
       }
+      guard.reset();
       setTimeout(() => navigate('/Purchase/Vendors'), 1500);
     } catch (err) {
       const msg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to save vendor';
@@ -743,7 +746,7 @@ export default function NewVendor() {
         />
       )}
 
-      <div style={{
+      <div onInput={guard.markDirty} onChange={guard.markDirty} style={{
         minHeight: '100vh', background: T.bg, paddingBottom: 100,
         animation: 'nvFadeUp .3s ease both',
       }}>
