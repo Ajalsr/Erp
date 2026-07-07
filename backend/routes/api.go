@@ -183,6 +183,15 @@ func DashboardRoutes(router *gin.Engine) {
 		dashRoutes.GET("/activity-feed", controllers.GetActivityFeed())
 		dashRoutes.GET("/summary", controllers.GetDashboardSummary())
 	}
+
+	// Sales-rep dashboard: returns ONLY the caller's own quotes/sales for the year, so
+	// it is safe for any org member. Deliberately NOT behind RequireModule("dashboard")
+	// — custom roles (e.g. "sales rep") lack the dashboard module grant and would 403.
+	repDash := router.Group("/api/dashboard")
+	repDash.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		repDash.GET("/sales-rep", controllers.GetSalesRepSummary())
+	}
 }
 
 func PurchaseOrderRoutes(router *gin.Engine) {

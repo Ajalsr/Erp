@@ -283,11 +283,28 @@ const OrganizationSettings = () => {
   const [newSalutation, setNewSalutation]   = useState('')
   const [savingSalutations, setSavingSalutations] = useState(false)
 
+  // Yearly sales target (single org-wide amount) — powers the sales-rep dashboard.
+  const [yearlyTarget, setYearlyTarget]   = useState('')
+  const [savingTarget, setSavingTarget]   = useState(false)
+
   useEffect(() => {
     axiosInstance.get('/api/org/settings')
-      .then(res => { const s = res.data?.data?.salutations; if (Array.isArray(s) && s.length) setSalutations(s); })
+      .then(res => {
+        const s = res.data?.data?.salutations; if (Array.isArray(s) && s.length) setSalutations(s);
+        const t = res.data?.data?.yearlySalesTarget; if (t != null) setYearlyTarget(String(t));
+      })
       .catch(() => {})
   }, [])
+
+  const saveTarget = async () => {
+    const val = Number(yearlyTarget) || 0
+    setSavingTarget(true)
+    try {
+      await axiosInstance.put('/api/org/settings', { yearlySalesTarget: val })
+      nexusToast.success('Yearly sales target saved')
+    } catch { nexusToast.error('Failed to save target') }
+    finally { setSavingTarget(false) }
+  }
 
   const saveSalutations = async (list) => {
     setSavingSalutations(true)
@@ -1382,6 +1399,32 @@ const OrganizationSettings = () => {
                   />
                   <button onClick={addSalutation} disabled={savingSalutations || !newSalutation.trim()} style={{ ...btnStyle('primary'), opacity: savingSalutations ? 0.6 : 1, whiteSpace: 'nowrap' }}>
                     {savingSalutations ? 'Saving…' : '+ Add'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Yearly sales target — drives the sales-rep dashboard progress */}
+            {canManage && (
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 6px', fontFamily: 'inherit' }}>
+                  Yearly Sales Target
+                </h3>
+                <p style={{ color: textSec, fontSize: '12px', margin: '0 0 14px' }}>
+                  Org-wide sales target for the year. Shown as the progress goal on each sales rep's dashboard.
+                </p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="number"
+                    min="0"
+                    value={yearlyTarget}
+                    onChange={e => setYearlyTarget(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveTarget(); } }}
+                    placeholder="e.g. 1000000"
+                    style={{ ...inputStyle, flex: 1 }}
+                  />
+                  <button onClick={saveTarget} disabled={savingTarget} style={{ ...btnStyle('primary'), opacity: savingTarget ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+                    {savingTarget ? 'Saving…' : 'Save'}
                   </button>
                 </div>
               </div>

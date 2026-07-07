@@ -10,6 +10,8 @@ import useAuthStore from "../../store/useAuthStore";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useGetDashboardStats from "../../helper/useGetDashboardStats";
 import axiosInstance from "../../helper/axiosInstance";
+import { usePermissions } from "../../helper/permissions";
+import SalesRepDashboard from "./SalesRepDashboard";
 
 /* ─── Sparkline ──────────────────────────────────────────────────── */
 const Spark = ({ data, color, h = 38 }) => {
@@ -80,7 +82,18 @@ const StatRow = ({ label, value, color, T, loading }) => (
   </div>
 );
 
+// Role gate: owner + admin see the full finance/inventory dashboard; every other
+// role (sales_rep, member, viewer) gets the focused sales-only dashboard. Split into
+// two components so each keeps its own hooks (no Rules-of-Hooks issues from an early
+// return) and the heavy full-dashboard data only loads when actually shown.
 export default function Dashboard() {
+  const { role, ready } = usePermissions();
+  if (!ready) return null;               // role hydrates synchronously from cache; avoids flashing the wrong view
+  const isFull = role === "owner" || role === "admin";
+  return isFull ? <FullDashboard /> : <SalesRepDashboard />;
+}
+
+function FullDashboard() {
   const navigate = useNavigate();
   const user   = useAuthStore((s) => s.user);
   const isDark = useThemeStore((s) => s.isDark);
