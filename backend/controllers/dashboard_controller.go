@@ -545,3 +545,157 @@ func pct(val, target float64) int {
 	}
 	return p
 }
+
+// GetSalesRepSummary returns a focused, sales-only dashboard scoped to the calling
+// user's OWN records for the current calendar year. Used by the limited dashboard
+// shown to non owner/admin roles. Because it only ever reads the caller's own
+// quotes/sales, it is safe regardless of which role hits it.
+func GetSalesRepSummary() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgVal, _ := c.Get("orgId")
+		orgID, _ := orgVal.(string)
+		userVal, _ := c.Get("userId")
+		userID, _ := userVal.(string)
+
+		now := time.Now()
+		yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+
+		// Own records, this year. createdAt is the shared time field on both models.
+		base := bson.M{"orgId": orgID, "createdBy": userID, "createdAt": bson.M{"$gte": yearStart}}
+		withMatch := func(extra bson.M) bson.M {
+			m := bson.M{}
+			for k, v := range base {
+				m[k] = v
+			}
+			for k, v := range extra {
+				m[k] = v
+			}
+			return m
+		}
+
+		var (
+			quotationMade, quotationAchieved int64
+			salesMade, salesConverted        int64
+			salesAchieved                    float64
+		)
+
+		quotationMade, _ = quoteCollection.CountDocuments(ctx, base)
+		quotationAchieved, _ = quoteCollection.CountDocuments(ctx,
+			withMatch(bson.M{"status": bson.M{"$in": []string{"accepted", "converted"}}}))
+
+		salesMade, _ = salesOrdersCollection.CountDocuments(ctx, base)
+		salesConverted, _ = salesOrdersCollection.CountDocuments(ctx,
+			withMatch(bson.M{"sourceQuoteId": bson.M{"$exists": true, "$nin": []interface{}{"", nil}}}))
+
+		// salesAchieved = total amount of this rep's sales orders this year.
+		if cur, err := salesOrdersCollection.Aggregate(ctx, []bson.M{
+			{"$match": base},
+			{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$total"}}},
+		}); err == nil {
+			var rows []bson.M
+			cur.All(ctx, &rows)
+			if len(rows) > 0 {
+				salesAchieved = toFloat(rows[0]["total"])
+			}
+		}
+
+		// Single org-wide yearly target, stored on the org settings doc.
+		var yearlyTarget float64
+		var settings bson.M
+		if err := orgSettingsCollection.FindOne(ctx, bson.M{"orgId": orgID}).Decode(&settings); err == nil {
+			yearlyTarget = toFloat(settings["yearlySalesTarget"])
+		}
+
+		// ── Monthly breakdown (Jan..Dec of current year) for the trend charts ──
+		// One bucket per month, indexed 1..12. Two aggregations ($month on createdAt):
+		// one over sales orders, one over quotes.
+		type monthBucket struct {
+			SalesAchieved     float64 `json:"salesAchieved"`
+			SalesMade         int64   `json:"salesMade"`
+			SalesConverted    int64   `json:"salesConverted"`
+			QuotationMade     int64   `json:"quotationMade"`
+			QuotationAchieved int64   `json:"quotationAchieved"`
+		}
+		buckets := make([]monthBucket, 13) // index 0 unused; months 1..12
+
+		// Sales orders per month.
+		if cur, err := salesOrdersCollection.Aggregate(ctx, []bson.M{
+			{"$match": base},
+			{"$group": bson.M{
+				"_id":            bson.M{"$month": "$createdAt"},
+				"salesMade":      bson.M{"$sum": 1},
+				"salesAchieved":  bson.M{"$sum": "$total"},
+				"salesConverted": bson.M{"$sum": bson.M{"$cond": []interface{}{
+					bson.M{"$and": []interface{}{
+						bson.M{"$ne": []interface{}{"$sourceQuoteId", nil}},
+						bson.M{"$ne": []interface{}{"$sourceQuoteId", ""}},
+					}}, 1, 0}}},
+			}},
+		}); err == nil {
+			var rows []bson.M
+			cur.All(ctx, &rows)
+			for _, r := range rows {
+				m := int(toInt64(r["_id"]))
+				if m >= 1 && m <= 12 {
+					buckets[m].SalesMade = toInt64(r["salesMade"])
+					buckets[m].SalesAchieved = toFloat(r["salesAchieved"])
+					buckets[m].SalesConverted = toInt64(r["salesConverted"])
+				}
+			}
+		}
+
+		// Quotes per month.
+		if cur, err := quoteCollection.Aggregate(ctx, []bson.M{
+			{"$match": base},
+			{"$group": bson.M{
+				"_id":           bson.M{"$month": "$createdAt"},
+				"quotationMade": bson.M{"$sum": 1},
+				"quotationAchieved": bson.M{"$sum": bson.M{"$cond": []interface{}{
+					bson.M{"$in": []interface{}{"$status", []string{"accepted", "converted"}}}, 1, 0}}},
+			}},
+		}); err == nil {
+			var rows []bson.M
+			cur.All(ctx, &rows)
+			for _, r := range rows {
+				m := int(toInt64(r["_id"]))
+				if m >= 1 && m <= 12 {
+					buckets[m].QuotationMade = toInt64(r["quotationMade"])
+					buckets[m].QuotationAchieved = toInt64(r["quotationAchieved"])
+				}
+			}
+		}
+
+		monthLabels := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+		monthly := make([]gin.H, 0, 12)
+		for m := 1; m <= 12; m++ {
+			b := buckets[m]
+			monthly = append(monthly, gin.H{
+				"month":             m,
+				"label":             monthLabels[m-1],
+				"salesAchieved":     b.SalesAchieved,
+				"salesMade":         b.SalesMade,
+				"salesConverted":    b.SalesConverted,
+				"quotationMade":     b.QuotationMade,
+				"quotationAchieved": b.QuotationAchieved,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": http.StatusOK,
+			"data": gin.H{
+				"year":              now.Year(),
+				"yearlyTarget":      yearlyTarget,
+				"salesAchieved":     salesAchieved,
+				"achievedPct":       pct(salesAchieved, yearlyTarget),
+				"quotationMade":     quotationMade,
+				"quotationAchieved": quotationAchieved,
+				"salesMade":         salesMade,
+				"salesConverted":    salesConverted,
+				"monthly":           monthly,
+			},
+		})
+	}
+}
