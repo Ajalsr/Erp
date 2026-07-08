@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { guardNav } from '../../helper/useUnsavedGuard'
 import { IoHome, IoChevronDown, IoSettingsOutline } from 'react-icons/io5'
-import { FaBoxOpen, FaCartArrowDown, FaClipboardCheck } from 'react-icons/fa'
+import { FaBoxOpen, FaCartArrowDown, FaClipboardCheck, FaCloudUploadAlt } from 'react-icons/fa'
 import { MdInventory2 } from 'react-icons/md'
 import { HiShoppingCart } from 'react-icons/hi'
 import { TbReportAnalytics } from 'react-icons/tb'
@@ -70,6 +70,7 @@ const MENU = [
     { name: 'Cash Flow',         route: '/Reports/cash-flow',    mod: 'reports' },
   ]},
   { icon: FaClipboardCheck,   label: 'Approvals', route: '/Approvals', tourKey: 'nav-approvals' },
+  { icon: FaCloudUploadAlt,   label: 'Backups',   route: '/Backups',   ownerOnly: true, tourKey: 'nav-backups' },
   { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },
 ]
 
@@ -82,13 +83,15 @@ const Sidebar = ({ isCollapsed, isMobile = false, mobileOpen = false, onClose = 
   const isDark      = useThemeStore((s) => s.isDark)
   const activeOrg   = useAuthStore((s) => s.activeOrg)
   const orgId       = activeOrg?._id || user?.orgId || ''
-  const { canAny, canAnyOf, canSettings } = usePermissions()
+  const { canAny, canAnyOf, canSettings, role } = usePermissions()
   // Show a section only when it leads somewhere: for sections with sub-items, at least
   // one sub-item must be permitted (so granting a module with no page — e.g.
   // journal_entries — never shows an empty section). Sections without sub-items use
-  // their mods list; Settings only for owner / roles granted Settings access.
+  // their mods list; Settings only for owner / roles granted Settings access; Backups
+  // (whole-database, cross-org) only for owner/admin, mirroring the backend gate.
   const visibleMenu = MENU.filter(item =>
     item.settings ? canSettings()
+    : item.ownerOnly ? (role === 'owner' || role === 'admin')
     : item.subItems ? item.subItems.some(s => !s.mod || canAny(s.mod))
     : (!item.mods || canAnyOf(item.mods))
   )

@@ -24,7 +24,6 @@ const SHORTCUTS = [
   { key: 'i', path: '/Items/Items/New',                           label: 'New Item' },
   { key: 'c', path: '/Sales/Customers/Newcustomers',              label: 'New Customer' },
   { key: 'v', path: '/Purchase/Vendors/NewVendor',                label: 'New Vendor' },
-  { key: 'n', path: '/Sales/Createinvoices',                      label: 'New Invoice' },
   { key: 'h', path: '/Home',                                      label: 'Home' },
 ]
 

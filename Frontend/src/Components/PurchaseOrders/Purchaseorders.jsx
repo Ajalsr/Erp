@@ -5,7 +5,7 @@ import {
   FaFileInvoiceDollar, FaBan,
   FaCheckCircle, FaClock, FaSpinner,
   FaTruck, FaDownload, FaFilter, FaEllipsisV,
-  FaTools, FaBox, FaEdit,
+  FaTools, FaBox, FaEdit, FaPrint,
 } from 'react-icons/fa';
 import { MdMoveToInbox } from 'react-icons/md';
 import { useNavigate } from 'react-router-dom';
@@ -376,6 +376,19 @@ export default function Purchaseorders() {
                   <p style={{ fontSize:11, color:T.textSec, margin:'3px 0 0' }}>{fmtDate(selected.orderDate)}</p>
                 </div>
                 <div style={{ display:'flex', gap:6, marginTop:-4 }}>
+                  <button onClick={() => navigate(`/Purchase/Purchaseorders/${selected._id}/print`)} className="po-icon-btn" title="Preview & Print" style={{ padding:8 }}><FaPrint size={13}/></button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await axiosInstance.get(`/api/purchase-orders/${selected._id}/pdf`, { responseType: 'blob' });
+                        const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+                        const a = document.createElement('a');
+                        a.href = url; a.download = `po-${selected.orderNumber || selected._id}.pdf`;
+                        document.body.appendChild(a); a.click(); a.remove();
+                        URL.revokeObjectURL(url);
+                      } catch (e) { console.error('Download PO PDF failed', e); }
+                    }}
+                    className="po-icon-btn" title="Download PDF" style={{ padding:8 }}><FaDownload size={13}/></button>
                   {!['cancelled','received'].includes(selected.status) && (
                     <button onClick={() => navigate(`/Purchase/Purchaseorders/Newpurchaseorders/${selected._id}`)} className="po-icon-btn" title="Edit" style={{ padding:8, color:T.blue }}><FaEdit size={13}/></button>
                   )}

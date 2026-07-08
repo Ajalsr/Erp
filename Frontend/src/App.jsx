@@ -46,6 +46,7 @@ const PaymentsMade = lazy(() => import("./Components/PaymentsMade/PaymentsMade")
 const Expenses = lazy(() => import("./Components/Expenses/Expenses"))
 const NewExpense = lazy(() => import("./Components/Expenses/NewExpense"))
 const Approvals = lazy(() => import("./Components/Approvals/Approvals"))
+const Backups = lazy(() => import("./Components/Backups/Backups"))
 const VendorCredits = lazy(() => import("./Components/VendorCredits/VendorCredits"))
 const SalesReport = lazy(() => import("./Components/Reports/SalesReport"))
 const SalesByEmirate = lazy(() => import("./Components/Reports/SalesByEmirate"))
@@ -77,6 +78,9 @@ const PublicInvoice = lazy(() => import("./Components/Invoices/PublicInvoice"))
 const Quotes = lazy(() => import("./Components/Quotes/Quotes"))
 const CreateQuote = lazy(() => import("./Components/Quotes/CreateQuote"))
 const QuotePrint = lazy(() => import("./Components/Quotes/QuotePrint"))
+const POPrint = lazy(() => import("./Components/PurchaseOrders/POPrint"))
+const BillPrint = lazy(() => import("./Components/Bills/BillPrint"))
+const SalesOrderPrint = lazy(() => import("./Components/SalesOrders/SalesOrderPrint"))
 
 // Lightweight fallback shown while a route chunk loads.
 const RouteFallback = () => (
@@ -143,9 +147,11 @@ function App() {
               <Route path="/Sales/Deliverynote/:id" element={<DeliveryNote />} />
               <Route path="/Sales/Salesorders/Newsalesorders" element={<Newsalesorders />} />
               <Route path="/Sales/Salesorders/Newsalesorders/:id" element={<Newsalesorders />} />
+              <Route path="/Sales/Salesorders/:id/print" element={<SalesOrderPrint />} />
               <Route path="/Purchase/Purchaseorders" element={<Purchaseorders />} />
               <Route path="/Purchase/Purchaseorders/Newpurchaseorders" element={<Newpurchaseorders />} />
               <Route path="/Purchase/Purchaseorders/Newpurchaseorders/:id" element={<Newpurchaseorders />} />
+              <Route path="/Purchase/Purchaseorders/:id/print" element={<POPrint />} />
               <Route path="/Purchase/Vendors" element={<Vendors />} />
               <Route path="/Purchase/Vendors/NewVendor" element={<NewVendor />} />
               <Route path="/Purchase/Vendors/Edit/:id" element={<NewVendor />} />
@@ -166,11 +172,13 @@ function App() {
               <Route path="/Purchase/Bills" element={<Bills />} />
               <Route path="/Purchase/Bills/New" element={<NewBill />} />
               <Route path="/Purchase/Bills/Edit/:id" element={<NewBill />} />
+              <Route path="/Purchase/Bills/:id/print" element={<BillPrint />} />
               <Route path="/Purchase/Expenses" element={<Expenses />} />
               <Route path="/Purchase/Expenses/New" element={<NewExpense />} />
               <Route path="/Purchase/PaymentsMade" element={<PaymentsMade />} />
               <Route path="/Purchase/VendorCredits" element={<VendorCredits />} />
               <Route path="/Approvals" element={<Approvals />} />
+              <Route path="/Backups" element={<Backups />} />
               <Route path="/Reports/sales"                element={<SalesReport />} />
               <Route path="/Reports/sales-by-emirate"     element={<SalesByEmirate />} />
               <Route path="/Reports/purchases"            element={<PurchaseReport />} />

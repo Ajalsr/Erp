@@ -289,10 +289,22 @@ func CreateSalesOrder() gin.HandlerFunc {
 		// a placeholder for display, never the authoritative number.
 		req.OrderNumber = generateOrderNumber(ctx, fmt.Sprintf("%v", orgID))
 
+		// Client-requested review: a non-approver explicitly clicked "Submit for
+		// Approval". This signal was previously dropped entirely — only the risk
+		// checks above could force a hold, so a clean order always went straight to
+		// "open" even when the requester asked for approval. Now either one holds it.
+		if req.Status == "pending_approval" {
+			needsApproval = true
+			if len(approvalReasons) == 0 {
+				approvalReasons = append(approvalReasons, "Submitted for approval by requester")
+			}
+		}
+
 		// Self-clearance: if the creator is themselves an approver (owner/admin or a
 		// configured SO approver), holding the order for approval is pointless — they could
-		// just approve it. Skip the hold and let it go straight to open.
-		if needsApproval {
+		// just approve it. Skip the hold and let it go straight to open. A draft never
+		// enters the approval flow — nothing has been submitted yet.
+		if needsApproval && req.Status != "draft" {
 			if orgObjID, e := primitive.ObjectIDFromHex(orgIDStr); e == nil {
 				if role, ok := getMemberRole(ctx, orgObjID, fmt.Sprintf("%v", userID)); ok && salesOrderApproverRoles(ctx, orgObjID)[role] {
 					needsApproval = false
@@ -301,10 +313,14 @@ func CreateSalesOrder() gin.HandlerFunc {
 			}
 		}
 
-		// Approval is required ONLY when a risk reason fires (credit block / expired
-		// license / overdue). A clean order goes straight to open for everyone.
+		// Status: a draft stays a draft regardless of risk flags (not submitted yet);
+		// a held order (risk-triggered or explicitly requested) goes pending_approval;
+		// everything else opens straight up.
 		soStatus := "open"
-		if needsApproval {
+		if req.Status == "draft" {
+			soStatus = "draft"
+			needsApproval = false // don't fire the "held" note/notification for a draft
+		} else if needsApproval {
 			soStatus = "pending_approval"
 		}
 		histNote := ""

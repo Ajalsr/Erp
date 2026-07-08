@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft,
   FaChevronRight, FaClock, FaExclamationCircle, FaMoneyBillWave,
-  FaCheckCircle, FaSpinner, FaReceipt, FaEdit, FaPrint, FaPaperPlane, FaCopy,
+  FaCheckCircle, FaSpinner, FaReceipt, FaEdit, FaPrint, FaPaperPlane, FaCopy, FaDownload,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
@@ -423,36 +423,20 @@ export default function Bills() {
   };
 
   /* ── Print bill ── */
-  const handlePrintBill = () => {
-    const b = selected;
-    const fmtAED = (n) => money(n, b.currency); // print in the bill's own currency
-    const rows = (b.lineItems || []).map(li =>
-      `<tr><td>${li.description || ""}</td><td style="text-align:right">${li.qty || 0}</td><td style="text-align:right">${fmtAED(li.unitPrice)}</td><td style="text-align:right">${li.taxRate || 0}%</td><td style="text-align:right">${fmtAED(li.total)}</td></tr>`
-    ).join("");
-    const w = window.open("", "_blank", "width=800,height=900");
-    if (!w) { nexusToast.error("Popup blocked — allow popups to print"); return; }
-    w.document.write(`<!doctype html><html><head><title>${b.billNumber}</title>
-      <style>body{font-family:Arial,sans-serif;padding:32px;color:#0f172a}h1{font-size:20px;margin:0}
-      .muted{color:#64748b;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}
-      th,td{padding:8px 10px;border-bottom:1px solid #e2e8f0}th{text-align:left;background:#f8fafc;font-size:11px;text-transform:uppercase}
-      .tot{display:flex;justify-content:flex-end;margin-top:16px}.tot table{width:280px}</style></head><body>
-      <div style="display:flex;justify-content:space-between">
-        <div><h1>VENDOR BILL</h1><p class="muted">${b.billNumber}</p></div>
-        <div style="text-align:right"><p class="muted">Bill Date: ${fmtDate(b.billDate)}<br>Due: ${fmtDate(b.dueDate)}</p></div>
-      </div>
-      <div style="margin-top:16px"><strong>Vendor:</strong> ${b.vendorName || "—"}${b.vendorTrn ? `<br><span class="muted">TRN: ${b.vendorTrn}</span>` : ""}</div>
-      <table><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit Price</th><th style="text-align:right">VAT</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
-      <div class="tot"><table>
-        <tr><td>Subtotal</td><td style="text-align:right">${fmtAED(b.totals?.subtotal)}</td></tr>
-        <tr><td>VAT</td><td style="text-align:right">${fmtAED(b.totals?.taxTotal)}</td></tr>
-        ${(b.totals?.shipping || 0) !== 0 ? `<tr><td>Shipping Charges</td><td style="text-align:right">${fmtAED(b.totals.shipping)}</td></tr>` : ""}
-        ${(b.totals?.adjustment || 0) !== 0 ? `<tr><td>Adjustment</td><td style="text-align:right">${fmtAED(b.totals.adjustment)}</td></tr>` : ""}
-        <tr><td><strong>Grand Total</strong></td><td style="text-align:right"><strong>${fmtAED(b.totals?.grandTotal)}</strong></td></tr>
-        <tr><td>Paid</td><td style="text-align:right">${fmtAED(b.amountPaid)}</td></tr>
-        <tr><td><strong>Balance Due</strong></td><td style="text-align:right"><strong>${fmtAED(b.balanceDue)}</strong></td></tr>
-      </table></div></body></html>`);
-    w.document.close();
-    setTimeout(() => w.print(), 350);
+  // Preview & print the server-generated PDF (carries the status watermark for
+  // unapproved/void bills). Replaces the old client-side HTML popup.
+  const handlePrintBill = () => navigate(`/Purchase/Bills/${selected._id}/print`);
+
+  // Download the same server PDF as a file.
+  const handleDownloadBill = async () => {
+    try {
+      const res = await axiosInstance.get(`/api/bills/${selected._id}/pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = `bill-${selected.billNumber || selected._id}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error("Download bill PDF failed", e); nexusToast.error("Download failed"); }
   };
 
   /* ── Email bill to vendor (stub) ── */
@@ -684,8 +668,12 @@ export default function Bills() {
                       <FaCopy size={11} /> Clone
                     </button>
                     <button className="bl-btn" onClick={handlePrintBill}
-                      title="Print" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
+                      title="Preview & Print" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
                       <FaPrint size={11} /> Print
+                    </button>
+                    <button className="bl-btn" onClick={handleDownloadBill}
+                      title="Download PDF" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
+                      <FaDownload size={11} /> PDF
                     </button>
                     <button className="bl-btn" onClick={handleEmailBill} disabled={emailing}
                       title="Email" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: emailing ? "wait" : "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>

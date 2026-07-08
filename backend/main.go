@@ -88,6 +88,10 @@ func main() {
 	// Start invoice due-date scheduler (checks daily: due-soon alerts + overdue status)
 	controllers.StartInvoiceScheduler()
 
+	// Start the rolling 30-day backup scheduler — one backup per organization per
+	// day (daily, Cloudinary-backed, each org's data isolated from every other org's)
+	controllers.StartBackupScheduler()
+
 	// Create MongoDB indexes on startup (idempotent — safe to run every restart)
 	config.EnsureIndexes(config.DB)
 
@@ -142,6 +146,7 @@ func main() {
 	routes.RecurringInvoiceRoutes(router)
 	routes.ExchangeRateRoutes(router)
 	routes.ApprovalRoutes(router)
+	routes.BackupRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))
