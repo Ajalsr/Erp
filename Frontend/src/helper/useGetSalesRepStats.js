@@ -15,6 +15,8 @@ const DEFAULT_STATS = {
   salesMade:         0,
   salesConverted:    0,
   monthly:           [],
+  rank:              0,
+  rankTotal:         0,
 };
 
 // Sales-rep dashboard data: the caller's OWN quotes/sales for the current year,

@@ -20,6 +20,7 @@ const lineItemsOf = (p) => (Array.isArray(p?.lineItems) && p.lineItems) || (Arra
 
 const DOC_LABEL = {
   po:             { label: 'Purchase Order',   color: '#8b5cf6' },
+  purchase_order: { label: 'Purchase Order',   color: '#8b5cf6' },
   bill:           { label: 'Bill',             color: '#f59e0b' },
   vendor_payment: { label: 'Vendor Payment',   color: '#ef4444' },
   payment:        { label: 'Customer Payment', color: '#10b981' },
@@ -89,9 +90,12 @@ export default function Approvals() {
     const note = approveNote.trim()
     setBusy(req._id)
     try {
-      // Sales orders use a bespoke status-based approval, not the generic engine.
+      // Sales orders and purchase orders use a bespoke status-based approval,
+      // not the generic engine.
       const r = req.docType === 'sales_order'
         ? await axiosInstance.patch(`/api/sales-orders/${req._id}/status`, { status: 'approved', approverNote: note })
+        : req.docType === 'purchase_order'
+        ? await axiosInstance.patch(`/api/purchase-orders/${req._id}/approve`)
         : await axiosInstance.post(`/api/approvals/${req._id}/approve`, { note })
       nexusToast.success(r.data?.message || 'Approved')
       setApproveTarget(null)
@@ -110,6 +114,8 @@ export default function Approvals() {
     try {
       if (req.docType === 'sales_order') {
         await axiosInstance.patch(`/api/sales-orders/${req._id}/status`, { status: 'rejected', rejectionReason: rejectReason.trim() })
+      } else if (req.docType === 'purchase_order') {
+        await axiosInstance.patch(`/api/purchase-orders/${req._id}/cancel`)
       } else {
         await axiosInstance.post(`/api/approvals/${req._id}/reject`, { reason: rejectReason.trim() })
       }

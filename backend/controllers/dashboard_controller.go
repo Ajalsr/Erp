@@ -2,9 +2,11 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -582,9 +585,14 @@ func GetSalesRepSummary() gin.HandlerFunc {
 			salesAchieved                    float64
 		)
 
+		// "Achieved" = the quote actually became a sale (status "converted" OR it has a
+		// linked sales order via convertedToSO), NOT merely "accepted".
+		quoteAchievedFilter := bson.M{"$or": []bson.M{
+			{"status": "converted"},
+			{"convertedToSO": bson.M{"$exists": true, "$nin": []interface{}{"", nil}}},
+		}}
 		quotationMade, _ = quoteCollection.CountDocuments(ctx, base)
-		quotationAchieved, _ = quoteCollection.CountDocuments(ctx,
-			withMatch(bson.M{"status": bson.M{"$in": []string{"accepted", "converted"}}}))
+		quotationAchieved, _ = quoteCollection.CountDocuments(ctx, withMatch(quoteAchievedFilter))
 
 		salesMade, _ = salesOrdersCollection.CountDocuments(ctx, base)
 		salesConverted, _ = salesOrdersCollection.CountDocuments(ctx,
@@ -654,7 +662,13 @@ func GetSalesRepSummary() gin.HandlerFunc {
 				"_id":           bson.M{"$month": "$createdAt"},
 				"quotationMade": bson.M{"$sum": 1},
 				"quotationAchieved": bson.M{"$sum": bson.M{"$cond": []interface{}{
-					bson.M{"$in": []interface{}{"$status", []string{"accepted", "converted"}}}, 1, 0}}},
+					bson.M{"$or": []interface{}{
+						bson.M{"$eq": []interface{}{"$status", "converted"}},
+						bson.M{"$and": []interface{}{
+							bson.M{"$ne": []interface{}{"$convertedToSO", nil}},
+							bson.M{"$ne": []interface{}{"$convertedToSO", ""}},
+						}},
+					}}, 1, 0}}},
 			}},
 		}); err == nil {
 			var rows []bson.M
@@ -683,6 +697,57 @@ func GetSalesRepSummary() gin.HandlerFunc {
 			})
 		}
 
+		// ── Rank among SALES REPS by yearly sales achieved ───────────────────────
+		// rankTotal = active sales reps in the org; rank = this user's 1-based position
+		// when the reps are sorted by their own sales-achieved (0 if no sales).
+		rank, rankTotal := 0, 0
+		if oid, err := primitive.ObjectIDFromHex(orgID); err == nil {
+			// Each member's yearly sales-achieved.
+			amounts := map[string]float64{}
+			if cur, err := salesOrdersCollection.Aggregate(ctx, []bson.M{
+				{"$match": bson.M{"orgId": orgID, "createdAt": bson.M{"$gte": yearStart}}},
+				{"$group": bson.M{"_id": "$createdBy", "total": bson.M{"$sum": "$total"}}},
+			}); err == nil {
+				var rows []bson.M
+				cur.All(ctx, &rows)
+				for _, r := range rows {
+					if id, ok := r["_id"].(string); ok {
+						amounts[id] = toFloat(r["total"])
+					}
+				}
+			}
+			// Active sales-rep pool. Role names vary ("sales_rep", "sales rep", "Sales Rep"),
+			// so normalize (lowercase, strip spaces/underscores) and match "salesrep".
+			isRep := func(role string) bool {
+				n := strings.ReplaceAll(strings.ReplaceAll(strings.ToLower(role), " ", ""), "_", "")
+				return n == "salesrep"
+			}
+			if cur, err := orgMemberCollection.Find(ctx, bson.M{"orgId": oid, "status": "active"}); err == nil {
+				var members []bson.M
+				cur.All(ctx, &members)
+				mine := amounts[userID]
+				rankPos := 1 // start at 1; every rep ahead of me pushes it down
+				meIsRep := false
+				for _, mem := range members {
+					role, _ := mem["role"].(string)
+					if !isRep(role) {
+						continue
+					}
+					rankTotal++
+					id, _ := mem["userId"].(string)
+					if id == userID {
+						meIsRep = true
+					} else if amounts[id] > mine {
+						rankPos++
+					}
+				}
+				// Only publish a rank when the viewer is themselves a sales rep in the pool.
+				if meIsRep {
+					rank = rankPos
+				}
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"status": http.StatusOK,
 			"data": gin.H{
@@ -695,7 +760,104 @@ func GetSalesRepSummary() gin.HandlerFunc {
 				"salesMade":         salesMade,
 				"salesConverted":    salesConverted,
 				"monthly":           monthly,
+				"rank":              rank,
+				"rankTotal":         rankTotal,
 			},
+		})
+	}
+}
+
+// GetSalesRepRecords returns the underlying records behind a sales-rep dashboard
+// metric — the caller's OWN quotes/sales for the current year — so a tile can drill
+// into the actual list. Same safety as GetSalesRepSummary: own data only.
+//
+//	GET /api/dashboard/sales-rep/records?metric=quotationMade
+//
+// metric ∈ { quotationMade, quotationAchieved, salesMade, salesAchieved, salesConverted }
+func GetSalesRepRecords() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgVal, _ := c.Get("orgId")
+		orgID, _ := orgVal.(string)
+		userVal, _ := c.Get("userId")
+		userID, _ := userVal.(string)
+		metric := c.Query("metric")
+
+		now := time.Now()
+		yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+		base := bson.M{"orgId": orgID, "createdBy": userID, "createdAt": bson.M{"$gte": yearStart}}
+
+		findOpts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetLimit(300)
+		records := []gin.H{}
+
+		switch metric {
+		case "quotationMade", "quotationAchieved":
+			filter := bson.M{}
+			for k, v := range base {
+				filter[k] = v
+			}
+			if metric == "quotationAchieved" {
+				filter["$or"] = []bson.M{
+					{"status": "converted"},
+					{"convertedToSO": bson.M{"$exists": true, "$nin": []interface{}{"", nil}}},
+				}
+			}
+			cur, err := quoteCollection.Find(ctx, filter, findOpts)
+			if err == nil {
+				var rows []bson.M
+				cur.All(ctx, &rows)
+				for _, r := range rows {
+					amount := 0.0
+					if tot, ok := r["totals"].(bson.M); ok {
+						amount = toFloat(tot["grandTotal"])
+					}
+					records = append(records, gin.H{
+						"id":       fmt.Sprintf("%v", r["_id"]),
+						"number":   r["quoteNumber"],
+						"customer": r["customerName"],
+						"date":     r["createdAt"],
+						"amount":   amount,
+						"status":   r["status"],
+					})
+				}
+			}
+		case "salesMade", "salesAchieved", "salesConverted":
+			filter := bson.M{}
+			for k, v := range base {
+				filter[k] = v
+			}
+			if metric == "salesConverted" {
+				filter["sourceQuoteId"] = bson.M{"$exists": true, "$nin": []interface{}{"", nil}}
+			}
+			cur, err := salesOrdersCollection.Find(ctx, filter, findOpts)
+			if err == nil {
+				var rows []bson.M
+				cur.All(ctx, &rows)
+				for _, r := range rows {
+					date := r["orderDate"]
+					if date == nil {
+						date = r["createdAt"]
+					}
+					records = append(records, gin.H{
+						"id":       fmt.Sprintf("%v", r["_id"]),
+						"number":   r["orderNumber"],
+						"customer": r["customerName"],
+						"date":     date,
+						"amount":   toFloat(r["total"]),
+						"status":   r["status"],
+					})
+				}
+			}
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Unknown metric"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": http.StatusOK,
+			"data":   gin.H{"metric": metric, "count": len(records), "records": records},
 		})
 	}
 }

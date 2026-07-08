@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   FaFileAlt, FaCheckCircle, FaShoppingCart, FaMoneyBillWave,
-  FaExchangeAlt, FaBullseye, FaTrophy,
+  FaExchangeAlt, FaBullseye, FaTrophy, FaTimes, FaChevronRight,
 } from "react-icons/fa";
 import {
   ResponsiveContainer, AreaChart, Area, LineChart, Line,
@@ -22,19 +23,35 @@ const fmtMoney = (n, ccy) => {
   return `${ccy} ${v.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 const rate = (num, den) => (den > 0 ? Math.round((num / den) * 100) : 0);
+const fmtDate = (d) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return isNaN(dt) ? "—" : dt.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" });
+};
 
-/* Single stat tile — matches the card language used across the app. */
-const Tile = ({ T, icon, accent, label, value, sub }) => (
-  <div style={{
-    background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16,
-    padding: 20, display: "flex", flexDirection: "column", gap: 12, minWidth: 0,
-    boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-  }}>
-    <div style={{
-      width: 40, height: 40, borderRadius: 11, flexShrink: 0,
-      background: `${accent}1f`, color: accent,
-      display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
-    }}>{icon}</div>
+/* Single stat tile — matches the card language used across the app. Clickable when
+   onClick is given (drills into the underlying records). */
+const Tile = ({ T, icon, accent, label, value, sub, onClick }) => (
+  <div
+    onClick={onClick}
+    style={{
+      background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16,
+      padding: 20, display: "flex", flexDirection: "column", gap: 12, minWidth: 0,
+      boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+      cursor: onClick ? "pointer" : "default", position: "relative",
+      transition: "border-color .15s, transform .1s",
+    }}
+    onMouseEnter={(e) => { if (onClick) { e.currentTarget.style.borderColor = accent; e.currentTarget.style.transform = "translateY(-1px)"; } }}
+    onMouseLeave={(e) => { if (onClick) { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.transform = "none"; } }}
+  >
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div style={{
+        width: 40, height: 40, borderRadius: 11, flexShrink: 0,
+        background: `${accent}1f`, color: accent,
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
+      }}>{icon}</div>
+      {onClick && <FaChevronRight size={11} style={{ color: T.textSec, opacity: 0.5, marginTop: 4 }} />}
+    </div>
     <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 24, fontWeight: 800, color: T.textPri, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div>
       <div style={{ fontSize: 13, color: T.textSec, marginTop: 4 }}>{label}</div>
@@ -42,6 +59,85 @@ const Tile = ({ T, icon, accent, label, value, sub }) => (
     </div>
   </div>
 );
+
+/* Drill-down modal: lists the records behind a metric. */
+const DrillModal = ({ T, isDark, ccy, title, metric, onClose }) => {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true); setError(null);
+    axiosInstance.get("/api/dashboard/sales-rep/records", { params: { metric } })
+      .then((r) => { if (live) setRecords(r.data?.data?.records ?? []); })
+      .catch((e) => { if (live) setError(e?.response?.data?.message ?? "Failed to load records"); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [metric]);
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 100000, background: "rgba(0,0,0,.45)",
+        backdropFilter: "blur(2px)", display: "flex", justifyContent: "flex-end",
+        fontFamily: "'DM Sans', sans-serif",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 560, maxWidth: "92vw", height: "100%", background: T.bg,
+          borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column",
+          boxShadow: "-16px 0 48px rgba(0,0,0,.28)",
+        }}
+      >
+        <div style={{
+          padding: "18px 22px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.textPri }}>{title}</div>
+            <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>
+              {loading ? "Loading…" : `${records.length} record${records.length === 1 ? "" : "s"}`}
+            </div>
+          </div>
+          <span onClick={onClose} style={{ cursor: "pointer", color: T.textSec, fontSize: 16, padding: 6 }}><FaTimes /></span>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
+          {error && <div style={{ color: "#ef4444", fontSize: 13, padding: 16 }}>{error}</div>}
+          {!loading && !error && records.length === 0 && (
+            <div style={{ color: T.textSec, fontSize: 13, textAlign: "center", padding: "40px 0" }}>No records.</div>
+          )}
+          {records.map((r) => (
+            <div key={r.id} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+              padding: "12px 14px", borderRadius: 12, background: T.surface,
+              border: `1px solid ${T.border}`, marginBottom: 8,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>{r.number || "—"}</div>
+                <div style={{ fontSize: 12, color: T.textSec, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {r.customer || "—"} · {fmtDate(r.date)}
+                </div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>{fmtMoney(r.amount, ccy)}</div>
+                {r.status && <div style={{
+                  fontSize: 10.5, fontWeight: 700, textTransform: "capitalize", marginTop: 3,
+                  color: isDark ? "#94a3b8" : "#64748b",
+                }}>{r.status}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+};
 
 /* Chart section wrapper card. */
 const ChartCard = ({ T, title, subtitle, children }) => (
@@ -82,6 +178,15 @@ export default function SalesRepDashboard() {
   const convRate = rate(salesConverted, salesMade);        // SOs originating from a quote
   const accent = "#3b82f6";
 
+  const { rank, rankTotal } = stats;
+  const curMonth = new Date().getMonth() + 1;
+  const thisMonth = Number(monthly.find((m) => m.month === curMonth)?.salesAchieved || 0);
+  const avgDeal = salesMade > 0 ? salesAchieved / salesMade : 0;
+  const best = useMemo(
+    () => monthly.reduce((acc, m) => (Number(m.salesAchieved) > acc.val ? { label: m.label, val: Number(m.salesAchieved) } : acc), { label: "—", val: 0 }),
+    [monthly],
+  );
+
   // Cumulative sales-achieved vs a flat yearly-target line, month by month.
   const targetSeries = useMemo(() => {
     let running = 0;
@@ -94,6 +199,9 @@ export default function SalesRepDashboard() {
   const gridStroke = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
   const axisTick = { fill: T.textSec, fontSize: 11 };
   const tooltipStyle = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, fontSize: 12, color: T.textPri };
+
+  // Tile drill-down: { metric, title } or null.
+  const [drill, setDrill] = useState(null);
 
   return (
     <div style={{ background: T.bg, minHeight: "100vh", padding: "28px 32px" }}>
@@ -141,6 +249,27 @@ export default function SalesRepDashboard() {
             <span>{yearlyTarget > 0 ? fmtMoney(Math.max(yearlyTarget - salesAchieved, 0), ccy) + " to go" : "Set a target in settings"}</span>
           </div>
         </div>
+
+        {/* Detail chips */}
+        <div style={{
+          display: "grid", gap: 12, marginTop: 20,
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+        }}>
+          {[
+            { k: "This Month",   v: fmtMoney(thisMonth, ccy) },
+            { k: "Avg Deal Size", v: fmtMoney(avgDeal, ccy) },
+            { k: "Best Month",   v: best.val > 0 ? `${best.label} · ${fmtMoney(best.val, ccy)}` : "—" },
+            { k: "Rank",         v: rankTotal > 0 ? `#${rank} of ${rankTotal}` : "—" },
+          ].map((c) => (
+            <div key={c.k} style={{
+              background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.18)",
+              borderRadius: 12, padding: "12px 14px",
+            }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", opacity: 0.85 }}>{c.k}</div>
+              <div style={{ fontSize: 17, fontWeight: 800, marginTop: 5 }}>{c.v}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Target progress line graph — cumulative achieved vs target across the year */}
@@ -172,18 +301,18 @@ export default function SalesRepDashboard() {
         gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
         opacity: loading ? 0.6 : 1, transition: "opacity .2s",
       }}>
-        <Tile T={T} icon={<FaFileAlt />}     accent="#6366f1" label="Quotation Made"     value={fmtNum(quotationMade)} />
-        <Tile T={T} icon={<FaCheckCircle />} accent="#16a34a" label="Quotation Achieved" value={fmtNum(quotationAchieved)} sub={`${winRate}% win rate`} />
-        <Tile T={T} icon={<FaShoppingCart />} accent="#f59e0b" label="Sales Made"        value={fmtNum(salesMade)} />
-        <Tile T={T} icon={<FaMoneyBillWave />} accent="#10b981" label="Sales Achieved"   value={fmtMoney(salesAchieved, ccy)} />
-        <Tile T={T} icon={<FaExchangeAlt />} accent="#8b5cf6" label="Sales Converted"    value={fmtNum(salesConverted)} sub={`${convRate}% from quotes`} />
+        <Tile T={T} icon={<FaFileAlt />}     accent="#6366f1" label="Quotation Made"     value={fmtNum(quotationMade)} onClick={() => setDrill({ metric: "quotationMade", title: "Quotation Made" })} />
+        <Tile T={T} icon={<FaCheckCircle />} accent="#16a34a" label="Quotation Achieved" value={fmtNum(quotationAchieved)} sub={`${winRate}% win rate`} onClick={() => setDrill({ metric: "quotationAchieved", title: "Quotation Achieved" })} />
+        <Tile T={T} icon={<FaShoppingCart />} accent="#f59e0b" label="Sales Made"        value={fmtNum(salesMade)} onClick={() => setDrill({ metric: "salesMade", title: "Sales Made" })} />
+        <Tile T={T} icon={<FaMoneyBillWave />} accent="#10b981" label="Sales Achieved"   value={fmtMoney(salesAchieved, ccy)} onClick={() => setDrill({ metric: "salesAchieved", title: "Sales Achieved" })} />
+        <Tile T={T} icon={<FaExchangeAlt />} accent="#8b5cf6" label="Sales Converted"    value={fmtNum(salesConverted)} sub={`${convRate}% from quotes`} onClick={() => setDrill({ metric: "salesConverted", title: "Sales Converted" })} />
         <Tile T={T} icon={<FaTrophy />}      accent="#ef4444" label="Target Progress"    value={`${achievedPct}%`} sub={`of ${yearlyTarget > 0 ? fmtMoney(yearlyTarget, ccy) : "—"}`} />
       </div>
 
       {/* Detailed monthly trends */}
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))" }}>
         {/* Quotes: made vs achieved */}
-        <ChartCard T={T} title="Quotations" subtitle="Made vs achieved (accepted / converted), by month">
+        <ChartCard T={T} title="Quotations" subtitle="Made vs achieved (converted to a sale), by month">
           <ResponsiveContainer width="100%" height={230}>
             <LineChart data={monthly} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
@@ -231,6 +360,14 @@ export default function SalesRepDashboard() {
           </ResponsiveContainer>
         </ChartCard>
       </div>
+
+      {drill && (
+        <DrillModal
+          T={T} isDark={isDark} ccy={ccy}
+          title={drill.title} metric={drill.metric}
+          onClose={() => setDrill(null)}
+        />
+      )}
     </div>
   );
 }

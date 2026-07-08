@@ -565,6 +565,66 @@ func GetApprovalRequests() gin.HandlerFunc {
 			}
 		}
 
+		// ── Purchase orders ──────────────────────────────────────────────────
+		// POs also run a bespoke status-based approval (status="pending_approval"
+		// on the order itself, set at creation for non owner/admin creators), not
+		// the generic approval_requests engine — that engine is only used for PO
+		// *updates* (docType "po", action "update"). Surface creation-pending POs
+		// here too, under a distinct docType ("purchase_order") so they never
+		// collide with real update-hold entries. Actions are routed back to
+		// /api/purchase-orders/:id/{approve,cancel} by the client.
+		poPend, _ := purchaseOrderCollection.CountDocuments(ctx, bson.M{"orgId": orgIDStr, "status": "pending_approval"})
+		pendingCount += poPend
+
+		poFilter := bson.M{"orgId": orgIDStr}
+		switch status {
+		case "all":
+			poFilter["status"] = bson.M{"$in": []string{"pending_approval", "issued", "partial", "received", "cancelled"}}
+		case "approved":
+			poFilter["status"] = bson.M{"$in": []string{"issued", "partial", "received"}}
+		case "rejected":
+			poFilter["status"] = "cancelled"
+		default: // pending
+			poFilter["status"] = "pending_approval"
+		}
+		if poCur, poErr := purchaseOrderCollection.Find(ctx, poFilter,
+			options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})); poErr == nil {
+			var pos []models.PurchaseOrder
+			poCur.All(ctx, &pos)
+			poCur.Close(ctx)
+			for _, po := range pos {
+				synth := "pending"
+				switch po.Status {
+				case "issued", "partial", "received":
+					synth = "approved"
+				case "cancelled":
+					synth = "rejected"
+				}
+				items := make([]gin.H, 0, len(po.Items))
+				for _, it := range po.Items {
+					items = append(items, gin.H{"details": it.Details, "quantity": it.Quantity, "rate": it.Rate, "amount": it.Amount})
+				}
+				out = append(out, gin.H{"req": gin.H{
+					"_id":             po.ID.Hex(),
+					"docType":         "purchase_order",
+					"action":          "create",
+					"title":           po.OrderNumber,
+					"amount":          po.Total,
+					"status":          synth,
+					"requestedBy":     po.CreatedBy,
+					"requestedByName": po.CreatedBy,
+					"requestedAt":     po.CreatedAt,
+					"steps":           []gin.H{},
+					"currentStep":     0,
+					"payload": gin.H{
+						"vendorName": po.VendorName,
+						"items":      items,
+						"totals":     gin.H{"subTotal": po.SubTotal, "tax": po.TotalTax, "grandTotal": po.Total},
+					},
+				}, "canAct": synth == "pending" && (role == "owner" || role == "admin")})
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{"requests": out, "pendingCount": pendingCount, "myRole": role}})
 	}
 }

@@ -83,6 +83,8 @@ func SaleOrderRoutes(router *gin.Engine) {
 		salesOrderRoutes.DELETE("/:id", controllers.DeleteSalesOrder())
 		salesOrderRoutes.POST("/:id/revert", controllers.RevertSalesOrder())
 		salesOrderRoutes.POST("/:id/create-po", controllers.ConvertSOToPO())
+		salesOrderRoutes.GET("/:id/pdf", controllers.DownloadSalesOrderPDF())
+		salesOrderRoutes.GET("/:id/preview", controllers.PreviewSalesOrderPDF())
 	}
 }
 
@@ -191,6 +193,7 @@ func DashboardRoutes(router *gin.Engine) {
 	repDash.Use(middlewares.Authenticate, middlewares.RequireOrg)
 	{
 		repDash.GET("/sales-rep", controllers.GetSalesRepSummary())
+		repDash.GET("/sales-rep/records", controllers.GetSalesRepRecords())
 	}
 }
 
@@ -207,6 +210,8 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 		poRoutes.PATCH("/:id/approve", controllers.ApprovePurchaseOrder())
 		poRoutes.PATCH("/:id/cancel", controllers.CancelPurchaseOrder())
 		poRoutes.POST("/:id/convert-to-bill", controllers.ConvertPOToBill())
+		poRoutes.GET("/:id/pdf", controllers.DownloadPurchaseOrderPDF())
+		poRoutes.GET("/:id/preview", controllers.PreviewPurchaseOrderPDF())
 	}
 }
 
@@ -267,6 +272,8 @@ func BillRoutes(router *gin.Engine) {
 		billRoutes.PUT("/:id", controllers.UpdateBill())
 		billRoutes.PATCH("/:id/status", controllers.UpdateBillStatus())
 		billRoutes.PATCH("/:id/void", controllers.VoidBill())
+		billRoutes.GET("/:id/pdf", controllers.DownloadBillPDF())
+		billRoutes.GET("/:id/preview", controllers.PreviewBillPDF())
 	}
 }
 

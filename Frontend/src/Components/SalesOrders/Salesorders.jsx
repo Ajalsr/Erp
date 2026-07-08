@@ -3,7 +3,7 @@ import {
   FaPlus, FaTimes, FaSearch, FaShoppingCart,
   FaChevronLeft, FaChevronRight, FaBoxOpen,
   FaFileInvoiceDollar, FaEdit, FaBan,
-  FaSortAmountDown, FaSortAmountUp, FaDownload,
+  FaSortAmountDown, FaSortAmountUp, FaDownload, FaPrint,
   FaCheckCircle, FaClock, FaTimesCircle, FaSpinner,
   FaHourglassHalf, FaThumbsUp, FaThumbsDown, FaFilter,
   FaEllipsisV, FaAngleDown, FaChevronDown, FaBolt,
@@ -1154,16 +1154,41 @@ const Salesorders = () => {
                         </div>
                       </div>
                     </div>
-                    <button onClick={closeDrawer} style={{
-                      position: "absolute", top: "16px", right: "20px",
-                      width: "28px", height: "28px", borderRadius: "8px",
-                      background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
-                      border: `1px solid ${C.border}`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      cursor: "pointer", color: C.textSec,
-                    }}>
-                      <FaTimes size={10} />
-                    </button>
+                    {(() => {
+                      const soId = selected.id || selected._id;
+                      const soNo = selected.orderNumber || selected.saleOrderNumber || soId;
+                      const iconBtn = {
+                        width: "28px", height: "28px", borderRadius: "8px",
+                        background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+                        border: `1px solid ${C.border}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        cursor: "pointer", color: C.textSec,
+                      };
+                      return (
+                        <div style={{ position: "absolute", top: "16px", right: "20px", display: "flex", gap: "8px" }}>
+                          <button title="Preview & Print" style={iconBtn}
+                            onClick={() => navigate(`/Sales/Salesorders/${soId}/print`)}>
+                            <FaPrint size={11} />
+                          </button>
+                          <button title="Download PDF" style={iconBtn}
+                            onClick={async () => {
+                              try {
+                                const res = await axiosInstance.get(`/api/sales-orders/${soId}/pdf`, { responseType: 'blob' });
+                                const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+                                const a = document.createElement('a');
+                                a.href = url; a.download = `so-${soNo}.pdf`;
+                                document.body.appendChild(a); a.click(); a.remove();
+                                URL.revokeObjectURL(url);
+                              } catch (e) { console.error('Download SO PDF failed', e); }
+                            }}>
+                            <FaDownload size={11} />
+                          </button>
+                          <button onClick={closeDrawer} style={iconBtn}>
+                            <FaTimes size={10} />
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* 4 stat chips */}
