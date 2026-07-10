@@ -468,3 +468,81 @@ func buildInviteEmailHTML(orgName, invitedBy, role, inviteLink string) string {
 		invitedBy,
 	)
 }
+
+// SendLetterEmail emails an issued letter with its PDF attached — same
+// attach-bytes pattern as SendQuoteEmail (in-memory PDF, no temp file).
+func SendLetterEmail(toEmails []string, l models.Letter, customMessage string, pdfBytes []byte) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return fmt.Errorf("email service not configured (SMTP_HOST/SMTP_USER/SMTP_PASS missing)")
+	}
+	if len(toEmails) == 0 {
+		return fmt.Errorf("no recipients")
+	}
+
+	port := 587
+	if portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Nexus ERP <%s>", from))
+	m.SetHeader("To", toEmails...)
+	m.SetHeader("Subject", fmt.Sprintf("%s — %s", l.Title, l.LetterNumber))
+	m.SetBody("text/html", buildLetterEmailHTML(l, customMessage))
+	if len(pdfBytes) > 0 {
+		name := "letter-" + l.LetterNumber + ".pdf"
+		m.Attach(name, gomail.SetCopyFunc(func(w io.Writer) error {
+			_, err := w.Write(pdfBytes)
+			return err
+		}), gomail.SetHeader(map[string][]string{"Content-Type": {"application/pdf"}}))
+	}
+
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send letter email to %v: %v", toEmails, err)
+		return err
+	}
+
+	log.Printf("[email] Letter email sent to %v", toEmails)
+	return nil
+}
+
+func buildLetterEmailHTML(l models.Letter, customMessage string) string {
+	msgBlock := ""
+	if strings.TrimSpace(customMessage) != "" {
+		msgBlock = fmt.Sprintf(`<p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;white-space:pre-wrap;">%s</p>`, customMessage)
+	}
+	greeting := "Dear Sir/Madam,"
+	if l.CustomerName != "" {
+		greeting = fmt.Sprintf("Dear %s,", l.CustomerName)
+	}
+	return fmt.Sprintf(`<!DOCTYPE html><html><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:24px;">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+      <div style="background:#3b82f6;padding:20px 24px;">
+        <h1 style="margin:0;color:#ffffff;font-size:18px;">%s</h1>
+      </div>
+      <div style="padding:24px;">
+        <p style="margin:0 0 16px;color:#0f172a;font-size:15px;">%s</p>
+        %s
+        <p style="margin:0;color:#334155;font-size:14px;line-height:1.6;">Please find the letter attached as a PDF.</p>
+      </div>
+    </div>
+  </div>
+</body></html>`,
+		l.Title, greeting, msgBlock,
+	)
+}

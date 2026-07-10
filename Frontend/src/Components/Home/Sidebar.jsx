@@ -37,6 +37,7 @@ const MENU = [
     { name: 'Credit Notes',       route: '/Sales/CreditNotes',      mod: 'credit_notes' },
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived', mod: 'payments' },
     { name: 'Customer Advances',  route: '/Sales/AdvancePayments',  mod: 'advance_payments' },
+    { name: 'Letters',            route: '/Letters',                mod: 'letters' },
   ]},
   { icon: FaCartArrowDown,   label: 'Purchases',  mods: ['vendors','purchase_orders','grns','bills','vendor_credits','vendor_payments'], tourKey: 'nav-purchases', subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors',       mod: 'vendors' },

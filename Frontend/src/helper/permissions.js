@@ -36,6 +36,7 @@ export const PERM_MODULES = [
   // Reports
   { key: 'reports',          label: 'Reports',          group: 'Reports' },
   { key: 'dashboard',        label: 'Dashboard',        group: 'Reports' },
+  { key: 'letters',          label: 'Letters',          group: 'Sales' },
 ];
 
 // Module keys grouped by category — used by the sidebar to show a section when the
