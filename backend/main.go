@@ -147,6 +147,7 @@ func main() {
 	routes.ExchangeRateRoutes(router)
 	routes.ApprovalRoutes(router)
 	routes.BackupRoutes(router)
+	routes.ExportRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))

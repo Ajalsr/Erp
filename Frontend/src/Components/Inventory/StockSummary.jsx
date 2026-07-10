@@ -177,7 +177,7 @@ export default function StockSummary() {
           <div style={{ padding: 48, textAlign: 'center', fontSize: 13, color: T.textSec }}>Loading stock data…</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
-            <FaBoxOpen size={28} color={T.border} style={{ marginBottom: 10 }} />
+            <FaBoxOpen size={28} color={T.border} style={{ display: 'block', margin: '0 auto 10px' }} />
             <p style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: '0 0 4px' }}>No items found</p>
             <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Try adjusting your search or filter.</p>
           </div>
@@ -281,7 +281,7 @@ export default function StockSummary() {
                   <div style={{ textAlign: 'center', padding: '48px 0', fontSize: 13, color: T.textSec }}>Loading history…</div>
                 ) : history.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                    <FaBoxOpen size={26} color={T.border} style={{ marginBottom: 10 }} />
+                    <FaBoxOpen size={26} color={T.border} style={{ display: 'block', margin: '0 auto 10px' }} />
                     <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: '0 0 4px' }}>No history yet</p>
                     <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Adjustments and returns will appear here.</p>
                   </div>

@@ -194,7 +194,7 @@ export default function GRNList() {
           </div>
         ) : grns.length === 0 ? (
           <div style={{ padding: "60px 0", textAlign: "center" }}>
-            <FaClipboardList size={34} style={{ color: muted, marginBottom: 12, opacity: .4 }} />
+            <FaClipboardList size={34} style={{ display: 'block', margin: '0 auto 12px', color: muted, opacity: .4 }} />
             <p style={{ fontSize: 14, color: muted, margin: 0, fontWeight: 600 }}>No goods receipt notes found</p>
             <p style={{ fontSize: 12, color: muted, margin: "6px 0 0" }}>Create one from the Inbound page</p>
           </div>

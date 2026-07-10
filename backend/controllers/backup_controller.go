@@ -44,18 +44,28 @@ func orgFilter(orgID string) bson.M {
 	return bson.M{"$or": or}
 }
 
-// StartBackupScheduler runs an org-scoped backup for every organization once at
-// startup, then every 24 hours — same pattern as StartInvoiceScheduler (no
-// external cron dependency).
+// backupHour/backupMinute — fixed server-local clock time the daily backup runs at.
+const backupHour, backupMinute = 2, 0 // 2:00 AM
+
+// StartBackupScheduler runs an org-scoped backup for every organization every day
+// at a fixed clock time (backupHour:backupMinute), not just "24h after whenever
+// the server last started". Recomputes the next fire time each cycle (via
+// time.AfterFunc) rather than a flat ticker, so it stays aligned across DST
+// changes instead of slowly drifting.
 func StartBackupScheduler() {
-	go func() {
-		runAllOrgBackups()
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			runAllOrgBackups()
+	var schedule func()
+	schedule = func() {
+		now := time.Now()
+		next := time.Date(now.Year(), now.Month(), now.Day(), backupHour, backupMinute, 0, 0, now.Location())
+		if !next.After(now) {
+			next = next.AddDate(0, 0, 1)
 		}
-	}()
+		time.AfterFunc(next.Sub(now), func() {
+			runAllOrgBackups()
+			schedule()
+		})
+	}
+	schedule()
 }
 
 func runAllOrgBackups() {

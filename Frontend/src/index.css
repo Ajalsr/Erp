@@ -3,6 +3,14 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Suppress the browser's own password reveal/clear icons (Edge/IE add these
+   natively) — every password field already has a custom eye toggle, so the
+   native one just duplicates it. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
 body, input, select, textarea, button {
   font-family: 'DM Sans', sans-serif;
 }

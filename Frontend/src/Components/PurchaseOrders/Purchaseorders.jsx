@@ -526,7 +526,7 @@ export default function Purchaseorders() {
                     </div>
                   ) : (
                     <div style={{ textAlign:'center', padding:'48px 0' }}>
-                      <FaBoxOpen size={32} style={{ color:T.textSec, opacity:0.4, marginBottom:10 }}/>
+                      <FaBoxOpen size={32} style={{ display:'block', margin:'0 auto 10px', color:T.textSec, opacity:0.4 }}/>
                       <p style={{ fontSize:13, color:T.textSec, margin:0 }}>No line items</p>
                     </div>
                   )}
@@ -550,7 +550,7 @@ export default function Purchaseorders() {
                     </div>
                   ) : linkedGRNs.length === 0 ? (
                     <div style={{ textAlign:'center', padding:'48px 0' }}>
-                      <FaBoxOpen size={28} style={{ color:T.textSec, opacity:0.4, marginBottom:10 }}/>
+                      <FaBoxOpen size={28} style={{ display:'block', margin:'0 auto 10px', color:T.textSec, opacity:0.4 }}/>
                       <p style={{ fontSize:13, color:T.textSec, margin:0 }}>No GRNs yet for this PO</p>
                       {selected.status === 'issued' && (
                         <button onClick={() => navigate(`/Purchase/GRN/new?poId=${selected._id}&poNumber=${selected.orderNumber}&vendorId=${selected.vendorId}&vendorName=${encodeURIComponent(selected.vendorName||'')}`)}

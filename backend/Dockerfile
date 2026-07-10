@@ -1,6 +1,6 @@
 # Build the Go backend for Linux and ship a tiny runtime image.
 # Used by container hosts (Render, Railway, Fly.io, Docker on a VPS).
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
