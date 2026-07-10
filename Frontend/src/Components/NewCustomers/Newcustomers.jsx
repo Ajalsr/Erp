@@ -796,7 +796,7 @@ const ReportingTagsTab = ({ reportingTags, setFormData, T, isDark }) => {
       </div>
       {reportingTags.length === 0 ? (
         <div style={{ border: `1.5px dashed ${T.border}`, borderRadius: '12px', padding: '32px', textAlign: 'center' }}>
-          <FaTags size={24} style={{ color: T.textSec, marginBottom: '10px' }} />
+          <FaTags size={24} style={{ display: 'block', margin: '0 auto 10px', color: T.textSec }} />
           <p style={{ color: T.textSec, fontSize: '13px', margin: 0 }}>No tags added yet</p>
         </div>
       ) : (

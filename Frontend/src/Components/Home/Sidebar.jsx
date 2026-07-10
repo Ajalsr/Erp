@@ -58,6 +58,7 @@ const MENU = [
     { name: 'Statement of Account',  route: '/Reports/statement-of-account', mod: 'reports' },
     { name: 'VAT Report',            route: '/Reports/vat',                  mod: 'reports' },
     { name: 'Vendor Aging',          route: '/Reports/vendor-aging',         mod: 'reports' },
+    { name: 'Export Transactions',   route: '/Reports/export-transactions',  mod: 'reports' },
   ]},
   { icon: MdAccountBalance,   label: 'Finance',   mods: ['accounts','journal_entries','reports'], tourKey: 'nav-finance', subItems: [
     { name: 'Chart of Accounts', route: '/Finance/Accounts',       mod: 'accounts' },

@@ -269,7 +269,7 @@ export default function RecurringInvoices() {
           <div style={{ padding: 30, textAlign: "center", color: T.textSec, fontSize: 13 }}>Loading…</div>
         ) : profiles.length === 0 ? (
           <div style={{ padding: 40, textAlign: "center", color: T.textSec }}>
-            <FiZap size={26} style={{ opacity: 0.4, marginBottom: 8 }} />
+            <FiZap size={26} style={{ display: 'block', margin: '0 auto 8px', opacity: 0.4 }} />
             <p style={{ fontSize: 13, margin: 0 }}>No recurring invoices yet.</p>
             <p style={{ fontSize: 12, margin: "4px 0 0", color: T.textMuted }}>Create one to bill customers automatically.</p>
           </div>

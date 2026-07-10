@@ -76,7 +76,7 @@ export default function Warehouses() {
         <div style={{ padding: 48, textAlign: 'center', fontSize: 13, color: T.textSec }}>Loading…</div>
       ) : warehouses.length === 0 ? (
         <div style={{ padding: 64, textAlign: 'center', background: T.surface, borderRadius: 16, border: `1.5px solid ${T.border}` }}>
-          <FaWarehouse size={28} color={T.border} style={{ marginBottom: 12 }} />
+          <FaWarehouse size={28} color={T.border} style={{ display: 'block', margin: '0 auto 12px' }} />
           <p style={{ fontSize: 15, fontWeight: 700, color: T.textPri, margin: '0 0 6px' }}>No warehouses yet</p>
           <p style={{ fontSize: 13, color: T.textSec, margin: 0 }}>Add your first storage location to start tracking inventory by warehouse.</p>
         </div>

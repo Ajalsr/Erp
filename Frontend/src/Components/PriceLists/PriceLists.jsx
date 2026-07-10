@@ -86,7 +86,7 @@ export default function PriceLists() {
         <div style={{ textAlign: 'center', padding: 48, color: T.textSec, fontSize: 13 }}>Loading…</div>
       ) : lists.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 64, background: T.surface, borderRadius: 16, border: `1.5px solid ${T.border}` }}>
-          <FaTags size={28} color={T.border} style={{ marginBottom: 12 }} />
+          <FaTags size={28} color={T.border} style={{ display: 'block', margin: '0 auto 12px' }} />
           <p style={{ fontSize: 15, fontWeight: 700, color: T.textPri, margin: '0 0 6px' }}>No price lists yet</p>
           <p style={{ fontSize: 13, color: T.textSec, margin: 0 }}>Create a price list to manage custom pricing for different customers.</p>
         </div>

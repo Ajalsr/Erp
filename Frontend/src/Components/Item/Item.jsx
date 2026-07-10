@@ -369,7 +369,7 @@ export default function Item() {
           <div style={{flex:1,overflowY:"auto",padding:"2px 8px 80px"}}>
             {filteredItems.length===0 ? (
               <div style={{textAlign:"center",padding:"48px 16px",opacity:.55}}>
-                <FaBox size={24} style={{color:muted,marginBottom:10}}/>
+                <FaBox size={24} style={{display:'block',margin:'0 auto 10px',color:muted}}/>
                 <p style={{color:muted,fontWeight:500,fontSize:13,margin:"0 0 4px"}}>No items match</p>
                 <p style={{color:muted,fontSize:11,margin:0}}>Adjust filters or clear search</p>
               </div>
@@ -450,7 +450,7 @@ export default function Item() {
           ) : (
             <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",opacity:.4}}>
               <div style={{textAlign:"center"}}>
-                <FaBox size={32} style={{color:muted,marginBottom:14}}/>
+                <FaBox size={32} style={{display:'block',margin:'0 auto 14px',color:muted}}/>
                 <p style={{color:muted,fontWeight:600,fontSize:14,margin:"0 0 6px"}}>Select an item</p>
                 <p style={{color:muted,fontSize:12,margin:0}}>Click any row to view details</p>
               </div>

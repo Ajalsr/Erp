@@ -140,10 +140,12 @@ const DrillModal = ({ T, isDark, ccy, title, metric, onClose }) => {
 };
 
 /* Chart section wrapper card. */
-const ChartCard = ({ T, title, subtitle, children }) => (
+const ChartCard = ({ T, title, subtitle, children, accentBar }) => (
   <div style={{
     background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16,
-    padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+    padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.04)", overflow: "hidden",
+    borderTop: accentBar ? "3px solid transparent" : `1px solid ${T.border}`,
+    ...(accentBar ? { backgroundImage: `linear-gradient(${T.surface},${T.surface}), ${accentBar}`, backgroundOrigin: "border-box", backgroundClip: "padding-box, border-box" } : {}),
   }}>
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: T.textPri }}>{title}</div>
@@ -176,7 +178,9 @@ export default function SalesRepDashboard() {
 
   const winRate  = rate(quotationAchieved, quotationMade); // quotes accepted/converted
   const convRate = rate(salesConverted, salesMade);        // SOs originating from a quote
-  const accent = "#3b82f6";
+  const accent = "#4f46e5";
+  const accentTo = "#7c3aed";
+  const heroGradient = `linear-gradient(135deg, ${accent}, ${accentTo})`;
 
   const { rank, rankTotal } = stats;
   const curMonth = new Date().getMonth() + 1;
@@ -217,11 +221,16 @@ export default function SalesRepDashboard() {
 
       {/* Yearly target hero */}
       <div style={{
-        background: `linear-gradient(135deg, ${accent}, #2563eb)`,
+        position: "relative", overflow: "hidden",
+        background: heroGradient,
         borderRadius: 18, padding: 24, color: "#fff", marginBottom: 22,
-        boxShadow: "0 8px 24px rgba(37,99,235,.25)",
+        boxShadow: "0 12px 32px rgba(79,70,229,.35)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        {/* Decorative depth blobs — purely visual, sit behind the content */}
+        <div style={{ position: "absolute", top: -60, right: -40, width: 220, height: 220, borderRadius: "50%", background: "rgba(255,255,255,.10)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: -80, left: -30, width: 260, height: 260, borderRadius: "50%", background: "rgba(255,255,255,.06)", pointerEvents: "none" }} />
+
+        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, opacity: 0.9 }}>
               <FaBullseye /> Yearly Target
@@ -252,7 +261,7 @@ export default function SalesRepDashboard() {
 
         {/* Detail chips */}
         <div style={{
-          display: "grid", gap: 12, marginTop: 20,
+          position: "relative", display: "grid", gap: 12, marginTop: 20,
           gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
         }}>
           {[
@@ -262,10 +271,10 @@ export default function SalesRepDashboard() {
             { k: "Rank",         v: rankTotal > 0 ? `#${rank} of ${rankTotal}` : "—" },
           ].map((c) => (
             <div key={c.k} style={{
-              background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.18)",
-              borderRadius: 12, padding: "12px 14px",
+              background: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.32)",
+              borderRadius: 12, padding: "12px 14px", boxShadow: "0 2px 8px rgba(0,0,0,.08)",
             }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", opacity: 0.85 }}>{c.k}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", opacity: 0.9 }}>{c.k}</div>
               <div style={{ fontSize: 17, fontWeight: 800, marginTop: 5 }}>{c.v}</div>
             </div>
           ))}
@@ -274,7 +283,7 @@ export default function SalesRepDashboard() {
 
       {/* Target progress line graph — cumulative achieved vs target across the year */}
       <div style={{ marginBottom: 22 }}>
-        <ChartCard T={T} title="Target Progress" subtitle={`Cumulative sales achieved vs yearly target · ${year}`}>
+        <ChartCard T={T} title="Target Progress" subtitle={`Cumulative sales achieved vs yearly target · ${year}`} accentBar={heroGradient}>
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={targetSeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
               <defs>

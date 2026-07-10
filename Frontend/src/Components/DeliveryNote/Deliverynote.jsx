@@ -328,7 +328,7 @@ export default function DeliveryNote() {
   if (notFound || !note) return (
     <div style={{ minHeight: 'calc(100vh - 56px)', background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'DM Sans, sans-serif' }}>
       <div style={{ textAlign: 'center', color: T.textSec }}>
-        <FaBoxOpen size={40} style={{ marginBottom: 12, opacity: 0.4 }} />
+        <FaBoxOpen size={40} style={{ display: 'block', margin: '0 auto 12px', opacity: 0.4 }} />
         <p style={{ fontSize: 14 }}>Delivery note not found.</p>
         <button onClick={() => navigate('/Sales/Deliverynote')}
           style={{ marginTop: 12, padding: '8px 18px', background: T.blue, color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
