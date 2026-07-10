@@ -48,6 +48,8 @@ const NewExpense = lazy(() => import("./Components/Expenses/NewExpense"))
 const Approvals = lazy(() => import("./Components/Approvals/Approvals"))
 const TransactionExport = lazy(() => import("./Components/Export/TransactionExport"))
 const Backups = lazy(() => import("./Components/Backups/Backups"))
+const Letters = lazy(() => import("./Components/Letters/Letters"))
+const LetterPrint = lazy(() => import("./Components/Letters/LetterPrint"))
 const VendorCredits = lazy(() => import("./Components/VendorCredits/VendorCredits"))
 const SalesReport = lazy(() => import("./Components/Reports/SalesReport"))
 const SalesByEmirate = lazy(() => import("./Components/Reports/SalesByEmirate"))
@@ -181,6 +183,8 @@ function App() {
               <Route path="/Approvals" element={<Approvals />} />
               <Route path="/Reports/export-transactions" element={<TransactionExport />} />
               <Route path="/Backups" element={<Backups />} />
+              <Route path="/Letters" element={<Letters />} />
+              <Route path="/Letters/:id/print" element={<LetterPrint />} />
               <Route path="/Reports/sales"                element={<SalesReport />} />
               <Route path="/Reports/sales-by-emirate"     element={<SalesByEmirate />} />
               <Route path="/Reports/purchases"            element={<PurchaseReport />} />

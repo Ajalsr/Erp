@@ -87,6 +87,7 @@ var entityDefaultFormats = map[string]utils.NumberFormat{
 	"invoice":       fmtSeg("INV-", segYear4, segDash, seg4),
 	"quote":         fmtSeg("QUO-", segYear4, segDash, seg4),
 	"delivery_note": fmtSeg("DN-", segYear4, segDash, seg4),
+	"letter":        fmtSeg("LTR-", segYear4, segDash, seg4),
 
 	// PREFIX-0001
 	"credit_note": fmtSeg("CN-", seg4),

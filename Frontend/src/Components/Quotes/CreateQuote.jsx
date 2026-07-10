@@ -449,6 +449,201 @@ const LineRow = ({ item, onChange, onRemove, isOnly }) => {
   );
 };
 
+/* ─── Paste-import parser ────────────────────────────────────────────────
+   Turns pasted table text (copied from Excel, or a PDF table where tabs
+   survive the copy) into draft line items. Supplier quote PDFs list several
+   numeric columns per row (qty, VAT%, VAT amount, unit price, discount%,
+   line amount) with no reliable column markers once pasted as plain text —
+   so instead of guessing "column 3 = price", we self-validate: a row's own
+   arithmetic (qty × unitPrice ≈ lineAmount) tells us which numbers are which.
+   Rows that don't resolve cleanly still come through (as a free-text line,
+   qty 1, price 0) so nothing is silently dropped — the preview step lets the
+   user fix or discard them before anything touches the quote. */
+const toNum = (s) => {
+  const n = parseFloat(String(s).replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : null;
+};
+
+const NUM_TOKEN = /^\d{1,3}(,\d{3})*(\.\d+)?$|^\d+(\.\d+)?$/;
+const isNumTok = (t) => NUM_TOKEN.test(t.replace(/%$/, ""));
+
+// Tokenizes on ANY whitespace (not just tabs/double-spaces) — a table copied
+// out of a rendered PDF viewer usually collapses every column gap down to a
+// single space, so requiring tabs/double-spaces missed real rows entirely.
+// Once split into words, the qty/unitPrice/amount triple is found the same
+// self-validating way (their product must match a 3rd number on the line),
+// but now tracked by INDEX so we know exactly which words are structured
+// numeric columns (qty, VAT%, VAT amt, price, disc%, amount) vs description
+// words — including embedded part numbers like "840240", which are numeric
+// but never satisfy the qty×price≈amount check so they stay in the description.
+function findTriple(tokens) {
+  const nums = tokens.map((t, i) => (isNumTok(t) ? { i, v: toNum(t) } : null)).filter(Boolean);
+  let best = null; // prefer the match whose amount is the largest on the line (real "Amount" col)
+  for (const q of nums) {
+    if (q.v <= 0 || q.v > 100000 || !Number.isInteger(q.v)) continue;
+    for (const p of nums) {
+      if (p.i === q.i || p.v <= 0) continue;
+      for (const a of nums) {
+        if (a.i === q.i || a.i === p.i) continue;
+        if (Math.abs(q.v * p.v - a.v) < 0.05) {
+          if (!best || a.v > best.a.v) best = { qty: q, price: p, amt: a };
+        }
+      }
+    }
+  }
+  return best;
+}
+
+function parsePastedItemsLine(line) {
+  const raw = line.trim();
+  if (!raw) return null;
+  // Section headers ("--20 mtr channel…") and "Origin : Europe" metadata lines
+  // carry no item-description text worth keeping — skip outright.
+  if (/^--/.test(raw) || /^note:?$/i.test(raw) || /^origin\s*:/i.test(raw)) return null;
+
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const triple = findTriple(tokens);
+
+  if (!triple) {
+    if (tokens.every(t => !isNumTok(t))) return { continuation: raw }; // pure prose, no numbers
+    // Numbers present but nothing self-validated (e.g. a discounted line) —
+    // still surface the row so the user can fix it rather than losing it.
+    const nums = tokens.filter(isNumTok).map(toNum);
+    return { desc: raw, qty: nums.find(n => Number.isInteger(n) && n > 0) ?? 1, unitPrice: nums.sort((a, b) => b - a)[0] ?? 0 };
+  }
+
+  const { qty, price, amt } = triple;
+  // Drop a leading small standalone integer (the "SR No." column) from the
+  // description — everything else in front of the qty column is the item's
+  // text, including any embedded part number (e.g. "840240"), which the user
+  // wants kept since it never matches the qty×price validation itself.
+  const leadIsSR = tokens.length && isNumTok(tokens[0]) && Number.isInteger(toNum(tokens[0])) && toNum(tokens[0]) < 1000 && toNum(tokens[0]) !== qty.v;
+  const descTokens = tokens.slice(leadIsSR ? 1 : 0, qty.i);
+  // A lone unit-of-measure word ("Piece", "Nos"…) often sits right after qty —
+  // grab it for the unit field instead of leaving it dangling in the description.
+  const unitWord = tokens[qty.i + 1] && !isNumTok(tokens[qty.i + 1]) ? tokens[qty.i + 1] : null;
+
+  return {
+    desc: descTokens.join(" ").trim() || raw,
+    qty: qty.v,
+    unitPrice: price.v,
+    unit: unitWord,
+    _amt: amt.v,
+  };
+}
+
+function parsePastedItems(text) {
+  const rows = [];
+  for (const line of text.split("\n")) {
+    const r = parsePastedItemsLine(line);
+    if (!r) continue;
+    if (r.continuation) {
+      // Fold a description-continuation line into the previous real row
+      // instead of creating a phantom line item for it.
+      if (rows.length) rows[rows.length - 1].desc += " " + r.continuation;
+      continue;
+    }
+    rows.push(r);
+  }
+  return rows;
+}
+
+const UNIT_ALIASES = { piece: "Pcs", pieces: "Pcs", pc: "Pcs", pcs: "Pcs", each: "Nos", no: "Nos", nos: "Nos", set: "Set", kg: "Kg", ltr: "Ltr", mtr: "Mtr", meter: "Mtr", metre: "Mtr", sqm: "Sqm", box: "Box", roll: "Roll" };
+const normalizeUnit = (u) => (u && UNIT_ALIASES[u.trim().toLowerCase()]) || "Nos";
+
+// Best-effort catalog match: exact SKU/code first, else fuzzy name/desc match.
+function matchCatalog(desc, catalogItems) {
+  const d = desc.trim().toLowerCase();
+  const exact = catalogItems.find(c =>
+    [c.sku, c.item_code, c.code].filter(Boolean).some(v => String(v).toLowerCase() === d));
+  if (exact) return exact;
+  const fuzzy = catalogItems.filter(c => matchItem(c, desc));
+  return fuzzy.length === 1 ? fuzzy[0] : null; // only auto-link when unambiguous
+}
+
+/* ─── Paste Items modal ─────────────────────────────────────────────────── */
+const PasteItemsModal = ({ T, catalogItems, onConfirm, onClose }) => {
+  const [raw, setRaw] = useState("");
+  const [rows, setRows] = useState(null); // parsed preview, or null before parsing
+
+  const doParse = () => {
+    const parsed = parsePastedItems(raw).map(r => {
+      const match = matchCatalog(r.desc, catalogItems);
+      return {
+        _uid: uid(),
+        desc: match ? (match.name || r.desc) : r.desc,
+        qty: r.qty,
+        unit: normalizeUnit(r.unit),
+        unitPrice: match ? parseFloat(match.selling_price || match.price || r.unitPrice || 0) : r.unitPrice,
+        stockId: match ? match._id : null,
+        matched: !!match,
+      };
+    });
+    setRows(parsed);
+  };
+
+  const updateRow = (uid_, patch) => setRows(prev => prev.map(r => r._uid === uid_ ? { ...r, ...patch } : r));
+  const removeRow = (uid_) => setRows(prev => prev.filter(r => r._uid !== uid_));
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 720, maxWidth: "94vw", maxHeight: "86vh", overflowY: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 22 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>Paste Items</div>
+        <div style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>
+          Paste a copied table (from Excel, or a PDF's item table) below. Each line becomes one item — review before adding.
+        </div>
+
+        {rows === null ? (
+          <>
+            <textarea
+              value={raw}
+              onChange={e => setRaw(e.target.value)}
+              placeholder={"ACO Xtraline Channel NW100 h=55 L=1000\t20\tPiece\t38.95\t779.00\n..."}
+              rows={10}
+              style={{ width: "100%", padding: 10, borderRadius: 8, border: `1px solid ${T.border}`, background: T.input, color: T.text, fontSize: 12, fontFamily: "'DM Mono',monospace", resize: "vertical" }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+              <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: "none", color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+              <button onClick={doParse} disabled={!raw.trim()} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: raw.trim() ? "pointer" : "not-allowed", opacity: raw.trim() ? 1 : 0.5, fontFamily: "inherit" }}>Parse</button>
+            </div>
+          </>
+        ) : (
+          <>
+            {rows.length === 0 ? (
+              <div style={{ fontSize: 13, color: T.muted, padding: "20px 0", textAlign: "center" }}>Nothing parsed from that text.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {rows.map(r => (
+                  <div key={r._uid} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: r.matched ? T.accent2 : T.muted, flexShrink: 0 }} title={r.matched ? "Matched to catalog item" : "No catalog match — free-text line"} />
+                    <input value={r.desc} onChange={e => updateRow(r._uid, { desc: e.target.value })}
+                      style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.input, color: T.text, fontSize: 12, fontFamily: "inherit" }} />
+                    <input type="number" value={r.qty} onChange={e => updateRow(r._uid, { qty: toNum(e.target.value) ?? 0 })}
+                      style={{ width: 56, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.input, color: T.text, fontSize: 12, textAlign: "right", fontFamily: "inherit" }} />
+                    <input type="number" value={r.unitPrice} onChange={e => updateRow(r._uid, { unitPrice: toNum(e.target.value) ?? 0 })}
+                      style={{ width: 80, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.input, color: T.text, fontSize: 12, textAlign: "right", fontFamily: "inherit" }} />
+                    <button onClick={() => removeRow(r._uid)} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+              <button onClick={() => setRows(null)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: "none", color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>← Back</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: "none", color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                <button onClick={() => onConfirm(rows)} disabled={rows.length === 0} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: T.accent2, color: "#fff", fontSize: 12, fontWeight: 700, cursor: rows.length ? "pointer" : "not-allowed", opacity: rows.length ? 1 : 0.5, fontFamily: "inherit" }}>
+                  Add {rows.length} Item{rows.length === 1 ? "" : "s"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 /* ─── Main Component ────────────────────────────────────────────────────── */
 const EMPTY_ITEM = () => ({ _uid: uid(), partNumber: "", desc: "", qty: 1, unit: "Nos", unitPrice: 0, discount: 0, discountType: "percentage", taxRate: 5 });
 
@@ -593,6 +788,22 @@ export default function CreateQuote() {
   const updateItem = (uid, updated) => setLineItems(prev => prev.map(li => li._uid === uid ? { ...li, ...updated } : li));
   const removeItem = (uid) => setLineItems(prev => prev.filter(li => li._uid !== uid));
   const addItem    = () => setLineItems(prev => [...prev, EMPTY_ITEM()]);
+
+  const [showPaste, setShowPaste] = useState(false);
+  const handlePasteConfirm = (rows) => {
+    const newItems = rows.map(r => ({
+      ...EMPTY_ITEM(),
+      desc: r.desc, qty: r.qty, unit: r.unit || "Nos", unitPrice: r.unitPrice, stockId: r.stockId,
+    }));
+    setLineItems(prev => {
+      // The default blank starter row (never touched) gets replaced rather than
+      // left dangling as an empty line ahead of the newly pasted ones.
+      const isBlankStarter = prev.length === 1 && !prev[0].desc && prev[0].unitPrice === 0;
+      return isBlankStarter ? newItems : [...prev, ...newItems];
+    });
+    setShowPaste(false);
+    nexusToast.success(`Added ${rows.length} item${rows.length === 1 ? "" : "s"}`);
+  };
 
   async function submit(status, recipients) {
     if (!customerId) { nexusToast.error("Please select a customer"); return; }
@@ -857,9 +1068,17 @@ export default function CreateQuote() {
                 </tbody>
               </table>
             </div>
-            <button onClick={addItem} style={{ marginTop: 12, background: "none", border: `1px dashed ${T.border}`, borderRadius: 7, padding: "7px 16px", color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit", transition: ".15s" }}>
-              + Add Line
-            </button>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button onClick={addItem} style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 7, padding: "7px 16px", color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit", transition: ".15s" }}>
+                + Add Line
+              </button>
+              <button onClick={() => setShowPaste(true)} style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 7, padding: "7px 16px", color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit", transition: ".15s" }}>
+                📋 Paste Items
+              </button>
+            </div>
+            {showPaste && (
+              <PasteItemsModal T={T} catalogItems={catalogItems} onConfirm={handlePasteConfirm} onClose={() => setShowPaste(false)} />
+            )}
 
             {/* Totals */}
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
