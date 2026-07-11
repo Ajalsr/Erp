@@ -50,6 +50,7 @@ const TransactionExport = lazy(() => import("./Components/Export/TransactionExpo
 const Backups = lazy(() => import("./Components/Backups/Backups"))
 const Letters = lazy(() => import("./Components/Letters/Letters"))
 const LetterPrint = lazy(() => import("./Components/Letters/LetterPrint"))
+const LetterEditor = lazy(() => import("./Components/Letters/LetterEditor"))
 const VendorCredits = lazy(() => import("./Components/VendorCredits/VendorCredits"))
 const SalesReport = lazy(() => import("./Components/Reports/SalesReport"))
 const SalesByEmirate = lazy(() => import("./Components/Reports/SalesByEmirate"))
@@ -184,6 +185,8 @@ function App() {
               <Route path="/Reports/export-transactions" element={<TransactionExport />} />
               <Route path="/Backups" element={<Backups />} />
               <Route path="/Letters" element={<Letters />} />
+              <Route path="/Letters/new" element={<LetterEditor />} />
+              <Route path="/Letters/:id/edit" element={<LetterEditor />} />
               <Route path="/Letters/:id/print" element={<LetterPrint />} />
               <Route path="/Reports/sales"                element={<SalesReport />} />
               <Route path="/Reports/sales-by-emirate"     element={<SalesByEmirate />} />

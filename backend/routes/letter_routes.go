@@ -13,6 +13,7 @@ func LetterRoutes(router *gin.Engine) {
 	letterRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("letters"))
 	{
 		letterRoutes.GET("/types", controllers.GetLetterTypes())
+		letterRoutes.GET("/next-number", controllers.GetNextLetterNumber())
 		letterRoutes.GET("/", controllers.GetAllLetters())
 		letterRoutes.POST("/", controllers.CreateLetter())
 		letterRoutes.GET("/:id", controllers.GetLetterByID())
