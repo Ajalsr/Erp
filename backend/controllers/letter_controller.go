@@ -3,6 +3,7 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strings"
@@ -38,6 +39,19 @@ func GetLetterTypes() gin.HandlerFunc {
 			out = append(out, gin.H{"value": k, "label": letterTypeLabels[k]})
 		}
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": out})
+	}
+}
+
+// GetNextLetterNumber — GET /api/letters/next-number. Returns the number the
+// next created letter would receive (peek — nextNumber derives from existing
+// docs and has no side effect), so the editor can seed the Ref line.
+func GetNextLetterNumber() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		orgID := fmt.Sprintf("%v", mustGet(c, "orgId"))
+		num := nextNumber(ctx, orgID, "letter", letterCollection, "letterNumber")
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{"letterNumber": num}})
 	}
 }
 
@@ -398,20 +412,37 @@ func SendLetterEmail() gin.HandlerFunc {
 		var body struct {
 			To      []string `json:"to"`
 			Message string   `json:"message"`
+			PDF     string   `json:"pdf"` // optional base64 PDF rendered client-side (WYSIWYG, incl. tables)
 		}
 		if err := c.ShouldBindJSON(&body); err != nil || len(body.To) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "At least one recipient email is required"})
 			return
 		}
 
-		pdf := buildLetterPDF(letter)
-		var pdfBuf bytes.Buffer
-		if err := pdf.Output(&pdfBuf); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to generate PDF"})
-			return
+		// Prefer the client-rendered PDF (matches the on-screen letterhead + tables).
+		// Fall back to the server gofpdf build when none is supplied.
+		var pdfBytes []byte
+		if raw := strings.TrimSpace(body.PDF); raw != "" {
+			if i := strings.Index(raw, ","); i >= 0 { // strip data URI prefix if present
+				raw = raw[i+1:]
+			}
+			decoded, err := base64.StdEncoding.DecodeString(raw)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid PDF payload"})
+				return
+			}
+			pdfBytes = decoded
+		} else {
+			pdf := buildLetterPDF(letter)
+			var pdfBuf bytes.Buffer
+			if err := pdf.Output(&pdfBuf); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to generate PDF"})
+				return
+			}
+			pdfBytes = pdfBuf.Bytes()
 		}
 
-		if err := utils.SendLetterEmail(body.To, letter, body.Message, pdfBuf.Bytes()); err != nil {
+		if err := utils.SendLetterEmail(body.To, letter, body.Message, pdfBytes); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send email", "error": err.Error()})
 			return
 		}
