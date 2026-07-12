@@ -12,6 +12,7 @@ type Letter struct {
 	Type         string    `json:"type"                   bson:"type"` // warranty | bank_details | reference | noc | custom
 	Title        string    `json:"title"                  bson:"title"`
 	Body         string    `json:"body"                   bson:"body"` // free text, line breaks preserved in the PDF
+	Watermark    string    `json:"watermark,omitempty"    bson:"watermark,omitempty"` // optional diagonal text (e.g. "DRAFT") stamped across every PDF page
 
 	// Optional addressee — snapshotted at creation so the letter reads the
 	// same later even if the customer record changes.

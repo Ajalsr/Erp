@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   FaBold, FaItalic, FaUnderline, FaListUl, FaListOl,
-  FaAlignLeft, FaAlignCenter, FaAlignRight, FaTable,
+  FaAlignLeft, FaAlignCenter, FaAlignRight, FaTable, FaStamp,
   FaArrowLeft, FaSave, FaPlus, FaMinus,
 } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -11,7 +11,7 @@ import useOrganization from '../../helper/useOrganization';
 import useGetCustomers from '../../helper/useGetCustomers';
 import nexusToast from '../../helper/nexusToast';
 import { getLetterTypes, getLetter, createLetter, updateLetter, getNextLetterNumber } from '../../helper/letterApi';
-import { A4_W, A4_H, SIDE_PX, padsPx, seedTemplate } from './letterShared';
+import { A4_W, A4_H, SIDE_PX, padsPx, seedTemplate, reflowPageBreaks, waitForLetterFonts } from './letterShared';
 
 export default function LetterEditor() {
   const navigate = useNavigate();
@@ -29,11 +29,14 @@ export default function LetterEditor() {
   const savedRange = useRef(null);
   const initialHtml = useRef('');   // body HTML to inject once the editor mounts
   const applied = useRef(false);
+  const reflowTimer = useRef(null);
 
   const [types, setTypes] = useState([]);
   const [lh, setLh] = useState({ image: '', topPad: 13, bottomPad: 8 });
+  const [stampImage, setStampImage] = useState('');
   const [type, setType] = useState('warranty');
   const [title, setTitle] = useState('');
+  const [watermark, setWatermark] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [custQuery, setCustQuery] = useState('');
   const [custOpen, setCustOpen] = useState(false);
@@ -54,12 +57,17 @@ export default function LetterEditor() {
           orgId ? getOrganization(orgId, true).catch(() => null) : null,
           isEdit ? getLetter(id).then((r) => r.data?.data).catch(() => null) : null,
           isEdit ? null : getNextLetterNumber().then((r) => r.data?.data?.letterNumber).catch(() => ''),
+          waitForLetterFonts(),
         ]);
         if (!alive) return;
-        if (org) setLh({ image: org.letterheadImage || '', topPad: org.letterheadTopPad || 13, bottomPad: org.letterheadBottomPad || 8 });
+        if (org) {
+          setLh({ image: org.letterheadImage || '', topPad: org.letterheadTopPad || 13, bottomPad: org.letterheadBottomPad || 8 });
+          setStampImage(org.stampImage || '');
+        }
         if (letterRes) {
           setType(letterRes.type || 'warranty');
           setTitle(letterRes.title || '');
+          setWatermark(letterRes.watermark || '');
           setCustomerId(letterRes.customerId || '');
           setCustQuery(letterRes.customerName || '');
           initialHtml.current = letterRes.body || '';
@@ -73,28 +81,46 @@ export default function LetterEditor() {
     // so this runs once per letter/org, not on every render (was an infinite loop).
   }, [id, isEdit, activeOrg?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const recomputePages = useCallback(() => {
-    const el = pageRef.current;
-    if (!el) return;
-    setPageCount(Math.max(1, Math.ceil(el.scrollHeight / A4_H)));
-  }, []);
+  // Re-paginate: insert blank spacers wherever content would spill into the
+  // next page's letterhead band, and set pageCount from the exact break count
+  // reflowPageBreaks just computed. This is the ONLY thing allowed to set
+  // pageCount — a naive scrollHeight/A4_H division used to run alongside it
+  // (via a ResizeObserver that fired on every DOM mutation, including reflow's
+  // own spacer inserts) and would overwrite this exact count with a wrong one,
+  // since a page's real height is usableH-of-content + one gapH spacer, not a
+  // clean A4_H multiple — letterhead images would then tile at y=k*A4_H
+  // positions that didn't match where the spacers actually were, so content
+  // (a long bullet list especially) visibly ran through the header/footer
+  // bands despite the correct spacers being in the DOM. Debounced on typing
+  // (not run on every keystroke) so it doesn't jitter the layout or risk the
+  // caret jumping mid-word; selection is saved/restored around the DOM
+  // mutation regardless — Range stays valid since we only ever insertBefore
+  // an unrelated sibling.
+  const reflow = useCallback(() => {
+    const { top, bot } = padsPx(lh);
+    saveSel();
+    const pages = reflowPageBreaks(bodyRef.current, top, bot);
+    restoreSel();
+    setPageCount(pages);
+  }, [lh]);
+
+  const scheduleReflow = useCallback(() => {
+    if (reflowTimer.current) clearTimeout(reflowTimer.current);
+    reflowTimer.current = setTimeout(reflow, 500);
+  }, [reflow]);
+
+  useEffect(() => () => { if (reflowTimer.current) clearTimeout(reflowTimer.current); }, []);
 
   // Inject the loaded/seeded body once the contentEditable is actually mounted
-  // (it's gated behind `loading`, so we can't set innerHTML during the fetch).
+  // (it's gated behind `loading`, which now also waits on waitForLetterFonts()
+  // above — DM Sans is guaranteed ready before this ever measures offsetHeight,
+  // so no fallback-font-metrics drift is possible at first paint).
   useEffect(() => {
     if (loading || applied.current || !bodyRef.current) return;
     bodyRef.current.innerHTML = initialHtml.current;
     applied.current = true;
-    recomputePages();
-  }, [loading, recomputePages]);
-
-  useEffect(() => {
-    const el = pageRef.current;
-    if (!el || loading) return;
-    const ro = new ResizeObserver(recomputePages);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [loading, recomputePages]);
+    reflow();
+  }, [loading, reflow]);
 
   const filteredCustomers = custQuery.trim()
     ? (customers || []).filter((c) => (c.customerDisplayName || c.companyName || '').toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8)
@@ -114,7 +140,7 @@ export default function LetterEditor() {
     restoreSel();
     document.execCommand(cmd, false, val);
     saveSel();
-    recomputePages();
+    reflow();
   };
 
   const currentCell = () => {
@@ -122,6 +148,19 @@ export default function LetterEditor() {
     let n = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null;
     while (n && n.nodeName !== 'TD' && n.nodeName !== 'TH') n = n.parentNode;
     return n && (n.nodeName === 'TD' || n.nodeName === 'TH') ? n : null;
+  };
+
+  const insertStamp = () => {
+    if (!stampImage) return nexusToast.error('No stamp on file — upload one in Organization Settings first');
+    bodyRef.current?.focus();
+    restoreSel();
+    // contentEditable="false" so the stamp moves/deletes as one unit and never
+    // becomes a text-edit target itself; draggable off so a stray drag doesn't
+    // rip it out of position.
+    const html = `<img src="${stampImage}" alt="Company stamp" draggable="false" contenteditable="false" style="width:110px;height:auto;vertical-align:middle;" />`;
+    document.execCommand('insertHTML', false, html);
+    saveSel();
+    reflow();
   };
 
   const insertTable = (rows = 3, cols = 3) => {
@@ -136,14 +175,14 @@ export default function LetterEditor() {
     html += '</tbody></table><p><br></p>';
     document.execCommand('insertHTML', false, html);
     saveSel();
-    recomputePages();
+    reflow();
   };
   const addRow = () => {
     const cell = currentCell(); if (!cell) return nexusToast.error('Click inside a table first');
     const row = cell.parentNode; const n = row.children.length;
     const tr = document.createElement('tr');
     for (let i = 0; i < n; i++) { const td = document.createElement('td'); td.innerHTML = '<br>'; tr.appendChild(td); }
-    row.parentNode.insertBefore(tr, row.nextSibling); recomputePages();
+    row.parentNode.insertBefore(tr, row.nextSibling); reflow();
   };
   const addCol = () => {
     const cell = currentCell(); if (!cell) return nexusToast.error('Click inside a table first');
@@ -153,11 +192,12 @@ export default function LetterEditor() {
       const td = document.createElement('td'); td.innerHTML = '<br>';
       tr.insertBefore(td, tr.children[idx + 1] || null);
     });
+    reflow();
   };
   const delRow = () => {
     const cell = currentCell(); if (!cell) return nexusToast.error('Click inside a table first');
     const row = cell.parentNode; const table = cell.closest('table');
-    if (table.querySelectorAll('tr').length <= 1) table.remove(); else row.remove(); recomputePages();
+    if (table.querySelectorAll('tr').length <= 1) table.remove(); else row.remove(); reflow();
   };
   const delCol = () => {
     const cell = currentCell(); if (!cell) return nexusToast.error('Click inside a table first');
@@ -165,22 +205,27 @@ export default function LetterEditor() {
     const table = cell.closest('table');
     table.querySelectorAll('tr').forEach((tr) => tr.children[idx]?.remove());
     if (!table.querySelector('td')) table.remove();
+    reflow();
   };
 
   const save = useCallback(async () => {
     if (!title.trim()) return nexusToast.error('Title is required');
-    const body = bodyRef.current?.innerHTML?.trim() || '';
+    // Page-break spacers are editor-only presentation (recomputed fresh on
+    // every load from the current letterhead padding) — never persist them.
+    const clone = bodyRef.current?.cloneNode(true);
+    clone?.querySelectorAll('.pg-spacer').forEach((el) => el.remove());
+    const body = clone?.innerHTML?.trim() || '';
     if (!body || body === '<br>') return nexusToast.error('Letter body is required');
     setSaving(true);
     try {
-      const payload = { type, title: title.trim(), body, customerId };
+      const payload = { type, title: title.trim(), body, customerId, watermark: watermark.trim() };
       if (isEdit) { await updateLetter(id, payload); nexusToast.success('Letter updated'); }
       else { await createLetter(payload); nexusToast.success('Letter created'); }
       navigate('/Letters');
     } catch (e) {
       nexusToast.error(e?.response?.data?.message || 'Failed to save letter');
     } finally { setSaving(false); }
-  }, [type, title, customerId, isEdit, id, navigate]);
+  }, [type, title, watermark, customerId, isEdit, id, navigate]);
 
   const tbBtn = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, cursor: 'pointer', color: T.textPri, fontSize: 13 };
   const inputStyle = { padding: '8px 11px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.surface, color: T.textPri, fontSize: 13, fontFamily: 'inherit' };
@@ -190,10 +235,16 @@ export default function LetterEditor() {
     <div style={{ background: T.bg, minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", color: T.textPri }}>
       <style>{`
         .lt-table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-        .lt-table td, .lt-table th { border: 1px solid #94a3b8; padding: 5px 8px; font-size: 13px; vertical-align: top; min-width: 40px; }
+        .lt-table td, .lt-table th { border: 2px solid #000; padding: 5px 8px; font-size: 13px; vertical-align: top; min-width: 40px; }
         .lt-body:focus { outline: none; }
         .lt-body { font-size: 13.5px; line-height: 1.6; color: #0f172a; }
         .lt-body p { margin: 0 0 8px; }
+        .lt-body ul, .lt-body ol { margin: 0 0 8px; padding-left: 24px; }
+        .lt-body ul { list-style: disc; }
+        .lt-body ol { list-style: decimal; }
+        .lt-body li { margin: 0 0 4px; }
+        .lt-watermark { position: absolute; left: 0; width: ${A4_W}px; height: ${A4_H}px; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 0; overflow: hidden; }
+        .lt-watermark span { font-size: 110px; font-weight: 800; color: #dc2626; opacity: 0.12; transform: rotate(-45deg); white-space: nowrap; text-transform: uppercase; }
       `}</style>
 
       {/* Toolbar */}
@@ -224,6 +275,7 @@ export default function LetterEditor() {
               </div>
             )}
           </div>
+          <input value={watermark} onChange={(e) => setWatermark(e.target.value)} placeholder="Watermark (optional, e.g. DRAFT)" style={{ ...inputStyle, width: 200 }} />
         </div>
 
         {/* Format row */}
@@ -252,6 +304,7 @@ export default function LetterEditor() {
           </label>
           <span style={{ width: 1, height: 22, background: T.border, margin: '0 4px' }} />
           <button title="Insert 3×3 table" onMouseDown={(e) => e.preventDefault()} onClick={() => insertTable(3, 3)} style={{ ...tbBtn, width: 'auto', padding: '0 10px', gap: 6 }}><FaTable size={11} /> Table</button>
+          <button title={stampImage ? 'Insert company stamp' : 'No stamp on file — upload one in Organization Settings'} onMouseDown={(e) => e.preventDefault()} onClick={insertStamp} disabled={!stampImage} style={{ ...tbBtn, width: 'auto', padding: '0 10px', gap: 6, opacity: stampImage ? 1 : 0.5, cursor: stampImage ? 'pointer' : 'not-allowed' }}><FaStamp size={11} /> Stamp</button>
           <button title="Add row" onMouseDown={(e) => e.preventDefault()} onClick={addRow} style={{ ...tbBtn, width: 'auto', padding: '0 8px', gap: 4, fontSize: 11 }}><FaPlus size={9} /> Row</button>
           <button title="Add column" onMouseDown={(e) => e.preventDefault()} onClick={addCol} style={{ ...tbBtn, width: 'auto', padding: '0 8px', gap: 4, fontSize: 11 }}><FaPlus size={9} /> Col</button>
           <button title="Delete row" onMouseDown={(e) => e.preventDefault()} onClick={delRow} style={{ ...tbBtn, width: 'auto', padding: '0 8px', gap: 4, fontSize: 11 }}><FaMinus size={9} /> Row</button>
@@ -275,12 +328,15 @@ export default function LetterEditor() {
             {Array.from({ length: Math.max(0, pageCount - 1) }, (_, k) => (
               <div key={`b${k}`} style={{ position: 'absolute', top: (k + 1) * A4_H - 1, left: 0, right: 0, borderTop: '1px dashed #cbd5e1', pointerEvents: 'none' }} />
             ))}
+            {watermark.trim() && Array.from({ length: pageCount }, (_, k) => (
+              <div key={`w${k}`} className="lt-watermark" style={{ top: k * A4_H }}><span>{watermark}</span></div>
+            ))}
             <div
               ref={bodyRef}
               className="lt-body"
               contentEditable
               suppressContentEditableWarning
-              onInput={recomputePages}
+              onInput={scheduleReflow}
               onKeyUp={saveSel}
               onMouseUp={saveSel}
               style={{ position: 'relative', zIndex: 1, padding: `${topPx}px ${SIDE_PX}px ${botPx}px`, minHeight: A4_H - topPx - botPx }}
