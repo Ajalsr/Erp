@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaPrint, FaDownload, FaEnvelope, FaEdit, FaTimes } from 'react-icons/fa';
 import DOMPurify from 'dompurify';
@@ -7,7 +7,7 @@ import useAuthStore from '../../store/useAuthStore';
 import useOrganization from '../../helper/useOrganization';
 import nexusToast from '../../helper/nexusToast';
 import { getLetter, sendLetterEmail } from '../../helper/letterApi';
-import { A4_W, A4_H, SIDE_PX, SIDE_MM, A4_W_MM, A4_H_MM, padsPx, buildLetterPdf } from './letterShared';
+import { A4_W, A4_H, SIDE_PX, SIDE_MM, A4_W_MM, A4_H_MM, padsPx, buildLetterPdf, reflowPageBreaks, waitForLetterFonts } from './letterShared';
 
 const CONTENT_W = A4_W - 2 * SIDE_PX;
 
@@ -20,11 +20,13 @@ export default function LetterPrint() {
   const { getOrganization } = useOrganization();
 
   const captureRef = useRef(null);
+  const screenBodyRef = useRef(null);
   const pageRef = useRef(null);
   const [letter, setLetter] = useState(null);
   const [lh, setLh] = useState({ image: '', topPad: 13, bottomPad: 8 });
   const [loading, setLoading] = useState(true);
   const [pageCount, setPageCount] = useState(1);
+  const [printPages, setPrintPages] = useState([]); // one HTML string per real page, split at .pg-spacer boundaries
 
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailTo, setEmailTo] = useState('');
@@ -39,6 +41,7 @@ export default function LetterPrint() {
         const [org, l] = await Promise.all([
           orgId ? getOrganization(orgId, true).catch(() => null) : null,
           getLetter(id).then((r) => r.data?.data).catch(() => null),
+          waitForLetterFonts(),
         ]);
         if (!alive) return;
         if (org) setLh({ image: org.letterheadImage || '', topPad: org.letterheadTopPad || 13, bottomPad: org.letterheadBottomPad || 8 });
@@ -53,27 +56,48 @@ export default function LetterPrint() {
   const cleanBody = letter ? DOMPurify.sanitize(letter.body || '', { USE_PROFILES: { html: true } }) : '';
   const { top: topPx, bot: botPx } = padsPx(lh);
 
-  // Page count from the offscreen capture node (usable content width).
-  const recompute = useCallback(() => {
-    const el = captureRef.current;
-    if (!el) return;
-    const usableH = A4_H - topPx - botPx;
-    setPageCount(Math.max(1, Math.ceil((el.scrollHeight + 1) / usableH)));
-  }, [topPx, botPx]);
-
+  // Set the sanitized HTML imperatively (not dangerouslySetInnerHTML) so we can
+  // then insert page-break spacers as real DOM children without React fighting
+  // us on the next render — same reflowPageBreaks used by the editor, applied
+  // to both the on-screen preview AND the offscreen capture node that feeds
+  // the actual downloaded/emailed PDF (buildLetterPdf now slices at each
+  // spacer's actual offset, so it always matches wherever reflow put them).
+  // loading also gates on waitForLetterFonts() above, so DM Sans is guaranteed
+  // ready before this ever measures offsetHeight — no fallback-font drift.
   useEffect(() => {
     if (loading || !letter) return;
-    recompute();
-    const el = captureRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(recompute);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [loading, letter, cleanBody, recompute]);
+    let pages = 1;
+    if (screenBodyRef.current) {
+      screenBodyRef.current.innerHTML = cleanBody;
+      pages = reflowPageBreaks(screenBodyRef.current, topPx, botPx);
+
+      // Split the now-reflowed content at each .pg-spacer boundary into one
+      // HTML bucket per real page — printPages below renders these as explicit
+      // per-page blocks with a forced break between them, so print doesn't
+      // depend on the browser's own pagination guessing where a page ends.
+      const buckets = [];
+      let current = document.createElement('div');
+      Array.from(screenBodyRef.current.children).forEach((child) => {
+        if (child.classList.contains('pg-spacer')) {
+          buckets.push(current);
+          current = document.createElement('div');
+        } else {
+          current.appendChild(child.cloneNode(true));
+        }
+      });
+      buckets.push(current);
+      setPrintPages(buckets.map((b) => b.innerHTML));
+    }
+    if (captureRef.current) {
+      captureRef.current.innerHTML = cleanBody;
+      reflowPageBreaks(captureRef.current, topPx, botPx);
+    }
+    setPageCount(pages);
+  }, [loading, letter, cleanBody, topPx, botPx]);
 
   const download = async () => {
     try {
-      const pdf = await buildLetterPdf(captureRef.current, lh.image, lh);
+      const pdf = await buildLetterPdf(captureRef.current, lh.image, lh, letter?.watermark);
       pdf.save(`letter-${letter?.letterNumber || id}.pdf`);
       nexusToast.success('Downloaded!');
     } catch { nexusToast.error('Download failed'); }
@@ -86,7 +110,7 @@ export default function LetterPrint() {
     if (to.length === 0) return nexusToast.error('Enter at least one email');
     setSending(true);
     try {
-      const pdf = await buildLetterPdf(captureRef.current, lh.image, lh);
+      const pdf = await buildLetterPdf(captureRef.current, lh.image, lh, letter?.watermark);
       const base64 = pdf.output('datauristring').split(',')[1];
       await sendLetterEmail(letter.id, to, emailMsg, base64);
       nexusToast.success('Letter emailed');
@@ -105,16 +129,26 @@ export default function LetterPrint() {
     <div style={{ background: T.bg, minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", color: T.textPri }}>
       <style>{`
         .lt-table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-        .lt-table td, .lt-table th { border: 1px solid #94a3b8; padding: 5px 8px; font-size: 13px; vertical-align: top; }
+        .lt-table td, .lt-table th { border: 2px solid #000; padding: 5px 8px; font-size: 13px; vertical-align: top; }
         .ltp-body { font-size: 13.5px; line-height: 1.6; color: #0f172a; }
         .ltp-body p { margin: 0 0 8px; }
+        .ltp-body ul, .ltp-body ol { margin: 0 0 8px; padding-left: 24px; }
+        .ltp-body ul { list-style: disc; }
+        .ltp-body ol { list-style: decimal; }
+        .ltp-body li { margin: 0 0 4px; }
         .ltp-print { display: none; }
+        .ltp-watermark { position: absolute; left: 0; width: ${A4_W}px; height: ${A4_H}px; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 0; overflow: hidden; }
+        .ltp-watermark span { font-size: 110px; font-weight: 800; color: #dc2626; opacity: 0.12; transform: rotate(-45deg); white-space: nowrap; text-transform: uppercase; }
         @media print {
           body * { visibility: hidden; }
           .ltp-print, .ltp-print * { visibility: visible; }
           .ltp-print { display: block; position: absolute; left: 0; top: 0; width: 100%; }
-          .ltp-print-lh { position: fixed; top: 0; left: 0; width: ${A4_W_MM}mm; height: ${A4_H_MM}mm; z-index: 0; }
-          .ltp-print-content { position: relative; z-index: 1; padding: ${topMm}mm ${SIDE_MM}mm ${botMm}mm; }
+          .ltp-print-page { position: relative; width: ${A4_W_MM}mm; min-height: ${A4_H_MM}mm; padding: ${topMm}mm ${SIDE_MM}mm ${botMm}mm; overflow: hidden; }
+          .ltp-print-page + .ltp-print-page { break-before: page; }
+          .ltp-print-lh { position: absolute; top: 0; left: 0; width: ${A4_W_MM}mm; height: ${A4_H_MM}mm; z-index: 0; }
+          .ltp-print-content { position: relative; z-index: 1; }
+          .ltp-print-watermark { position: absolute; top: 0; left: 0; width: ${A4_W_MM}mm; height: ${A4_H_MM}mm; z-index: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; overflow: hidden; }
+          .ltp-print-watermark span { font-size: 90px; font-weight: 800; color: #dc2626; opacity: 0.12; transform: rotate(-45deg); white-space: nowrap; text-transform: uppercase; }
           @page { size: A4; margin: 0; }
         }
       `}</style>
@@ -147,21 +181,33 @@ export default function LetterPrint() {
             {Array.from({ length: Math.max(0, pageCount - 1) }, (_, k) => (
               <div key={`b${k}`} style={{ position: 'absolute', top: (k + 1) * A4_H - 1, left: 0, right: 0, borderTop: '1px dashed #cbd5e1', pointerEvents: 'none' }} />
             ))}
-            <div className="ltp-body" style={{ position: 'relative', zIndex: 1, padding: `${topPx}px ${SIDE_PX}px ${botPx}px` }} dangerouslySetInnerHTML={{ __html: cleanBody }} />
+            {letter?.watermark && Array.from({ length: pageCount }, (_, k) => (
+              <div key={`w${k}`} className="ltp-watermark" style={{ top: k * A4_H }}><span>{letter.watermark}</span></div>
+            ))}
+            <div ref={screenBodyRef} className="ltp-body" style={{ position: 'relative', zIndex: 1, padding: `${topPx}px ${SIDE_PX}px ${botPx}px` }} />
           </div>
         )}
       </div>
 
       {/* Offscreen capture node (usable content width, for PDF rasterization) */}
       <div style={{ position: 'fixed', left: -99999, top: 0, width: CONTENT_W, pointerEvents: 'none' }} aria-hidden>
-        <div ref={captureRef} className="ltp-body" style={{ width: CONTENT_W }} dangerouslySetInnerHTML={{ __html: cleanBody }} />
+        <div ref={captureRef} className="ltp-body" style={{ width: CONTENT_W }} />
       </div>
 
-      {/* Print-only DOM — fixed letterhead repeats each page, content flows */}
+      {/* Print-only DOM — one explicit page block per printPages entry (split at
+          the same .pg-spacer boundaries reflowPageBreaks already computed),
+          each with its own letterhead/watermark and a forced break before it.
+          Deterministic — doesn't rely on the browser's own pagination to guess
+          where a page ends. */}
       {letter && (
         <div className="ltp-print">
-          {lh.image && <img className="ltp-print-lh" src={lh.image} alt="" />}
-          <div className="ltp-print-content ltp-body" dangerouslySetInnerHTML={{ __html: cleanBody }} />
+          {printPages.map((html, k) => (
+            <div key={k} className="ltp-print-page">
+              {lh.image && <img className="ltp-print-lh" src={lh.image} alt="" />}
+              {letter.watermark && <div className="ltp-print-watermark"><span>{letter.watermark}</span></div>}
+              <div className="ltp-print-content ltp-body" dangerouslySetInnerHTML={{ __html: html }} />
+            </div>
+          ))}
         </div>
       )}
 

@@ -60,6 +60,7 @@ type letterRequest struct {
 	Title      string `json:"title"`
 	Body       string `json:"body"`
 	CustomerID string `json:"customerId"`
+	Watermark  string `json:"watermark"`
 }
 
 func (r letterRequest) validate() error {
@@ -99,6 +100,7 @@ func CreateLetter() gin.HandlerFunc {
 			Type:      req.Type,
 			Title:     strings.TrimSpace(req.Title),
 			Body:      req.Body,
+			Watermark: strings.TrimSpace(req.Watermark),
 			IssueDate: time.Now(),
 			CreatedBy: userID,
 			CreatedAt: time.Now(),
@@ -205,6 +207,7 @@ func UpdateLetter() gin.HandlerFunc {
 
 		set := bson.M{
 			"type": req.Type, "title": strings.TrimSpace(req.Title), "body": req.Body,
+			"watermark": strings.TrimSpace(req.Watermark),
 			"updatedAt": time.Now(),
 		}
 		res, err := letterCollection.UpdateOne(ctx,
@@ -368,7 +371,32 @@ func buildLetterPDF(l models.Letter) *gofpdf.Fpdf {
 	body()
 	pdf.CellFormat(70, 4.5, "Authorized Signatory", "", 1, "L", false, 0, "")
 
+	letterWatermark(pdf, l.Watermark)
 	return pdf
+}
+
+// letterWatermark stamps user-set diagonal translucent text across every page
+// (e.g. "DRAFT", "WARRANTY", "COPY") — unlike the status-driven watermark on
+// transactional docs, this text is whatever the user typed when composing the
+// letter, so no status→text mapping here.
+func letterWatermark(pdf *gofpdf.Fpdf, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	tr := pdf.UnicodeTranslatorFromDescriptor("")
+	for n := 1; n <= pdf.PageCount(); n++ {
+		pdf.SetPage(n)
+		pdf.SetFont("Helvetica", "B", 60)
+		pdf.SetTextColor(220, 38, 38)
+		pdf.SetAlpha(0.12, "Normal")
+		pdf.TransformBegin()
+		pdf.TransformRotate(45, 105, 148.5)
+		pdf.SetXY(0, 145)
+		pdf.CellFormat(210, 12, tr(strings.ToUpper(text)), "", 0, "C", false, 0, "")
+		pdf.TransformEnd()
+		pdf.SetAlpha(1, "Normal")
+	}
 }
 
 func writeLetterPDF(c *gin.Context, inline bool) {
