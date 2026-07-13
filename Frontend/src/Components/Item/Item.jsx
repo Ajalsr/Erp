@@ -3,6 +3,7 @@ import {
   FaPlus, FaTimes, FaSearch, FaBox, FaTag, FaLayerGroup,
   FaExclamationTriangle, FaCheckCircle, FaBarcode, FaCubes, FaIndustry,
   FaEdit, FaArrowDown, FaArrowUp, FaMagic, FaCopy, FaPrint, FaFileInvoice,
+  FaDownload, FaFileImport,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
@@ -279,10 +280,10 @@ export default function Item() {
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
           <button className="inv-btn" style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
-            <FaArrowDown size={11}/> Export
+            <FaDownload size={11}/> Export
           </button>
           <button className="inv-btn" onClick={()=>setShowImport(true)} style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
-            <FaArrowUp size={11}/> Import
+            <FaFileImport size={11}/> Import
           </button>
           <button className="inv-btn" onClick={()=>navigate("/Items/Items/New")}
             style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 14px",borderRadius:8,background:T.blue,border:"none",color:"#fff",fontSize:12.5,fontWeight:600,fontFamily:"inherit",boxShadow:`0 4px 14px ${isDark?"rgba(59,130,246,.35)":"rgba(37,99,235,.25)"}`}}>

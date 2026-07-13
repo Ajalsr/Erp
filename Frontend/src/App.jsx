@@ -58,7 +58,6 @@ const PurchaseReport = lazy(() => import("./Components/Reports/PurchaseReport"))
 const InventoryReport = lazy(() => import("./Components/Reports/InventoryReport"))
 const AgingReport = lazy(() => import("./Components/Reports/AgingReport"))
 const CustomerStatement = lazy(() => import("./Components/Reports/CustomerStatement"))
-const StatementOfAccount = lazy(() => import("./Components/Reports/StatementOfAccount"))
 const VATReport = lazy(() => import("./Components/Reports/VATReport"))
 const VendorAging = lazy(() => import("./Components/Reports/VendorAging"))
 const TrialBalance = lazy(() => import("./Components/Reports/TrialBalance"))
@@ -194,7 +193,6 @@ function App() {
               <Route path="/Reports/inventory"            element={<InventoryReport />} />
               <Route path="/Reports/aging"                element={<AgingReport />} />
               <Route path="/Reports/customer-statement"   element={<CustomerStatement />} />
-              <Route path="/Reports/statement-of-account" element={<StatementOfAccount />} />
               <Route path="/Reports/vat"                  element={<VATReport />} />
               <Route path="/Reports/trial-balance"        element={<TrialBalance />} />
               <Route path="/Reports/profit-loss"          element={<ProfitLoss />} />

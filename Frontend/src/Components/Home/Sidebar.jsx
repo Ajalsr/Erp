@@ -56,7 +56,6 @@ const MENU = [
     { name: 'Inventory Report',      route: '/Reports/inventory',            mod: 'reports' },
     { name: 'AR Aging',              route: '/Reports/aging',                mod: 'reports' },
     { name: 'Customer Statement',    route: '/Reports/customer-statement',   mod: 'reports' },
-    { name: 'Statement of Account',  route: '/Reports/statement-of-account', mod: 'reports' },
     { name: 'VAT Report',            route: '/Reports/vat',                  mod: 'reports' },
     { name: 'Vendor Aging',          route: '/Reports/vendor-aging',         mod: 'reports' },
     { name: 'Export Transactions',   route: '/Reports/export-transactions',  mod: 'reports' },
