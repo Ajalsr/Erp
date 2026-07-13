@@ -52,7 +52,17 @@ const backupHour, backupMinute = 2, 0 // 2:00 AM
 // the server last started". Recomputes the next fire time each cycle (via
 // time.AfterFunc) rather than a flat ticker, so it stays aligned across DST
 // changes instead of slowly drifting.
+//
+// This backend runs as a desktop-app sidecar, not an always-on server — the
+// process only exists while someone has the app open, so the 2AM firing time
+// above only actually runs a backup on the rare day the app happens to be open
+// at that exact instant. Every other day silently gets no backup at all, with
+// nothing to notice or retry. catchUpMissedBackups covers that: on every
+// startup, run any org's backup that isn't already done for today's slot,
+// rather than waiting on a 2AM window that may never arrive.
 func StartBackupScheduler() {
+	go catchUpMissedBackups()
+
 	var schedule func()
 	schedule = func() {
 		now := time.Now()
@@ -66,6 +76,41 @@ func StartBackupScheduler() {
 		})
 	}
 	schedule()
+}
+
+// catchUpMissedBackups runs once per process start. For each org, if today's
+// rotation slot doesn't already have a successful backup uploaded today, it
+// runs one now instead of leaving that day with no backup at all.
+func catchUpMissedBackups() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cur, err := orgCollection.Find(ctx, bson.M{})
+	if err != nil {
+		log.Printf("[backup] catch-up: failed to list organizations: %v", err)
+		return
+	}
+	var orgs []models.Organization
+	cur.All(ctx, &orgs)
+	cur.Close(ctx)
+
+	now := time.Now()
+	todaySlot := now.Day() % backupSlots
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	for _, org := range orgs {
+		orgID := org.ID.Hex()
+		var meta models.BackupMeta
+		err := backupMetaCollection.FindOne(ctx, bson.M{"orgId": orgID, "slot": todaySlot}).Decode(&meta)
+		if err == nil && meta.Status == "success" && !meta.UploadedAt.Before(todayStart) {
+			continue // already backed up today
+		}
+		result, err := runBackupWithRetry(orgID)
+		if err != nil {
+			log.Printf("[backup] catch-up: org %s failed: %v", orgID, err)
+			continue
+		}
+		log.Printf("[backup] catch-up: org %s slot %d saved — %d collections, %d bytes", orgID, result.Slot, result.Collections, result.SizeBytes)
+	}
 }
 
 func runAllOrgBackups() {

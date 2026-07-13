@@ -57,7 +57,6 @@ const PAGE_TITLES = {
   '/Reports/inventory': 'Inventory Report',
   '/Reports/aging': 'AR Aging',
   '/Reports/customer-statement': 'Customer Statement',
-  '/Reports/statement-of-account': 'Statement of Account',
   '/Reports/vat': 'VAT Report',
   '/Reports/vendor-aging': 'Vendor Aging',
   '/Reports/trial-balance': 'Trial Balance',

@@ -140,8 +140,13 @@ export default function CustomerStatement() {
     ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 99px; }
     @media print {
-      .cs-no-print { display: none !important; }
-      .cs-root { background: #fff !important; color: #000 !important; }
+      body * { visibility: hidden !important; }
+      .cs-print-area, .cs-print-area * { visibility: visible !important; }
+      .cs-print-area {
+        position: absolute !important; top: 0 !important; left: 0 !important;
+        width: 100% !important; height: auto !important; margin: 0 !important; padding: 20px !important;
+        background: #fff !important; color: #000 !important;
+      }
     }
   `;
 
@@ -264,7 +269,7 @@ export default function CustomerStatement() {
 
         {/* Statement */}
         {statement && (
-          <div>
+          <div className="cs-print-area">
             {/* Header */}
             <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
