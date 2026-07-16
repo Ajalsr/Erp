@@ -122,8 +122,14 @@ func GetAllEnquiries() gin.HandlerFunc {
 		}
 
 		total, _ := enquiryCollection.CountDocuments(ctx, filter)
+		// Filtering by follow-up due/overdue: soonest (most overdue) first is more
+		// useful than newest-created-first for a "what needs attention" list.
+		sortKey := bson.D{{Key: "createdAt", Value: -1}}
+		if c.Query("followUp") != "" {
+			sortKey = bson.D{{Key: "followUpDate", Value: 1}}
+		}
 		opts := options.Find().
-			SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+			SetSort(sortKey).
 			SetSkip(skip).
 			SetLimit(limit)
 

@@ -11,6 +11,7 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useGetDashboardStats from "../../helper/useGetDashboardStats";
 import axiosInstance from "../../helper/axiosInstance";
 import { usePermissions } from "../../helper/permissions";
+import useRealtime from "../../helper/useRealtime";
 import SalesRepDashboard from "./SalesRepDashboard";
 
 /* ─── Sparkline ──────────────────────────────────────────────────── */
@@ -105,6 +106,19 @@ function FullDashboard() {
   const [time, setTime] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
 
+  // Enquiries whose follow-up date is today or already passed — same "due" set
+  // the backend's daily scheduler notifies org admins/owners about.
+  const [followUps, setFollowUps] = useState([]);
+  const [followUpsLoading, setFollowUpsLoading] = useState(true);
+  const loadFollowUps = () => {
+    axiosInstance.get("/api/enquiries/?followUp=due&limit=5")
+      .then((r) => setFollowUps(r.data?.data?.enquiries || []))
+      .catch(() => setFollowUps([]))
+      .finally(() => setFollowUpsLoading(false));
+  };
+  useEffect(() => { loadFollowUps(); }, []);
+  useRealtime(["enquiries_updated"], loadFollowUps);
+
   // Reporting currency: dashboard figures are GL-derived (base currency). Pull the
   // org base currency and feed the module-level formatter, then re-render.
   const [, setCcyTick] = useState(0);
@@ -131,6 +145,7 @@ function FullDashboard() {
   } = stats;
 
   const netPL = thisMonthRevenue - thisMonthPaid;
+  const todayISOStr = new Date().toISOString().slice(0, 10);
 
   const weeklyOrders = useMemo(() => {
     const map = [0, 0, 0, 0, 0, 0, 0];
@@ -692,6 +707,55 @@ function FullDashboard() {
           </div>
         </div>
       </div>
+
+      {/* ══ ENQUIRY FOLLOW-UPS DUE/OVERDUE ══════════════════════════ */}
+      {(followUpsLoading || followUps.length > 0) && (
+        <div className="s6" style={{ marginBottom: 14 }}>
+          <div style={card({ padding: 0, overflow: "hidden" })}>
+            <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${bdr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <p className="sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>Enquiry Follow-ups Due</p>
+                {!followUpsLoading && followUps.length > 0 && (
+                  <span style={{ padding: "2px 8px", borderRadius: 999, background: isDark ? "rgba(239,68,68,.1)" : "#fee2e2", color: T.red, fontSize: 9, fontWeight: 700, border: `1px solid ${isDark ? "rgba(239,68,68,.2)" : "#fca5a5"}` }}>
+                    {followUps.length} due
+                  </span>
+                )}
+              </div>
+              <button className="lnk" onClick={() => navigate("/Sales/Enquiries")}
+                style={{ fontSize: 11, color: T.textSec, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+                View all <FaArrowRight size={8} />
+              </button>
+            </div>
+            <div style={{ padding: "6px 12px" }}>
+              {followUpsLoading ? [1, 2].map(i => (
+                <div key={i} style={{ display: "flex", gap: 10, padding: "10px 8px" }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: isDark ? "rgba(255,255,255,.06)" : "#e2e8f0", animation: "pulse 1.2s ease infinite", flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}><Sk w="60%" h={11} /><div style={{ marginTop: 6 }}><Sk w="40%" h={10} /></div></div>
+                </div>
+              )) : followUps.map((e) => {
+                const overdue = e.followUpDate < todayISOStr;
+                return (
+                  <div key={e._id} className="stk" onClick={() => navigate(`/Sales/Enquiries?id=${e._id}`)}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 8px", cursor: "pointer" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 8, background: overdue ? T.redDim : T.amberDim, color: overdue ? T.red : T.amber, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}><FaClock /></div>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0 }}>{e.enquiryNumber}</p>
+                        <p style={{ fontSize: 11, color: T.textSec, margin: "1px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+                          {e.customerName}{e.projectName ? ` · ${e.projectName}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: overdue ? T.redDim : T.amberDim, color: overdue ? T.red : T.amber }}>
+                      {overdue ? "Overdue" : "Due today"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══ SECTION LABEL ═══════════════════════════════════════════ */}
       <p className="sec-label s7">Inventory, Trends &amp; Daily Summary</p>
