@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { matchItem } from "../../helper/itemSearch";
 import {
   FaPlus, FaTimes, FaSearch, FaChevronLeft, FaChevronRight,
@@ -512,6 +512,8 @@ export default function Enquiries() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusId = searchParams.get("id");
   const { can, canViewRecord } = usePermissions();
   // View-only roles browse the table but cannot open the detail drawer.
   // Detail needs more than view (add/edit/delete) + record scope. owner/admin always.
@@ -630,6 +632,19 @@ export default function Enquiries() {
 
   const openDrawer = (enq) => { if (!canOpenDetail(enq)) return; setSelected(enq); setDrawerOpen(true); setDrawerTab("overview"); setEditing(false); };
   const closeDrawer = () => { setDrawerOpen(false); setSelected(null); setEditing(false); };
+
+  // Deep-link from a notification (e.g. enquiry follow-up due/overdue) — fetch that
+  // one enquiry directly and open its drawer, regardless of the current filter/search/
+  // page, since the target enquiry may not be on the currently-loaded page at all.
+  const openedFocusFor = useRef(null);
+  useEffect(() => {
+    if (!focusId || openedFocusFor.current === focusId) return;
+    openedFocusFor.current = focusId;
+    axiosInstance.get(`/api/enquiries/${focusId}`)
+      .then((r) => { if (r.data?.data) openDrawer(r.data.data); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId]);
 
   const handleCreateCustomer = async () => {
     if (!selected) return;

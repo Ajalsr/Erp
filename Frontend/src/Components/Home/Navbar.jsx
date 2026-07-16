@@ -637,7 +637,11 @@ const Navbar = ({ onToggleSidebar }) => {
                             navigate(focus ? `/Approvals?id=${focus}` : '/Approvals');
                           }
                         : isEnquiry
-                          ? () => { setNotifOpen(false); navigate('/Sales/Enquiries'); }
+                          ? () => {
+                              setNotifOpen(false);
+                              const focus = n.metadata?.enquiryId;
+                              navigate(focus ? `/Sales/Enquiries?id=${focus}` : '/Sales/Enquiries');
+                            }
                           : undefined
                     return (
                       <div
