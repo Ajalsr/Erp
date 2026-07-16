@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -91,6 +92,7 @@ func GetAllDeliveryNotes() gin.HandlerFunc {
 			filter["items.itemId"] = itemID
 		}
 		if search := c.Query("search"); search != "" {
+			search = regexp.QuoteMeta(search)
 			filter["$or"] = []bson.M{
 				{"dnNumber":     bson.M{"$regex": search, "$options": "i"}},
 				{"customerName": bson.M{"$regex": search, "$options": "i"}},
