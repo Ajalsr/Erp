@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import {
   FaBold, FaItalic, FaUnderline, FaListUl, FaListOl,
   FaAlignLeft, FaAlignCenter, FaAlignRight, FaTable, FaStamp,
@@ -70,7 +71,12 @@ export default function LetterEditor() {
           setWatermark(letterRes.watermark || '');
           setCustomerId(letterRes.customerId || '');
           setCustQuery(letterRes.customerName || '');
-          initialHtml.current = letterRes.body || '';
+          // Sanitize before ever touching the DOM — this is loaded via a raw
+          // .innerHTML assignment below (not React's dangerouslySetInnerHTML,
+          // but the same XSS surface), and letterRes.body may have been created
+          // by any org member (or a direct API call) with no server-side
+          // sanitization to rely on.
+          initialHtml.current = DOMPurify.sanitize(letterRes.body || '', { USE_PROFILES: { html: true } });
         } else if (!isEdit) {
           initialHtml.current = seedTemplate(activeOrg?.name, nextNum);
         }
@@ -214,7 +220,10 @@ export default function LetterEditor() {
     // every load from the current letterhead padding) — never persist them.
     const clone = bodyRef.current?.cloneNode(true);
     clone?.querySelectorAll('.pg-spacer').forEach((el) => el.remove());
-    const body = clone?.innerHTML?.trim() || '';
+    // Sanitize what actually gets persisted too — typing itself can't inject
+    // markup, but a paste (e.g. from a crafted webpage) can carry raw HTML
+    // with event-handler attributes straight into the contentEditable DOM.
+    const body = DOMPurify.sanitize(clone?.innerHTML?.trim() || '', { USE_PROFILES: { html: true } });
     if (!body || body === '<br>') return nexusToast.error('Letter body is required');
     setSaving(true);
     try {

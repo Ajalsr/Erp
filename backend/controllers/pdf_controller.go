@@ -39,6 +39,8 @@ func watermarkFor(status string) string {
 		return "REJECTED"
 	case "cancelled", "canceled":
 		return "CANCELLED"
+	case "void", "voided":
+		return "VOIDED"
 	}
 	return "" // approved / issued / paid / received / etc → no watermark
 }
@@ -52,12 +54,12 @@ func pdfWatermark(pdf *gofpdf.Fpdf, text string) {
 	pages := pdf.PageCount()
 	for n := 1; n <= pages; n++ {
 		pdf.SetPage(n)
-		pdf.SetFont("Helvetica", "B", 60)
+		pdf.SetFont("Helvetica", "B", 90)
 		pdf.SetTextColor(255, 80, 80)
 		pdf.SetAlpha(0.12, "Normal")
 		pdf.TransformBegin()
 		pdf.TransformRotate(45, 105, 150) // rotate about A4 centre (mm)
-		pdf.Text(35, 150, text)
+		pdf.Text(20, 158, text)
 		pdf.TransformEnd()
 		pdf.SetAlpha(1, "Normal")
 	}

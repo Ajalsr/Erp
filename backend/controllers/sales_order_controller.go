@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -476,6 +477,7 @@ func GetAllSalesOrders() gin.HandlerFunc {
 		}
 
 		if search != "" {
+			search = regexp.QuoteMeta(search)
 			filter["$or"] = []bson.M{
 				{"orderNumber": bson.M{"$regex": search, "$options": "i"}},
 				{"customerName": bson.M{"$regex": search, "$options": "i"}},
@@ -1399,6 +1401,7 @@ func SearchSalesOrders() gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "No search query provided", "data": []interface{}{}})
 			return
 		}
+		query = regexp.QuoteMeta(query)
 
 		orgID, _ := c.Get("orgId")
 		filter := bson.M{

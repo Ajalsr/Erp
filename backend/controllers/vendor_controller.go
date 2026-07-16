@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -89,6 +90,7 @@ func GetAllVendors() gin.HandlerFunc {
 			filter["status"] = status
 		}
 		if search := c.Query("search"); search != "" {
+			search = regexp.QuoteMeta(search)
 			filter["$or"] = []bson.M{
 				{"displayName": bson.M{"$regex": search, "$options": "i"}},
 				{"companyName": bson.M{"$regex": search, "$options": "i"}},
@@ -290,7 +292,7 @@ func SearchVendors() gin.HandlerFunc {
 		defer cancel()
 
 		orgID, _ := c.Get("orgId")
-		q := c.Query("q")
+		q := regexp.QuoteMeta(c.Query("q"))
 
 		filter := bson.M{
 			"orgId": orgID,

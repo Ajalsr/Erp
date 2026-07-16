@@ -12,11 +12,14 @@ require (
 require github.com/jung-kurt/gofpdf v1.16.2 // indirect
 
 require (
+	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/creasty/defaults v1.7.0 // indirect
 	github.com/google/uuid v1.5.0 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
 	github.com/gorilla/schema v1.4.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
+	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/richardlehane/mscfb v1.0.7 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect

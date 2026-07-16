@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -85,6 +86,7 @@ func GetAllAccounts() gin.HandlerFunc {
 			filter["accountType"] = accountType
 		}
 		if search := c.Query("search"); search != "" {
+			search = regexp.QuoteMeta(search)
 			filter["$or"] = []bson.M{
 				{"accountCode": bson.M{"$regex": search, "$options": "i"}},
 				{"accountName": bson.M{"$regex": search, "$options": "i"}},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/backend/config"
@@ -492,6 +493,7 @@ func GetAllGRNs() gin.HandlerFunc {
 			filter["status"] = status
 		}
 		if search := c.Query("search"); search != "" {
+			search = regexp.QuoteMeta(search)
 			filter["$or"] = bson.A{
 				bson.M{"grnNumber":  bson.M{"$regex": search, "$options": "i"}},
 				bson.M{"vendorName": bson.M{"$regex": search, "$options": "i"}},

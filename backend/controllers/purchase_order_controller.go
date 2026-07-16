@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -657,6 +658,7 @@ func GetAllPurchaseOrders() gin.HandlerFunc {
 			andClauses = append(andClauses, bson.M{"status": status})
 		}
 		if q := c.Query("q"); q != "" {
+			q = regexp.QuoteMeta(q)
 			andClauses = append(andClauses, bson.M{"$or": []bson.M{
 				{"orderNumber": bson.M{"$regex": q, "$options": "i"}},
 				{"vendorName": bson.M{"$regex": q, "$options": "i"}},

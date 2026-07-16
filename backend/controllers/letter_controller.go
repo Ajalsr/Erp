@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,12 +15,28 @@ import (
 	"github.com/backend/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/jung-kurt/gofpdf"
+	"github.com/microcosm-cc/bluemonday"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var letterCollection = config.GetCollection(config.DB, "letters")
+
+// letterBodyPolicy sanitizes letter body HTML server-side — defense in depth
+// behind the frontend's own DOMPurify pass, since this API can be called
+// directly (any client with a valid token, not just the app's own editor).
+// Built on UGCPolicy (strips scripts/event handlers/javascript: URLs) plus
+// what the rich-text editor actually emits: inline styles for formatting
+// (align/color/size/borders), contenteditable="false" on the inserted stamp
+// image, and data: URIs for that same image (it's embedded, not hosted).
+var letterBodyPolicy = func() *bluemonday.Policy {
+	p := bluemonday.UGCPolicy()
+	p.AllowAttrs("style").Globally()
+	p.AllowAttrs("contenteditable").OnElements("div", "img")
+	p.AllowDataURIImages()
+	return p
+}()
 
 var letterTypeLabels = map[string]string{
 	"warranty":     "Warranty Letter",
@@ -93,6 +110,7 @@ func CreateLetter() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 			return
 		}
+		req.Body = letterBodyPolicy.Sanitize(req.Body)
 
 		letter := models.Letter{
 			ID:        primitive.NewObjectID().Hex(),
@@ -153,7 +171,7 @@ func GetAllLetters() gin.HandlerFunc {
 			filter["type"] = t
 		}
 		if q := strings.TrimSpace(c.Query("search")); q != "" {
-			rx := bson.M{"$regex": q, "$options": "i"}
+			rx := bson.M{"$regex": regexp.QuoteMeta(q), "$options": "i"}
 			filter["$or"] = []bson.M{{"title": rx}, {"letterNumber": rx}, {"customerName": rx}}
 		}
 
@@ -204,6 +222,7 @@ func UpdateLetter() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 			return
 		}
+		req.Body = letterBodyPolicy.Sanitize(req.Body)
 
 		set := bson.M{
 			"type": req.Type, "title": strings.TrimSpace(req.Title), "body": req.Body,
