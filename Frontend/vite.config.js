@@ -6,7 +6,11 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: './',
+  // Web (Vercel) needs an absolute base so assets resolve from the domain root
+  // on nested routes like /invoice/public/:token. The Tauri desktop build loads
+  // assets from a custom protocol and needs a relative base — Tauri sets
+  // TAURI_ENV_PLATFORM during its build, so switch on that.
+  base: process.env.TAURI_ENV_PLATFORM ? './' : '/',
   server: {
     port: 5175,
   },
