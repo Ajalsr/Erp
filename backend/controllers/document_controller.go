@@ -228,7 +228,7 @@ func ProxyDocument() gin.HandlerFunc {
 		}
 
 		req, _ := http.NewRequest("GET", fetchURL, nil)
-		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; NexusERP/1.0)")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Spifora/1.0)")
 		resp, err := (&http.Client{}).Do(req)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"message": "failed to fetch document"})

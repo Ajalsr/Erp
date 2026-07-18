@@ -198,19 +198,10 @@ const Sidebar = ({ isCollapsed, isMobile = false, mobileOpen = false, onClose = 
           borderBottom: `1px solid ${D.border}`,
           flexShrink: 0,
         }}>
-          {/* Nexus icon */}
-          <svg width="28" height="28" viewBox="0 0 120 120" style={{ flexShrink: 0 }}>
-            <rect width="120" height="120" rx="24" fill="#1a1a1a"/>
-            <line x1="28" y1="28" x2="92" y2="92" stroke="#f43f5e" strokeWidth="9" strokeLinecap="round"/>
-            <line x1="92" y1="28" x2="28" y2="92" stroke="#3b82f6" strokeWidth="9" strokeLinecap="round"/>
-            <circle cx="28" cy="28" r="9" fill="#f43f5e"/>
-            <circle cx="92" cy="92" r="9" fill="#f43f5e"/>
-            <circle cx="92" cy="28" r="9" fill="#3b82f6"/>
-            <circle cx="28" cy="92" r="9" fill="#3b82f6"/>
-            <circle cx="60" cy="60" r="13" fill="#f59e0b"/>
-          </svg>
+          {/* Spifora icon */}
+          <img src="/spifora-icon.png" alt="Spifora" style={{ height: 30, width: 30, objectFit: 'contain', flexShrink: 0 }} />
           {!isCollapsed && (
-            <span className="nx-sb-logo" style={{ color: D.logoText, fontWeight: '800', fontSize: '15px', letterSpacing: '0.08em' }}>NEXUS</span>
+            <span className="nx-sb-logo" style={{ color: D.logoText, fontWeight: '800', fontSize: '15px', letterSpacing: '0.08em' }}>SPIFORA</span>
           )}
         </div>
 

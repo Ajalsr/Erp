@@ -475,7 +475,7 @@ const Navbar = ({ onToggleSidebar }) => {
             onFocus={() => { setSearchFocused(true); if (results.length) setSearchOpen(true) }}
             onBlur={() => setSearchFocused(false)}
             onKeyDown={onSearchKeyDown}
-            placeholder="Search across Nexus…   (Ctrl+K)"
+            placeholder="Search across Spifora…   (Ctrl+K)"
             style={{
               width: '100%', height: '32px',
               padding: '0 32px 0 32px',

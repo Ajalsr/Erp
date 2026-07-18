@@ -62,7 +62,7 @@ export default function PublicInvoice() {
 
       {/* Top bar */}
       <div className="no-print" style={{ background: "#1e3a5f", padding: "10px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>Nexus ERP — Invoice Portal</span>
+        <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>Spifora — Invoice Portal</span>
         <button
           onClick={() => window.print()}
           style={{ padding: "6px 16px", borderRadius: 7, background: "#f59e0b", border: "none", color: "#0a0e1a", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>

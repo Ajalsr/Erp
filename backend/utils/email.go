@@ -15,11 +15,12 @@ import (
 // SendInvitationEmail sends an invitation link to the given email address.
 //
 // Required env vars in .env:
-//   SMTP_HOST  — e.g. smtp.gmail.com
-//   SMTP_PORT  — e.g. 587
-//   SMTP_USER  — your Gmail address
-//   SMTP_PASS  — Gmail App Password (16 chars, no spaces)
-//                Generate at: myaccount.google.com → Security → App Passwords
+//
+//	SMTP_HOST  — e.g. smtp.gmail.com
+//	SMTP_PORT  — e.g. 587
+//	SMTP_USER  — your Gmail address
+//	SMTP_PASS  — Gmail App Password (16 chars, no spaces)
+//	             Generate at: myaccount.google.com → Security → App Passwords
 func SendInvitationEmail(toEmail, _, orgName, invitedBy, role, token string) error {
 	host := os.Getenv("SMTP_HOST")
 	portStr := os.Getenv("SMTP_PORT")
@@ -51,9 +52,9 @@ func SendInvitationEmail(toEmail, _, orgName, invitedBy, role, token string) err
 	inviteLink := fmt.Sprintf("%s/invitations/accept?token=%s", appURL, token)
 
 	m := gomail.NewMessage()
-	m.SetHeader("From", fmt.Sprintf("Nexus ERP <%s>", from))
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
 	m.SetHeader("To", toEmail)
-	m.SetHeader("Subject", fmt.Sprintf("You're invited to join %s on Nexus ERP", orgName))
+	m.SetHeader("Subject", fmt.Sprintf("You're invited to join %s on Spifora", orgName))
 	m.SetBody("text/html", buildInviteEmailHTML(orgName, invitedBy, role, inviteLink))
 
 	d := gomail.NewDialer(host, port, user, pass)
@@ -95,9 +96,9 @@ func SendLoginOTPEmail(toEmail, otp string) error {
 </div>`, otp)
 
 	m := gomail.NewMessage()
-	m.SetHeader("From", fmt.Sprintf("Nexus ERP <%s>", from))
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
 	m.SetHeader("To", toEmail)
-	m.SetHeader("Subject", "Your Nexus ERP login code")
+	m.SetHeader("Subject", "Your Spifora login code")
 	m.SetBody("text/html", html)
 	d := gomail.NewDialer(host, port, user, pass)
 	if err := d.DialAndSend(m); err != nil {
@@ -135,14 +136,15 @@ func SendInvoiceEmail(toEmail string, inv models.Invoice, customMessage string, 
 
 	appURL := os.Getenv("APP_URL")
 	if appURL == "" {
-		appURL = "http://localhost:5175"
+		//appURL = "http://localhost:5175"
+		appURL = "nexusfrontend-eight.vercel.app"
 	}
 
 	var subject string
 	if isReminder {
 		subject = fmt.Sprintf("Payment Reminder: %s is overdue", inv.InvoiceNumber)
 	} else {
-		subject = fmt.Sprintf("Invoice %s from Nexus ERP", inv.InvoiceNumber)
+		subject = fmt.Sprintf("Invoice %s from Spifora", inv.InvoiceNumber)
 	}
 
 	publicLink := ""
@@ -151,7 +153,7 @@ func SendInvoiceEmail(toEmail string, inv models.Invoice, customMessage string, 
 	}
 
 	m := gomail.NewMessage()
-	m.SetHeader("From", fmt.Sprintf("Nexus ERP <%s>", from))
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
 	m.SetHeader("To", toEmail)
 	m.SetHeader("Subject", subject)
 	m.SetBody("text/html", buildInvoiceEmailHTML(inv, publicLink, customMessage, isReminder))
@@ -195,9 +197,9 @@ func SendQuoteEmail(toEmails []string, q models.Quote, customMessage string, pdf
 	}
 
 	m := gomail.NewMessage()
-	m.SetHeader("From", fmt.Sprintf("Nexus ERP <%s>", from))
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
 	m.SetHeader("To", toEmails...)
-	m.SetHeader("Subject", fmt.Sprintf("Quote %s from Nexus ERP", q.QuoteNumber))
+	m.SetHeader("Subject", fmt.Sprintf("Quote %s from Spifora", q.QuoteNumber))
 	m.SetBody("text/html", buildQuoteEmailHTML(q, customMessage))
 	if len(pdfBytes) > 0 {
 		name := "quote-" + q.QuoteNumber + ".pdf"
@@ -246,7 +248,7 @@ func buildQuoteEmailHTML(q models.Quote, customMessage string) string {
           %s
           <tr><td style="padding:10px 0 0;color:#0f172a;font-size:15px;font-weight:700;border-top:1px solid #e2e8f0;">Grand Total</td><td style="padding:10px 0 0;text-align:right;color:#0f172a;font-size:15px;font-weight:800;border-top:1px solid #e2e8f0;">AED %s</td></tr>
         </table>
-        <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Sent via Nexus ERP</p>
+        <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Sent via Spifora</p>
       </div>
     </div>
   </div>
@@ -305,9 +307,9 @@ func buildInvoiceEmailHTML(inv models.Invoice, publicLink, customMessage string,
           <td style="background:linear-gradient(135deg,#1e3a8a,#0f172a);padding:28px 36px;">
             <table cellpadding="0" cellspacing="0"><tr>
               <td style="width:34px;height:34px;background:#2563eb;border-radius:8px;text-align:center;vertical-align:middle;">
-                <span style="color:#fff;font-size:17px;font-weight:800;">N</span>
+                <span style="color:#fff;font-size:17px;font-weight:800;">S</span>
               </td>
-              <td style="padding-left:10px;color:#fff;font-size:17px;font-weight:700;">NEXUS ERP</td>
+              <td style="padding-left:10px;color:#fff;font-size:17px;font-weight:700;">SPIFORA</td>
             </tr></table>
             <h1 style="color:#fff;font-size:20px;font-weight:700;margin:16px 0 0;">%s</h1>
           </td>
@@ -345,7 +347,7 @@ func buildInvoiceEmailHTML(inv models.Invoice, publicLink, customMessage string,
 
         <tr>
           <td style="background:#080d1a;padding:16px 36px;border-top:1px solid rgba(255,255,255,0.05);">
-            <p style="color:#334155;font-size:11px;margin:0;text-align:center;">Nexus ERP · This is an automated email, please do not reply directly.</p>
+            <p style="color:#334155;font-size:11px;margin:0;text-align:center;">Spifora · This is an automated email, please do not reply directly.</p>
           </td>
         </tr>
 
@@ -391,9 +393,9 @@ func buildInviteEmailHTML(orgName, invitedBy, role, inviteLink string) string {
             <table cellpadding="0" cellspacing="0">
               <tr>
                 <td style="width:36px;height:36px;background:#2563eb;border-radius:8px;text-align:center;vertical-align:middle;">
-                  <span style="color:#fff;font-size:18px;font-weight:800;">N</span>
+                  <span style="color:#fff;font-size:18px;font-weight:800;">S</span>
                 </td>
-                <td style="padding-left:10px;color:#fff;font-size:18px;font-weight:700;letter-spacing:-0.3px;">NEXUS ERP</td>
+                <td style="padding-left:10px;color:#fff;font-size:18px;font-weight:700;letter-spacing:-0.3px;">SPIFORA</td>
               </tr>
             </table>
           </td>
@@ -404,7 +406,7 @@ func buildInviteEmailHTML(orgName, invitedBy, role, inviteLink string) string {
           <td style="padding:36px;">
             <h1 style="color:#e2e8f0;font-size:22px;font-weight:700;margin:0 0 8px;">You're invited!</h1>
             <p style="color:#64748b;font-size:14px;margin:0 0 28px;">
-              <strong style="color:#94a3b8;">%s</strong> has invited you to join their organization on Nexus ERP.
+              <strong style="color:#94a3b8;">%s</strong> has invited you to join their organization on Spifora.
             </p>
 
             <!-- Org card -->
@@ -452,7 +454,7 @@ func buildInviteEmailHTML(orgName, invitedBy, role, inviteLink string) string {
         <!-- Footer -->
         <tr>
           <td style="background:#080d1a;padding:16px 36px;border-top:1px solid rgba(255,255,255,0.05);">
-            <p style="color:#334155;font-size:11px;margin:0;text-align:center;">Nexus ERP · Sent by %s</p>
+            <p style="color:#334155;font-size:11px;margin:0;text-align:center;">Spifora · Sent by %s</p>
           </td>
         </tr>
 
@@ -498,7 +500,7 @@ func SendLetterEmail(toEmails []string, l models.Letter, customMessage string, p
 	}
 
 	m := gomail.NewMessage()
-	m.SetHeader("From", fmt.Sprintf("Nexus ERP <%s>", from))
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
 	m.SetHeader("To", toEmails...)
 	m.SetHeader("Subject", fmt.Sprintf("%s — %s", l.Title, l.LetterNumber))
 	m.SetBody("text/html", buildLetterEmailHTML(l, customMessage))

@@ -155,18 +155,9 @@ const Login = () => {
 
             <div className="relative z-10">
               <div className="flex items-center gap-3 mb-2">
-                <svg width="38" height="38" viewBox="0 0 120 120">
-                  <rect width="120" height="120" rx="24" fill="#1a1a1a"/>
-                  <line x1="28" y1="28" x2="92" y2="92" stroke="#f43f5e" strokeWidth="9" strokeLinecap="round"/>
-                  <line x1="92" y1="28" x2="28" y2="92" stroke="#3b82f6" strokeWidth="9" strokeLinecap="round"/>
-                  <circle cx="28" cy="28" r="9" fill="#f43f5e"/>
-                  <circle cx="92" cy="92" r="9" fill="#f43f5e"/>
-                  <circle cx="92" cy="28" r="9" fill="#3b82f6"/>
-                  <circle cx="28" cy="92" r="9" fill="#3b82f6"/>
-                  <circle cx="60" cy="60" r="13" fill="#f59e0b"/>
-                </svg>
-                <div>
-                  <span className="login-heading text-white font-bold text-xl tracking-widest block">NEXUS</span>
+                <img src="/spifora-icon.png" alt="Spifora" style={{ height: 44, width: 44, objectFit: 'contain' }} />
+                <div style={{ marginTop: 6 }}>
+                  <span className="login-heading text-white font-bold text-xl tracking-widest block" style={{ lineHeight: 1.1 }}>SPIFORA</span>
                   <span style={{ fontSize: '10px', letterSpacing: '0.15em', color: '#94a3b8', fontWeight: 500 }}>ALL-IN-ONE</span>
                 </div>
               </div>
@@ -198,7 +189,7 @@ const Login = () => {
             </div>
 
             <div className="relative z-10">
-              <p className="text-slate-600 text-xs">© 2026 Nexus. All rights reserved.</p>
+              <p className="text-slate-600 text-xs">© 2026 Spifora. All rights reserved.</p>
             </div>
           </div>
 
@@ -208,17 +199,8 @@ const Login = () => {
 
               {/* Mobile logo */}
               <div className="flex items-center gap-3 mb-8 md:hidden">
-                <svg width="30" height="30" viewBox="0 0 120 120">
-                  <rect width="120" height="120" rx="24" fill="#1a1a1a"/>
-                  <line x1="28" y1="28" x2="92" y2="92" stroke="#f43f5e" strokeWidth="9" strokeLinecap="round"/>
-                  <line x1="92" y1="28" x2="28" y2="92" stroke="#3b82f6" strokeWidth="9" strokeLinecap="round"/>
-                  <circle cx="28" cy="28" r="9" fill="#f43f5e"/>
-                  <circle cx="92" cy="92" r="9" fill="#f43f5e"/>
-                  <circle cx="92" cy="28" r="9" fill="#3b82f6"/>
-                  <circle cx="28" cy="92" r="9" fill="#3b82f6"/>
-                  <circle cx="60" cy="60" r="13" fill="#f59e0b"/>
-                </svg>
-                <span className="login-heading text-white font-bold tracking-widest">NEXUS</span>
+                <img src="/spifora-icon.png" alt="Spifora" style={{ height: 34, width: 34, objectFit: 'contain' }} />
+                <span className="login-heading text-white font-bold tracking-widest">SPIFORA</span>
               </div>
 
               <div className="fade-up fade-up-1">
