@@ -137,7 +137,7 @@ func SendInvoiceEmail(toEmail string, inv models.Invoice, customMessage string, 
 	appURL := os.Getenv("APP_URL")
 	if appURL == "" {
 		//appURL = "http://localhost:5175"
-		appURL = "nexusfrontend-eight.vercel.app"
+		appURL = "spifora.vercel.app/"
 	}
 
 	var subject string
