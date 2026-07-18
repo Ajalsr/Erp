@@ -190,7 +190,7 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, grandTota
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ width: 48, height: 48, borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#fff', fontWeight: 900 }}>{(orgName || 'N').charAt(0).toUpperCase()}</div>
           <div>
-            <p style={{ fontSize: 17, fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.01em' }}>{orgName || 'Nexus ERP'}</p>
+            <p style={{ fontSize: 17, fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.01em' }}>{orgName || 'Spifora'}</p>
             <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', margin: '2px 0 0' }}>Dubai, United Arab Emirates · P.O.Box: 00000</p>
           </div>
         </div>
@@ -355,7 +355,7 @@ function PrintDocument({ grn, inboundData, items, subTotal, taxGroups, grandTota
 
       {/* Doc footer */}
       <div style={{ padding: '8px 20px', background: '#1e3a5f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>Generated: {today()} · Nexus ERP</span>
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>Generated: {today()} · Spifora</span>
         <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'rgba(255,255,255,0.6)' }}>{grn.number}</span>
       </div>
     </div>

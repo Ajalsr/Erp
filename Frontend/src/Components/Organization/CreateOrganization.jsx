@@ -90,12 +90,8 @@ const CreateOrganization = () => {
 
           {/* Logo */}
           <div className="co-fade co-1 flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
-              </svg>
-            </div>
-            <span className="co-heading text-white font-bold text-lg">NEXUS ERP</span>
+            <img src="/spifora-icon.png" alt="Spifora" style={{ height: 32, width: 32, objectFit: 'contain' }} />
+            <span className="co-heading text-white font-bold text-lg">SPIFORA</span>
           </div>
 
           <div className="co-fade co-1 mb-8">

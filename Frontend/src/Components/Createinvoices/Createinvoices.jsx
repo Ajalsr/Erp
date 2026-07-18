@@ -889,7 +889,7 @@ const CreateInvoice = () => {
                 <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 14 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginBottom: 10 }}>From (Your Company)</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <Field label="Company Name"><Inp placeholder="Nexus Technologies LLC" value={fromName} onChange={e => setFromName(e.target.value)} /></Field>
+                    <Field label="Company Name"><Inp placeholder="Spifora Technologies LLC" value={fromName} onChange={e => setFromName(e.target.value)} /></Field>
                     <Field label="Address"><Tex placeholder={"123 Sheikh Zayed Rd\nDubai, UAE"} value={fromAddr} onChange={e => setFromAddr(e.target.value)} /></Field>
                     <Field label="TRN / VAT Number"><Inp placeholder="100123456789012" value={fromTrn} onChange={e => setFromTrn(e.target.value)} /></Field>
                   </div>
