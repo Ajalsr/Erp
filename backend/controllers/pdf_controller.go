@@ -41,6 +41,8 @@ func watermarkFor(status string) string {
 		return "CANCELLED"
 	case "void", "voided":
 		return "VOIDED"
+	case "expired":
+		return "EXPIRED"
 	}
 	return "" // approved / issued / paid / received / etc → no watermark
 }
