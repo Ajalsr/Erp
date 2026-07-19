@@ -91,6 +91,7 @@ func SaleOrderRoutes(router *gin.Engine) {
 func InvoiceRoutes(router *gin.Engine) {
 	// Public — no auth (shareable link for customers)
 	router.GET("/api/invoices/public/:token", controllers.GetPublicInvoice())
+	router.GET("/api/invoices/public/:token/pdf", controllers.PublicInvoicePDF())
 
 	invRoutes := router.Group("/api/invoices")
 	invRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("invoices"))
