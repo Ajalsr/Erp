@@ -15,11 +15,12 @@ import (
 // SendInvitationEmail sends an invitation link to the given email address.
 //
 // Required env vars in .env:
-//   SMTP_HOST  — e.g. smtp.gmail.com
-//   SMTP_PORT  — e.g. 587
-//   SMTP_USER  — your Gmail address
-//   SMTP_PASS  — Gmail App Password (16 chars, no spaces)
-//                Generate at: myaccount.google.com → Security → App Passwords
+//
+//	SMTP_HOST  — e.g. smtp.gmail.com
+//	SMTP_PORT  — e.g. 587
+//	SMTP_USER  — your Gmail address
+//	SMTP_PASS  — Gmail App Password (16 chars, no spaces)
+//	             Generate at: myaccount.google.com → Security → App Passwords
 func SendInvitationEmail(toEmail, _, orgName, invitedBy, role, token string) error {
 	host := os.Getenv("SMTP_HOST")
 	portStr := os.Getenv("SMTP_PORT")
@@ -43,6 +44,9 @@ func SendInvitationEmail(toEmail, _, orgName, invitedBy, role, token string) err
 		from = user
 	}
 
+	// appURL must be the FRONTEND's public URL — this link is a React Router route
+	// (/invitations/accept) that only exists in the deployed SPA, not the backend
+	// API. Falls back to the local dev frontend port when APP_URL isn't set.
 	appURL := os.Getenv("APP_URL")
 	if appURL == "" {
 		appURL = "http://localhost:5175"
