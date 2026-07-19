@@ -552,26 +552,12 @@ func buildInvoicePDF(inv models.Invoice, ex invoiceExtras) *gofpdf.Fpdf {
 	return pdf
 }
 
-// writeInvoicePDF renders an invoice PDF. inline=true → in-browser preview.
-func writeInvoicePDF(c *gin.Context, inline bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	orgID, _ := c.Get("orgId")
-	objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
-		return
-	}
-
-	var inv models.Invoice
-	if err := invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&inv); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
-		return
-	}
-
-	// Enrich related-info from the customer + first linked sales order, mirroring
-	// the on-screen preview. Failures are non-fatal — the PDF just shows "-".
+// renderInvoicePDF enriches related-info from the customer + first linked sales
+// order (mirroring the on-screen preview — failures are non-fatal, the PDF just
+// shows "-"), builds the PDF, and stamps the status watermark. Shared by the
+// authenticated (by id+org) and public (by token) PDF routes so both always
+// render identically.
+func renderInvoicePDF(ctx context.Context, inv models.Invoice) *gofpdf.Fpdf {
 	ex := invoiceExtras{orgName: loadOrgName(inv.OrgID)}
 	if inv.CustomerID != "" {
 		if cid, err := primitive.ObjectIDFromHex(inv.CustomerID); err == nil {
@@ -601,6 +587,28 @@ func writeInvoicePDF(c *gin.Context, inline bool) {
 
 	pdf := buildInvoicePDF(inv, ex)
 	pdfWatermark(pdf, watermarkFor(inv.Status))
+	return pdf
+}
+
+// writeInvoicePDF renders an invoice PDF. inline=true → in-browser preview.
+func writeInvoicePDF(c *gin.Context, inline bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	orgID, _ := c.Get("orgId")
+	objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
+		return
+	}
+
+	var inv models.Invoice
+	if err := invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&inv); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+		return
+	}
+
+	pdf := renderInvoicePDF(ctx, inv)
 
 	disposition := "attachment"
 	if inline {
@@ -622,6 +630,37 @@ func DownloadInvoicePDF() gin.HandlerFunc {
 // PreviewInvoicePDF serves the PDF inline — its /preview route needs only `view`.
 func PreviewInvoicePDF() gin.HandlerFunc {
 	return func(c *gin.Context) { writeInvoicePDF(c, true) }
+}
+
+// PublicInvoicePDF serves the same PDF (letterhead, watermark, everything) for
+// the unauthenticated public share link — keyed by the invoice's random token,
+// not id+org, so no login/permission is needed. Always inline (viewed in a
+// browser tab from the emailed link, not force-downloaded).
+func PublicInvoicePDF() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid token"})
+			return
+		}
+
+		var inv models.Invoice
+		if err := invoiceCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&inv); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+			return
+		}
+
+		pdf := renderInvoicePDF(ctx, inv)
+		filename := "invoice-" + inv.InvoiceNumber + ".pdf"
+		c.Header("Content-Type", "application/pdf")
+		c.Header("Content-Disposition", `inline; filename="`+filename+`"`)
+		if err := pdf.Output(c.Writer); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "PDF generation failed"})
+		}
+	}
 }
 
 // buildGRNPDF renders a goods-receipt note. Same letterhead-per-page machinery as
