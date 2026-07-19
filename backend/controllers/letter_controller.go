@@ -489,10 +489,51 @@ func SendLetterEmail() gin.HandlerFunc {
 			pdfBytes = pdfBuf.Bytes()
 		}
 
+		// Public "view online" link is generated once, the first time a letter is
+		// actually emailed — persisted so re-sends and the print/preview page share it.
+		if letter.PublicToken == "" {
+			letter.PublicToken = generatePublicToken()
+			letterCollection.UpdateOne(ctx, bson.M{"_id": letter.ID}, bson.M{"$set": bson.M{"publicToken": letter.PublicToken}})
+		}
+
 		if err := utils.SendLetterEmail(body.To, letter, body.Message, pdfBytes); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send email", "error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Letter emailed"})
+	}
+}
+
+// GetPublicLetter — GET /api/letters/public/:token — no auth required. Returns
+// both the letter and the minimal org fields the public viewer needs to render
+// the letterhead (name/image/pads), in one round trip since an anonymous
+// visitor has no session to fetch the org separately with.
+func GetPublicLetter() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid token"})
+			return
+		}
+
+		var letter models.Letter
+		if err := letterCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&letter); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Letter not found"})
+			return
+		}
+
+		org := gin.H{}
+		if orgObjID, err := primitive.ObjectIDFromHex(letter.OrgID); err == nil {
+			var o models.Organization
+			opts := options.FindOne().SetProjection(bson.M{"name": 1, "letterheadImage": 1, "letterheadTopPad": 1, "letterheadBottomPad": 1})
+			if err := orgCollection.FindOne(ctx, bson.M{"_id": orgObjID}, opts).Decode(&o); err == nil {
+				org = gin.H{"name": o.Name, "letterheadImage": o.LetterheadImage, "letterheadTopPad": o.LetterheadTopPad, "letterheadBottomPad": o.LetterheadBottomPad}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{"letter": letter, "org": org}})
 	}
 }

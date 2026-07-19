@@ -78,6 +78,9 @@ const Adjustments = lazy(() => import("./Components/Inventory/Adjustments"))
 const Enquiries = lazy(() => import("./Components/Enquiries/Enquiries"))
 const CreditNotes = lazy(() => import("./Components/CreditNotes/CreditNotes"))
 const PublicInvoice = lazy(() => import("./Components/Invoices/PublicInvoice"))
+const PublicQuote = lazy(() => import("./Components/Quotes/PublicQuote"))
+const PublicLetter = lazy(() => import("./Components/Letters/PublicLetter"))
+const PublicBill = lazy(() => import("./Components/Bills/PublicBill"))
 const Quotes = lazy(() => import("./Components/Quotes/Quotes"))
 const CreateQuote = lazy(() => import("./Components/Quotes/CreateQuote"))
 const QuotePrint = lazy(() => import("./Components/Quotes/QuotePrint"))
@@ -218,8 +221,11 @@ function App() {
               <Route path="/Sales/Quotes/:id"         element={<CreateQuote />} />
             </Route>
 
-            {/* Public invoice — no layout, no auth */}
+            {/* Public invoice/quote — no layout, no auth */}
             <Route path="/invoice/public/:token" element={<PublicInvoice />} />
+            <Route path="/quote/public/:token" element={<PublicQuote />} />
+            <Route path="/letter/public/:token" element={<PublicLetter />} />
+            <Route path="/bill/public/:token" element={<PublicBill />} />
           </Routes>
         </Suspense>
       </ErrorBoundary>

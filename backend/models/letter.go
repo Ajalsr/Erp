@@ -23,6 +23,10 @@ type Letter struct {
 
 	IssueDate time.Time `json:"issueDate" bson:"issueDate"`
 
+	// PublicToken powers the unauthenticated "view online" link emailed with the
+	// letter — generated the first time it's sent (see SendLetterEmail).
+	PublicToken string `json:"publicToken,omitempty" bson:"publicToken,omitempty"`
+
 	CreatedBy string    `json:"createdBy,omitempty" bson:"createdBy,omitempty"`
 	CreatedAt time.Time `json:"createdAt"           bson:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"           bson:"updatedAt"`

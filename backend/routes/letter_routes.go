@@ -9,6 +9,11 @@ import (
 // LetterRoutes — GET /api/letters/types, /api/letters (list), POST create,
 // GET/:id, PUT/:id, DELETE/:id, GET/:id/pdf, GET/:id/preview, POST/:id/send-email.
 func LetterRoutes(router *gin.Engine) {
+	// Public "view online" link emailed with the letter — no auth, keyed by an
+	// unguessable token rather than id+org. Registered outside the authenticated
+	// group below.
+	router.GET("/api/letters/public/:token", controllers.GetPublicLetter())
+
 	letterRoutes := router.Group("/api/letters")
 	letterRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("letters"))
 	{

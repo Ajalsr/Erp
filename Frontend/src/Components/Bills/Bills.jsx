@@ -231,6 +231,9 @@ export default function Bills() {
   const [creditPicker,    setCreditPicker]    = useState(false);
   const [applyingCr,      setApplyingCr]      = useState(null);
   const [emailing,        setEmailing]        = useState(false);
+  const [emailModalOpen,  setEmailModalOpen]  = useState(false);
+  const [emailTo,         setEmailTo]         = useState("");
+  const [emailMsg,        setEmailMsg]        = useState("");
 
   /* ── Load list ── */
   const load = useCallback(async () => {
@@ -439,14 +442,22 @@ export default function Bills() {
     } catch (e) { console.error("Download bill PDF failed", e); nexusToast.error("Download failed"); }
   };
 
-  /* ── Email bill to vendor (stub) ── */
-  const handleEmailBill = async () => {
+  /* ── Email bill to vendor ── */
+  const openEmailModal = () => {
+    setEmailTo("");
+    setEmailMsg("");
+    setEmailModalOpen(true);
+  };
+  const doSendBillEmail = async () => {
+    const to = emailTo.split(",").map(s => s.trim()).filter(Boolean);
     setEmailing(true);
     try {
-      await new Promise(r => setTimeout(r, 1200));
-      nexusToast.success(`Bill ${selected.billNumber} sent to ${selected.vendorName || "vendor"}`);
-    } catch { nexusToast.error("Failed to send"); }
-    finally { setEmailing(false); }
+      const res = await axiosInstance.post(`/api/bills/${selected._id}/send`, { recipients: to, message: emailMsg });
+      nexusToast.success(res.data?.message || `Bill ${selected.billNumber} sent`);
+      setEmailModalOpen(false);
+    } catch (e) {
+      nexusToast.error(e?.response?.data?.message || "Failed to send");
+    } finally { setEmailing(false); }
   };
 
   /* ── Filtering ── */
@@ -675,7 +686,7 @@ export default function Bills() {
                       title="Download PDF" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
                       <FaDownload size={11} /> PDF
                     </button>
-                    <button className="bl-btn" onClick={handleEmailBill} disabled={emailing}
+                    <button className="bl-btn" onClick={openEmailModal} disabled={emailing}
                       title="Email" style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: emailing ? "wait" : "pointer", color: T.textSec, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}>
                       <FaPaperPlane size={11} />
                     </button>
@@ -1032,6 +1043,26 @@ export default function Bills() {
           </>
         );
       })()}
+
+      {/* Email bill modal */}
+      {emailModalOpen && (
+        <div onClick={() => !emailing && setEmailModalOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Email {selected?.billNumber}</div>
+              <span onClick={() => setEmailModalOpen(false)} style={{ cursor: "pointer", color: T.textSec }}><FaTimes /></span>
+            </div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", marginBottom: 6 }}>To (comma-separated, blank = vendor's email on file)</label>
+            <input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="vendor@example.com" style={{ padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, color: T.textPri, fontSize: 13, width: "100%", marginBottom: 12, fontFamily: "inherit" }} />
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", marginBottom: 6 }}>Message (optional)</label>
+            <textarea value={emailMsg} onChange={(e) => setEmailMsg(e.target.value)} rows={3} style={{ padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, color: T.textPri, fontSize: 13, width: "100%", marginBottom: 18, resize: "vertical", fontFamily: "inherit" }} />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setEmailModalOpen(false)} disabled={emailing} style={{ padding: "9px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: T.surface2, color: T.textSec, border: `1px solid ${T.border}`, fontFamily: "inherit" }}>Cancel</button>
+              <button onClick={doSendBillEmail} disabled={emailing} style={{ padding: "9px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: "#3b82f6", color: "#fff", border: "none", opacity: emailing ? 0.7 : 1, fontFamily: "inherit" }}>{emailing ? "Sending…" : "Send"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

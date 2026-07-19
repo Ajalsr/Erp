@@ -92,6 +92,8 @@ func InvoiceRoutes(router *gin.Engine) {
 	// Public — no auth (shareable link for customers)
 	router.GET("/api/invoices/public/:token", controllers.GetPublicInvoice())
 	router.GET("/api/invoices/public/:token/pdf", controllers.PublicInvoicePDF())
+	router.GET("/api/quotes/public/:token", controllers.GetPublicQuote())
+	router.GET("/api/quotes/public/:token/pdf", controllers.PublicQuotePDF())
 
 	invRoutes := router.Group("/api/invoices")
 	invRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("invoices"))
@@ -263,6 +265,11 @@ func VendorRoutes(router *gin.Engine) {
 }
 
 func BillRoutes(router *gin.Engine) {
+	// Public "view online" link emailed with the bill — no auth, keyed by an
+	// unguessable token rather than id+org.
+	router.GET("/api/bills/public/:token", controllers.GetPublicBill())
+	router.GET("/api/bills/public/:token/pdf", controllers.PublicBillPDF())
+
 	billRoutes := router.Group("/api/bills")
 	billRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("bills"))
 	{
@@ -275,6 +282,7 @@ func BillRoutes(router *gin.Engine) {
 		billRoutes.PATCH("/:id/void", controllers.VoidBill())
 		billRoutes.GET("/:id/pdf", controllers.DownloadBillPDF())
 		billRoutes.GET("/:id/preview", controllers.PreviewBillPDF())
+		billRoutes.POST("/:id/send", controllers.SendBill())
 	}
 }
 

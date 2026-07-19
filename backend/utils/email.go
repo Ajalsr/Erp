@@ -196,11 +196,21 @@ func SendQuoteEmail(toEmails []string, q models.Quote, customMessage string, pdf
 		from = user
 	}
 
+	// appURL must be the FRONTEND's public URL — see SendInvitationEmail for why.
+	appURL := os.Getenv("APP_URL")
+	if appURL == "" {
+		appURL = "http://localhost:5175"
+	}
+	publicLink := ""
+	if q.PublicToken != "" {
+		publicLink = fmt.Sprintf("%s/quote/public/%s", appURL, q.PublicToken)
+	}
+
 	m := gomail.NewMessage()
 	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
 	m.SetHeader("To", toEmails...)
 	m.SetHeader("Subject", fmt.Sprintf("Quote %s from Spifora", q.QuoteNumber))
-	m.SetBody("text/html", buildQuoteEmailHTML(q, customMessage))
+	m.SetBody("text/html", buildQuoteEmailHTML(q, publicLink, customMessage))
 	if len(pdfBytes) > 0 {
 		name := "quote-" + q.QuoteNumber + ".pdf"
 		m.Attach(name, gomail.SetCopyFunc(func(w io.Writer) error {
@@ -219,7 +229,7 @@ func SendQuoteEmail(toEmails []string, q models.Quote, customMessage string, pdf
 	return nil
 }
 
-func buildQuoteEmailHTML(q models.Quote, customMessage string) string {
+func buildQuoteEmailHTML(q models.Quote, publicLink, customMessage string) string {
 	msgBlock := ""
 	if strings.TrimSpace(customMessage) != "" {
 		msgBlock = fmt.Sprintf(`<p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;white-space:pre-wrap;">%s</p>`, customMessage)
@@ -231,6 +241,15 @@ func buildQuoteEmailHTML(q models.Quote, customMessage string) string {
 	subject := q.Subject
 	if subject == "" {
 		subject = "—"
+	}
+	ctaBlock := ""
+	if publicLink != "" {
+		ctaBlock = fmt.Sprintf(`
+		<table cellpadding="0" cellspacing="0" width="100%%">
+		  <tr><td align="center" style="padding:8px 0 20px;">
+		    <a href="%s" style="display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px 28px;border-radius:9px;font-size:14px;font-weight:600;">View Quote</a>
+		  </td></tr>
+		</table>`, publicLink)
 	}
 	return fmt.Sprintf(`<!DOCTYPE html><html><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
   <div style="max-width:560px;margin:0 auto;padding:24px;">
@@ -248,6 +267,7 @@ func buildQuoteEmailHTML(q models.Quote, customMessage string) string {
           %s
           <tr><td style="padding:10px 0 0;color:#0f172a;font-size:15px;font-weight:700;border-top:1px solid #e2e8f0;">Grand Total</td><td style="padding:10px 0 0;text-align:right;color:#0f172a;font-size:15px;font-weight:800;border-top:1px solid #e2e8f0;">AED %s</td></tr>
         </table>
+        %s
         <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Sent via Spifora</p>
       </div>
     </div>
@@ -260,6 +280,113 @@ func buildQuoteEmailHTML(q models.Quote, customMessage string) string {
 		subject,
 		validBlock,
 		fmt.Sprintf("%.2f", q.Totals.GrandTotal),
+		ctaBlock,
+	)
+}
+
+// SendBillEmail emails a bill to one or more recipients (typically the vendor
+// confirming receipt/terms). When pdfBytes is non-empty it's attached as
+// <bill-number>.pdf.
+func SendBillEmail(toEmails []string, b models.Bill, customMessage string, pdfBytes []byte) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return fmt.Errorf("email service not configured (SMTP_HOST/SMTP_USER/SMTP_PASS missing)")
+	}
+	if len(toEmails) == 0 {
+		return fmt.Errorf("no recipients")
+	}
+
+	port := 587
+	if portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+
+	appURL := os.Getenv("APP_URL")
+	if appURL == "" {
+		appURL = "http://localhost:5175"
+	}
+	publicLink := ""
+	if b.PublicToken != "" {
+		publicLink = fmt.Sprintf("%s/bill/public/%s", appURL, b.PublicToken)
+	}
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
+	m.SetHeader("To", toEmails...)
+	m.SetHeader("Subject", fmt.Sprintf("Bill %s from Spifora", b.BillNumber))
+	m.SetBody("text/html", buildBillEmailHTML(b, publicLink, customMessage))
+	if len(pdfBytes) > 0 {
+		name := "bill-" + b.BillNumber + ".pdf"
+		m.Attach(name, gomail.SetCopyFunc(func(w io.Writer) error {
+			_, err := w.Write(pdfBytes)
+			return err
+		}), gomail.SetHeader(map[string][]string{"Content-Type": {"application/pdf"}}))
+	}
+
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send bill email to %v: %v", toEmails, err)
+		return err
+	}
+
+	log.Printf("[email] Bill email sent to %v", toEmails)
+	return nil
+}
+
+func buildBillEmailHTML(b models.Bill, publicLink, customMessage string) string {
+	msgBlock := ""
+	if strings.TrimSpace(customMessage) != "" {
+		msgBlock = fmt.Sprintf(`<p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;white-space:pre-wrap;">%s</p>`, customMessage)
+	}
+	ctaBlock := ""
+	if publicLink != "" {
+		ctaBlock = fmt.Sprintf(`
+		<table cellpadding="0" cellspacing="0" width="100%%">
+		  <tr><td align="center" style="padding:8px 0 20px;">
+		    <a href="%s" style="display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px 28px;border-radius:9px;font-size:14px;font-weight:600;">View Bill</a>
+		  </td></tr>
+		</table>`, publicLink)
+	}
+	return fmt.Sprintf(`<!DOCTYPE html><html><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:24px;">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+      <div style="background:#3b82f6;padding:20px 24px;">
+        <h1 style="margin:0;color:#ffffff;font-size:18px;">Bill %s</h1>
+      </div>
+      <div style="padding:24px;">
+        <p style="margin:0 0 16px;color:#0f172a;font-size:15px;">Dear %s,</p>
+        %s
+        <p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;">Please find the bill summary below.</p>
+        <table style="width:100%%;border-collapse:collapse;margin:8px 0 16px;">
+          <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Bill No.</td><td style="padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;">%s</td></tr>
+          <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Due Date</td><td style="padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;">%s</td></tr>
+          <tr><td style="padding:10px 0 0;color:#0f172a;font-size:15px;font-weight:700;border-top:1px solid #e2e8f0;">Grand Total</td><td style="padding:10px 0 0;text-align:right;color:#0f172a;font-size:15px;font-weight:800;border-top:1px solid #e2e8f0;">AED %s</td></tr>
+        </table>
+        %s
+        <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Sent via Spifora</p>
+      </div>
+    </div>
+  </div>
+</body></html>`,
+		b.BillNumber,
+		b.VendorName,
+		msgBlock,
+		b.BillNumber,
+		b.DueDate,
+		fmt.Sprintf("%.2f", b.Totals.GrandTotal),
+		ctaBlock,
 	)
 }
 
@@ -499,11 +626,20 @@ func SendLetterEmail(toEmails []string, l models.Letter, customMessage string, p
 		from = user
 	}
 
+	appURL := os.Getenv("APP_URL")
+	if appURL == "" {
+		appURL = "http://localhost:5175"
+	}
+	publicLink := ""
+	if l.PublicToken != "" {
+		publicLink = fmt.Sprintf("%s/letter/public/%s", appURL, l.PublicToken)
+	}
+
 	m := gomail.NewMessage()
 	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
 	m.SetHeader("To", toEmails...)
 	m.SetHeader("Subject", fmt.Sprintf("%s — %s", l.Title, l.LetterNumber))
-	m.SetBody("text/html", buildLetterEmailHTML(l, customMessage))
+	m.SetBody("text/html", buildLetterEmailHTML(l, publicLink, customMessage))
 	if len(pdfBytes) > 0 {
 		name := "letter-" + l.LetterNumber + ".pdf"
 		m.Attach(name, gomail.SetCopyFunc(func(w io.Writer) error {
@@ -522,7 +658,7 @@ func SendLetterEmail(toEmails []string, l models.Letter, customMessage string, p
 	return nil
 }
 
-func buildLetterEmailHTML(l models.Letter, customMessage string) string {
+func buildLetterEmailHTML(l models.Letter, publicLink, customMessage string) string {
 	msgBlock := ""
 	if strings.TrimSpace(customMessage) != "" {
 		msgBlock = fmt.Sprintf(`<p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;white-space:pre-wrap;">%s</p>`, customMessage)
@@ -530,6 +666,15 @@ func buildLetterEmailHTML(l models.Letter, customMessage string) string {
 	greeting := "Dear Sir/Madam,"
 	if l.CustomerName != "" {
 		greeting = fmt.Sprintf("Dear %s,", l.CustomerName)
+	}
+	ctaBlock := ""
+	if publicLink != "" {
+		ctaBlock = fmt.Sprintf(`
+		<table cellpadding="0" cellspacing="0" width="100%%">
+		  <tr><td align="center" style="padding:8px 0 20px;">
+		    <a href="%s" style="display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px 28px;border-radius:9px;font-size:14px;font-weight:600;">View Letter</a>
+		  </td></tr>
+		</table>`, publicLink)
 	}
 	return fmt.Sprintf(`<!DOCTYPE html><html><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
   <div style="max-width:560px;margin:0 auto;padding:24px;">
@@ -540,11 +685,12 @@ func buildLetterEmailHTML(l models.Letter, customMessage string) string {
       <div style="padding:24px;">
         <p style="margin:0 0 16px;color:#0f172a;font-size:15px;">%s</p>
         %s
-        <p style="margin:0;color:#334155;font-size:14px;line-height:1.6;">Please find the letter attached as a PDF.</p>
+        <p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;">Please find the letter attached as a PDF.</p>
+        %s
       </div>
     </div>
   </div>
 </body></html>`,
-		l.Title, greeting, msgBlock,
+		l.Title, greeting, msgBlock, ctaBlock,
 	)
 }

@@ -753,6 +753,12 @@ func mailQuote(ctx context.Context, q models.Quote, recipients []string, message
 	if len(to) == 0 {
 		return nil, fmt.Errorf("no recipient email provided for this quote")
 	}
+	// Public "view online" link is generated once, the first time a quote is
+	// actually emailed — persisted so re-sends and the print/preview page share it.
+	if q.PublicToken == "" {
+		q.PublicToken = generatePublicToken()
+		quoteCollection.UpdateOne(ctx, bson.M{"_id": q.ID}, bson.M{"$set": bson.M{"publicToken": q.PublicToken}})
+	}
 	var pdfBuf bytes.Buffer
 	if perr := buildQuotePDF(q).Output(&pdfBuf); perr != nil {
 		pdfBuf.Reset() // fall back to a body-only email rather than failing the send
@@ -804,5 +810,27 @@ func SendQuote() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote sent to " + strings.Join(to, ", ")})
+	}
+}
+
+// GetPublicQuote — GET /api/quotes/public/:token — no auth required.
+func GetPublicQuote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid token"})
+			return
+		}
+
+		var q models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&q); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Quote not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": q})
 	}
 }

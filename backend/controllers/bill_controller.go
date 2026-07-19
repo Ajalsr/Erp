@@ -1,14 +1,17 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -920,5 +923,109 @@ func GetBillStats() gin.HandlerFunc {
 				"totalCount":   totalCount,
 			},
 		})
+	}
+}
+
+// resolveBillRecipients de-dupes/trims the given list and falls back to the
+// bill's linked vendor's email on file. Bill has no cached vendor email, so
+// this always looks it up fresh via VendorID.
+func resolveBillRecipients(ctx context.Context, b models.Bill, recipients []string) []string {
+	seen := map[string]bool{}
+	var to []string
+	for _, e := range recipients {
+		e = strings.TrimSpace(e)
+		if e != "" && !seen[strings.ToLower(e)] {
+			seen[strings.ToLower(e)] = true
+			to = append(to, e)
+		}
+	}
+	if len(to) == 0 && b.VendorID != "" {
+		if vid, err := primitive.ObjectIDFromHex(b.VendorID); err == nil {
+			var v models.Vendor
+			if vendorCollection.FindOne(ctx, bson.M{"_id": vid}).Decode(&v) == nil && v.Email != "" {
+				to = append(to, v.Email)
+			}
+		}
+	}
+	return to
+}
+
+// SendBill — POST /api/bills/:id/send. Body: {recipients:[]string, message:string}
+func SendBill() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid bill ID"})
+			return
+		}
+
+		var b models.Bill
+		if err := billCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&b); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Bill not found"})
+			return
+		}
+
+		var req struct {
+			Recipients []string `json:"recipients"`
+			Message    string   `json:"message"`
+		}
+		c.ShouldBindJSON(&req)
+
+		to := resolveBillRecipients(ctx, b, req.Recipients)
+		if len(to) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "No recipient email provided for this bill"})
+			return
+		}
+
+		// Public "view online" link is generated once, the first time a bill is
+		// actually emailed — persisted so re-sends and the print/preview page share it.
+		if b.PublicToken == "" {
+			b.PublicToken = generatePublicToken()
+			billCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{"publicToken": b.PublicToken}})
+		}
+
+		var ex billExtras
+		if b.VendorID != "" {
+			ex.vendorCode, ex.vendorAddress, ex.vendorPhone, _ = loadVendorInfo(ctx, b.VendorID)
+		}
+		var pdfBuf bytes.Buffer
+		pdf := buildBillPDF(b, ex)
+		pdfWatermark(pdf, watermarkFor(b.Status))
+		if perr := pdf.Output(&pdfBuf); perr != nil {
+			pdfBuf.Reset() // fall back to a body-only email rather than failing the send
+		}
+
+		if err := utils.SendBillEmail(to, b, req.Message, pdfBuf.Bytes()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send bill email", "error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Bill sent to " + strings.Join(to, ", ")})
+	}
+}
+
+// GetPublicBill — GET /api/bills/public/:token — no auth required.
+func GetPublicBill() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid token"})
+			return
+		}
+
+		var b models.Bill
+		if err := billCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&b); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Bill not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": b})
 	}
 }
