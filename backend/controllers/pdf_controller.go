@@ -1800,6 +1800,37 @@ func PreviewQuotePDF() gin.HandlerFunc {
 	return func(c *gin.Context) { writeQuotePDF(c, true) }
 }
 
+// PublicQuotePDF serves the same PDF for the unauthenticated public share link —
+// keyed by the quote's random token, not id+org. Always inline.
+func PublicQuotePDF() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid token"})
+			return
+		}
+
+		var q models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&q); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+
+		pdf := buildQuotePDF(q)
+		pdfWatermark(pdf, watermarkFor(q.Status))
+
+		filename := "quote-" + q.QuoteNumber + ".pdf"
+		c.Header("Content-Type", "application/pdf")
+		c.Header("Content-Disposition", `inline; filename="`+filename+`"`)
+		if err := pdf.Output(c.Writer); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "PDF generation failed"})
+		}
+	}
+}
+
 // loadOrgName fetches just the org name (projected — never the heavy letterhead).
 func loadOrgName(orgID string) string {
 	oid, err := primitive.ObjectIDFromHex(orgID)
@@ -2895,6 +2926,40 @@ func DownloadBillPDF() gin.HandlerFunc {
 }
 func PreviewBillPDF() gin.HandlerFunc {
 	return func(c *gin.Context) { writeBillPDF(c, true) }
+}
+
+// PublicBillPDF serves the same PDF for the unauthenticated public share link —
+// keyed by the bill's random token, not id+org. Always inline.
+func PublicBillPDF() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid token"})
+			return
+		}
+
+		var b models.Bill
+		if err := billCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&b); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Bill not found"})
+			return
+		}
+
+		var ex billExtras
+		if b.VendorID != "" {
+			ex.vendorCode, ex.vendorAddress, ex.vendorPhone, _ = loadVendorInfo(ctx, b.VendorID)
+		}
+		pdf := buildBillPDF(b, ex)
+		pdfWatermark(pdf, watermarkFor(b.Status))
+
+		c.Header("Content-Type", "application/pdf")
+		c.Header("Content-Disposition", `inline; filename="bill-`+b.BillNumber+`.pdf"`)
+		if err := pdf.Output(c.Writer); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "PDF generation failed"})
+		}
+	}
 }
 
 // ── Sales Order PDF ────────────────────────────────────────────────────────────

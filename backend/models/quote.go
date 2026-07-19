@@ -100,6 +100,10 @@ type Quote struct {
 	Recipients  []string `json:"recipients,omitempty"  bson:"recipients,omitempty"`
 	SendMessage string   `json:"sendMessage,omitempty" bson:"sendMessage,omitempty"`
 
+	// PublicToken powers the unauthenticated "view online" link emailed to the
+	// customer — generated the first time the quote is sent (see SendQuote).
+	PublicToken string `json:"publicToken,omitempty" bson:"publicToken,omitempty"`
+
 	OrgID     string    `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedBy string    `json:"createdBy"       bson:"createdBy"`
 	CreatedAt time.Time `json:"createdAt"       bson:"createdAt"`

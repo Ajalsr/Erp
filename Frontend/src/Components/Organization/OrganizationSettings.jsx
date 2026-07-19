@@ -667,7 +667,7 @@ const OrganizationSettings = () => {
       const res = await inviteMember(id, { userId: inviteUserId.trim(), role: inviteRole })
       const token = res?.data?.token
       if (token) {
-        const link = `${window.location.origin}/invitations/accept?token=${token}`
+        const link = `spifora.com/invitations/accept?token=${token}`
        //const link = `ephemeral-cat-104b46.netlify.app/inviations/accept?token=${token}` // Frontend route only; backend accepts token without origin for flexibility across environments.
         setInviteLink(link)
       }
