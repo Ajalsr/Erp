@@ -12,6 +12,7 @@ import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
+import useConfirm from "../common/useConfirm";
 
 const STATUSES = [
   { key: "all",       label: "All" },
@@ -62,6 +63,7 @@ export default function Quotes() {
   const canExport = can("quotes", "export");
   const isDark    = useThemeStore(s => s.isDark);
   const T         = getTheme(isDark);
+  const { confirm, ConfirmModal } = useConfirm();
 
   const [quotes,     setQuotes]     = useState([]);
   const [total,      setTotal]      = useState(0);
@@ -122,7 +124,7 @@ export default function Quotes() {
   const totalPages = Math.ceil(total / LIMIT);
 
   async function handleConvert(q) {
-    if (!window.confirm(`Convert ${q.quoteNumber} to an Invoice draft?`)) return;
+    if (!(await confirm({ title: "Convert to invoice", message: `Convert ${q.quoteNumber} to an Invoice draft?`, confirmLabel: "Convert" }))) return;
     setConverting(true);
     try {
       const res = await axiosInstance.post(`/api/quotes/${q._id}/convert`);
@@ -137,7 +139,7 @@ export default function Quotes() {
   }
 
   async function handleDelete(q) {
-    if (!window.confirm(`Delete ${q.quoteNumber}? This cannot be undone.`)) return;
+    if (!(await confirm({ title: "Delete quote", message: `Delete ${q.quoteNumber}? This cannot be undone.`, confirmLabel: "Delete", danger: true }))) return;
     setDeleting(true);
     try {
       await axiosInstance.delete(`/api/quotes/${q._id}`);
@@ -817,6 +819,7 @@ export default function Quotes() {
         )}
 
       </div>
+      {ConfirmModal}
     </div>
   );
 }

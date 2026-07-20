@@ -9,6 +9,7 @@ import useThemeStore from "../../store/useThemeStore";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
 import CreditNotes from "../CreditNotes/CreditNotes";
+import useConfirm from "../common/useConfirm";
 import "react-datepicker/dist/react-datepicker.css";
 
 /* ─── Theme builder ──────────────────────────────────────────────────────── */
@@ -630,6 +631,7 @@ const Invoices = () => {
   const canExport = can("invoices", "export");
   const isDark = useThemeStore((s) => s.isDark);
   const T = buildTheme(isDark);
+  const { confirm, ConfirmModal } = useConfirm();
 
   /* data */
   const [invoices,     setInvoices]    = useState([]);
@@ -937,7 +939,7 @@ const Invoices = () => {
     if (!bulkSelected.length) return;
     const sendable = bulkSelected.filter(i => ["draft","unpaid","overdue","partial"].includes(i.status) && i.docType !== "proforma");
     if (!sendable.length) { nexusToast.error("No sendable invoices in selection (need draft/unpaid/overdue/partial)"); return; }
-    if (!window.confirm(`Send ${sendable.length} invoice(s) to their customers?`)) return;
+    if (!(await confirm({ title: "Send invoices", message: `Send ${sendable.length} invoice(s) to their customers?`, confirmLabel: "Send" }))) return;
     let ok = 0, fail = 0;
     await Promise.all(sendable.map(i =>
       axiosInstance.post(`/api/invoices/${i._id}/send`).then(() => ok++).catch(() => fail++)
@@ -2285,6 +2287,7 @@ const Invoices = () => {
           onClose={() => { setCnPrefill(null); loadInvoices(); }}
         />
       )}
+      {ConfirmModal}
     </>
   );
 };

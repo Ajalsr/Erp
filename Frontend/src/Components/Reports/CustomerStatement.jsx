@@ -128,7 +128,7 @@ export default function CustomerStatement() {
 
   const inputStyle = {
     padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.border}`,
-    background: T.surface2, color: T.text, fontSize: 13, fontFamily: "inherit", outline: "none",
+    background: T.surface2, color: T.textPri, fontSize: 13, fontFamily: "inherit", outline: "none",
   };
 
   const css = `
@@ -151,15 +151,15 @@ export default function CustomerStatement() {
   `;
 
   return (
-    <div className="cs-root" style={{ background: T.bg, minHeight: "100vh", color: T.text }}>
+    <div className="cs-root" style={{ background: T.bg, minHeight: "100vh", color: T.textPri }}>
       <style>{css}</style>
 
       {/* Topbar */}
       <div className="cs-no-print" style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 28px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-        <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Reports</button>
+        <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.textSec, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Reports</button>
         <div style={{ flex: 1 }}>
-          <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 800, margin: 0, color: T.textPri || T.text }}>Customer Statement</h1>
-          <p style={{ fontSize: 11, color: T.muted, margin: "2px 0 0" }}>Account statement with running balance</p>
+          <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 800, margin: 0, color: T.textPri }}>Customer Statement</h1>
+          <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>Account statement with running balance</p>
         </div>
         {customerId && (
           <button onClick={exportExcel} disabled={exporting} style={{ padding: "8px 18px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: exporting ? "not-allowed" : "pointer", background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "inherit", opacity: exporting ? 0.6 : 1 }}>
@@ -167,7 +167,7 @@ export default function CustomerStatement() {
           </button>
         )}
         {statement && (
-          <button onClick={handlePrint} style={{ padding: "8px 18px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface2, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit" }}>
+          <button onClick={handlePrint} style={{ padding: "8px 18px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.surface2, border: `1px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
             🖨 Print / PDF
           </button>
         )}
@@ -180,7 +180,7 @@ export default function CustomerStatement() {
 
           {/* Custom customer dropdown */}
           <div style={{ flex: "1 1 240px", minWidth: 220 }} ref={ddRef}>
-            <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, display: "block", marginBottom: 6 }}>Customer</label>
+            <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, display: "block", marginBottom: 6 }}>Customer</label>
             <div style={{ position: "relative" }}>
               {/* Trigger button */}
               <button
@@ -188,7 +188,7 @@ export default function CustomerStatement() {
                 style={{
                   width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "8px 12px", borderRadius: 7, border: `1px solid ${ddOpen ? (T.accent || "#f59e0b") : T.border}`,
-                  background: T.surface2, color: customerId ? T.text : T.muted,
+                  background: T.surface2, color: customerId ? T.textPri : T.textSec,
                   fontSize: 13, fontFamily: "inherit", cursor: "pointer", outline: "none",
                   transition: "border-color 0.15s",
                 }}
@@ -223,7 +223,7 @@ export default function CustomerStatement() {
                   {/* List */}
                   <div style={{ maxHeight: 220, overflowY: "auto" }}>
                     {filteredCustomers.length === 0 ? (
-                      <div style={{ padding: "14px 14px", fontSize: 12, color: T.muted, textAlign: "center" }}>No customers found</div>
+                      <div style={{ padding: "14px 14px", fontSize: 12, color: T.textSec, textAlign: "center" }}>No customers found</div>
                     ) : filteredCustomers.map((c) => (
                       <div
                         key={c._id}
@@ -240,7 +240,7 @@ export default function CustomerStatement() {
                           {c.customerDisplayName || c.companyName}
                         </span>
                         {c.customerCode && (
-                          <span style={{ fontSize: 10, color: T.muted, background: T.surface2, padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>
+                          <span style={{ fontSize: 10, color: T.textSec, background: T.surface2, padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>
                             {c.customerCode}
                           </span>
                         )}
@@ -254,11 +254,11 @@ export default function CustomerStatement() {
 
           {/* Date range */}
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, display: "block", marginBottom: 6 }}>From</label>
+            <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, display: "block", marginBottom: 6 }}>From</label>
             <AppDatePicker value={fromDate} onChange={setFromDate} />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, display: "block", marginBottom: 6 }}>To</label>
+            <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, display: "block", marginBottom: 6 }}>To</label>
             <AppDatePicker value={toDate} onChange={setToDate} />
           </div>
 
@@ -275,26 +275,26 @@ export default function CustomerStatement() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
                 <div>
                   <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: 20, fontWeight: 800, margin: 0 }}>Account Statement</h2>
-                  <p style={{ color: T.muted, fontSize: 13, margin: "4px 0 0" }}>
+                  <p style={{ color: T.textSec, fontSize: 13, margin: "4px 0 0" }}>
                     {statement.period?.startDate} — {statement.period?.endDate}
                   </p>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, margin: "0 0 4px" }}>Customer</p>
+                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, margin: "0 0 4px" }}>Customer</p>
                   <p style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>{statement.customer?.name || statement.customer?.companyName}</p>
-                  {statement.customer?.code && <p style={{ fontSize: 11, color: T.muted, margin: "2px 0 0" }}>{statement.customer.code}</p>}
+                  {statement.customer?.code && <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>{statement.customer.code}</p>}
                 </div>
               </div>
 
               {/* Summary chips */}
               <div style={{ display: "flex", gap: 16, marginTop: 18, flexWrap: "wrap" }}>
                 {[
-                  { label: "Opening Balance", value: fmt(statement.openingBalance), color: T.muted },
+                  { label: "Opening Balance", value: fmt(statement.openingBalance), color: T.textSec },
                   { label: "Closing Balance", value: fmt(statement.closingBalance), color: statement.closingBalance > 0 ? "#ef4444" : "#10b981" },
-                  { label: "Transactions",    value: statement.transactions?.length || 0, color: T.textPri || T.text },
+                  { label: "Transactions",    value: statement.transactions?.length || 0, color: T.textPri },
                 ].map(chip => (
                   <div key={chip.label} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 16px" }}>
-                    <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, margin: "0 0 4px" }}>{chip.label}</p>
+                    <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, margin: "0 0 4px" }}>{chip.label}</p>
                     <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 15, fontWeight: 700, color: chip.color, margin: 0 }}>{chip.value}</p>
                   </div>
                 ))}
@@ -308,16 +308,16 @@ export default function CustomerStatement() {
                   <thead>
                     <tr style={{ background: T.surface2 }}>
                       {["Date","Type","Reference","Description","Debit","Credit","Balance"].map((h, i) => (
-                        <th key={h} style={{ padding: "10px 16px", textAlign: i >= 4 ? "right" : "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, borderBottom: `1px solid ${T.border}` }}>{h}</th>
+                        <th key={h} style={{ padding: "10px 16px", textAlign: i >= 4 ? "right" : "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, borderBottom: `1px solid ${T.border}` }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {!statement.transactions?.length ? (
-                      <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: T.muted, fontSize: 13 }}>No transactions in this period</td></tr>
+                      <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: T.textSec, fontSize: 13 }}>No transactions in this period</td></tr>
                     ) : statement.transactions.map((line, idx) => (
                       <tr key={idx} className="cs-row">
-                        <td style={{ padding: "9px 16px", fontSize: 12, color: T.muted, borderBottom: `1px solid ${T.border}` }}>{fmtDate(line.date)}</td>
+                        <td style={{ padding: "9px 16px", fontSize: 12, color: T.textSec, borderBottom: `1px solid ${T.border}` }}>{fmtDate(line.date)}</td>
                         <td style={{ padding: "9px 16px", borderBottom: `1px solid ${T.border}` }}>
                           <span style={{
                             display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
@@ -326,11 +326,11 @@ export default function CustomerStatement() {
                           }}>{line.type}</span>
                         </td>
                         <td style={{ padding: "9px 16px", fontSize: 12, fontFamily: "'DM Mono', monospace", color: T.blue || "#3b82f6", borderBottom: `1px solid ${T.border}` }}>{line.reference}</td>
-                        <td style={{ padding: "9px 16px", fontSize: 12, color: T.muted, borderBottom: `1px solid ${T.border}` }}>{line.description}</td>
-                        <td style={{ padding: "9px 16px", fontSize: 12, textAlign: "right", fontFamily: "'DM Mono', monospace", color: line.debit > 0 ? "#ef4444" : T.muted, borderBottom: `1px solid ${T.border}` }}>
+                        <td style={{ padding: "9px 16px", fontSize: 12, color: T.textSec, borderBottom: `1px solid ${T.border}` }}>{line.description}</td>
+                        <td style={{ padding: "9px 16px", fontSize: 12, textAlign: "right", fontFamily: "'DM Mono', monospace", color: line.debit > 0 ? "#ef4444" : T.textSec, borderBottom: `1px solid ${T.border}` }}>
                           {line.debit > 0 ? fmt(line.debit) : "—"}
                         </td>
-                        <td style={{ padding: "9px 16px", fontSize: 12, textAlign: "right", fontFamily: "'DM Mono', monospace", color: line.credit > 0 ? "#10b981" : T.muted, borderBottom: `1px solid ${T.border}` }}>
+                        <td style={{ padding: "9px 16px", fontSize: 12, textAlign: "right", fontFamily: "'DM Mono', monospace", color: line.credit > 0 ? "#10b981" : T.textSec, borderBottom: `1px solid ${T.border}` }}>
                           {line.credit > 0 ? fmt(line.credit) : "—"}
                         </td>
                         <td style={{ padding: "9px 16px", fontSize: 12, textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 700, color: line.balance > 0 ? "#ef4444" : "#10b981", borderBottom: `1px solid ${T.border}` }}>
@@ -346,7 +346,7 @@ export default function CustomerStatement() {
         )}
 
         {!statement && !loading && (
-          <div style={{ textAlign: "center", padding: "60px 0", color: T.muted }}>
+          <div style={{ textAlign: "center", padding: "60px 0", color: T.textSec }}>
             <p style={{ fontSize: 32, marginBottom: 12 }}>📄</p>
             <p style={{ fontSize: 14, fontWeight: 600, margin: "0 0 6px" }}>Select a customer and date range</p>
             <p style={{ fontSize: 12 }}>Then click Generate to produce the account statement</p>

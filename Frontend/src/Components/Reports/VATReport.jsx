@@ -60,15 +60,15 @@ export default function VATReport() {
 
   const card = (label, taxable, vat, color, sub) => (
     <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${color}`, borderRadius: 12, padding: "16px 20px" }}>
-      <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.textSec || T.muted, margin: "0 0 10px" }}>{label}</p>
-      {sub && <p style={{ fontSize: 11, color: T.textSec || T.muted, margin: "0 0 8px" }}>{sub}</p>}
+      <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.textSec, margin: "0 0 10px" }}>{label}</p>
+      {sub && <p style={{ fontSize: 11, color: T.textSec, margin: "0 0 8px" }}>{sub}</p>}
       <div style={{ display: "flex", gap: 24 }}>
         <div>
-          <p style={{ fontSize: 10, color: T.textSec || T.muted, margin: "0 0 2px" }}>Taxable Amount</p>
-          <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 16, fontWeight: 700, color: T.text, margin: 0 }}>{fmt(taxable)}</p>
+          <p style={{ fontSize: 10, color: T.textSec, margin: "0 0 2px" }}>Taxable Amount</p>
+          <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 16, fontWeight: 700, color: T.textPri, margin: 0 }}>{fmt(taxable)}</p>
         </div>
         <div>
-          <p style={{ fontSize: 10, color: T.textSec || T.muted, margin: "0 0 2px" }}>VAT Amount</p>
+          <p style={{ fontSize: 10, color: T.textSec, margin: "0 0 2px" }}>VAT Amount</p>
           <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 16, fontWeight: 700, color: color, margin: 0 }}>{fmt(vat)}</p>
         </div>
       </div>
@@ -76,17 +76,17 @@ export default function VATReport() {
   );
 
   return (
-    <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif", padding: "28px" }}>
+    <div style={{ background: T.bg, minHeight: "100vh", color: T.textPri, fontFamily: "'DM Sans', sans-serif", padding: "28px" }}>
       <style>{`* { box-sizing: border-box; } ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }`}</style>
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.text, margin: "0 0 4px", letterSpacing: "-0.4px" }}>VAT Report</h1>
-          <p style={{ fontSize: 12, color: T.textSec || T.muted, margin: 0 }}>UAE VAT 201 summary — output tax, input tax, net payable</p>
+          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri, margin: "0 0 4px", letterSpacing: "-0.4px" }}>VAT Report</h1>
+          <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>UAE VAT 201 summary — output tax, input tax, net payable</p>
         </div>
         {data && canExport && (
-          <button onClick={exportCSV} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.text, fontFamily: "inherit" }}>
+          <button onClick={exportCSV} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
             ⬇ Export CSV
           </button>
         )}
@@ -95,11 +95,11 @@ export default function VATReport() {
       {/* Date range picker */}
       <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 28, flexWrap: "wrap" }}>
         <div>
-          <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec || T.muted, display: "block", marginBottom: 4 }}>From</label>
+          <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec, display: "block", marginBottom: 4 }}>From</label>
           <AppDatePicker value={from} onChange={setFrom} placeholder="From" />
         </div>
         <div>
-          <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec || T.muted, display: "block", marginBottom: 4 }}>To</label>
+          <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec, display: "block", marginBottom: 4 }}>To</label>
           <AppDatePicker value={to} onChange={setTo} placeholder="To" />
         </div>
         {/* Quick presets */}
@@ -109,7 +109,7 @@ export default function VATReport() {
           { label: "This Year",    fn: () => { setFrom(`${new Date().getFullYear()}-01-01`); setTo(today()); } },
         ].map(p => (
           <button key={p.label} onClick={p.fn}
-            style={{ padding: "8px 14px", borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textSec || T.muted, fontFamily: "inherit", alignSelf: "flex-end" }}>
+            style={{ padding: "8px 14px", borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textSec, fontFamily: "inherit", alignSelf: "flex-end" }}>
             {p.label}
           </button>
         ))}
@@ -120,7 +120,7 @@ export default function VATReport() {
       </div>
 
       {!data && !loading && (
-        <div style={{ textAlign: "center", padding: "60px 0", color: T.textSec || T.muted, fontSize: 14 }}>
+        <div style={{ textAlign: "center", padding: "60px 0", color: T.textSec, fontSize: 14 }}>
           Select a date range and click Generate Report
         </div>
       )}
@@ -134,12 +134,12 @@ export default function VATReport() {
             {card("Box 9+10: Total Input VAT", data.purchases.taxableAmount + (data.purchases.rcmTaxable||0), data.purchases.box11TotalInputVAT ?? data.purchases.inputVAT, "#3b82f6",
               `${data.purchases.billCount} bill(s) · Standard + RCM`)}
             <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${data.netVATPayable >= 0 ? "#ef4444" : "#10b981"}`, borderRadius: 12, padding: "16px 20px" }}>
-              <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.textSec || T.muted, margin: "0 0 10px" }}>Net VAT Payable</p>
-              <p style={{ fontSize: 11, color: T.textSec || T.muted, margin: "0 0 8px" }}>Output VAT + RCM Output − Credit Notes − Input VAT</p>
+              <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.textSec, margin: "0 0 10px" }}>Net VAT Payable</p>
+              <p style={{ fontSize: 11, color: T.textSec, margin: "0 0 8px" }}>Output VAT + RCM Output − Credit Notes − Input VAT</p>
               <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 24, fontWeight: 800, color: data.netVATPayable >= 0 ? "#ef4444" : "#10b981", margin: 0 }}>
                 {data.netVATPayable < 0 ? "−" : ""}{fmt(Math.abs(data.netVATPayable))}
               </p>
-              <p style={{ fontSize: 11, color: T.textSec || T.muted, margin: "6px 0 0" }}>
+              <p style={{ fontSize: 11, color: T.textSec, margin: "6px 0 0" }}>
                 {data.netVATPayable >= 0 ? "Amount to pay to FTA" : "Refund claimable from FTA"}
               </p>
             </div>
@@ -171,7 +171,7 @@ export default function VATReport() {
 
           {/* Credit note adjustment row */}
           {(data.creditNoteAdjustments.vatAdjusted > 0) && (
-            <div style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1px solid rgba(245,158,11,0.25)`, borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: T.text }}>
+            <div style={{ background: isDark ? "rgba(245,158,11,0.06)" : "#fffbeb", border: `1px solid rgba(245,158,11,0.25)`, borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: T.textPri }}>
               ⚠️ Credit note adjustments: <strong>{fmt(data.creditNoteAdjustments.taxableAmount)}</strong> taxable, <strong>{fmt(data.creditNoteAdjustments.vatAdjusted)}</strong> VAT reversed — deducted from output VAT above.
             </div>
           )}
@@ -180,13 +180,13 @@ export default function VATReport() {
           {data.rateBreakdown?.length > 0 && (
             <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 24 }}>
               <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
-                <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 14, fontWeight: 700, color: T.text, margin: 0 }}>Sales VAT Breakdown by Rate</h2>
+                <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 14, fontWeight: 700, color: T.textPri, margin: 0 }}>Sales VAT Breakdown by Rate</h2>
               </div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)" }}>
                     {["Tax Rate", "Taxable Amount", "VAT Collected"].map(h => (
-                      <th key={h} style={{ padding: "10px 20px", textAlign: h === "Tax Rate" ? "left" : "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.textSec || T.muted, borderBottom: `1px solid ${T.border}` }}>{h}</th>
+                      <th key={h} style={{ padding: "10px 20px", textAlign: h === "Tax Rate" ? "left" : "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.textSec, borderBottom: `1px solid ${T.border}` }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -205,7 +205,7 @@ export default function VATReport() {
 
           {/* Filing summary box */}
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "20px 24px" }}>
-            <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 14, fontWeight: 700, color: T.text, margin: "0 0 16px" }}>VAT 201 Filing Summary</h2>
+            <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 14, fontWeight: 700, color: T.textPri, margin: "0 0 16px" }}>VAT 201 Filing Summary</h2>
             {[
               { label: "1.  Standard Rated Supplies",          taxable: data.sales.taxableAmount,                                                                              vat: data.sales.outputVAT },
               { label: "1b. Credit Note Adjustments (−)",      taxable: -(data.creditNoteAdjustments.taxableAmount||0),                                                       vat: -(data.creditNoteAdjustments.vatAdjusted||0) },
@@ -226,13 +226,13 @@ export default function VATReport() {
                            : row.rcm     ? (isDark ? "rgba(139,92,246,0.05)" : "#faf5ff")
                            : "transparent",
               }}>
-                <span style={{ fontSize: 13, color: row.highlight ? (data.netVATPayable >= 0 ? "#ef4444" : "#10b981") : row.rcm ? "#7c3aed" : T.text }}>
+                <span style={{ fontSize: 13, color: row.highlight ? (data.netVATPayable >= 0 ? "#ef4444" : "#10b981") : row.rcm ? "#7c3aed" : T.textPri }}>
                   {row.label.trim()}
                   {row.rcm && <span style={{ fontSize: 9, fontWeight: 700, marginLeft: 6, padding: "1px 5px", borderRadius: 4, background: "rgba(139,92,246,0.12)", color: "#7c3aed" }}>RCM</span>}
                 </span>
                 <div style={{ display: "flex", gap: 40 }}>
-                  <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, color: T.textSec || T.muted, minWidth: 160, textAlign: "right" }}>{row.taxable != null ? fmt(row.taxable) : "—"}</span>
-                  <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, color: row.highlight ? (data.netVATPayable >= 0 ? "#ef4444" : "#10b981") : row.rcm ? "#7c3aed" : T.text, minWidth: 140, textAlign: "right", fontWeight: row.bold ? 700 : 400 }}>{fmt(row.vat)}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, color: T.textSec, minWidth: 160, textAlign: "right" }}>{row.taxable != null ? fmt(row.taxable) : "—"}</span>
+                  <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, color: row.highlight ? (data.netVATPayable >= 0 ? "#ef4444" : "#10b981") : row.rcm ? "#7c3aed" : T.textPri, minWidth: 140, textAlign: "right", fontWeight: row.bold ? 700 : 400 }}>{fmt(row.vat)}</span>
                 </div>
               </div>
             ))}

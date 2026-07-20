@@ -14,6 +14,7 @@ import useAuthStore from '../../store/useAuthStore';
 import axiosInstance from '../../helper/axiosInstance';
 import useRealtime from '../../helper/useRealtime';
 import nexusToast from '../../helper/nexusToast';
+import useConfirm from '../common/useConfirm';
 
 const STATUS_CFG = {
   draft:            { label: 'Draft',            color: '#64748b', dimKey: 'surface2'  },
@@ -66,6 +67,7 @@ export default function Purchaseorders() {
   const navigate = useNavigate();
   const isDark   = useThemeStore(s => s.isDark);
   const T        = { ...getTheme(isDark), isDark };
+  const { confirm, ConfirmModal } = useConfirm();
   const activeOrg = useAuthStore(s => s.activeOrg);
   const isAdmin   = ['owner','admin'].includes(activeOrg?.role);
 
@@ -164,7 +166,7 @@ export default function Purchaseorders() {
   const bulkCancel = async () => {
     const ids = selectedOrders().filter(o => !['cancelled','received'].includes(o.status)).map(rowId);
     if (!ids.length) { nexusToast.error('No cancellable POs selected'); return; }
-    if (!window.confirm(`Cancel ${ids.length} PO(s)?`)) return;
+    if (!(await confirm({ title: 'Cancel purchase orders', message: `Cancel ${ids.length} PO(s)?`, confirmLabel: 'Cancel PO(s)', danger: true }))) return;
     setBulkBusy(true);
     try {
       await Promise.all(ids.map(id => axiosInstance.patch(`/api/purchase-orders/${id}/cancel`)));
@@ -835,7 +837,7 @@ export default function Purchaseorders() {
                 <button
                   disabled={cancelling}
                   onClick={async () => {
-                    if (!window.confirm(`Cancel PO ${selected.orderNumber}?`)) return;
+                    if (!(await confirm({ title: 'Cancel purchase order', message: `Cancel PO ${selected.orderNumber}?`, confirmLabel: 'Cancel PO', danger: true }))) return;
                     setCancelling(true);
                     try {
                       await axiosInstance.patch(`/api/purchase-orders/${selected._id}/cancel`);
@@ -852,6 +854,7 @@ export default function Purchaseorders() {
           </div>
         </div>
       )}
+      {ConfirmModal}
     </>
   );
 }

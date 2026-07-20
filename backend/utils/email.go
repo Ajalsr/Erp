@@ -658,6 +658,83 @@ func SendLetterEmail(toEmails []string, l models.Letter, customMessage string, p
 	return nil
 }
 
+// SendPayslipEmail emails a payslip PDF to the employee. Always carries the
+// PDF as an attachment — unlike invoices/quotes/bills there is no public
+// "view online" link, since salary data shouldn't sit behind a guessable
+// token URL.
+func SendPayslipEmail(toEmail string, p models.Payslip, pdfBytes []byte) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return fmt.Errorf("email service not configured (SMTP_HOST/SMTP_USER/SMTP_PASS missing)")
+	}
+
+	port := 587
+	if portStr != "" {
+		if pNum, err := strconv.Atoi(portStr); err == nil {
+			port = pNum
+		}
+	}
+
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", fmt.Sprintf("Payslip %s — %s", p.PayslipNumber, p.PeriodStart))
+	m.SetBody("text/html", buildPayslipEmailHTML(p))
+	if len(pdfBytes) > 0 {
+		name := "payslip-" + p.PayslipNumber + ".pdf"
+		m.Attach(name, gomail.SetCopyFunc(func(w io.Writer) error {
+			_, err := w.Write(pdfBytes)
+			return err
+		}), gomail.SetHeader(map[string][]string{"Content-Type": {"application/pdf"}}))
+	}
+
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send payslip email to %s: %v", toEmail, err)
+		return err
+	}
+
+	log.Printf("[email] Payslip email sent to %s", toEmail)
+	return nil
+}
+
+func buildPayslipEmailHTML(p models.Payslip) string {
+	return fmt.Sprintf(`<!DOCTYPE html><html><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:24px;">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+      <div style="background:#1e3a5f;padding:20px 24px;">
+        <h1 style="margin:0;color:#ffffff;font-size:18px;">Payslip %s</h1>
+      </div>
+      <div style="padding:24px;">
+        <p style="margin:0 0 16px;color:#0f172a;font-size:15px;">Dear %s,</p>
+        <p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;">Your payslip for the period %s to %s is attached as a PDF.</p>
+        <table style="width:100%%;border-collapse:collapse;margin:8px 0 16px;">
+          <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Pay Date</td><td style="padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;">%s</td></tr>
+          <tr><td style="padding:10px 0 0;color:#0f172a;font-size:15px;font-weight:700;border-top:1px solid #e2e8f0;">Net Pay</td><td style="padding:10px 0 0;text-align:right;color:#0f172a;font-size:15px;font-weight:800;border-top:1px solid #e2e8f0;">%s %.2f</td></tr>
+        </table>
+        <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Sent via Spifora · This is an automated email, please do not reply directly.</p>
+      </div>
+    </div>
+  </div>
+</body></html>`,
+		p.PayslipNumber,
+		p.EmployeeName,
+		p.PeriodStart, p.PeriodEnd,
+		p.PayDate,
+		p.Currency, p.NetPay,
+	)
+}
+
 func buildLetterEmailHTML(l models.Letter, publicLink, customMessage string) string {
 	msgBlock := ""
 	if strings.TrimSpace(customMessage) != "" {

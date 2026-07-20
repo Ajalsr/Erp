@@ -37,6 +37,10 @@ export const PERM_MODULES = [
   { key: 'reports',          label: 'Reports',          group: 'Reports' },
   { key: 'dashboard',        label: 'Dashboard',        group: 'Reports' },
   { key: 'letters',          label: 'Letters',          group: 'Sales' },
+  // HR
+  { key: 'employees',        label: 'Employees',        group: 'HR' },
+  { key: 'payroll',          label: 'Payroll',          group: 'HR' },
+  { key: 'timeoff',          label: 'Time Off',         group: 'HR' },
 ];
 
 // Module keys grouped by category — used by the sidebar to show a section when the

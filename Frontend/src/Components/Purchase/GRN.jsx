@@ -11,6 +11,7 @@ import {
 import { MdMoveToInbox } from 'react-icons/md';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import { usePermissions } from '../../helper/permissions';
+import useConfirm from '../common/useConfirm';
 import useAuthStore from '../../store/useAuthStore';
 import api from '../../helper/axiosInstance';
 
@@ -369,6 +370,7 @@ export default function GRN() {
   const location  = useLocation();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
+  const { confirm, ConfirmModal } = useConfirm();
   const { can }   = usePermissions();
   const canExport = can('grns', 'export');
 
@@ -1025,7 +1027,7 @@ export default function GRN() {
               <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
                 {!confirmed && (
                   <button className="grn-btn" onClick={async () => {
-                    if (!window.confirm('Discard this draft GRN? This cannot be undone.')) return;
+                    if (!(await confirm({ title: 'Discard draft GRN', message: 'Discard this draft GRN? This cannot be undone.', confirmLabel: 'Discard', danger: true }))) return;
                     try {
                       await api.delete(`/api/grns/${id || savedGRN?.id}`);
                       navigate('/Purchase/Inbound');
@@ -1548,6 +1550,7 @@ export default function GRN() {
           </>
         )}
       </div>
+      {ConfirmModal}
     </>
   );
 }

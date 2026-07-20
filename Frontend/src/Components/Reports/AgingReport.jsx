@@ -65,15 +65,15 @@ export default function AgingReport() {
   const totalOverall = BUCKETS.reduce((sum, b) => sum + (data?.bucketTotals?.[b.key] || 0), 0);
 
   return (
-    <div className="ag-root" style={{ background: T.bg, minHeight: "100vh", color: T.text }}>
+    <div className="ag-root" style={{ background: T.bg, minHeight: "100vh", color: T.textPri }}>
       <style>{css}</style>
 
       {/* Topbar */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 28px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-        <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Reports</button>
+        <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.textSec, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Reports</button>
         <div>
-          <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 800, margin: 0, color: T.textPri || T.text }}>Accounts Receivable Aging</h1>
-          {data?.asOf && <p style={{ fontSize: 11, color: T.muted, margin: "2px 0 0" }}>As of {data.asOf}</p>}
+          <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 800, margin: 0, color: T.textPri }}>Accounts Receivable Aging</h1>
+          {data?.asOf && <p style={{ fontSize: 11, color: T.textSec, margin: "2px 0 0" }}>As of {data.asOf}</p>}
         </div>
       </div>
 
@@ -97,16 +97,16 @@ export default function AgingReport() {
                   boxShadow: expandedBucket === b.key ? `0 0 0 2px ${b.color}60` : "none",
                 }}
               >
-                <p style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>{b.label}</p>
+                <p style={{ fontSize: 10, color: T.textSec, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>{b.label}</p>
                 <p style={{ fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 800, color: b.color, margin: "0 0 2px", lineHeight: 1 }}>
                   {count} inv
                 </p>
-                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.muted, margin: "0 0 8px" }}>{fmt(total)}</p>
+                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.textSec, margin: "0 0 8px" }}>{fmt(total)}</p>
                 {/* Progress bar */}
                 <div style={{ height: 3, borderRadius: 2, background: T.border }}>
                   <div style={{ height: "100%", borderRadius: 2, width: `${pct}%`, background: b.color, transition: "width 0.4s" }} />
                 </div>
-                <p style={{ fontSize: 10, color: T.muted, margin: "4px 0 0" }}>{pct.toFixed(1)}% of total</p>
+                <p style={{ fontSize: 10, color: T.textSec, margin: "4px 0 0" }}>{pct.toFixed(1)}% of total</p>
               </div>
             );
           })}
@@ -126,7 +126,7 @@ export default function AgingReport() {
                 <thead>
                   <tr style={{ background: T.surface2 }}>
                     {["Invoice #","Customer","Issue Date","Due Date","Grand Total","Paid","Balance","Days Overdue"].map(h => (
-                      <th key={h} style={{ padding: "8px 14px", textAlign: h === "Invoice #" || h === "Customer" ? "left" : "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, borderBottom: `1px solid ${T.border}` }}>{h}</th>
+                      <th key={h} style={{ padding: "8px 14px", textAlign: h === "Invoice #" || h === "Customer" ? "left" : "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, borderBottom: `1px solid ${T.border}` }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -135,8 +135,8 @@ export default function AgingReport() {
                     <tr key={inv.invoiceId} className="ag-inv-row">
                       <td style={{ padding: "8px 14px", fontSize: 12, fontFamily: "'DM Mono', monospace", color: T.blue || "#3b82f6", borderBottom: `1px solid ${T.border}` }}>{inv.invoiceNumber}</td>
                       <td style={{ padding: "8px 14px", fontSize: 12, borderBottom: `1px solid ${T.border}` }}>{inv.customerName || "—"}</td>
-                      <td style={{ padding: "8px 14px", fontSize: 12, textAlign: "right", color: T.muted, borderBottom: `1px solid ${T.border}` }}>{inv.issueDate}</td>
-                      <td style={{ padding: "8px 14px", fontSize: 12, textAlign: "right", color: inv.daysOverdue > 0 ? "#ef4444" : T.muted, borderBottom: `1px solid ${T.border}` }}>{inv.dueDate}</td>
+                      <td style={{ padding: "8px 14px", fontSize: 12, textAlign: "right", color: T.textSec, borderBottom: `1px solid ${T.border}` }}>{inv.issueDate}</td>
+                      <td style={{ padding: "8px 14px", fontSize: 12, textAlign: "right", color: inv.daysOverdue > 0 ? "#ef4444" : T.textSec, borderBottom: `1px solid ${T.border}` }}>{inv.dueDate}</td>
                       <td style={{ padding: "8px 14px", fontSize: 12, textAlign: "right", fontFamily: "'DM Mono', monospace", borderBottom: `1px solid ${T.border}` }}>{fmt(inv.grandTotal)}</td>
                       <td style={{ padding: "8px 14px", fontSize: 12, textAlign: "right", fontFamily: "'DM Mono', monospace", color: "#10b981", borderBottom: `1px solid ${T.border}` }}>{fmt(inv.amountPaid)}</td>
                       <td style={{ padding: "8px 14px", fontSize: 12, textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 700, color: "#ef4444", borderBottom: `1px solid ${T.border}` }}>{fmt(inv.balanceDue)}</td>
@@ -159,18 +159,18 @@ export default function AgingReport() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search customer…"
-              style={{ padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 12, fontFamily: "inherit", outline: "none", width: 200 }}
+              style={{ padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface2, color: T.textPri, fontSize: 12, fontFamily: "inherit", outline: "none", width: 200 }}
             />
           </div>
           {loading ? (
-            <div style={{ padding: 40, textAlign: "center", color: T.muted, fontSize: 13 }}>Loading…</div>
+            <div style={{ padding: 40, textAlign: "center", color: T.textSec, fontSize: 13 }}>Loading…</div>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ background: T.surface2 }}>
                     {CUST_COLS.map(col => (
-                      <th key={col.key} style={{ padding: "10px 16px", textAlign: col.key === "customerName" ? "left" : "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted, borderBottom: `1px solid ${T.border}`, width: col.w }}>
+                      <th key={col.key} style={{ padding: "10px 16px", textAlign: col.key === "customerName" ? "left" : "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textSec, borderBottom: `1px solid ${T.border}`, width: col.w }}>
                         {col.label}
                       </th>
                     ))}
@@ -178,7 +178,7 @@ export default function AgingReport() {
                 </thead>
                 <tbody>
                   {customerSummary.length === 0 ? (
-                    <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: T.muted, fontSize: 13 }}>No outstanding receivables</td></tr>
+                    <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: T.textSec, fontSize: 13 }}>No outstanding receivables</td></tr>
                   ) : customerSummary.map((cust) => (
                     <tr key={cust.customerId} className="ag-row">
                       <td style={{ padding: "10px 16px", fontSize: 13, fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>{cust.customerName || cust.customerId}</td>
@@ -188,9 +188,9 @@ export default function AgingReport() {
                         { val: cust.days31_60,  color: "#f97316" },
                         { val: cust.days61_90,  color: "#ef4444" },
                         { val: cust.days90Plus, color: "#7c3aed" },
-                        { val: cust.total,      color: T.text, bold: true },
+                        { val: cust.total,      color: T.textPri, bold: true },
                       ].map((cell, i) => (
-                        <td key={i} style={{ padding: "10px 16px", textAlign: "right", fontSize: 12, fontFamily: "'DM Mono', monospace", color: cell.val > 0 ? cell.color : T.muted, fontWeight: cell.bold ? 700 : 400, borderBottom: `1px solid ${T.border}` }}>
+                        <td key={i} style={{ padding: "10px 16px", textAlign: "right", fontSize: 12, fontFamily: "'DM Mono', monospace", color: cell.val > 0 ? cell.color : T.textSec, fontWeight: cell.bold ? 700 : 400, borderBottom: `1px solid ${T.border}` }}>
                           {cell.val > 0 ? fmt(cell.val) : "—"}
                         </td>
                       ))}
@@ -204,7 +204,7 @@ export default function AgingReport() {
                       {["current","days1_30","days31_60","days61_90","days90Plus","total"].map((k) => {
                         const sum = customerSummary.reduce((a, c) => a + (c[k] || 0), 0);
                         const bIdx = ["current","days1_30","days31_60","days61_90","days90Plus"].indexOf(k);
-                        const color = bIdx >= 0 ? BUCKETS[bIdx]?.color : T.text;
+                        const color = bIdx >= 0 ? BUCKETS[bIdx]?.color : T.textPri;
                         return (
                           <td key={k} style={{ padding: "10px 16px", textAlign: "right", fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 700, color, borderTop: `1px solid ${T.border}` }}>
                             {fmt(sum)}
