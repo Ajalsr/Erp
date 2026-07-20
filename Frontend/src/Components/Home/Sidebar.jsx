@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { guardNav } from '../../helper/useUnsavedGuard'
 import { IoHome, IoChevronDown, IoSettingsOutline } from 'react-icons/io5'
-import { FaBoxOpen, FaCartArrowDown, FaClipboardCheck, FaCloudUploadAlt } from 'react-icons/fa'
+import { FaBoxOpen, FaCartArrowDown, FaClipboardCheck, FaCloudUploadAlt, FaUsers } from 'react-icons/fa'
 import { MdInventory2 } from 'react-icons/md'
 import { HiShoppingCart } from 'react-icons/hi'
 import { TbReportAnalytics } from 'react-icons/tb'
@@ -70,6 +70,12 @@ const MENU = [
     { name: 'Balance Sheet',     route: '/Reports/balance-sheet',mod: 'reports' },
     { name: 'Cash Flow',         route: '/Reports/cash-flow',    mod: 'reports' },
   ]},
+  { icon: FaUsers,            label: 'HR',        mods: ['employees','payroll','timeoff'], tourKey: 'nav-hr', subItems: [
+    { name: 'Employees',   route: '/HR/Employees',  mod: 'employees' },
+    { name: 'Org Chart',   route: '/HR/OrgChart',   mod: 'employees' },
+    { name: 'Payroll',     route: '/HR/Payroll',    mod: 'payroll' },
+    { name: 'Time Off',    route: '/HR/TimeOff',    mod: 'timeoff' },
+  ]},
   { icon: FaClipboardCheck,   label: 'Approvals', route: '/Approvals', tourKey: 'nav-approvals' },
   { icon: FaCloudUploadAlt,   label: 'Backups',   route: '/Backups',   ownerOnly: true, tourKey: 'nav-backups' },
   { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },
@@ -121,9 +127,14 @@ const Sidebar = ({ isCollapsed, isMobile = false, mobileOpen = false, onClose = 
     chipOrg:            isDark ? '#475569'                      : '#94a3b8',
   }
 
+  // Exact match, or a real sub-path (route + '/...') — plain startsWith would let
+  // '/Reports/sales-by-emirate' match route '/Reports/sales' since one string is
+  // literally a prefix of the other with no separator between them.
+  const pathMatches = (route) => location.pathname === route || location.pathname.startsWith(route + '/')
+
   const getActiveSection = () => {
     for (const item of MENU)
-      if (item.subItems?.some((s) => location.pathname.startsWith(s.route))) return item.label
+      if (item.subItems?.some((s) => pathMatches(s.route))) return item.label
     return null
   }
 
@@ -134,13 +145,13 @@ const Sidebar = ({ isCollapsed, isMobile = false, mobileOpen = false, onClose = 
     if (active) setOpenMenu(active)
   }, [location.pathname])
 
-  const isSubActive  = (route) => location.pathname.startsWith(route)
+  const isSubActive  = (route) => pathMatches(route)
   const isMenuActive = (item) =>
     item.settings
       ? location.pathname.includes('/settings')
       : item.route
       ? location.pathname === item.route
-      : item.subItems?.some((s) => location.pathname.startsWith(s.route))
+      : item.subItems?.some((s) => pathMatches(s.route))
 
   const iconStyle   = { fontSize: '15px', flexShrink: 0, transition: 'color 0.15s' }
   const subBtnStyle = { background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', width: '100%', textAlign: 'left', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '400' }

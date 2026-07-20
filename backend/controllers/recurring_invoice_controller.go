@@ -32,6 +32,8 @@ func advanceDate(date string, frequency string, interval int) string {
 	switch frequency {
 	case "weekly":
 		t = t.AddDate(0, 0, 7*interval)
+	case "biweekly":
+		t = t.AddDate(0, 0, 14*interval)
 	case "monthly":
 		t = t.AddDate(0, interval, 0)
 	case "quarterly":

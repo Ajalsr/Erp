@@ -44,6 +44,9 @@ func runDueDateChecks() {
 	// Generate invoices for recurring profiles whose next run date has arrived
 	processRecurringInvoices(ctx, todayStr)
 
+	// Create draft pay runs for payroll schedules whose next run date has arrived
+	processPayrollSchedules(ctx, todayStr)
+
 	// Enquiries whose follow-up date is today — remind the team
 	processEnquiryFollowUps(ctx, todayStr)
 }

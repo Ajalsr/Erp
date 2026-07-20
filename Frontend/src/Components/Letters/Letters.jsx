@@ -4,6 +4,7 @@ import { FaPlus, FaTrash, FaEdit, FaSearch, FaPrint } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
 import { getLetterTypes, getLetters, deleteLetter } from '../../helper/letterApi';
+import useConfirm from '../common/useConfirm';
 
 const fmtDate = (d) => {
   if (!d) return '—';
@@ -15,6 +16,7 @@ export default function Letters() {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const { confirm, ConfirmModal } = useConfirm();
 
   const [types, setTypes] = useState([]);
   const [letters, setLetters] = useState([]);
@@ -35,7 +37,7 @@ export default function Letters() {
   useEffect(() => { load(); }, [load]);
 
   const remove = async (l) => {
-    if (!window.confirm(`Delete ${l.letterNumber}? This cannot be undone.`)) return;
+    if (!(await confirm({ title: 'Delete letter', message: `Delete ${l.letterNumber}? This cannot be undone.`, confirmLabel: 'Delete', danger: true }))) return;
     try {
       await deleteLetter(l.id);
       nexusToast.success('Letter deleted');
@@ -102,6 +104,7 @@ export default function Letters() {
           </table>
         </div>
       </div>
+      {ConfirmModal}
     </div>
   );
 }

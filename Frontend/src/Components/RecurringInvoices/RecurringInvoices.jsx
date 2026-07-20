@@ -5,6 +5,7 @@ import useAuthStore from "../../store/useAuthStore";
 import api from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
 import AppDatePicker from "../common/AppDatePicker";
+import useConfirm from "../common/useConfirm";
 
 const FREQUENCIES = ["weekly", "monthly", "quarterly", "yearly"];
 
@@ -44,6 +45,7 @@ const blankForm = () => ({
 export default function RecurringInvoices() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const { confirm, ConfirmModal } = useConfirm();
   const activeOrg = useAuthStore((s) => s.activeOrg);
 
   const [profiles, setProfiles] = useState([]);
@@ -216,7 +218,7 @@ export default function RecurringInvoices() {
   };
 
   const remove = async (p) => {
-    if (!window.confirm(`Delete recurring profile "${p.profileName}"? Already-generated invoices are kept.`)) return;
+    if (!(await confirm({ title: "Delete recurring profile", message: `Delete recurring profile "${p.profileName}"? Already-generated invoices are kept.`, confirmLabel: "Delete", danger: true }))) return;
     try {
       await api.delete(`/api/recurring-invoices/${p._id}`);
       nexusToast.success("Deleted");
@@ -438,6 +440,7 @@ export default function RecurringInvoices() {
           </div>
         </div>
       )}
+      {ConfirmModal}
     </div>
   );
 }

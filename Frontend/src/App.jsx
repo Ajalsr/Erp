@@ -75,6 +75,15 @@ const NewPriceList = lazy(() => import("./Components/NewPriceList/NewPriceList")
 const StockSummary = lazy(() => import("./Components/Inventory/StockSummary"))
 const Warehouses = lazy(() => import("./Components/Inventory/Warehouses"))
 const Adjustments = lazy(() => import("./Components/Inventory/Adjustments"))
+const Employees = lazy(() => import("./Components/HR/Employees"))
+const OrgChart = lazy(() => import("./Components/HR/OrgChart"))
+const Payroll = lazy(() => import("./Components/HR/Payroll"))
+const PayRunDetail = lazy(() => import("./Components/HR/PayRunDetail"))
+const SalaryStructures = lazy(() => import("./Components/HR/SalaryStructures"))
+const PayrollSchedules = lazy(() => import("./Components/HR/PayrollSchedules"))
+const LeaveRequests = lazy(() => import("./Components/HR/LeaveRequests"))
+const LeaveTypes = lazy(() => import("./Components/HR/LeaveTypes"))
+const LeaveBalances = lazy(() => import("./Components/HR/LeaveBalances"))
 const Enquiries = lazy(() => import("./Components/Enquiries/Enquiries"))
 const CreditNotes = lazy(() => import("./Components/CreditNotes/CreditNotes"))
 const PublicInvoice = lazy(() => import("./Components/Invoices/PublicInvoice"))
@@ -213,6 +222,15 @@ function App() {
               <Route path="/Items/price-lists/new"    element={<NewPriceList />} />
               <Route path="/Inventory/stock-summary"  element={<StockSummary />} />
               <Route path="/Inventory/warehouses"     element={<Warehouses />} />
+              <Route path="/HR/Employees"             element={<Employees />} />
+              <Route path="/HR/OrgChart"              element={<OrgChart />} />
+              <Route path="/HR/Payroll"               element={<Payroll />} />
+              <Route path="/HR/Payroll/SalaryStructures" element={<SalaryStructures />} />
+              <Route path="/HR/Payroll/Schedules"        element={<PayrollSchedules />} />
+              <Route path="/HR/Payroll/:id"           element={<PayRunDetail />} />
+              <Route path="/HR/TimeOff"               element={<LeaveRequests />} />
+              <Route path="/HR/TimeOff/LeaveTypes"    element={<LeaveTypes />} />
+              <Route path="/HR/TimeOff/Balances"      element={<LeaveBalances />} />
               <Route path="/Inventory/adjustments"    element={<Adjustments />} />
               <Route path="/Sales/CreditNotes"        element={<CreditNotes />} />
               <Route path="/Sales/Quotes"             element={<Quotes />} />

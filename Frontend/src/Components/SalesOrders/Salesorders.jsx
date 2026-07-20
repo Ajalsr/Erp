@@ -17,6 +17,7 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useAuthStore from "../../store/useAuthStore";
 import { usePermissions } from "../../helper/permissions";
 import axiosInstance from "../../helper/axiosInstance";
+import useConfirm from "../common/useConfirm";
 
 // ── CustomSelect (portal dropdown, unchanged logic) ──────────────
 const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWidth = 120 }) => {
@@ -227,6 +228,7 @@ const Salesorders = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const { confirm, ConfirmModal } = useConfirm();
   const activeOrg = useAuthStore((s) => s.activeOrg);
   const myUserId = useAuthStore((s) => s.user?.userId || s.activeOrg?.userId || "");
   const isAdminOrOwner = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase());
@@ -465,7 +467,7 @@ const Salesorders = () => {
         alert(e.response?.data?.message || "Failed to cancel orders.");
       }
     } else {
-      if (!window.confirm(`Submit cancellation request for ${selectedRows.size} order(s)?`)) return;
+      if (!(await confirm({ title: "Submit cancellation request", message: `Submit cancellation request for ${selectedRows.size} order(s)?`, confirmLabel: "Submit" }))) return;
       const ids = [...selectedRows];
       try {
         await Promise.all(
@@ -1679,6 +1681,7 @@ const Salesorders = () => {
         </div>,
         document.body
       )}
+      {ConfirmModal}
     </>
   );
 };

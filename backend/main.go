@@ -101,6 +101,8 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		controllers.EnsureFXAccounts(ctx)
+		controllers.EnsurePayrollAccounts(ctx)
+		controllers.EnsureEmployeeRecordsForMembers(ctx)
 	}()
 
 	router := gin.Default()
@@ -149,6 +151,9 @@ func main() {
 	routes.BackupRoutes(router)
 	routes.ExportRoutes(router)
 	routes.LetterRoutes(router)
+	routes.EmployeeRoutes(router)
+	routes.PayrollRoutes(router)
+	routes.TimeOffRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))

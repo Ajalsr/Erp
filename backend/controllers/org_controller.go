@@ -221,6 +221,7 @@ func CreateOrganization() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to add owner member"})
 			return
 		}
+		go syncEmployeeFromMember(org.ID, member.UserID, member.Role, member.JoinedAt)
 
 		// Stamp the user's primary orgId so signin can return it
 		usersCollection.UpdateOne(ctx,
@@ -873,6 +874,7 @@ func AcceptInvitation() gin.HandlerFunc {
 			CreatedAt: time.Now(),
 		}
 		orgMemberCollection.InsertOne(ctx, member)
+		go syncEmployeeFromMember(member.OrgID, member.UserID, member.Role, member.JoinedAt)
 		// Record which user accepted and mark as accepted
 		invitationCollection.UpdateOne(ctx, bson.M{"_id": invitation.ID}, bson.M{"$set": bson.M{
 			"status": "accepted",

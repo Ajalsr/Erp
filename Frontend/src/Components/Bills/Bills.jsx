@@ -12,6 +12,7 @@ import nexusToast from "../../helper/nexusToast";
 import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 import useRealtime from "../../helper/useRealtime";
 import { RecordPaymentModal } from "../PaymentsMade/PaymentsMade";
+import useConfirm from "../common/useConfirm";
 
 const STATUS_CFG = {
   draft:   { color: "#94a3b8", bg: "rgba(100,116,139,0.1)", label: "Draft"   },
@@ -204,6 +205,7 @@ export default function Bills() {
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
+  const { confirm, ConfirmModal } = useConfirm();
 
   const [bills,           setBills]           = useState([]);
   const [stats,           setStats]           = useState({});
@@ -326,7 +328,7 @@ export default function Bills() {
 
   /* ── Void bill ── */
   const handleVoid = async () => {
-    if (!window.confirm(`Void bill ${selected.billNumber}? This cannot be undone.`)) return;
+    if (!(await confirm({ title: "Void bill", message: `Void bill ${selected.billNumber}? This cannot be undone.`, confirmLabel: "Void", danger: true }))) return;
     setVoidLoading(true);
     try {
       await axiosInstance.patch(`/api/bills/${selected._id}/status`, { status: "void" });
@@ -386,7 +388,7 @@ export default function Bills() {
 
   /* ── Unapply vendor credit from this bill ── */
   const handleUnapplyCredit = async (cr) => {
-    if (!window.confirm(`Unapply credit ${cr.creditNumber} from this bill? The balance will be restored.`)) return;
+    if (!(await confirm({ title: "Unapply credit", message: `Unapply credit ${cr.creditNumber} from this bill? The balance will be restored.`, confirmLabel: "Unapply", danger: true }))) return;
     setUnapplyingCr(cr._id);
     try {
       await axiosInstance.post(`/api/vendor-credits/${cr._id}/unapply`);
@@ -1063,6 +1065,7 @@ export default function Bills() {
           </div>
         </div>
       )}
+      {ConfirmModal}
     </>
   );
 }

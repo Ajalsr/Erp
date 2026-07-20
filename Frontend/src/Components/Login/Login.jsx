@@ -175,10 +175,10 @@ const Login = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Modules', value: '12+' },
+                  { label: 'Modules', value: '7' },
                   { label: 'Real-time', value: 'Sync' },
-                  { label: 'Reports', value: '50+' },
-                  { label: 'Uptime', value: '99.9%' },
+                  { label: 'Reports', value: '12+' },
+                  { label: 'Access Control', value: 'RBAC' },
                 ].map(({ label, value }) => (
                   <div key={label} className="stat-chip rounded-xl p-3">
                     <p className="text-blue-400 font-bold text-lg login-heading">{value}</p>
