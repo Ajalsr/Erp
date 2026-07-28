@@ -8,6 +8,7 @@ import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import 'react-datepicker/dist/react-datepicker.css';
 
 const CURRENCIES = ['AED', 'USD', 'EUR', 'GBP', 'SAR', 'INR'];
@@ -269,6 +270,7 @@ const ModernDatePicker = ({ value, onChange, placeholder = 'Select date' }) => {
 /* ── Main component ──────────────────────────────────────────────────── */
 export default function NewPriceList() {
   const navigate = useNavigate();
+  const guard = useUnsavedGuard({ hasDraft: false });
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
 
@@ -371,7 +373,7 @@ export default function NewPriceList() {
   `;
 
   return (
-    <div style={{ background: T.bg, minHeight: '100vh', fontFamily: "'DM Sans',sans-serif" }}>
+    <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: '100vh', fontFamily: "'DM Sans',sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; }
@@ -381,14 +383,14 @@ export default function NewPriceList() {
       {/* Top bar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 40, height: 58, background: isDark ? 'rgba(13,21,38,.92)' : 'rgba(255,255,255,.92)', backdropFilter: 'blur(12px)', borderBottom: `1.5px solid ${T.border}`, display: 'flex', alignItems: 'center', padding: '0 28px', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button onClick={() => navigate('/Items/price-lists')} style={{ width: 34, height: 34, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+          <button onClick={() => guard.leave(() => navigate('/Items/price-lists'))} style={{ width: 34, height: 34, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
             <IoMdClose size={16} />
           </button>
           <div style={{ width: 1, height: 22, background: T.border }} />
           <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>New Price List</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => navigate('/Items/price-lists')} style={{ padding: '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          <button onClick={() => guard.leave(() => navigate('/Items/price-lists'))} style={{ padding: '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
           <button onClick={handleSubmit} disabled={saving} style={{ padding: '8px 22px', borderRadius: 10, border: 'none', background: saving ? '#94a3b8' : '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
             {saving ? 'Saving…' : 'Save Price List'}
           </button>

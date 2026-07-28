@@ -114,7 +114,14 @@ const useGetDashboardStats = () => {
       const d = res.data?.data ?? {};
       setStats({ ...DEFAULT_STATS, ...d });
     } catch (err) {
-      setError(err?.response?.data?.message ?? err.message ?? 'Failed to load dashboard');
+      // 403 here means the org's plan doesn't include the dashboard module (or
+      // the role lacks it) — a deliberate restriction, not a failure. Showing
+      // the "some data could not be loaded" banner for that is misleading (it
+      // reads as a bug); stay quiet and keep the zero-state defaults instead.
+      // Anything else (network drop, 500, ...) is a real error, still surfaced.
+      if (err?.response?.status !== 403) {
+        setError(err?.response?.data?.message ?? err.message ?? 'Failed to load dashboard');
+      }
     } finally {
       if (!silent) setLoading(false);
     }

@@ -23,6 +23,8 @@ import (
 var allowedOrigins = map[string]bool{
 	"http://localhost:5175":   true, // Vite dev server
 	"http://localhost:5173":   true, // Vite alt port
+	"http://localhost:5500":   true, // VSCode Live Server (spifora.html local test)
+	"http://127.0.0.1:5500":   true, // Live Server, alt host form
 	"tauri://localhost":       true, // Tauri macOS / Linux
 	"http://tauri.localhost":  true, // Tauri Windows
 	"https://tauri.localhost": true, // Tauri Windows (https mode)
@@ -61,7 +63,7 @@ func CORSMiddleware() gin.HandlerFunc {
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Org-ID")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Org-ID, X-Admin-Secret")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {

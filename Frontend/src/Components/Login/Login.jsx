@@ -289,7 +289,7 @@ const Login = () => {
                 </div>
 
                 <div className="fade-up fade-up-4 flex justify-end">
-                  <button className="text-blue-400 text-xs hover:text-blue-300 transition-colors">
+                  <button type="button" onClick={() => navigate('/forgot-password')} className="text-blue-400 text-xs hover:text-blue-300 transition-colors">
                     Forgot password?
                   </button>
                 </div>

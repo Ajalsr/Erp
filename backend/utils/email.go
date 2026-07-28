@@ -68,6 +68,176 @@ func SendInvitationEmail(toEmail, _, orgName, invitedBy, role, token string) err
 	return nil
 }
 
+// SendLicenseKeyEmail sends a newly-approved license code to the customer —
+// the automated replacement for an admin hand-copying the code out of the
+// dashboard and pasting it into an email themselves.
+func SendLicenseKeyEmail(toEmail, customerName, code, planName string, modules []string) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return fmt.Errorf("email service not configured")
+	}
+	port := 587
+	if portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+
+	greeting := "Hi there,"
+	if customerName != "" {
+		greeting = fmt.Sprintf("Hi %s,", customerName)
+	}
+	planLine := ""
+	if planName != "" {
+		planLine = fmt.Sprintf(`<p style="color:#64748b;font-size:13px;margin:0 0 4px;">Plan: <strong style="color:#e2e8f0;">%s</strong></p>`, planName)
+	}
+	modulesLine := ""
+	if len(modules) > 0 {
+		modulesLine = fmt.Sprintf(`<p style="color:#64748b;font-size:13px;margin:0;">Modules: <strong style="color:#e2e8f0;">%s</strong></p>`, strings.Join(modules, ", "))
+	}
+
+	html := fmt.Sprintf(`<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#0a0f1e;">
+<p style="color:#e2e8f0;font-size:15px;margin:0 0 8px">%s</p>
+<p style="color:#94a3b8;font-size:14px;margin:0 0 20px">Your Spifora license is approved. Enter this key when creating your organization:</p>
+<div style="font-size:20px;font-weight:800;letter-spacing:2px;color:#93c5fd;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:16px;text-align:center;font-family:ui-monospace,monospace;">%s</div>
+<div style="margin:18px 0 0;padding:14px 16px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:10px;">
+%s
+%s
+</div>
+<p style="color:#475569;font-size:12px;margin:20px 0 0">Keep this code safe — treat it like a password. If you didn't request this, ignore this email.</p>
+</div>`, greeting, code, planLine, modulesLine)
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", "Your Spifora license key")
+	m.SetBody("text/html", html)
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send license key to %s: %v", toEmail, err)
+		return err
+	}
+	log.Printf("[email] License key sent to %s", toEmail)
+	return nil
+}
+
+// SendLicenseUpgradeEmail confirms an organization-quota bump on a license the
+// customer already holds — no new code involved, they keep using the one
+// they have.
+func SendLicenseUpgradeEmail(toEmail, customerName, code string, newMaxOrganizations, newMaxUsersPerOrg int) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return fmt.Errorf("email service not configured")
+	}
+	port := 587
+	if portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+	greeting := "Hi there,"
+	if customerName != "" {
+		greeting = fmt.Sprintf("Hi %s,", customerName)
+	}
+	usersLine := "Unlimited users per organization."
+	if newMaxUsersPerOrg > 0 {
+		usersLine = fmt.Sprintf("Up to <strong>%d</strong> users per organization.", newMaxUsersPerOrg)
+	}
+	html := fmt.Sprintf(`<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#0a0f1e;">
+<p style="color:#e2e8f0;font-size:15px;margin:0 0 8px">%s</p>
+<p style="color:#94a3b8;font-size:14px;margin:0 0 20px">Your license has been upgraded — no need to change anything, keep using the same key:</p>
+<div style="font-size:20px;font-weight:800;letter-spacing:2px;color:#93c5fd;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:16px;text-align:center;font-family:ui-monospace,monospace;">%s</div>
+<p style="color:#e2e8f0;font-size:14px;margin:18px 0 0;">You can now create up to <strong>%d</strong> organizations with this key. %s</p>
+</div>`, greeting, code, newMaxOrganizations, usersLine)
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", "Your Spifora license was upgraded")
+	m.SetBody("text/html", html)
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send upgrade confirmation to %s: %v", toEmail, err)
+		return err
+	}
+	log.Printf("[email] Upgrade confirmation sent to %s", toEmail)
+	return nil
+}
+
+// SendLicenseRequestNotification alerts the admin that a new self-serve
+// license request landed in the "pending" queue — otherwise it just sits in
+// Mongo until someone happens to open /admin/licenses. Goes to
+// ADMIN_NOTIFY_EMAIL if set, else ajal@spifora.com.
+func SendLicenseRequestNotification(customerName, customerEmail, planName string, maxOrganizations int, requestedModules []string) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return fmt.Errorf("email service not configured")
+	}
+	port := 587
+	if portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+	to := os.Getenv("ADMIN_NOTIFY_EMAIL")
+	if to == "" {
+		to = "ajal@spifora.com"
+	}
+
+	planLine := planName
+	if planLine == "" {
+		planLine = "—"
+	}
+	html := fmt.Sprintf(`<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#0a0f1e;">
+<p style="color:#e2e8f0;font-size:15px;margin:0 0 16px">New license request</p>
+<table style="width:100%%;border-collapse:collapse;font-size:13px;">
+<tr><td style="padding:4px 0;color:#64748b;">Customer</td><td style="padding:4px 0;color:#e2e8f0;font-weight:700;">%s</td></tr>
+<tr><td style="padding:4px 0;color:#64748b;">Email</td><td style="padding:4px 0;color:#e2e8f0;">%s</td></tr>
+<tr><td style="padding:4px 0;color:#64748b;">Plan</td><td style="padding:4px 0;color:#e2e8f0;">%s</td></tr>
+<tr><td style="padding:4px 0;color:#64748b;">Orgs requested</td><td style="padding:4px 0;color:#e2e8f0;">%d</td></tr>
+<tr><td style="padding:4px 0;color:#64748b;vertical-align:top;">Modules</td><td style="padding:4px 0;color:#e2e8f0;">%s</td></tr>
+</table>
+<p style="color:#475569;font-size:12px;margin:20px 0 0">Review and approve/reject at /admin/licenses.</p>
+</div>`, customerName, customerEmail, planLine, maxOrganizations, strings.Join(requestedModules, ", "))
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", "New license request — "+customerName)
+	m.SetBody("text/html", html)
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send license request notification: %v", err)
+		return err
+	}
+	log.Printf("[email] License request notification sent to %s", to)
+	return nil
+}
+
 // SendLoginOTPEmail sends a one-time login code to verify a new/changed device.
 func SendLoginOTPEmail(toEmail, otp string) error {
 	host := os.Getenv("SMTP_HOST")
@@ -106,6 +276,49 @@ func SendLoginOTPEmail(toEmail, otp string) error {
 		return err
 	}
 	log.Printf("[email] Login OTP sent to %s", toEmail)
+	return nil
+}
+
+// SendPasswordResetEmail sends a one-time code to verify a password-reset
+// request. Same shape as SendLoginOTPEmail — different copy, shorter expiry
+// (15 min vs the login OTP's 10 — see auth_controller.go ForgotPassword).
+func SendPasswordResetEmail(toEmail, otp string) error {
+	host := os.Getenv("SMTP_HOST")
+	portStr := os.Getenv("SMTP_PORT")
+	user := os.Getenv("SMTP_USER")
+	pass := strings.ReplaceAll(os.Getenv("SMTP_PASS"), " ", "")
+	if host == "" || user == "" || pass == "" {
+		log.Println("[email] SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS in .env")
+		return fmt.Errorf("email service not configured")
+	}
+	port := 587
+	if portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+	}
+	from := os.Getenv("SMTP_FROM")
+	if from == "" {
+		from = user
+	}
+	html := fmt.Sprintf(`<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">
+<h2 style="color:#1e3a5f;margin:0 0 8px">Reset your password</h2>
+<p style="color:#475569;font-size:14px;margin:0 0 18px">Enter this code to choose a new password:</p>
+<div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#1e3a5f;background:#f1f5f9;border-radius:10px;padding:16px;text-align:center">%s</div>
+<p style="color:#94a3b8;font-size:12px;margin:18px 0 0">This code expires in 15 minutes. If you didn't request this, ignore this email — your password stays unchanged.</p>
+</div>`, otp)
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", "Reset your Spifora password")
+	m.SetBody("text/html", html)
+	d := gomail.NewDialer(host, port, user, pass)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("[email] Failed to send password reset OTP to %s: %v", toEmail, err)
+		return err
+	}
+	log.Printf("[email] Password reset OTP sent to %s", toEmail)
 	return nil
 }
 

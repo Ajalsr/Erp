@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import {
   FaBold, FaItalic, FaUnderline, FaListUl, FaListOl,
@@ -10,6 +10,8 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useAuthStore from '../../store/useAuthStore';
 import useOrganization from '../../helper/useOrganization';
 import useGetCustomers from '../../helper/useGetCustomers';
+import axiosInstance from '../../helper/axiosInstance';
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import nexusToast from '../../helper/nexusToast';
 import { getLetterTypes, getLetter, createLetter, updateLetter, getNextLetterNumber } from '../../helper/letterApi';
 import { A4_W, A4_H, SIDE_PX, padsPx, seedTemplate, reflowPageBreaks, waitForLetterFonts } from './letterShared';
@@ -17,13 +19,21 @@ import { A4_W, A4_H, SIDE_PX, padsPx, seedTemplate, reflowPageBreaks, waitForLet
 export default function LetterEditor() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const isEdit = !!id;
+  // Mounted at both /Letters/* (Sales) and /HR/Letters/* (HR) — scope which
+  // letter types the dropdown offers and where Back/Save return to.
+  const isHR = location.pathname.startsWith('/HR');
+  const base = isHR ? '/HR/Letters' : '/Letters';
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const guard = useUnsavedGuard({ hasDraft: false });
 
   const activeOrg = useAuthStore((s) => s.activeOrg);
   const { getOrganization } = useOrganization();
   const { handleGetCustomers, data: customers } = useGetCustomers();
+  const [employees, setEmployees] = useState([]);
 
   const pageRef = useRef(null);
   const bodyRef = useRef(null);
@@ -35,18 +45,39 @@ export default function LetterEditor() {
   const [types, setTypes] = useState([]);
   const [lh, setLh] = useState({ image: '', topPad: 13, bottomPad: 8 });
   const [stampImage, setStampImage] = useState('');
-  const [type, setType] = useState('warranty');
+  const [type, setType] = useState(searchParams.get('type') || (isHR ? 'offer_letter' : 'warranty'));
   const [title, setTitle] = useState('');
   const [watermark, setWatermark] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [custQuery, setCustQuery] = useState('');
   const [custOpen, setCustOpen] = useState(false);
+  const [employeeId, setEmployeeId] = useState(searchParams.get('employeeId') || '');
+  const [empQuery, setEmpQuery] = useState(searchParams.get('employeeName') || '');
+  const [empOpen, setEmpOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pageCount, setPageCount] = useState(1);
 
+  const typeCategory = types.find((t) => t.value === type)?.category || '';
+  // "custom" (category "") is a Sales-side catch-all, not offered under HR.
+  const scopedTypes = types.filter((t) => (isHR ? t.category === 'employee' : t.category !== 'employee'));
+
   useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
   useEffect(() => { getLetterTypes().then((r) => setTypes(r.data?.data || [])).catch(() => {}); }, []);
+  // New letters only — once types load, snap the default onto this scope's
+  // first option if the initial guess isn't actually in it. Edit mode trusts
+  // whatever type the loaded letter already has (always in-scope in practice,
+  // since /HR/Letters/:id/edit only ever links to employee-category letters).
+  useEffect(() => {
+    if (isEdit || types.length === 0) return;
+    if (!scopedTypes.some((t) => t.value === type)) setType(scopedTypes[0]?.value || type);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [types, isEdit]);
+  useEffect(() => {
+    axiosInstance.get('/api/employees/', { params: { status: 'active' } })
+      .then((r) => setEmployees(r.data?.data?.employees || []))
+      .catch(() => {});
+  }, []);
 
   // Load org letterhead + letter (edit) or seed a starter template (new).
   useEffect(() => {
@@ -71,6 +102,8 @@ export default function LetterEditor() {
           setWatermark(letterRes.watermark || '');
           setCustomerId(letterRes.customerId || '');
           setCustQuery(letterRes.customerName || '');
+          setEmployeeId(letterRes.employeeId || '');
+          setEmpQuery(letterRes.employeeName || '');
           // Sanitize before ever touching the DOM — this is loaded via a raw
           // .innerHTML assignment below (not React's dangerouslySetInnerHTML,
           // but the same XSS surface), and letterRes.body may have been created
@@ -128,9 +161,15 @@ export default function LetterEditor() {
     reflow();
   }, [loading, reflow]);
 
-  const filteredCustomers = custQuery.trim()
-    ? (customers || []).filter((c) => (c.customerDisplayName || c.companyName || '').toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8)
-    : [];
+  // Empty query still shows a pick-list (first 8) — not just once the user
+  // starts typing — so the field behaves like a real dropdown, not a
+  // search-only box.
+  const filteredCustomers = (customers || [])
+    .filter((c) => (c.customerDisplayName || c.companyName || '').toLowerCase().includes(custQuery.trim().toLowerCase()))
+    .slice(0, 8);
+  const filteredEmployees = (employees || [])
+    .filter((e) => (e.displayName || `${e.firstName} ${e.lastName}` || '').toLowerCase().includes(empQuery.trim().toLowerCase()))
+    .slice(0, 8);
 
   // ── Rich-text commands ──────────────────────────────────────────
   const saveSel = () => {
@@ -227,14 +266,18 @@ export default function LetterEditor() {
     if (!body || body === '<br>') return nexusToast.error('Letter body is required');
     setSaving(true);
     try {
-      const payload = { type, title: title.trim(), body, customerId, watermark: watermark.trim() };
+      const payload = {
+        type, title: title.trim(), body, watermark: watermark.trim(),
+        customerId: typeCategory === 'employee' ? '' : customerId,
+        employeeId: typeCategory === 'employee' ? employeeId : '',
+      };
       if (isEdit) { await updateLetter(id, payload); nexusToast.success('Letter updated'); }
       else { await createLetter(payload); nexusToast.success('Letter created'); }
-      navigate('/Letters');
+      navigate(base);
     } catch (e) {
       nexusToast.error(e?.response?.data?.message || 'Failed to save letter');
     } finally { setSaving(false); }
-  }, [type, title, watermark, customerId, isEdit, id, navigate]);
+  }, [type, title, watermark, customerId, employeeId, typeCategory, isEdit, id, navigate, base]);
 
   const tbBtn = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, cursor: 'pointer', color: T.textPri, fontSize: 13 };
   const inputStyle = { padding: '8px 11px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.surface, color: T.textPri, fontSize: 13, fontFamily: 'inherit' };
@@ -259,8 +302,8 @@ export default function LetterEditor() {
       {/* Toolbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 30, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <button onClick={() => navigate('/Letters')} style={{ ...tbBtn, width: 'auto', padding: '0 12px', gap: 7 }}><FaArrowLeft size={11} /> Back</button>
-          <div style={{ fontSize: 15, fontWeight: 800 }}>{isEdit ? 'Edit Letter' : 'New Letter'}</div>
+          <button onClick={() => guard.leave(() => navigate(base))} style={{ ...tbBtn, width: 'auto', padding: '0 12px', gap: 7 }}><FaArrowLeft size={11} /> Back</button>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>{isEdit ? 'Edit Letter' : isHR ? 'New HR Letter' : 'New Letter'}</div>
           <button onClick={save} disabled={saving} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
             <FaSave size={12} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Letter'}
           </button>
@@ -269,21 +312,36 @@ export default function LetterEditor() {
         {/* Meta row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <select value={type} onChange={(e) => setType(e.target.value)} style={inputStyle}>
-            {types.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            {scopedTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Letter title (e.g. Warranty Certificate)" style={{ ...inputStyle, flex: 1, minWidth: 200 }} />
-          <div style={{ position: 'relative' }}>
-            <input value={custQuery} onChange={(e) => { setCustQuery(e.target.value); setCustomerId(''); setCustOpen(true); }} onFocus={() => setCustOpen(true)} placeholder="Address to customer (optional)" style={{ ...inputStyle, width: 240 }} />
-            {custOpen && filteredCustomers.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginTop: 4, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.15)' }}>
-                {filteredCustomers.map((c) => (
-                  <div key={c._id} onClick={() => { setCustomerId(c._id); setCustQuery(c.customerDisplayName || c.companyName); setCustOpen(false); }} style={{ padding: '9px 12px', cursor: 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}` }}>
-                    {c.customerDisplayName || c.companyName}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {typeCategory === 'employee' ? (
+            <div style={{ position: 'relative' }}>
+              <input value={empQuery} onChange={(e) => { setEmpQuery(e.target.value); setEmployeeId(''); setEmpOpen(true); }} onFocus={() => setEmpOpen(true)} placeholder="Address to employee" style={{ ...inputStyle, width: 240 }} />
+              {empOpen && filteredEmployees.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginTop: 4, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.15)' }}>
+                  {filteredEmployees.map((e) => (
+                    <div key={e._id} onClick={() => { setEmployeeId(e._id); setEmpQuery(e.displayName || `${e.firstName} ${e.lastName}`); setEmpOpen(false); }} style={{ padding: '9px 12px', cursor: 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}` }}>
+                      {e.displayName || `${e.firstName} ${e.lastName}`} <span style={{ color: T.textSec, fontSize: 11 }}>· {e.employeeCode}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <input value={custQuery} onChange={(e) => { setCustQuery(e.target.value); setCustomerId(''); setCustOpen(true); }} onFocus={() => setCustOpen(true)} placeholder="Address to customer (optional)" style={{ ...inputStyle, width: 240 }} />
+              {custOpen && filteredCustomers.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginTop: 4, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.15)' }}>
+                  {filteredCustomers.map((c) => (
+                    <div key={c._id} onClick={() => { setCustomerId(c._id); setCustQuery(c.customerDisplayName || c.companyName); setCustOpen(false); }} style={{ padding: '9px 12px', cursor: 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}` }}>
+                      {c.customerDisplayName || c.companyName}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <input value={watermark} onChange={(e) => setWatermark(e.target.value)} placeholder="Watermark (optional, e.g. DRAFT)" style={{ ...inputStyle, width: 200 }} />
         </div>
 

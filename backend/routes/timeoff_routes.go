@@ -13,7 +13,7 @@ import (
 // manager," so it's not relied on for that check, only for base module access.
 func TimeOffRoutes(router *gin.Engine) {
 	toRoutes := router.Group("/api/timeoff")
-	toRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("timeoff"))
+	toRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("timeoff"), middlewares.RequireModule("timeoff"))
 	{
 		toRoutes.POST("/leave-types", controllers.CreateLeaveType())
 		toRoutes.GET("/leave-types", controllers.GetAllLeaveTypes())

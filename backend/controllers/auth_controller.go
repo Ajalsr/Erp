@@ -340,6 +340,138 @@ func SignIn() gin.HandlerFunc {
 	}
 }
 
+// forgotPasswordLimiter: tighter than signinLimiter — this endpoint is a public
+// email-sender keyed on user input, so it's a more attractive spam vector.
+var forgotPasswordLimiter = utils.NewRateLimiter(5, time.Minute)
+
+// ForgotPassword — POST /api/auth/forgot-password {userId}. Public. Always
+// returns the same generic message regardless of what's found — a different
+// response for "not found" would let anyone enumerate accounts.
+//
+// Looks up by userId, but userId can repeat across accounts (see SignIn) —
+// unlike SignIn there's no password here to disambiguate which one the
+// caller means. So every account sharing that userId gets its OWN OTP on
+// its OWN doc, emailed to its OWN address; ResetPassword then resolves which
+// account by matching the OTP itself (same "generate candidates, disambiguate
+// by secret" shape SignIn uses, just with the OTP standing in for the
+// password as the disambiguating secret).
+func ForgotPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !forgotPasswordLimiter.Allow(c.ClientIP()) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"status": http.StatusTooManyRequests, "message": "Too many requests. Please wait a minute and try again."})
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		var body struct {
+			UserID string `json:"userId"`
+		}
+		if err := c.BindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request"})
+			return
+		}
+		userID := strings.TrimSpace(body.UserID)
+		generic := gin.H{"status": http.StatusOK, "message": "If that user ID is registered with an email, we've sent a password reset code to it."}
+		if userID == "" {
+			c.JSON(http.StatusOK, generic)
+			return
+		}
+
+		rx := bson.M{"$regex": "^" + regexp.QuoteMeta(userID) + "$", "$options": "i"}
+		cur, err := userCollection.Find(ctx, bson.M{"userId": rx})
+		if err != nil {
+			c.JSON(http.StatusOK, generic)
+			return
+		}
+		var candidates []models.Users
+		_ = cur.All(ctx, &candidates)
+
+		for _, u := range candidates {
+			if strings.TrimSpace(u.Email) == "" {
+				continue // no email on file — nowhere to send a code, skip silently
+			}
+			otp := generateOTP()
+			exp := time.Now().Add(15 * time.Minute)
+			if _, err := userCollection.UpdateOne(ctx, bson.M{"_id": u.ID}, bson.M{"$set": bson.M{
+				"resetOtp": hashOTP(otp), "resetOtpExp": exp,
+			}}); err != nil {
+				continue
+			}
+			go func(to, code string) { _ = utils.SendPasswordResetEmail(to, code) }(u.Email, otp)
+		}
+		c.JSON(http.StatusOK, generic)
+	}
+}
+
+// ResetPassword — POST /api/auth/reset-password {userId, otp, newPassword}.
+// Public. Among every account sharing userId, finds the one whose stored OTP
+// hash matches — that's the account ForgotPassword actually emailed — then
+// hashes+sets the new password and clears the OTP so it can't be reused.
+func ResetPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		var body struct {
+			UserID      string `json:"userId"`
+			OTP         string `json:"otp"`
+			NewPassword string `json:"newPassword"`
+		}
+		if err := c.BindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request"})
+			return
+		}
+		userID := strings.TrimSpace(body.UserID)
+		otp := strings.TrimSpace(body.OTP)
+		if userID == "" || otp == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "userId and otp are required"})
+			return
+		}
+		if len(body.NewPassword) < 6 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Password must be at least 6 characters"})
+			return
+		}
+
+		rx := bson.M{"$regex": "^" + regexp.QuoteMeta(userID) + "$", "$options": "i"}
+		cur, err := userCollection.Find(ctx, bson.M{"userId": rx})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid or expired code"})
+			return
+		}
+		var candidates []models.Users
+		_ = cur.All(ctx, &candidates)
+
+		otpHashIn := hashOTP(otp)
+		var user *models.Users
+		for i := range candidates {
+			u := candidates[i]
+			if u.ResetOtp != "" && u.ResetOtp == otpHashIn && u.ResetOtpExp != nil && u.ResetOtpExp.After(time.Now()) {
+				user = &candidates[i]
+				break
+			}
+		}
+		if user == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid or expired code"})
+			return
+		}
+
+		hashed, hErr := utils.HashPassword(body.NewPassword)
+		if hErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Something went wrong — try again"})
+			return
+		}
+		if _, err := userCollection.UpdateOne(ctx, bson.M{"_id": user.ID}, bson.M{
+			"$set":   bson.M{"password": hashed},
+			"$unset": bson.M{"resetOtp": "", "resetOtpExp": ""},
+		}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to reset password"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Password reset — sign in with your new password"})
+	}
+}
+
 // adminSecretOK gates the dev/admin user-cleanup endpoints behind the ADMIN_SECRET
 // env var sent in the X-Admin-Secret header. Disabled (403) when ADMIN_SECRET unset.
 func adminSecretOK(c *gin.Context) bool {
@@ -393,6 +525,48 @@ func AdminDeleteUser() gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Deleted", "deleted": res.DeletedCount})
+	}
+}
+
+// AdminSetLicense sets which modules an org's license includes. Modules: nil/empty
+// means unrestricted (see models.OrgLicense doc comment). Cleanup/ops tool, same
+// X-Admin-Secret gate as AdminListUsers/AdminDeleteUser — no self-service key entry
+// exists yet, this is issued by whoever runs the backend.
+func AdminSetLicense() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !adminSecretOK(c) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Forbidden"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		orgID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid org id"})
+			return
+		}
+		var input struct {
+			Modules   []string   `json:"modules"`
+			ExpiresAt *time.Time `json:"expiresAt"`
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid request body"})
+			return
+		}
+		license := models.OrgLicense{Modules: input.Modules, ExpiresAt: input.ExpiresAt}
+		res, err := orgCollection.UpdateOne(ctx, bson.M{"_id": orgID}, bson.M{"$set": bson.M{
+			"license":   license,
+			"updatedAt": time.Now(),
+		}})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update license"})
+			return
+		}
+		if res.MatchedCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Organization not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "License updated", "data": license})
 	}
 }
 

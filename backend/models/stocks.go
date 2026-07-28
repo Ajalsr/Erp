@@ -37,13 +37,18 @@ type Stock struct {
 	// Per-warehouse breakdown of on-hand qty (warehouseId → qty). The string Quantity
 	// above stays the authoritative TOTAL; this map is maintained in parallel so existing
 	// reads/writes keep working even if the breakdown is missing on legacy docs.
-	WarehouseStock   map[string]float64 `json:"warehouseStock,omitempty"   bson:"warehouseStock,omitempty"`
-	QuantityOrdered  float64            `json:"quantity_ordered,omitempty" bson:"quantity_ordered,omitempty"` // on open POs
-	QuantitySold     float64            `json:"quantity_sold,omitempty"    bson:"quantity_sold,omitempty"`    // on open SOs
-	OrgID            string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
-	CreatedAt        time.Time          `json:"created_at" bson:"created_at"`
-	UpdatedAt        time.Time          `json:"updated_at" bson:"updated_at"`
-	CreatedBy        string             `json:"created_by" bson:"created_by"`
-	Category         string             `json:"category" bson:"category"`
-	Type             string             `json:"type" bson:"type"`
+	WarehouseStock  map[string]float64 `json:"warehouseStock,omitempty"   bson:"warehouseStock,omitempty"`
+	QuantityOrdered float64            `json:"quantity_ordered,omitempty" bson:"quantity_ordered,omitempty"` // on open POs
+	QuantitySold    float64            `json:"quantity_sold,omitempty"    bson:"quantity_sold,omitempty"`    // on open SOs
+	OrgID           string             `json:"orgId,omitempty" bson:"orgId,omitempty"`
+	CreatedAt       time.Time          `json:"created_at" bson:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at" bson:"updated_at"`
+	CreatedBy       string             `json:"created_by" bson:"created_by"`
+	Category        string             `json:"category" bson:"category"`
+	Type            string             `json:"type" bson:"type"`
+	// Image: Cloudinary secure URL (uploaded via storeOrgImage, same pattern as
+	// Organization letterhead/stamp) — never a raw base64 blob at rest. The
+	// client may send a data: URL on create/update; the controller uploads it
+	// and replaces it with the short URL before persisting.
+	Image string `json:"image,omitempty" bson:"image,omitempty"`
 }

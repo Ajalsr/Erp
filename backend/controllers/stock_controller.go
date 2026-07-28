@@ -248,6 +248,15 @@ func AddItem() gin.HandlerFunc {
 		item.CreatedAt = time.Now()
 		item.UpdatedAt = time.Now()
 
+		// Offload to Cloudinary; persist only the URL (same pattern as org
+		// letterhead/stamp — see storeOrgImage in org_controller.go).
+		url, upErr := storeOrgImage(ctx, item.Image, item.OrgID, "items/"+item.ID.Hex())
+		if upErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to upload item image", "error": upErr.Error()})
+			return
+		}
+		item.Image = url
+
 		result, err := stockCollection.InsertOne(ctx, item)
 
 		// Removed debug fmt.Println(result) — do not log insert results in production
@@ -325,6 +334,18 @@ func UpdateItem() gin.HandlerFunc {
 		body["updated_at"] = time.Now()
 
 		orgID, _ := c.Get("orgId")
+
+		// Offload to Cloudinary if a new data-URL was sent; same pattern as AddItem.
+		if imgVal, ok := body["image"]; ok {
+			imgStr, _ := imgVal.(string)
+			url, upErr := storeOrgImage(ctx, imgStr, fmt.Sprintf("%v", orgID), "items/"+objectID.Hex())
+			if upErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to upload item image", "error": upErr.Error()})
+				return
+			}
+			body["image"] = url
+		}
+
 		res, err := stockCollection.UpdateOne(ctx,
 			bson.M{"_id": objectID, "orgId": fmt.Sprintf("%v", orgID)},
 			bson.M{"$set": body},

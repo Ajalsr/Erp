@@ -90,24 +90,24 @@ export default function Layout() {
           <h1 style={{ color: '#f1f5f9', fontSize: '22px', fontWeight: '700', marginBottom: '8px' }}>
             No Organization Yet
           </h1>
-          <p style={{ color: '#64748b', fontSize: '13px', lineHeight: '1.6', marginBottom: '32px' }}>
-            You're not part of any organization. Create your own or wait for an admin to invite you.
+          <p style={{ color: '#64748b', fontSize: '13px', lineHeight: '1.6', marginBottom: '24px' }}>
+            You're not part of any organization yet. If a teammate invited you, open that invitation link to join theirs — you don't need anything below.
           </p>
 
           <button
             onClick={() => navigate('/organizations/create')}
             style={{
               width: '100%', padding: '12px', borderRadius: '12px',
-              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-              border: 'none', color: '#fff', fontSize: '14px', fontWeight: '600',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', fontSize: '13px', fontWeight: '600',
               cursor: 'pointer', marginBottom: '10px',
             }}
           >
-            Create an Organization
+            Set up a new organization
           </button>
 
           <p style={{ color: '#475569', fontSize: '12px', marginTop: '16px' }}>
-            Have an invitation link? Open it to join an existing organization.
+            Requires a license key — <a href="https://spifora.com/spifora.html#modules" target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>get one at spifora.com</a> if you don't have one yet.
           </p>
         </div>
       </div>

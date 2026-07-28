@@ -15,7 +15,11 @@ func LetterRoutes(router *gin.Engine) {
 	router.GET("/api/letters/public/:token", controllers.GetPublicLetter())
 
 	letterRoutes := router.Group("/api/letters")
-	letterRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("letters"))
+	// Letters straddle two role modules — "letters" (customer-addressed) and
+	// "employees" (HR letters like offer/warning) — a role only needs one to
+	// get past the door; controllers narrow to the specific module per-record
+	// once a letter's category is known (see letterModuleFor).
+	letterRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("letters"), middlewares.RequireAnyModule("letters", "employees"))
 	{
 		letterRoutes.GET("/types", controllers.GetLetterTypes())
 		letterRoutes.GET("/next-number", controllers.GetNextLetterNumber())

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { FaArrowLeft, FaPrint, FaDownload, FaEnvelope, FaEdit, FaTimes } from 'react-icons/fa';
 import DOMPurify from 'dompurify';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -14,6 +14,8 @@ const CONTENT_W = A4_W - 2 * SIDE_PX;
 export default function LetterPrint() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const location = useLocation();
+  const base = location.pathname.startsWith('/HR') ? '/HR/Letters' : '/Letters';
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const activeOrg = useAuthStore((s) => s.activeOrg);
@@ -46,7 +48,7 @@ export default function LetterPrint() {
         if (!alive) return;
         if (org) setLh({ image: org.letterheadImage || '', topPad: org.letterheadTopPad || 13, bottomPad: org.letterheadBottomPad || 8 });
         setLetter(l);
-        setEmailTo(l?.customerEmail || '');
+        setEmailTo(l?.customerEmail || l?.employeeEmail || '');
       } finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
@@ -155,10 +157,10 @@ export default function LetterPrint() {
 
       {/* Toolbar */}
       <div style={{ position: 'sticky', top: 0, zIndex: 30, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <button onClick={() => navigate('/Letters')} style={{ ...btn, background: T.surface2, color: T.textPri, border: `1px solid ${T.border}` }}><FaArrowLeft size={11} /> Back</button>
+        <button onClick={() => navigate(base)} style={{ ...btn, background: T.surface2, color: T.textPri, border: `1px solid ${T.border}` }}><FaArrowLeft size={11} /> Back</button>
         <div style={{ fontSize: 15, fontWeight: 800 }}>{letter?.letterNumber || 'Letter'}</div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={() => navigate(`/Letters/${id}/edit`)} style={{ ...btn, background: T.surface2, color: T.textPri, border: `1px solid ${T.border}` }}><FaEdit size={11} /> Edit</button>
+          <button onClick={() => navigate(`${base}/${id}/edit`)} style={{ ...btn, background: T.surface2, color: T.textPri, border: `1px solid ${T.border}` }}><FaEdit size={11} /> Edit</button>
           <button onClick={printLetter} disabled={!letter} style={{ ...btn, background: '#fff', color: '#1e3a5f' }}><FaPrint size={11} /> Print</button>
           <button onClick={download} disabled={!letter} style={{ ...btn, background: '#f59e0b', color: '#0a0e1a' }}><FaDownload size={11} /> Download</button>
           <button onClick={() => setEmailOpen(true)} disabled={!letter} style={{ ...btn, background: '#3b82f6', color: '#fff' }}><FaEnvelope size={11} /> Email</button>

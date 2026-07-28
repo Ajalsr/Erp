@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/backend/config"
+	"github.com/backend/middlewares"
 	"github.com/backend/models"
 	"github.com/backend/utils"
 	"github.com/gin-gonic/gin"
@@ -39,21 +40,105 @@ var letterBodyPolicy = func() *bluemonday.Policy {
 }()
 
 var letterTypeLabels = map[string]string{
-	"warranty":     "Warranty Letter",
-	"bank_details": "Bank Details Letter",
-	"reference":    "Reference Letter",
-	"noc":          "No Objection Certificate",
-	"custom":       "Letter",
+	"warranty":           "Warranty Letter",
+	"bank_details":       "Bank Details Letter",
+	"reference":          "Reference Letter",
+	"noc":                "No Objection Certificate",
+	"offer_letter":       "Offer Letter",
+	"appointment_letter": "Appointment Letter",
+	"warning_letter":     "Warning Letter",
+	"experience_letter":  "Experience Letter",
+	"relieving_letter":   "Relieving Letter",
+	"salary_certificate": "Salary Certificate",
+	"promotion_letter":   "Promotion Letter",
+	"termination_letter": "Termination Letter",
+	"custom":             "Letter",
+}
+
+// letterTypeCategory says whether a letter type addresses a customer or an
+// employee — drives which picker the editor shows and how the list/employee
+// panel group letters. "custom" fits either, so it's left uncategorized.
+var letterTypeCategory = map[string]string{
+	"warranty":           "customer",
+	"bank_details":       "customer",
+	"reference":          "customer",
+	"noc":                "customer",
+	"offer_letter":       "employee",
+	"appointment_letter": "employee",
+	"warning_letter":     "employee",
+	"experience_letter":  "employee",
+	"relieving_letter":   "employee",
+	"salary_certificate": "employee",
+	"promotion_letter":   "employee",
+	"termination_letter": "employee",
+}
+
+// letterModuleFor maps a letter type to the role module that actually gates
+// it — "employees" for HR letters (offer/warning/etc, kept out of Sales'
+// reach), "letters" for everything customer-addressed. RequireAnyModule only
+// checks the caller has ONE of the two at the door; this is what narrows a
+// given letter down to the module it really belongs to.
+func letterModuleFor(letterType string) string {
+	if letterTypeCategory[letterType] == "employee" {
+		return "employees"
+	}
+	return "letters"
+}
+
+// canForCategory reports whether the caller's view caps cover a letter
+// category ("customer"/"employee"/"" for the uncategorized "custom" type,
+// which either module's view cap unlocks).
+func canForCategory(category string, canCustomer, canEmployee bool) bool {
+	switch category {
+	case "employee":
+		return canEmployee
+	case "customer":
+		return canCustomer
+	default:
+		return canCustomer || canEmployee
+	}
+}
+
+// letterTypesInCategory lists every letter type key the given single view cap
+// unlocks — the matching category (employee or customer) PLUS "custom" (its
+// category is "", viewable either way per canForCategory) — used to restrict
+// GetAllLetters to whichever module the caller can view when they only have
+// one of the two.
+func letterTypesInCategory(employee bool) []string {
+	want := "customer"
+	if employee {
+		want = "employee"
+	}
+	var out []string
+	for k := range letterTypeLabels {
+		if cat := letterTypeCategory[k]; cat == want || cat == "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// orgAndRole resolves the orgID/role an in-handler HasCap check needs —
+// RequireAnyModule already validated membership and set orgRole, this just
+// re-parses orgID into the ObjectID HasCap wants.
+func orgAndRole(c *gin.Context) (primitive.ObjectID, string) {
+	orgID, _ := primitive.ObjectIDFromHex(fmt.Sprintf("%v", mustGet(c, "orgId")))
+	role, _ := c.Get("orgRole")
+	return orgID, fmt.Sprintf("%v", role)
 }
 
 // GetLetterTypes — GET /api/letters/types. Single source of truth for the
 // frontend's type dropdown, same pattern as GetExportTypes/GetBackups.
 func GetLetterTypes() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		order := []string{"warranty", "bank_details", "reference", "noc", "custom"}
+		order := []string{
+			"offer_letter", "appointment_letter", "warning_letter", "experience_letter",
+			"relieving_letter", "salary_certificate", "promotion_letter", "termination_letter",
+			"warranty", "bank_details", "reference", "noc", "custom",
+		}
 		out := make([]gin.H, 0, len(order))
 		for _, k := range order {
-			out = append(out, gin.H{"value": k, "label": letterTypeLabels[k]})
+			out = append(out, gin.H{"value": k, "label": letterTypeLabels[k], "category": letterTypeCategory[k]})
 		}
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": out})
 	}
@@ -77,6 +162,7 @@ type letterRequest struct {
 	Title      string `json:"title"`
 	Body       string `json:"body"`
 	CustomerID string `json:"customerId"`
+	EmployeeID string `json:"employeeId"`
 	Watermark  string `json:"watermark"`
 }
 
@@ -108,6 +194,10 @@ func CreateLetter() gin.HandlerFunc {
 		}
 		if err := req.validate(); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		if orgOid, role := orgAndRole(c); !middlewares.HasCap(ctx, orgOid, role, letterModuleFor(req.Type), middlewares.CapAdd) {
+			c.JSON(http.StatusForbidden, gin.H{"message": "You don't have permission to create this letter type"})
 			return
 		}
 		req.Body = letterBodyPolicy.Sanitize(req.Body)
@@ -147,6 +237,19 @@ func CreateLetter() gin.HandlerFunc {
 					letter.CustomerAddress = strings.Join(parts, ", ")
 				}
 			}
+		} else if strings.TrimSpace(req.EmployeeID) != "" {
+			if oid, err := primitive.ObjectIDFromHex(req.EmployeeID); err == nil {
+				var emp models.Employee
+				if err := employeeCollection.FindOne(ctx, bson.M{"_id": oid, "orgId": orgID}).Decode(&emp); err == nil {
+					letter.EmployeeID = req.EmployeeID
+					letter.EmployeeName = emp.DisplayName
+					if letter.EmployeeName == "" {
+						letter.EmployeeName = strings.TrimSpace(emp.FirstName + " " + emp.LastName)
+					}
+					letter.EmployeeCode = emp.EmployeeCode
+					letter.EmployeeEmail = emp.Email
+				}
+			}
 		}
 
 		letter.LetterNumber = nextNumber(ctx, orgID, "letter", letterCollection, "letterNumber")
@@ -165,14 +268,29 @@ func GetAllLetters() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		orgID := fmt.Sprintf("%v", mustGet(c, "orgId"))
+		orgOid, role := orgAndRole(c)
+		canCustomer := middlewares.HasCap(ctx, orgOid, role, "letters", middlewares.CapView)
+		canEmployee := middlewares.HasCap(ctx, orgOid, role, "employees", middlewares.CapView)
 
 		filter := bson.M{"orgId": orgID}
 		if t := c.Query("type"); t != "" {
+			if !canForCategory(letterTypeCategory[t], canCustomer, canEmployee) {
+				c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": []models.Letter{}, "count": 0})
+				return
+			}
 			filter["type"] = t
+		} else if canCustomer != canEmployee {
+			// Caller only has one of the two modules — restrict the list to that
+			// category's types rather than 403ing the whole list (mirrors
+			// GetLetterTypes not existing per-role: the list itself just narrows).
+			filter["type"] = bson.M{"$in": letterTypesInCategory(canEmployee)}
+		}
+		if e := c.Query("employeeId"); e != "" {
+			filter["employeeId"] = e
 		}
 		if q := strings.TrimSpace(c.Query("search")); q != "" {
 			rx := bson.M{"$regex": regexp.QuoteMeta(q), "$options": "i"}
-			filter["$or"] = []bson.M{{"title": rx}, {"letterNumber": rx}, {"customerName": rx}}
+			filter["$or"] = []bson.M{{"title": rx}, {"letterNumber": rx}, {"customerName": rx}, {"employeeName": rx}}
 		}
 
 		cur, err := letterCollection.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}))
@@ -202,6 +320,10 @@ func GetLetterByID() gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"message": "Letter not found"})
 			return
 		}
+		if orgOid, role := orgAndRole(c); !middlewares.HasCap(ctx, orgOid, role, letterModuleFor(letter.Type), middlewares.CapView) {
+			c.JSON(http.StatusForbidden, gin.H{"message": "You don't have permission to view this letter"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": letter})
 	}
 }
@@ -220,6 +342,18 @@ func UpdateLetter() gin.HandlerFunc {
 		}
 		if err := req.validate(); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+
+		var existing models.Letter
+		if err := letterCollection.FindOne(ctx, bson.M{"_id": c.Param("id"), "orgId": orgID}).Decode(&existing); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Letter not found"})
+			return
+		}
+		orgOid, role := orgAndRole(c)
+		if !middlewares.HasCap(ctx, orgOid, role, letterModuleFor(existing.Type), middlewares.CapEdit) ||
+			!middlewares.HasCap(ctx, orgOid, role, letterModuleFor(req.Type), middlewares.CapEdit) {
+			c.JSON(http.StatusForbidden, gin.H{"message": "You don't have permission to edit this letter"})
 			return
 		}
 		req.Body = letterBodyPolicy.Sanitize(req.Body)
@@ -251,6 +385,16 @@ func DeleteLetter() gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		orgID := fmt.Sprintf("%v", mustGet(c, "orgId"))
+
+		var existing models.Letter
+		if err := letterCollection.FindOne(ctx, bson.M{"_id": c.Param("id"), "orgId": orgID}).Decode(&existing); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Letter not found"})
+			return
+		}
+		if orgOid, role := orgAndRole(c); !middlewares.HasCap(ctx, orgOid, role, letterModuleFor(existing.Type), middlewares.CapDelete) {
+			c.JSON(http.StatusForbidden, gin.H{"message": "You don't have permission to delete this letter"})
+			return
+		}
 
 		res, err := letterCollection.DeleteOne(ctx, bson.M{"_id": c.Param("id"), "orgId": orgID})
 		if err != nil {
@@ -336,17 +480,24 @@ func buildLetterPDF(l models.Letter) *gofpdf.Fpdf {
 	pdf.CellFormat(W/2, 5, l.IssueDate.Format("02 Jan 2006"), "", 1, "R", false, 0, "")
 	y = pdf.GetY() + 6
 
-	// Addressee block, if any.
-	if l.CustomerName != "" {
+	// Addressee block, if any — customer OR employee (a letter has at most one).
+	addresseeName, addresseeSub := l.CustomerName, l.CustomerAddress
+	if addresseeName == "" && l.EmployeeName != "" {
+		addresseeName = l.EmployeeName
+		if l.EmployeeCode != "" {
+			addresseeSub = "Employee Code: " + l.EmployeeCode
+		}
+	}
+	if addresseeName != "" {
 		pdf.SetXY(x0, y)
 		pdf.SetFont("Helvetica", "B", 10)
 		dark()
-		pdf.CellFormat(W, 5, tr(l.CustomerName), "", 1, "L", false, 0, "")
-		if l.CustomerAddress != "" {
+		pdf.CellFormat(W, 5, tr(addresseeName), "", 1, "L", false, 0, "")
+		if addresseeSub != "" {
 			pdf.SetX(x0)
 			pdf.SetFont("Helvetica", "", 9)
 			body()
-			pdf.MultiCell(W, 4.5, tr(l.CustomerAddress), "", "L", false)
+			pdf.MultiCell(W, 4.5, tr(addresseeSub), "", "L", false)
 		}
 		y = pdf.GetY() + 8
 	}
@@ -428,6 +579,10 @@ func writeLetterPDF(c *gin.Context, inline bool) {
 		c.JSON(http.StatusNotFound, gin.H{"message": "Letter not found"})
 		return
 	}
+	if orgOid, role := orgAndRole(c); !middlewares.HasCap(ctx, orgOid, role, letterModuleFor(letter.Type), middlewares.CapView) {
+		c.JSON(http.StatusForbidden, gin.H{"message": "You don't have permission to view this letter"})
+		return
+	}
 	pdf := buildLetterPDF(letter)
 	disposition := "attachment"
 	if inline {
@@ -453,6 +608,10 @@ func SendLetterEmail() gin.HandlerFunc {
 		var letter models.Letter
 		if err := letterCollection.FindOne(ctx, bson.M{"_id": c.Param("id"), "orgId": orgID}).Decode(&letter); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"message": "Letter not found"})
+			return
+		}
+		if orgOid, role := orgAndRole(c); !middlewares.HasCap(ctx, orgOid, role, letterModuleFor(letter.Type), middlewares.CapView) {
+			c.JSON(http.StatusForbidden, gin.H{"message": "You don't have permission to email this letter"})
 			return
 		}
 

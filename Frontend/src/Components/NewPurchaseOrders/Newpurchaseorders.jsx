@@ -815,7 +815,7 @@ export default function Newpurchaseorders() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {!isEdit && <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>}
-              <button onClick={() => navigate('/Purchase/Purchaseorders')} className="npo-bg">Cancel</button>
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg">Cancel</button>
               {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save Draft'}</button>}
               <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
                 {saving
@@ -1166,7 +1166,7 @@ export default function Newpurchaseorders() {
             <div style={{ fontSize: 11, color: T.textSec, marginTop: 2 }}>Fields marked with <span style={{ color: '#ef4444' }}>*</span> are required</div>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => navigate('/Purchase/Purchaseorders')} className="npo-bg">Cancel</button>
+            <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg">Cancel</button>
             {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save as Draft'}</button>}
             <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
               {saving

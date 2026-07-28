@@ -892,13 +892,13 @@ export default function CreateQuote() {
         {/* Top bar */}
         <div style={{ background: T.topbar, borderBottom: `1px solid ${T.border}`, padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => navigate("/Sales/Quotes")} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 0 }}>←</button>
+            <button onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 0 }}>←</button>
             <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.text }}>
               {isEdit ? "Edit Quote" : "New Quote"}
             </span>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn v="ghost" onClick={() => navigate("/Sales/Quotes")} disabled={saving}>Cancel</Btn>
+            <Btn v="ghost" onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} disabled={saving}>Cancel</Btn>
             {isEdit && prefill?._id && (
               <Btn v="outline" onClick={() => navigate(`/Sales/Quotes/${prefill._id}/print`)} disabled={saving}>🖨 Preview &amp; Print</Btn>
             )}
@@ -1174,7 +1174,7 @@ export default function CreateQuote() {
 
           {/* Bottom actions */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 8 }}>
-            <Btn v="ghost" onClick={() => navigate("/Sales/Quotes")} disabled={saving}>Cancel</Btn>
+            <Btn v="ghost" onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} disabled={saving}>Cancel</Btn>
             <Btn v="outline" onClick={() => submit("draft")} disabled={saving}>{saving ? "Saving…" : "Save Draft"}</Btn>
             <Btn v="primary" onClick={openSendModal} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
           </div>

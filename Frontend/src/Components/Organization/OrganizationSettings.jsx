@@ -1109,6 +1109,15 @@ const OrganizationSettings = () => {
               {(() => {
                 const role = customRoles.includes(selectedRole) ? selectedRole : customRoles[0]
                 if (!role) return null
+                // Only offer modules this org's license actually includes — granting
+                // a capability on a module the license doesn't cover is meaningless
+                // (backend blocks it regardless) and confusing to show as toggleable.
+                // Empty/absent license.modules = unrestricted, same rule the backend
+                // and sidebar already use (see licenseAllows in helper/permissions.js).
+                const licensedKeys = org?.license?.modules
+                const visibleModules = (Array.isArray(licensedKeys) && licensedKeys.length > 0)
+                  ? PERM_MODULES.filter(m => licensedKeys.includes(m.key))
+                  : PERM_MODULES
                 return (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                     {/* Module access — independent View / Add / Edit capabilities */}
@@ -1116,7 +1125,7 @@ const OrganizationSettings = () => {
                       <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Module Access</p>
                       <p style={{ fontSize: 11, color: textSec, margin: '-4px 0 10px' }}>View = read · Add = create · Edit = change · Delete = remove · Export = download/print. Combine freely; none ticked = no access. <strong style={{ color: textPri }}>All / Own</strong> next to View, Edit and Delete sets whether that action applies to every record or only the user's own. Add has no scope (creating a new record).</p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        {[...new Set(PERM_MODULES.map(m => m.group))].map(group => (
+                        {[...new Set(visibleModules.map(m => m.group))].map(group => (
                           <div key={group}>
                             <p style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: '.08em', margin: '0 0 6px' }}>{group}</p>
                             {/* Column header */}
@@ -1127,7 +1136,7 @@ const OrganizationSettings = () => {
                               ))}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              {PERM_MODULES.filter(m => m.group === group).map(m => (
+                              {visibleModules.filter(m => m.group === group).map(m => (
                                 <div key={m.key} style={{ display: 'grid', gridTemplateColumns: PERM_GRID, gap: 8, alignItems: 'center', padding: '9px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg }}>
                                   <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>{m.label}</span>
                                   {PERM_CAPS.map(cap => {

@@ -10,7 +10,7 @@ import (
 // Org Chart has no separate module key; it's gated by "employees" view.
 func EmployeeRoutes(router *gin.Engine) {
 	empRoutes := router.Group("/api/employees")
-	empRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("employees"))
+	empRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("employees"), middlewares.RequireModule("employees"))
 	{
 		empRoutes.POST("/", controllers.CreateEmployee())
 		empRoutes.GET("/", controllers.GetAllEmployees())

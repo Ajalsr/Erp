@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FaPlus, FaEdit, FaTrash, FaUserTie, FaCamera } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaUserTie, FaCamera, FaFileAlt, FaPrint } from 'react-icons/fa';
 import { IoClose } from 'react-icons/io5';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
 import { usePermissions } from '../../helper/permissions';
+import { getLetterTypes, getLetters } from '../../helper/letterApi';
 import CustomSelect from '../common/CustomSelect';
 import AppDatePicker from '../common/AppDatePicker';
 
@@ -149,6 +150,7 @@ export default function Employees() {
 }
 
 function EmployeeDrawer({ employee, T, isDark, onClose, onSaved, onDelete, deleting, canDelete }) {
+  const navigate = useNavigate();
   const isEdit = !!(employee?._id);
   const [form, setForm] = useState({
     firstName: employee?.firstName || '', lastName: employee?.lastName || '',
@@ -163,6 +165,9 @@ function EmployeeDrawer({ employee, T, isDark, onClose, onSaved, onDelete, delet
   });
   const [saving, setSaving] = useState(false);
   const [managers, setManagers] = useState([]);
+  const [letters, setLetters] = useState([]);
+  const [letterTypes, setLetterTypes] = useState([]);
+  const [lettersLoading, setLettersLoading] = useState(false);
   const photoInputRef = useRef(null);
 
   const handlePhotoFile = (file) => {
@@ -178,6 +183,19 @@ function EmployeeDrawer({ employee, T, isDark, onClose, onSaved, onDelete, delet
       .then(res => setManagers((res.data?.data?.employees || []).filter(m => m._id !== employee?._id)))
       .catch(() => {});
   }, [employee?._id]);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    getLetterTypes().then(r => setLetterTypes(r.data?.data || [])).catch(() => {});
+    setLettersLoading(true);
+    getLetters({ employeeId: employee._id })
+      .then(r => setLetters(r.data?.data || []))
+      .catch(() => nexusToast.error('Failed to load letters'))
+      .finally(() => setLettersLoading(false));
+  }, [isEdit, employee?._id]);
+
+  const letterTypeLabel = (v) => letterTypes.find(t => t.value === v)?.label || v;
+  const letterCounts = letters.reduce((acc, l) => { acc[l.type] = (acc[l.type] || 0) + 1; return acc; }, {});
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -284,6 +302,47 @@ function EmployeeDrawer({ employee, T, isDark, onClose, onSaved, onDelete, delet
           <label style={label}>Notes</label>
           <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} style={{ ...inp, height: 'auto', padding: '10px 12px', resize: 'none' }} />
         </div>
+
+        {isEdit && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '20px 0 10px', borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
+              <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#3b82f6', margin: 0 }}>Letters</p>
+              <button onClick={() => navigate(`/HR/Letters/new?employeeId=${employee._id}&employeeName=${encodeURIComponent(form.displayName || `${form.firstName} ${form.lastName}`)}&type=offer_letter`)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: 'transparent', border: `1.5px solid ${T.border}`, borderRadius: 8, fontSize: 11, fontWeight: 700, color: T.textPri, cursor: 'pointer' }}>
+                <FaPlus size={9} /> Issue Letter
+              </button>
+            </div>
+
+            {lettersLoading ? (
+              <p style={{ fontSize: 12, color: T.textSec, margin: '0 0 14px' }}>Loading…</p>
+            ) : letters.length === 0 ? (
+              <p style={{ fontSize: 12, color: T.textSec, margin: '0 0 14px' }}>No letters issued yet.</p>
+            ) : (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                  {Object.entries(letterCounts).map(([type, count]) => (
+                    <span key={type} style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff', color: '#3b82f6' }}>
+                      {letterTypeLabel(type)}: {count}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: 'hidden' }}>
+                  {letters.map(l => (
+                    <div key={l.id} onClick={() => navigate(`/HR/Letters/${l.id}/print`)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderBottom: `1px solid ${T.border}`, cursor: 'pointer' }}>
+                      <FaFileAlt size={11} color={T.textSec} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: T.textPri, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.title}</p>
+                        <p style={{ fontSize: 10.5, color: T.textSec, margin: '1px 0 0' }}>{letterTypeLabel(l.type)} · {l.letterNumber}</p>
+                      </div>
+                      <FaPrint size={10} color={T.textSec} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={handleSave} disabled={saving}

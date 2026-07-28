@@ -14,13 +14,19 @@ const useOrganization = () => {
 
   // ── Organizations ─────────────────────────────────────────────
 
-  const createOrganization = async ({ name, description }) => {
+  const createOrganization = async ({ name, description, licenseKey, modulesEnabled, maxUsers }) => {
     const res = await axios.post(
       `${BASE_URL}/api/organizations`,
-      { name, description },
+      { name, description, licenseKey, modulesEnabled, maxUsers },
       authHeaders()
     )
     return res.data
+  }
+
+  // Public — no auth required, callable before any org/session context exists.
+  const verifyLicenseKey = async (key) => {
+    const res = await axios.get(`${BASE_URL}/api/license/verify`, { params: { key } })
+    return res.data.data
   }
 
   const getMyOrganizations = async () => {
@@ -130,6 +136,7 @@ const useOrganization = () => {
 
   return {
     createOrganization,
+    verifyLicenseKey,
     getMyOrganizations,
     getOrganization,
     updateOrganization,
