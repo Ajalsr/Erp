@@ -15,6 +15,23 @@ body, input, select, textarea, button {
   font-family: 'DM Sans', sans-serif;
 }
 
+/* Every native button/select/link is clickable — default browser cursor for
+   <button> is NOT pointer, so this was missing app-wide. label[for] covers
+   custom checkbox/radio wrappers built as a styled <label>. Disabled controls
+   correctly keep the "blocked" cursor instead. */
+button:not(:disabled),
+select:not(:disabled),
+a[href],
+label[for],
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+button:disabled,
+select:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: 'Sora', sans-serif;
 }

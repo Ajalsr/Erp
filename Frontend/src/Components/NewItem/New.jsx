@@ -388,6 +388,7 @@ const New = () => {
     selling_price: '', sales_account: '', sales_description: '',
     cost_price: '', cost_account: '', cost_description: '', preferred_vendor: '',
     inventory_account: '', opening_stock: '', opening_stock_rate: '',
+    image: '',
   });
 
   const handleChange = useCallback((e) => {
@@ -458,10 +459,12 @@ const New = () => {
           selling_price: it.selling_price || '', sales_account: it.sales_account || '', sales_description: it.sales_description || '',
           cost_price: it.cost_price || '', cost_account: it.cost_account || '', cost_description: it.cost_description || '', preferred_vendor: it.preferred_vendor || '',
           inventory_account: it.inventory_account || '', opening_stock: it.opening_stock || '', opening_stock_rate: it.opening_stock_rate || '',
+          image: it.image || '',
         }));
         setSalesEnabled(!!(it.selling_price || it.sales_account));
         setPurchaseEnabled(!!(it.cost_price || it.cost_account));
         setTrackInventory(!!(it.inventory_account || it.opening_stock || it.reorder_point));
+        setImagePreview(it.image || null);
       })
       .catch(() => nexusToast.error('Failed to load item'));
   }, [editId]);
@@ -480,8 +483,17 @@ const New = () => {
   const handleImageFile = (file) => {
     if (!file?.type.startsWith('image/')) return;
     const r = new FileReader();
-    r.onload = e => setImagePreview(e.target.result);
+    r.onload = e => {
+      setImagePreview(e.target.result);
+      setFormData(prev => ({ ...prev, image: e.target.result }));
+    };
     r.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = (e) => {
+    e.stopPropagation();
+    setImagePreview(null);
+    setFormData(prev => ({ ...prev, image: '' }));
   };
 
   // Derived: prefix string from the selected item group, e.g. "ITM-"
@@ -956,7 +968,10 @@ const New = () => {
                 {imagePreview ? (
                   <>
                     <img src={imagePreview} alt="preview" style={{ maxHeight: 160, maxWidth: '100%', borderRadius: 10, marginBottom: 10, objectFit: 'contain' }} />
-                    <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Click to replace</p>
+                    <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>
+                      Click to replace ·{' '}
+                      <span onClick={handleRemoveImage} style={{ color: '#ef4444', fontWeight: 700, cursor: 'pointer' }}>Remove</span>
+                    </p>
                   </>
                 ) : (
                   <>

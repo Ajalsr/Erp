@@ -820,7 +820,7 @@ const CreateInvoice = () => {
         {/* Topbar */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 24px", borderBottom: `1px solid ${T.border}`, background: T.topbar, transition: "background 0.25s, border-color 0.25s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Invoices</button>
+            <button onClick={() => guard.leave(() => navigate(-1))} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Invoices</button>
             <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 600, color: T.text }}>
               {invoiceDocType === "proforma" ? "Create Proforma" : "Create Invoice"}
             </span>
@@ -845,7 +845,7 @@ const CreateInvoice = () => {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn v="ghost" onClick={() => navigate(-1)}>Discard</Btn>
+            <Btn v="ghost" onClick={() => guard.leave(() => navigate(-1))}>Discard</Btn>
             <Btn v="outline" onClick={handleSaveDraft} disabled={submitting}>Save Draft</Btn>
             <Btn v="primary" onClick={handleSubmit} disabled={submitting} style={{ opacity: submitting ? .7 : 1 }}>
               {submitting ? "Saving…" : invoiceDocType === "proforma" ? "Save Proforma →" : "Issue Invoice →"}

@@ -4,6 +4,7 @@ import { IoMdClose } from 'react-icons/io';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 
 const TYPE_SUBTYPES = {
   asset: [
@@ -53,6 +54,7 @@ export default function NewAccount() {
   const isEdit = !!id;
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
+  const guard = useUnsavedGuard({ hasDraft: false });
 
   const [saving, setSaving] = useState(false);
   const [isSystem, setIsSystem] = useState(false);
@@ -147,7 +149,7 @@ export default function NewAccount() {
         display: 'flex', alignItems: 'center', padding: '0 28px', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button onClick={() => navigate('/Finance/Accounts')}
+          <button onClick={() => guard.leave(() => navigate('/Finance/Accounts'))}
             style={{ width: 34, height: 34, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
             <IoMdClose size={16} />
           </button>
@@ -155,7 +157,7 @@ export default function NewAccount() {
           <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>{isEdit ? 'Edit Account' : 'New Account'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => navigate('/Finance/Accounts')}
+          <button onClick={() => guard.leave(() => navigate('/Finance/Accounts'))}
             style={{ padding: '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
             Cancel
           </button>

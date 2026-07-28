@@ -393,8 +393,10 @@ export default function Item() {
                   onClick={()=>openItem(item)}
                   style={{display:"grid",gridTemplateColumns:"44px 1fr auto",gap:12,alignItems:"center",padding:"9px 8px",borderRadius:8,marginBottom:1,animation:`fadeUp .22s ${idx*.018}s ease both`}}>
                   {/* Thumbnail */}
-                  <div style={{width:44,height:44,borderRadius:9,background:thumbGrad(item.name||""),display:"grid",placeItems:"center",color:"#fff",position:"relative",overflow:"hidden",boxShadow:"0 1px 0 rgba(255,255,255,.1) inset",flexShrink:0}}>
-                    <FaCubes size={17} style={{opacity:.8}}/>
+                  <div style={{width:44,height:44,borderRadius:9,background:item.image?"transparent":thumbGrad(item.name||""),display:"grid",placeItems:"center",color:"#fff",position:"relative",overflow:"hidden",boxShadow:"0 1px 0 rgba(255,255,255,.1) inset",flexShrink:0}}>
+                    {item.image
+                      ? <img src={item.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                      : <FaCubes size={17} style={{opacity:.8}}/>}
                     {/* Stock pip */}
                     <span style={{position:"absolute",right:-2,bottom:-2,width:12,height:12,borderRadius:"50%",background:pipColor,border:`2px solid ${isSelected?surface:surface2}`}}/>
                   </div>
@@ -535,8 +537,10 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
       <div style={{background:surface,borderBottom:`1px solid ${border}`,padding:"20px 24px 14px",flexShrink:0}}>
         {/* Hero row */}
         <div style={{display:"flex",alignItems:"flex-start",gap:16,marginBottom:14}}>
-          <div style={{width:84,height:84,borderRadius:14,background:thumbGrad(item.name||""),display:"grid",placeItems:"center",color:"#fff",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,.15) inset, 0 8px 16px -8px rgba(0,0,0,.3)",position:"relative",overflow:"hidden"}}>
-            <FaCubes size={34} style={{opacity:.8}}/>
+          <div style={{width:84,height:84,borderRadius:14,background:item.image?"transparent":thumbGrad(item.name||""),display:"grid",placeItems:"center",color:"#fff",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,.15) inset, 0 8px 16px -8px rgba(0,0,0,.3)",position:"relative",overflow:"hidden"}}>
+            {item.image
+              ? <img src={item.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              : <FaCubes size={34} style={{opacity:.8}}/>}
           </div>
           <div style={{flex:1,minWidth:0}}>
             <div className="display" style={{fontSize:22,color:text,lineHeight:1.15,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>

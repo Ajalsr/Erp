@@ -83,7 +83,7 @@ const orgId = () => {
 };
 const authUserId = () => useAuthStore.getState().user?.userId || '';
 
-const EMPTY = { orgId: '', role: '', perms: {}, roles: ['sales_rep'] };
+const EMPTY = { orgId: '', role: '', perms: {}, roles: ['sales_rep'], license: null };
 const LS_KEY = 'nexus-perms';
 const loadStore = () => { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} } };
 const saveStore = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(_store)) } catch { /* ignore */ } };
@@ -121,10 +121,11 @@ export async function fetchPermissions(force = false) {
   _inflight = axiosInstance.get(`/api/organizations/${id}`)
     .then(r => {
       _store[id] = {
-        userId: uid,
-        role:  r.data?.data?.role || '',
-        perms: r.data?.data?.rolePermissions || {},
-        roles: r.data?.data?.customRoles || ['sales_rep'],
+        userId:  uid,
+        role:    r.data?.data?.role || '',
+        perms:   r.data?.data?.rolePermissions || {},
+        roles:   r.data?.data?.customRoles || ['sales_rep'],
+        license: r.data?.data?.license?.modules || null,
       };
       saveStore();
       _notify();
@@ -150,9 +151,10 @@ export function seedPermissions(organizations, userId) {
     if (!id || !org.role) continue;
     _store[id] = {
       userId,
-      role:  org.role,
-      perms: org.rolePermissions || {},
-      roles: org.customRoles || ['sales_rep'],
+      role:    org.role,
+      perms:   org.rolePermissions || {},
+      roles:   org.customRoles || ['sales_rep'],
+      license: org.license?.modules || null,
     };
     changed = true;
   }
@@ -174,14 +176,24 @@ function moduleCaps(state, module) {
   return Array.isArray(stored) ? stored : defaultCaps(role, module);
 }
 
+// licenseAllows(module) — does the ORG's plan include this module at all,
+// independent of role? Nil/empty license = unrestricted (every org before
+// this feature shipped, and any org not yet explicitly licensed, keeps full
+// access). Mirrors backend middlewares.RequireLicenseModule — this is a UX
+// hint (hide what you can't reach), the real enforcement is server-side.
+function licenseAllows(state, module) {
+  const m = state.license;
+  return !m || m.length === 0 || m.includes(module);
+}
+
 // can(module, action) — action defaults to 'view'.
 function evalCan(state, module, action = 'view') {
-  return moduleCaps(state, module).includes(action);
+  return licenseAllows(state, module) && moduleCaps(state, module).includes(action);
 }
 
 // canAny(module) — has any access at all (for showing the module).
 function evalCanAny(state, module) {
-  return moduleCaps(state, module).length > 0;
+  return licenseAllows(state, module) && moduleCaps(state, module).length > 0;
 }
 
 function evalApprove(state, key) {

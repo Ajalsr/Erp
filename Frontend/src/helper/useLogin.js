@@ -63,7 +63,29 @@ const useLogin = () => {
     }
   }
 
-  return { handleSignin, verifyOtp }
+  const forgotPassword = async (userId) => {
+    try {
+      const response = await axios.post(`${BASE_URL}/api/auth/forgot-password`, { userId })
+      return response.data
+    } catch (error) {
+      const errorMessage = error.response?.data?.message || 'Something went wrong. Please try again.'
+      nexusToast.error(errorMessage)
+      throw { error: errorMessage }
+    }
+  }
+
+  const resetPassword = async (userId, otp, newPassword) => {
+    try {
+      const response = await axios.post(`${BASE_URL}/api/auth/reset-password`, { userId, otp, newPassword })
+      return response.data
+    } catch (error) {
+      const errorMessage = error.response?.data?.message || 'Could not reset password. Please try again.'
+      nexusToast.error(errorMessage)
+      throw { error: errorMessage }
+    }
+  }
+
+  return { handleSignin, verifyOtp, forgotPassword, resetPassword }
 }
 
 export default useLogin

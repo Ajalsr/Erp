@@ -12,7 +12,7 @@ import (
 // not a system-admin one.
 func ExportRoutes(router *gin.Engine) {
 	exportRoutes := router.Group("/api/export")
-	exportRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("reports"))
+	exportRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("reports"), middlewares.RequireModule("reports"))
 	{
 		exportRoutes.GET("/types", controllers.GetExportTypes())
 		exportRoutes.GET("/preview-count", controllers.PreviewExportCount())

@@ -201,6 +201,64 @@ func RoleCanView(ctx context.Context, orgID primitive.ObjectID, role, module str
 	return containsCap(roleCapsForModule(ctx, orgID, role, module), CapView)
 }
 
+// HasCap reports whether role can perform cap (view/add/edit/delete/export) on
+// module. owner/admin always pass. Exported for handlers that need a
+// capability check that route-level RequireModule can't express — e.g. a
+// resource whose real module isn't known until a record (or the request body)
+// is read, such as a letter addressed to a customer vs. an employee.
+func HasCap(ctx context.Context, orgID primitive.ObjectID, role, module, cap string) bool {
+	if role == "owner" || role == "admin" {
+		return true
+	}
+	return containsCap(roleCapsForModule(ctx, orgID, role, module), cap)
+}
+
+// RequireAnyModule enforces that the caller's role has the request's derived
+// capability on AT LEAST ONE of the given modules. owner/admin always pass.
+// For resources that straddle two modules (e.g. letters — some addressed to
+// customers, some to employees) where the actual module can't be known until
+// a record/body is inspected — handlers must still narrow access to the
+// specific module once that's known (see HasCap).
+func RequireAnyModule(modules ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, _ := c.Get("userId")
+		orgIDVal, _ := c.Get("orgId")
+		orgIDStr, _ := orgIDVal.(string)
+		orgID, err := primitive.ObjectIDFromHex(orgIDStr)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid organization ID"})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		role, ok := memberRole(ctx, orgID, userID.(string))
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Not a member of this organization"})
+			return
+		}
+		c.Set("orgRole", role)
+
+		if role == "owner" || role == "admin" {
+			c.Next()
+			return
+		}
+
+		cap := capForRequest(c)
+		for _, module := range modules {
+			if containsCap(roleCapsForModule(ctx, orgID, role, module), cap) {
+				c.Next()
+				return
+			}
+		}
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"status":  http.StatusForbidden,
+			"message": "You don't have permission to " + cap + " " + humanizeModule(modules[0]),
+		})
+	}
+}
+
 func memberRole(ctx context.Context, orgID primitive.ObjectID, userID string) (string, bool) {
 	col := config.GetCollection(config.DB, "org_members")
 	var m struct {

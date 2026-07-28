@@ -70,9 +70,10 @@ const MENU = [
     { name: 'Balance Sheet',     route: '/Reports/balance-sheet',mod: 'reports' },
     { name: 'Cash Flow',         route: '/Reports/cash-flow',    mod: 'reports' },
   ]},
-  { icon: FaUsers,            label: 'HR',        mods: ['employees','payroll','timeoff'], tourKey: 'nav-hr', subItems: [
+  { icon: FaUsers,            label: 'HR',        mods: ['employees','payroll','timeoff','letters'], tourKey: 'nav-hr', subItems: [
     { name: 'Employees',   route: '/HR/Employees',  mod: 'employees' },
     { name: 'Org Chart',   route: '/HR/OrgChart',   mod: 'employees' },
+    { name: 'Letters',     route: '/HR/Letters',    mod: 'employees' },
     { name: 'Payroll',     route: '/HR/Payroll',    mod: 'payroll' },
     { name: 'Time Off',    route: '/HR/TimeOff',    mod: 'timeoff' },
   ]},

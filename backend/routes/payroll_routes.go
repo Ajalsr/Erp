@@ -12,7 +12,7 @@ import (
 // later by changing this route group's RequireModule string).
 func PayrollRoutes(router *gin.Engine) {
 	payrollRoutes := router.Group("/api/payroll")
-	payrollRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireModule("payroll"))
+	payrollRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("payroll"), middlewares.RequireModule("payroll"))
 	{
 		payrollRoutes.POST("/salary-structures", controllers.CreateSalaryStructure())
 		payrollRoutes.GET("/salary-structures", controllers.GetSalaryStructures())

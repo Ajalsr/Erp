@@ -12,6 +12,7 @@ import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
 // its route is first visited. Keeps the initial bundle small → faster first load.
 const Home = lazy(() => import("./Components/Home/Home"))
 const Signup = lazy(() => import("./Components/Signup/Signup"))
+const ForgotPassword = lazy(() => import("./Components/Login/ForgotPassword"))
 const Item = lazy(() => import("./Components/Item/Item"))
 const New = lazy(() => import("./Components/NewItem/New"))
 const Customers = lazy(() => import("./Components/Customers/Customers"))
@@ -135,6 +136,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/Signup" element={<Signup />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
 
             {/* Invitation accept — accessible when logged in, before org is set */}
             <Route path="/invitations/accept" element={<AcceptInvitation />} />
@@ -144,6 +146,10 @@ function App() {
               path="/organizations/create"
               element={<ProtectedRoute><CreateOrganization /></ProtectedRoute>}
             />
+
+            {/* Internal ops tool — gated by ADMIN_SECRET itself (own unlock
+                screen), deliberately NOT wrapped in ProtectedRoute (no normal
+                login required) and NOT linked from the Sidebar. */}
 
             {/* All protected routes inside main layout */}
             <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -199,6 +205,13 @@ function App() {
               <Route path="/Letters/new" element={<LetterEditor />} />
               <Route path="/Letters/:id/edit" element={<LetterEditor />} />
               <Route path="/Letters/:id/print" element={<LetterPrint />} />
+              {/* Same components, mounted under /HR — they read the pathname to
+                  scope themselves to employee-addressed letters only, and stay
+                  inside the HR nav section (see Letters.jsx/LetterEditor.jsx isHR). */}
+              <Route path="/HR/Letters" element={<Letters />} />
+              <Route path="/HR/Letters/new" element={<LetterEditor />} />
+              <Route path="/HR/Letters/:id/edit" element={<LetterEditor />} />
+              <Route path="/HR/Letters/:id/print" element={<LetterPrint />} />
               <Route path="/Reports/sales"                element={<SalesReport />} />
               <Route path="/Reports/sales-by-emirate"     element={<SalesByEmirate />} />
               <Route path="/Reports/purchases"            element={<PurchaseReport />} />
