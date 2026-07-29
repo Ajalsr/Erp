@@ -12,6 +12,22 @@ import (
 	gomail "gopkg.in/gomail.v2"
 )
 
+// publicViewerURL returns the base URL for the standalone public document
+// viewer (Spifora-site/public-viewer) — a SEPARATE deployment from APP_URL
+// (the marketing/handoff site). Invoice/quote/bill/letter "view online" links
+// need a live backend-backed viewer, not the marketing site, so they get
+// their own env var. Falls back to APP_URL, then localhost, so a single local
+// dev server still works without both set.
+func publicViewerURL() string {
+	if v := strings.TrimSuffix(os.Getenv("PUBLIC_VIEWER_URL"), "/"); v != "" {
+		return v
+	}
+	if v := strings.TrimSuffix(os.Getenv("APP_URL"), "/"); v != "" {
+		return v
+	}
+	return "http://localhost:5175"
+}
+
 // SendInvitationEmail sends an invitation link to the given email address.
 //
 // Required env vars in .env:
@@ -208,6 +224,15 @@ func SendLicenseRequestNotification(customerName, customerEmail, planName string
 		to = "ajal@spifora.com"
 	}
 
+	// admin-licenses.html lives in Spifora-site (the marketing site), same
+	// place APP_URL already points — not publicViewerURL(), that's the
+	// separate document-viewer deployment.
+	appURL := os.Getenv("APP_URL")
+	if appURL == "" {
+		appURL = "http://localhost:5175"
+	}
+	adminLink := strings.TrimSuffix(appURL, "/") + "/admin-licenses.html"
+
 	planLine := planName
 	if planLine == "" {
 		planLine = "—"
@@ -221,8 +246,8 @@ func SendLicenseRequestNotification(customerName, customerEmail, planName string
 <tr><td style="padding:4px 0;color:#64748b;">Orgs requested</td><td style="padding:4px 0;color:#e2e8f0;">%d</td></tr>
 <tr><td style="padding:4px 0;color:#64748b;vertical-align:top;">Modules</td><td style="padding:4px 0;color:#e2e8f0;">%s</td></tr>
 </table>
-<p style="color:#475569;font-size:12px;margin:20px 0 0">Review and approve/reject at /admin/licenses.</p>
-</div>`, customerName, customerEmail, planLine, maxOrganizations, strings.Join(requestedModules, ", "))
+<p style="margin:20px 0 0"><a href="%s" style="color:#38bdf8;font-size:12.5px;font-weight:700;">Review and approve/reject in the admin panel →</a></p>
+</div>`, customerName, customerEmail, planLine, maxOrganizations, strings.Join(requestedModules, ", "), adminLink)
 
 	m := gomail.NewMessage()
 	m.SetHeader("From", fmt.Sprintf("Spifora <%s>", from))
@@ -347,11 +372,7 @@ func SendInvoiceEmail(toEmail string, inv models.Invoice, customMessage string, 
 		from = user
 	}
 
-	appURL := os.Getenv("APP_URL")
-	if appURL == "" {
-		//appURL = "http://localhost:5175"
-		appURL = "spifora.vercel.app/"
-	}
+	appURL := publicViewerURL()
 
 	var subject string
 	if isReminder {
@@ -409,11 +430,7 @@ func SendQuoteEmail(toEmails []string, q models.Quote, customMessage string, pdf
 		from = user
 	}
 
-	// appURL must be the FRONTEND's public URL — see SendInvitationEmail for why.
-	appURL := os.Getenv("APP_URL")
-	if appURL == "" {
-		appURL = "http://localhost:5175"
-	}
+	appURL := publicViewerURL()
 	publicLink := ""
 	if q.PublicToken != "" {
 		publicLink = fmt.Sprintf("%s/quote/public/%s", appURL, q.PublicToken)
@@ -526,10 +543,7 @@ func SendBillEmail(toEmails []string, b models.Bill, customMessage string, pdfBy
 		from = user
 	}
 
-	appURL := os.Getenv("APP_URL")
-	if appURL == "" {
-		appURL = "http://localhost:5175"
-	}
+	appURL := publicViewerURL()
 	publicLink := ""
 	if b.PublicToken != "" {
 		publicLink = fmt.Sprintf("%s/bill/public/%s", appURL, b.PublicToken)
@@ -839,10 +853,7 @@ func SendLetterEmail(toEmails []string, l models.Letter, customMessage string, p
 		from = user
 	}
 
-	appURL := os.Getenv("APP_URL")
-	if appURL == "" {
-		appURL = "http://localhost:5175"
-	}
+	appURL := publicViewerURL()
 	publicLink := ""
 	if l.PublicToken != "" {
 		publicLink = fmt.Sprintf("%s/letter/public/%s", appURL, l.PublicToken)
