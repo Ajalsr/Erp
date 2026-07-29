@@ -1,5 +1,17 @@
 /**
- * build-backend.js
+ * build-backend.js — NOT part of the release pipeline anymore. Do not run this
+ * against real backend/.env.
+ *
+ * This embeds the ENTIRE backend/.env (MONGO_URI, JWT_SECRET, SMTP_PASS,
+ * ADMIN_SECRET, CLOUDINARY_API_SECRET — everything) into the compiled binary
+ * as base64 — encoding, not encryption, trivially recovered with `strings` +
+ * any base64 decoder. Every installer built this way shipped full production
+ * credentials to every end user's machine. The app now talks to the hosted
+ * api.spifora.com over HTTPS instead (Frontend/.env.production) — no local
+ * sidecar, nothing to embed. `npm run build` no longer calls this. Left here
+ * for reference only; if you ever need it again, embed a scoped/read-only
+ * credential, never the real .env.
+ *
  * Compiles the Go backend for Tauri sidecar bundling.
  *
  * Tauri requires binaries named with the full target triple:

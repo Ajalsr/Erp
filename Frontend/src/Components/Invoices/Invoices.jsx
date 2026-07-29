@@ -1553,28 +1553,17 @@ const Invoices = () => {
                         );
                       })()}
 
-                      {/* Clone invoice */}
-                      <button
-                        onClick={() => navigate("/Sales/Createinvoices", {
-                          state: {
-                            clone: {
-                              customerId:   selected.customerId,
-                              customerName: selected.customer,
-                              lineItems:    selected.lineItems,
-                              notes:        selected.notes,
-                              paymentTerms: selected.paymentTerms,
-                            }
-                          }
-                        })}
-                        style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)", color: "#f59e0b", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
-                        📄 Clone Invoice
-                      </button>
-
-                      {/* Shareable link */}
+                      {/* Shareable link — window.location.origin is wrong inside the
+                          desktop app (resolves to the Tauri webview's internal
+                          http://tauri.localhost, not a real address), so that
+                          context always points at the standalone public-viewer
+                          deployment instead. A plain browser tab (web build, if
+                          ever used standalone) still gets its own real origin. */}
                       {selected.publicToken && (
                         <button
                           onClick={() => {
-                            const url = `${window.location.origin}/invoice/public/${selected.publicToken}`;
+                            const base = '__TAURI_INTERNALS__' in window ? 'https://view.spifora.com' : window.location.origin;
+                            const url = `${base}/invoice/public/${selected.publicToken}`;
                             navigator.clipboard.writeText(url);
                             nexusToast.success("Invoice link copied to clipboard");
                           }}

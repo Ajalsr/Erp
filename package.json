@@ -1,16 +1,15 @@
 {
-  "name": "nexus",
+  "name": "spifora",
   "version": "1.0.0",
-  "description": "Nexus All-in-One",
+  "description": "Spifora All in one",
   "license": "ISC",
-  "author": "Nexus",
+  "author": "Spifora",
   "type": "commonjs",
   "scripts": {
     "predev": "kill-port 8080 || true",
     "dev": "tauri dev",
     "dev:web": "concurrently -n \"API,UI\" -c \"blue,green\" --kill-others-on-fail \"cd backend && backend.exe\" \"npm --prefix Frontend run dev\"",
-    "build": "npm run build:backend && tauri build",
-    "build:backend": "node scripts/build-backend.js",
+    "build": "tauri build",
     "tauri": "tauri"
   },
   "devDependencies": {
