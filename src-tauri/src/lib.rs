@@ -1,6 +1,4 @@
 use tauri_plugin_deep_link::DeepLinkExt;
-#[cfg(not(debug_assertions))]
-use tauri_plugin_shell::ShellExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,7 +17,6 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // AppImage/dev builds aren't registered by an installer, so the OS
             // doesn't know to route spifora:// links here without this — makes
@@ -31,32 +28,11 @@ pub fn run() {
                 app.deep_link().register_all()?;
             }
 
-            #[cfg(not(debug_assertions))]
-            {
-                use tauri_plugin_shell::process::CommandEvent;
-
-                let (mut rx, _child) = app
-                    .shell()
-                    .sidecar("backend")
-                    .expect("backend sidecar not configured")
-                    .spawn()
-                    .expect("failed to start backend");
-
-                tauri::async_runtime::spawn(async move {
-                    while let Some(event) = rx.recv().await {
-                        match event {
-                            CommandEvent::Stdout(line) => {
-                                print!("[backend] {}", String::from_utf8_lossy(&line));
-                            }
-                            CommandEvent::Stderr(line) => {
-                                eprint!("[backend err] {}", String::from_utf8_lossy(&line));
-                            }
-                            _ => {}
-                        }
-                    }
-                });
-            }
-
+            // No backend sidecar here on purpose — the app talks to the hosted
+            // api.spifora.com over HTTPS (see Frontend/.env.production) instead
+            // of bundling a local Go binary with production secrets baked in.
+            // See scripts/build-backend.js for why that used to exist and why
+            // it doesn't anymore.
             Ok(())
         })
         .run(tauri::generate_context!())
