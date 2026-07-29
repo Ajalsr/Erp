@@ -40,5 +40,12 @@
     "externalBin": [
       "binaries/backend"
     ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["spifora"]
+      }
+    }
   }
 }

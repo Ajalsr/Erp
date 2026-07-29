@@ -1,6 +1,7 @@
-import { lazy, Suspense } from "react"
-import { Route, Routes } from "react-router-dom"
+import { lazy, Suspense, useEffect } from "react"
+import { Route, Routes, useNavigate } from "react-router-dom"
 import { Toaster } from "react-hot-toast";
+import { onOpenUrl, getCurrent } from "@tauri-apps/plugin-deep-link"
 
 // Eager: app shell + auth landing. These paint first, so no lazy/Suspense flash.
 import Login from "./Components/Login/Login"
@@ -110,6 +111,31 @@ const RouteFallback = () => (
 )
 
 function App() {
+  const navigate = useNavigate()
+
+  // Desktop only — a spifora:// link (e.g. from an invitation email's "Open
+  // in Desktop App" fallback) lands here two ways: on_open_url fires while
+  // the app is already running (macOS natively, Windows/Linux forwarded via
+  // the single-instance "deep-link" feature — see src-tauri/src/lib.rs), and
+  // getCurrent() covers the case where THIS launch of the app was the one
+  // the OS spawned for the link. Both just strip the custom scheme down to
+  // the path/query the app's own router already understands.
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return // plain web build — no desktop bridge to talk to
+
+    const routeToDeepLink = (urls) => {
+      const raw = urls?.[0]
+      if (!raw) return
+      navigate(raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '/'))
+    }
+
+    let unlisten
+    onOpenUrl(routeToDeepLink).then((fn) => { unlisten = fn })
+    getCurrent().then((urls) => { if (urls) routeToDeepLink(urls) })
+
+    return () => { unlisten?.() }
+  }, [navigate])
+
   return (
     <>
       {/*
