@@ -16,8 +16,9 @@ import (
 // viewer (Spifora-site/public-viewer) — a SEPARATE deployment from APP_URL
 // (the marketing/handoff site). Invoice/quote/bill/letter "view online" links
 // need a live backend-backed viewer, not the marketing site, so they get
-// their own env var. Falls back to APP_URL, then localhost, so a single local
-// dev server still works without both set.
+// their own env var. Falls back to APP_URL, then the production marketing
+// site — never localhost, so a misconfigured/forgotten env var on a real
+// deploy degrades to a live link instead of a dead one.
 func publicViewerURL() string {
 	if v := strings.TrimSuffix(os.Getenv("PUBLIC_VIEWER_URL"), "/"); v != "" {
 		return v
@@ -25,7 +26,7 @@ func publicViewerURL() string {
 	if v := strings.TrimSuffix(os.Getenv("APP_URL"), "/"); v != "" {
 		return v
 	}
-	return "http://localhost:5175"
+	return "https://spifora.com"
 }
 
 // SendInvitationEmail sends an invitation link to the given email address.
@@ -62,7 +63,7 @@ func SendInvitationEmail(toEmail, _, orgName, invitedBy, role, token string) err
 
 	appURL := os.Getenv("APP_URL")
 	if appURL == "" {
-		appURL = "http://localhost:5175"
+		appURL = "https://spifora.com"
 	}
 
 	inviteLink := fmt.Sprintf("%s/invitations/accept?token=%s", appURL, token)
@@ -229,7 +230,7 @@ func SendLicenseRequestNotification(customerName, customerEmail, planName string
 	// separate document-viewer deployment.
 	appURL := os.Getenv("APP_URL")
 	if appURL == "" {
-		appURL = "http://localhost:5175"
+		appURL = "https://spifora.com"
 	}
 	adminLink := strings.TrimSuffix(appURL, "/") + "/admin-licenses.html"
 
