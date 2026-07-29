@@ -11,6 +11,14 @@ const ROLE_LABELS = {
   viewer: 'Viewer',
 }
 
+// There is no public backend — every org's data lives behind that org's own
+// desktop install (a local Go sidecar on :8080). A browser tab has nothing to
+// call, so it can't independently verify or accept an invitation; it can
+// only hand off to the desktop app (or point at the installer if there isn't
+// one yet). Only inside the Tauri webview does :8080 actually resolve to a
+// running backend, so that's the only context that runs the real accept flow.
+const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+
 const AcceptInvitation = () => {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
@@ -27,12 +35,23 @@ const AcceptInvitation = () => {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    if (!isDesktop) { setLoadingInvite(false); return } // web tab — nothing to fetch, see WebHandoff below
     if (!token) { setError('No invitation token provided.'); setLoadingInvite(false); return }
     getInvitationByToken(token)
       .then((data) => setInvite(data))
       .catch(() => setError('Invitation not found or has expired.'))
       .finally(() => setLoadingInvite(false))
   }, [token])
+
+  // Best-effort hand off to the installed desktop app via its spifora://
+  // scheme — harmless when the app isn't installed (OS just ignores the
+  // unknown protocol) and WebHandoff below covers that case visibly.
+  useEffect(() => {
+    if (!token || isDesktop) return
+    window.location.href = `spifora://invitations/accept?token=${encodeURIComponent(token)}`
+  }, [token])
+
+  if (!isDesktop) return <WebHandoff token={token} />
 
   const handleAccept = async () => {
     if (!isAuthenticated) {
@@ -231,6 +250,75 @@ const AcceptInvitation = () => {
               </div>
             </>
           )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Shown to a plain browser tab (no local backend to talk to). Not an error
+// state — the invite itself may be perfectly valid, this page just can't
+// check. It only ever hands off to the desktop app or to the installer.
+const WebHandoff = ({ token }) => {
+  const retry = () => {
+    if (token) window.location.href = `spifora://invitations/accept?token=${encodeURIComponent(token)}`
+  }
+  const downloadUrl = `${window.location.origin}/spifora.html`
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
+        .ai-root { font-family: 'DM Sans', sans-serif; }
+        .ai-heading { font-family: 'Sora', sans-serif; }
+        .ai-bg {
+          background: #0a0f1e;
+          background-image:
+            radial-gradient(ellipse 80% 60% at 50% 30%, rgba(30,64,175,0.12) 0%, transparent 60%),
+            radial-gradient(ellipse 60% 80% at 80% 80%, rgba(14,165,233,0.06) 0%, transparent 50%);
+        }
+        .ai-card {
+          background: rgba(15,23,42,0.97);
+          border: 1px solid rgba(255,255,255,0.08);
+          backdrop-filter: blur(20px);
+        }
+        .ai-btn-primary {
+          background: linear-gradient(135deg, #2563eb, #1d4ed8);
+          border: none; cursor: pointer; transition: all 0.2s; font-family: inherit; text-decoration: none; display: block;
+        }
+        .ai-btn-primary:hover { background: linear-gradient(135deg, #3b82f6, #2563eb); transform: translateY(-1px); box-shadow: 0 8px 25px rgba(37,99,235,0.4); }
+        .ai-btn-ghost {
+          background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+          cursor: pointer; transition: all 0.15s; font-family: inherit; color: #94a3b8; text-decoration: none; display: block;
+        }
+        .ai-btn-ghost:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+      `}</style>
+
+      <div className="ai-root ai-bg min-h-screen flex items-center justify-center p-4">
+        <div className="ai-card rounded-2xl w-full max-w-md p-8 shadow-2xl text-center">
+          <div className="flex items-center justify-center gap-2 mb-8">
+            <img src="/spifora-icon.png" alt="Spifora" style={{ height: 32, width: 32, objectFit: 'contain' }} />
+            <span className="ai-heading text-white font-bold text-lg">SPIFORA</span>
+          </div>
+
+          <div style={{ fontSize: '40px', marginBottom: '12px' }}>🡵</div>
+          <h2 className="ai-heading text-white text-xl font-bold mb-2">Opening Spifora Desktop…</h2>
+          <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '24px', lineHeight: 1.6 }}>
+            {token
+              ? "This invitation opens inside the desktop app, not the browser. If nothing happened, use the buttons below."
+              : 'This link is missing its invitation token.'}
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {token && (
+              <button onClick={retry} className="ai-btn-primary w-full py-3 rounded-xl text-white text-sm font-semibold">
+                Open Spifora
+              </button>
+            )}
+            <a href={downloadUrl} className="ai-btn-ghost w-full py-3 rounded-xl text-sm font-semibold">
+              Don't have it yet? Download Spifora
+            </a>
+          </div>
         </div>
       </div>
     </>

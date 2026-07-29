@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-deep-link": "^2.4.9",
     "axios": "^1.11.0",
     "currency-codes": "^2.2.0",
     "date-fns": "^4.1.0",
