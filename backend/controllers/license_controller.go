@@ -215,6 +215,27 @@ func RequestLicense() gin.HandlerFunc {
 				key.PlanName = target.PlanName
 			}
 		} else {
+			// One outstanding fresh request per email at a time — same reasoning
+			// as the upgrade-request guard above: without this, resubmitting (or
+			// double-clicking Submit) queues up duplicates an admin has to sort
+			// through, and approving more than one hands out two license codes
+			// for what was really one ask. Scoped to upgradeForCode empty so this
+			// doesn't collide with that customer having a separate, unrelated
+			// upgrade request pending on an existing key.
+			pendingCount, err := licenseCollection.CountDocuments(ctx, bson.M{
+				"customerEmail":  bson.M{"$regex": "^" + regexp.QuoteMeta(key.CustomerEmail) + "$", "$options": "i"},
+				"status":         "pending",
+				"upgradeForCode": bson.M{"$in": []interface{}{"", nil}},
+			})
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Database error"})
+				return
+			}
+			if pendingCount > 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "There's already a pending request for this email — wait for it to be reviewed before submitting another"})
+				return
+			}
+
 			if len(input.RequestedModules) == 0 {
 				c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Select at least one module you need"})
 				return
