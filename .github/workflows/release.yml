@@ -15,6 +15,11 @@ on:
 jobs:
   build-and-release:
     runs-on: windows-latest
+    # GITHUB_TOKEN defaults to read-only on repos/orgs with restrictive
+    # default token permissions — without this, tauri-action's "create a
+    # release" API call 403s with "Resource not accessible by integration".
+    permissions:
+      contents: write
     steps:
       - name: Checkout Erp
         uses: actions/checkout@v4
