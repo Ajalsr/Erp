@@ -1,0 +1,90 @@
+name: Release desktop app
+
+# Push a tag like v1.0.1 to trigger, or run manually from the Actions tab.
+# What this does NOT do: touch spifora.html. The public download links stay
+# fixed (/downloads/Spifora_1.0.0_x64-setup.exe etc) regardless of the real
+# build version below — bumping tauri.conf.json's version changes the
+# GitHub Release filename, not what's copied onto the site. Update the site
+# copy by hand for an actual version bump; this workflow only keeps the
+# CURRENT filenames' contents fresh.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Erp
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust build cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install root deps (tauri CLI)
+        run: npm install
+
+      - name: Install Frontend deps
+        run: npm ci
+        working-directory: Frontend
+
+      # Builds Frontend (via tauri.conf.json's beforeBuildCommand, using
+      # Frontend/.env.production — must already point at the real hosted
+      # api.spifora.com, this workflow doesn't touch env files), compiles
+      # the Rust shell, bundles NSIS/MSI, and creates/updates a GitHub
+      # Release with those installers attached. That release is an internal
+      # artifact archive only — nothing on spifora.html ever links to it.
+      - name: Build + create GitHub Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: "Spifora v__VERSION__"
+          releaseBody: "Internal build artifact — not linked from spifora.com. See Spifora-site/downloads/ for the public installer."
+          releaseDraft: false
+          prerelease: false
+
+      # Requires a repo secret SPIFORA_SITE_PAT: a GitHub Personal Access
+      # Token (classic, "repo" scope, or a fine-grained token scoped to
+      # Ajalsr/Spifora-site with Contents: read/write) added under this
+      # repo's Settings → Secrets and variables → Actions. The default
+      # GITHUB_TOKEN above only has permission inside THIS repo — pushing to
+      # a different repo needs its own credential, which only you can create.
+      - name: Checkout Spifora-site
+        uses: actions/checkout@v4
+        with:
+          repository: Ajalsr/Spifora-site
+          token: ${{ secrets.SPIFORA_SITE_PAT }}
+          path: spifora-site
+
+      - name: Copy installers into Spifora-site/downloads (fixed filenames)
+        shell: bash
+        run: |
+          set -e
+          cp src-tauri/target/release/bundle/nsis/Spifora_*_x64-setup.exe \
+             spifora-site/downloads/Spifora_1.0.0_x64-setup.exe
+          cp src-tauri/target/release/bundle/msi/Spifora_*_x64_en-US.msi \
+             spifora-site/downloads/Spifora_1.0.0_x64_en-US.msi
+
+      - name: Commit and push to Spifora-site
+        working-directory: spifora-site
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add downloads/Spifora_1.0.0_x64-setup.exe downloads/Spifora_1.0.0_x64_en-US.msi
+          git diff --cached --quiet || git commit -m "chore: refresh desktop installers (Erp ${{ github.ref_name }})"
+          git push
