@@ -5,6 +5,7 @@ import {
   FaChevronLeft, FaChevronRight, FaClipboardList, FaTimes,
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 
@@ -25,6 +26,7 @@ const LIMIT = 20;
 export default function DeliveryNoteList() {
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
 
   const [notes,        setNotes]        = useState([]);
@@ -106,7 +108,7 @@ export default function DeliveryNoteList() {
 
   return (
     <div className={`dnl-root${mounted?" dnl-mounted":""}`}
-      style={{background:T.bg,minHeight:"calc(100vh - 56px)",color:text,padding:"24px 28px 48px"}}>
+      style={{background:T.bg,minHeight:"calc(100vh - 56px)",color:text,padding:isMobile?"14px 14px 32px":"24px 28px 48px"}}>
       <style>{css}</style>
 
       {/* Header */}
@@ -121,13 +123,13 @@ export default function DeliveryNoteList() {
           <p style={{fontSize:12.5,color:muted,margin:0}}>Track dispatched goods and delivery confirmations</p>
         </div>
         <button className="dnl-btn" onClick={()=>navigate("/Sales/Outbound")}
-          style={{display:"flex",alignItems:"center",gap:7,padding:"8px 16px",background:"linear-gradient(135deg,#10b981,#059669)",border:"none",borderRadius:9,fontSize:13,fontWeight:600,color:"#fff",boxShadow:"0 4px 14px rgba(16,185,129,.3)"}}>
+          style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"8px 16px",width:isMobile?"100%":"auto",background:"linear-gradient(135deg,#10b981,#059669)",border:"none",borderRadius:9,fontSize:13,fontWeight:600,color:"#fff",boxShadow:"0 4px 14px rgba(16,185,129,.3)",whiteSpace:"nowrap"}}>
           <FaPlus size={11}/> Create Delivery Note
         </button>
       </div>
 
       {/* Stat cards */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:12,marginBottom:22}}>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(6,1fr)",gap:12,marginBottom:22}}>
         {STAT_CARDS.map((s,i)=>(
           <div key={s.label} className={`dnl-stat dnl-s${i}`}
             onClick={()=>{setStatusFilter(s.key);setPage(1);}}
@@ -163,6 +165,7 @@ export default function DeliveryNoteList() {
 
       {/* Table */}
       <div className="dnl-tbl" style={{background:surface,border:`1px solid ${border}`,borderRadius:13,overflow:"hidden"}}>
+       <div style={{overflowX:"auto",overflowY:"hidden"}}>
         {loading ? (
           <div style={{padding:"60px 0",textAlign:"center",color:muted}}>
             <div style={{width:28,height:28,border:`3px solid ${T.blueDim}`,borderTopColor:T.blue,borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 12px"}}/>
@@ -175,7 +178,7 @@ export default function DeliveryNoteList() {
             <p style={{fontSize:12,color:muted,margin:"6px 0 0"}}>Create one from the Outbound page</p>
           </div>
         ) : (
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <table style={{width:"100%",minWidth:isMobile?720:"auto",borderCollapse:"collapse",fontSize:13}}>
             <thead>
               <tr style={{background:isDark?"rgba(255,255,255,.03)":"#f8fafc",borderBottom:`1px solid ${border}`}}>
                 {["DN Number","Date","Customer","Sales Order","Items","Status"].map((h,i)=>(
@@ -223,6 +226,7 @@ export default function DeliveryNoteList() {
             </tbody>
           </table>
         )}
+       </div>
       </div>
 
       {/* Pagination */}

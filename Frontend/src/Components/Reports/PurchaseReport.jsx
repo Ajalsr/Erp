@@ -10,6 +10,7 @@ import {
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import { useBaseCurrency, baseCurrency } from "../../helper/currency";
+import useIsMobile from "../../helper/useIsMobile";
 
 const RANGES = [
   { label: "This Week",    value: "week"    },
@@ -51,6 +52,7 @@ export default function PurchaseReport() {
   useBaseCurrency();
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
+  const isMobile = useIsMobile();
 
   const [range,      setRange]      = useState("month");
   const [loading,    setLoading]    = useState(true);
@@ -174,30 +176,30 @@ export default function PurchaseReport() {
   );
 
   return (
-    <div className="rpt-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+    <div className="rpt-root" style={{ background: T.bg, minHeight: "100vh", padding: isMobile ? "14px 14px 24px" : "24px 28px", color: T.textPri, overflowX: "hidden" }}>
       <style>{css}</style>
 
       {/* ── Header ── */}
-      <div className="rpt-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+      <div className="rpt-up" style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "flex-start", gap: isMobile ? 12 : 0, marginBottom: isMobile ? 16 : 24 }}>
         <div>
-          <h1 className="rpt-sora" style={{ fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em" }}>Purchase Report</h1>
+          <h1 className="rpt-sora" style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em" }}>Purchase Report</h1>
           <p style={{ color: T.textSec, fontSize: 13, margin: "4px 0 0" }}>Purchase orders, bills & vendor spend analysis</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={load} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+        <div style={{ display: "flex", gap: 8, width: isMobile ? "100%" : "auto" }}>
+          <button onClick={load} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flex: isMobile ? 1 : "none" }}>
             <FaSync size={11} /> Refresh
           </button>
-          <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+          <button style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flex: isMobile ? 1 : "none" }}>
             <FaDownload size={11} /> Export
           </button>
         </div>
       </div>
 
       {/* ── Range pills ── */}
-      <div className="rpt-up" style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+      <div className="rpt-up" style={{ display: "flex", gap: 6, marginBottom: 20, overflowX: isMobile ? "auto" : "visible", flexWrap: isMobile ? "nowrap" : "wrap" }}>
         {RANGES.map(r => (
           <button key={r.value} onClick={() => setRange(r.value)} className="rpt-pill"
-            style={{ padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+            style={{ padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: "inherit", flexShrink: 0,
               border: range === r.value ? "1px solid rgba(245,158,11,0.4)" : `1px solid ${T.border}`,
               background: range === r.value ? (isDark ? "rgba(245,158,11,0.12)" : "#fffbeb") : "transparent",
               color: range === r.value ? "#f59e0b" : T.textSec }}>
@@ -207,7 +209,7 @@ export default function PurchaseReport() {
       </div>
 
       {/* ── KPI Cards (6) ── */}
-      <div className="rpt-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 12, marginBottom: 20 }}>
+      <div className="rpt-up-1" style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(6,1fr)", gap: isMobile ? 10 : 12, marginBottom: 20 }}>
         {[
           { label: "PO Total Value",  value: fmtK(totalPOValue),       sub: `${filteredPOs.length} POs`,          icon: <FaShoppingCart />,      color: "#8b5cf6", dim: T.purpleDim },
           { label: "Total Billed",    value: fmtK(totalBilled),        sub: `${filteredBills.length} bills`,       icon: <FaFileInvoiceDollar />, color: "#f59e0b", dim: T.amberDim  },
@@ -233,7 +235,7 @@ export default function PurchaseReport() {
       </div>
 
       {/* ── Spend Trend + PO Status Pie ── */}
-      <div className="rpt-up-2" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14, marginBottom: 20 }}>
+      <div className="rpt-up-2" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 14, marginBottom: 20 }}>
         <div style={{ ...card, padding: "20px" }}>
           <p className="rpt-sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: "0 0 16px" }}>Purchase Trend — Last 6 Months</p>
           <ResponsiveContainer width="100%" height={230}>
@@ -303,7 +305,7 @@ export default function PurchaseReport() {
       </div>
 
       {/* ── Top Vendors + Monthly bar ── */}
-      <div className="rpt-up-3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+      <div className="rpt-up-3" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 20 }}>
         {/* Top vendors */}
         <div style={{ ...card, padding: "20px" }}>
           <p className="rpt-sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: "0 0 14px" }}>Top Vendors by PO Value</p>
@@ -354,7 +356,7 @@ export default function PurchaseReport() {
           <span style={{ fontSize: 11, color: T.textSec }}>{filteredPOs.length} records</span>
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: T.surface2 }}>
                 {["PO #", "Vendor", "Status", "Order Date", "Expected Delivery", "Total"].map((h, i) => (
@@ -394,7 +396,7 @@ export default function PurchaseReport() {
           <span style={{ fontSize: 11, color: T.textSec }}>{filteredBills.length} records</span>
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <table style={{ width: "100%", minWidth: isMobile ? 900 : "auto", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: T.surface2 }}>
                 {["Bill #", "PO #", "Vendor", "Status", "Bill Date", "Due Date", "Total", "Balance Due"].map((h, i) => (

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useIsMobile from '../../helper/useIsMobile';
 import useGetItem from '../../helper/useGetItem';
 import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
@@ -416,7 +417,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
     }
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]);
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]);
 
   useEffect(() => {
     const h = e => {
@@ -552,6 +553,7 @@ export default function Newpurchaseorders() {
   const isEdit = !!editId;
   const isDark   = useThemeStore(s => s.isDark);
   const T        = getTheme(isDark);
+  const isMobile = useIsMobile();
 
   /* ── Item state ── */
   const [items, setItems] = useState([{
@@ -794,30 +796,31 @@ export default function Newpurchaseorders() {
 
   /* ─────────────────────────── RENDER ──────────────────────────── */
   return (
-    <div className="npo-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px' }}>
+    <div className="npo-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: isMobile ? '14px 14px 90px' : '20px 20px 90px' }}>
       {/* useMemo: only re-generate the style block when theme changes, not every keystroke */}
       <style>{useMemo(() => buildCSS(isDark), [isDark])}</style>
 
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         {/* ── Top bar ── */}
-        <div style={{ position: 'sticky', top: 0, zIndex: 30, background: isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)', backdropFilter: 'blur(12px)', padding: '12px 0', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button onClick={() => navigate('/Purchase/Purchaseorders')} style={{ width: 36, height: 36, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+        <div style={{ position: isMobile ? 'static' : 'sticky', top: 0, zIndex: 30, background: isMobile ? T.bg : (isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)'), backdropFilter: isMobile ? 'none' : 'blur(12px)', padding: isMobile ? '0' : '12px 0', marginBottom: 20 }}>
+          <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0 }}>
+              <button onClick={() => navigate('/Purchase/Purchaseorders')} style={{ width: 36, height: 36, flexShrink: 0, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
                 <FaChevronLeft size={13} />
               </button>
-              <div style={{ width: 1, height: 24, background: T.border }} />
-              <div>
-                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-.02em' }}>{isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}</h1>
-                <p style={{ fontSize: 11, color: T.textSec, margin: '2px 0 0' }}>Purchase → Purchase Orders</p>
+              {!isMobile && <div style={{ width: 1, height: 24, background: T.border }} />}
+              <div style={{ minWidth: 0 }}>
+                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 15 : 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}</h1>
+                {!isMobile && <p style={{ fontSize: 11, color: T.textSec, margin: '2px 0 0' }}>Purchase → Purchase Orders</p>}
               </div>
+              {isMobile && !isEdit && <span style={{ padding: '4px 10px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 10, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>● DRAFT</span>}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {!isEdit && <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>}
-              <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg">Cancel</button>
-              {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save Draft'}</button>}
-              <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
+              {!isMobile && !isEdit && <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>}
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg" style={isMobile ? { flex: 1 } : undefined}>Cancel</button>
+              {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700, ...(isMobile ? { flex: 1 } : {}) }}>{saving ? 'Saving…' : 'Save Draft'}</button>}
+              <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded} style={isMobile ? { flex: 1, justifyContent: 'center' } : undefined}>
                 {saving
                   ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
                   : <><FaCheckCircle size={12} />{isEdit ? 'Save Changes' : 'Save & Submit'}</>}
@@ -834,7 +837,7 @@ export default function Newpurchaseorders() {
               <div className="npo-sicon" style={{ background: '#3b82f618', color: '#3b82f6' }}><FaFileInvoiceDollar /></div>
               Order Details
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 18 }}>
               <div style={{ gridColumn: '1/-1' }}>
                 <Field label="Vendor" req>
                   <VendorSelect value={selectedVendor} onChange={v => {
@@ -921,8 +924,8 @@ export default function Newpurchaseorders() {
               <button onClick={addNewRow} className="npo-addrow"><FaPlus style={{ fontSize: 11 }} /> Add Item Row</button>
             </div>
 
-            <div style={{ borderRadius: 12, overflow: 'hidden', border: `1.5px solid ${T.border}` }}>
-              <table className="npo-table">
+            <div style={{ borderRadius: 12, overflowX: 'auto', overflowY: 'hidden', border: `1.5px solid ${T.border}` }}>
+              <table className="npo-table" style={{ minWidth: isMobile ? 760 : 'auto' }}>
                 <thead><tr>
                   <th style={{ width: '35%' }}>Item Details</th>
                   <th>Quantity</th>
@@ -1090,7 +1093,7 @@ export default function Newpurchaseorders() {
         </div>
 
         {/* ── Summary + Notes ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16, marginBottom: 16 }}>
 
           {/* Tax Breakdown */}
           <div className="npo-section npo-card" style={{ marginBottom: 0 }}>
@@ -1157,15 +1160,15 @@ export default function Newpurchaseorders() {
         </div>
 
         {/* ── Bottom bar ── */}
-        <div className="npo-bottombar">
+        <div className="npo-bottombar" style={isMobile ? { left: 0, padding: '10px 14px', flexWrap: 'wrap', gap: 8 } : undefined}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>
               {items.filter(i => i.details).length} item{items.filter(i => i.details).length !== 1 ? 's' : ''}&nbsp;·&nbsp;
               <span style={{ fontFamily: "'DM Mono',monospace", color: T.blue }}>{fmtAED(grandTotal)}</span>
             </div>
-            <div style={{ fontSize: 11, color: T.textSec, marginTop: 2 }}>Fields marked with <span style={{ color: '#ef4444' }}>*</span> are required</div>
+            {!isMobile && <div style={{ fontSize: 11, color: T.textSec, marginTop: 2 }}>Fields marked with <span style={{ color: '#ef4444' }}>*</span> are required</div>}
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: isMobile ? 6 : 10, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
             <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg">Cancel</button>
             {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save as Draft'}</button>}
             <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>

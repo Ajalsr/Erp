@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft,
@@ -13,6 +13,7 @@ import { useBaseCurrency, baseCurrency } from "../../helper/currency";
 import useRealtime from "../../helper/useRealtime";
 import { RecordPaymentModal } from "../PaymentsMade/PaymentsMade";
 import useConfirm from "../common/useConfirm";
+import useIsMobile from "../../helper/useIsMobile";
 
 const STATUS_CFG = {
   draft:   { color: "#94a3b8", bg: "rgba(100,116,139,0.1)", label: "Draft"   },
@@ -79,7 +80,7 @@ function useAnchoredPopup(open) {
       setPos({ top: r.bottom + 4, left: r.left, width: r.width });
     }
   };
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     place();
     const onScroll = (e) => { if (!popupRef.current?.contains(e.target)) place(); };
@@ -205,6 +206,7 @@ export default function Bills() {
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
+  const isMobile  = useIsMobile();
   const { confirm, ConfirmModal } = useConfirm();
 
   const [bills,           setBills]           = useState([]);
@@ -511,22 +513,22 @@ export default function Bills() {
   return (
     <>
       <style>{css}</style>
-      <div className="bl-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+      <div className="bl-root" style={{ background: T.bg, minHeight: "100vh", padding: isMobile ? "14px 14px 70px" : "24px 28px", color: T.textPri, overflowX: "hidden" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "flex-start", gap: isMobile ? 12 : 0, marginBottom: isMobile ? 16 : 24 }}>
           <div>
-            <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 20, fontWeight: 700, color: T.textPri, margin: 0 }}>Bills</h1>
+            <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: isMobile ? 17 : 20, fontWeight: 700, color: T.textPri, margin: 0 }}>Bills</h1>
             <p style={{ color: T.textSec, fontSize: 13, marginTop: 4 }}>Track and manage vendor bills</p>
           </div>
           <button className="bl-btn" onClick={() => navigate("/Purchase/Bills/New")}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 18px", background: T.blue, color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 18px", background: T.blue, color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", width: isMobile ? "100%" : "auto" }}>
             <FaPlus size={11} /> New Bill
           </button>
         </div>
 
         {/* Stat cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: isMobile ? 10 : 14, marginBottom: isMobile ? 14 : 20 }}>
           {statCards.map((c, i) => (
             <div key={i} style={{ ...card, padding: "18px 20px", position: "relative", overflow: "hidden" }}>
               <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,transparent 10%,${c.color}55,transparent 90%)` }} />
@@ -560,8 +562,8 @@ export default function Bills() {
         </div>
 
         {/* Table */}
-        <div style={{ ...card, overflow: "hidden", marginBottom: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div style={{ ...card, overflowX: "auto", overflowY: "hidden", marginBottom: 12 }}>
+          <table style={{ width: "100%", minWidth: isMobile ? 820 : "auto", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
                 {["Bill #", "Vendor", "Bill Date", "Due Date", "Grand Total", "Paid", "Balance Due", "Status", ""].map((h, i) => (
@@ -617,7 +619,7 @@ export default function Bills() {
 
         {/* Pagination */}
         {filtered.length > LIMIT && (
-          <div style={{ ...card, padding: "11px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ ...card, padding: "11px 18px", display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 12, color: T.textSec }}>Showing {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, filtered.length)} of {filtered.length}</span>
             <div style={{ display: "flex", gap: 4 }}>
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
@@ -651,7 +653,7 @@ export default function Bills() {
           <>
             <div className="bl-overlay" onClick={closeDrawer}
               style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.7)" : "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)", zIndex: 50 }} />
-            <div className="bl-drawer" style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: 490, maxWidth: "100vw", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
+            <div className="bl-drawer" style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: 490, maxWidth: "100vw", boxSizing: "border-box", background: T.surface, border: `1px solid ${T.border}`, borderRight: "none", zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
 
               {/* Drawer header */}
               <div style={{ padding: "18px 20px 0", borderBottom: `1px solid ${T.border}` }}>
@@ -1014,7 +1016,7 @@ export default function Bills() {
             {reverseModal && (
               <div style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
                 onClick={e => e.target === e.currentTarget && setReverseModal(null)}>
-                <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, maxWidth: "92vw", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+                <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, maxWidth: "92vw", boxSizing: "border-box", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
                   <div style={{ fontFamily: "Sora, sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, marginBottom: 4 }}>↩ Reverse Payment</div>
                   <div style={{ fontSize: 12, color: T.textSec, marginBottom: 18 }}>
                     {reverseModal.paymentNumber} · Amount: {fmtAED(reverseModal.amount)} · {reverseModal.paymentMode}
@@ -1049,7 +1051,7 @@ export default function Bills() {
       {/* Email bill modal */}
       {emailModalOpen && (
         <div onClick={() => !emailing && setEmailModalOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: 22 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", boxSizing: "border-box", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: 22 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
               <div style={{ fontSize: 14, fontWeight: 800 }}>Email {selected?.billNumber}</div>
               <span onClick={() => setEmailModalOpen(false)} style={{ cursor: "pointer", color: T.textSec }}><FaTimes /></span>

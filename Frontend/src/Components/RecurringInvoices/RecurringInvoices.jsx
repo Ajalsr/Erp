@@ -6,6 +6,7 @@ import api from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
 import AppDatePicker from "../common/AppDatePicker";
 import useConfirm from "../common/useConfirm";
+import useIsMobile from "../../helper/useIsMobile";
 
 const FREQUENCIES = ["weekly", "monthly", "quarterly", "yearly"];
 
@@ -45,6 +46,7 @@ const blankForm = () => ({
 export default function RecurringInvoices() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const { confirm, ConfirmModal } = useConfirm();
   const activeOrg = useAuthStore((s) => s.activeOrg);
 
@@ -238,9 +240,9 @@ export default function RecurringInvoices() {
   };
 
   return (
-    <div style={{ padding: 20, fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ padding: isMobile ? 14 : 20, fontFamily: "'DM Sans', sans-serif" }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+      <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", alignItems: "center", justifyContent: "space-between", gap: isMobile ? 10 : 0, marginBottom: 16 }}>
         <div>
           <h1 style={{ fontSize: 18, fontWeight: 700, color: T.textPri, margin: 0 }}>Recurring Invoices</h1>
           <p style={{ fontSize: 12, color: T.textSec, margin: "4px 0 0" }}>
@@ -248,16 +250,18 @@ export default function RecurringInvoices() {
           </p>
         </div>
         <button onClick={openCreate} style={{
-          display: "flex", alignItems: "center", gap: 6, height: 36, padding: "0 14px",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 36, padding: "0 14px",
+          width: isMobile ? "100%" : "auto",
           background: T.blue, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer",
-          fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+          fontSize: 13, fontWeight: 600, fontFamily: "inherit", whiteSpace: "nowrap",
         }}>
           <FiPlus size={15} /> New Recurring
         </button>
       </div>
 
       {/* List */}
-      <div style={{ ...card, overflow: "hidden" }}>
+      <div style={{ ...card, overflowX: "auto", overflowY: "hidden" }}>
+       <div style={{ minWidth: isMobile ? 840 : "auto" }}>
         <div style={{
           display: "grid", gridTemplateColumns: "1.6fr 1.4fr 1fr 1fr 0.9fr 0.8fr 1.4fr",
           padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
@@ -314,13 +318,14 @@ export default function RecurringInvoices() {
             );
           })
         )}
+       </div>
       </div>
 
       {/* Form modal */}
       {showForm && (
         <div onMouseDown={() => setShowForm(false)} style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100,
-          display: "flex", justifyContent: "center", alignItems: "flex-start", padding: "40px 20px", overflowY: "auto",
+          display: "flex", justifyContent: "center", alignItems: "flex-start", padding: isMobile ? "16px 10px" : "40px 20px", overflowY: "auto",
         }}>
           <div onMouseDown={(e) => e.stopPropagation()} style={{ ...card, width: "100%", maxWidth: 720 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
@@ -336,7 +341,7 @@ export default function RecurringInvoices() {
                 <input style={input} value={form.profileName} onChange={(e) => setField("profileName", e.target.value)} placeholder="e.g. Acme — monthly retainer" />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <div>
                   <label style={label}>Customer</label>
                   <select style={input} value={form.customerId} onChange={(e) => onPickCustomer(e.target.value)}>
@@ -352,7 +357,7 @@ export default function RecurringInvoices() {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 12 }}>
                 <div>
                   <label style={label}>Frequency</label>
                   <select style={input} value={form.frequency} onChange={(e) => setField("frequency", e.target.value)}>
@@ -373,7 +378,7 @@ export default function RecurringInvoices() {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 12 }}>
                 <div>
                   <label style={label}>Max Invoices (0 = ∞)</label>
                   <input style={input} type="number" min={0} value={form.maxCount} onChange={(e) => setField("maxCount", e.target.value)} />
@@ -399,8 +404,8 @@ export default function RecurringInvoices() {
                 <label style={label}>Line Items</label>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {form.lineItems.map((li, i) => (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: "2.5fr 0.8fr 1fr 0.8fr 0.4fr", gap: 8, alignItems: "center" }}>
-                      <input style={input} placeholder="Description" value={li.desc} onChange={(e) => setLine(i, "desc", e.target.value)} />
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "2.5fr 0.8fr 1fr 0.8fr 0.4fr", gap: 8, alignItems: "center", ...(isMobile ? { border: `1px solid ${T.border}`, borderRadius: 8, padding: 8 } : {}) }}>
+                      <input style={{ ...input, gridColumn: isMobile ? "1 / -1" : "auto" }} placeholder="Description" value={li.desc} onChange={(e) => setLine(i, "desc", e.target.value)} />
                       <input style={input} type="number" placeholder="Qty" value={li.qty} onChange={(e) => setLine(i, "qty", e.target.value)} />
                       <input style={input} type="number" placeholder="Unit price" value={li.unitPrice} onChange={(e) => setLine(i, "unitPrice", e.target.value)} />
                       <input style={input} type="number" placeholder="VAT %" value={li.taxRate} onChange={(e) => setLine(i, "taxRate", e.target.value)} />

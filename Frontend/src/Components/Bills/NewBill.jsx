@@ -6,6 +6,7 @@ import axiosInstance from '../../helper/axiosInstance';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import nexusToast from '../../helper/nexusToast';
 import AppDatePicker from '../common/AppDatePicker';
+import useIsMobile from '../../helper/useIsMobile';
 
 // Normalise vendor origin variants → canonical form for RCM logic
 const normOrigin = (o) => {
@@ -90,6 +91,7 @@ export default function NewBill() {
   const isEdit   = !!id;
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const [saving, setSaving] = useState(false);
 
   const pre = location.state || {};
@@ -333,30 +335,30 @@ export default function NewBill() {
 
   const inp = { width: '100%', padding: '9px 12px', border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: T.textPri, fontFamily: 'inherit', outline: 'none' };
   const lbl = { display: 'block', fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 };
-  const sec = { background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: '20px 22px', marginBottom: 16, boxShadow: isDark ? '0 2px 10px rgba(0,0,0,.25)' : '0 1px 4px rgba(0,0,0,.05)' };
+  const sec = { background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: isMobile ? '16px' : '20px 22px', marginBottom: 16, boxShadow: isDark ? '0 2px 10px rgba(0,0,0,.25)' : '0 1px 4px rgba(0,0,0,.05)' };
 
   const guard = useUnsavedGuard({ hasDraft: false });
 
   return (
-    <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px', color: T.textPri, fontFamily: "'DM Sans', sans-serif" }}>
+    <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: isMobile ? '14px 14px 70px' : '20px 20px 90px', color: T.textPri, fontFamily: "'DM Sans', sans-serif", overflowX: 'hidden' }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');`}</style>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
 
         {/* Top bar */}
-        <div style={{ position: 'sticky', top: 0, zIndex: 30, background: isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)', backdropFilter: 'blur(12px)', padding: '12px 0', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button onClick={() => guard.leave(() => navigate('/Purchase/Bills'))} style={{ width: 36, height: 36, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+        <div style={{ position: isMobile ? 'static' : 'sticky', top: 0, zIndex: 30, background: isMobile ? T.bg : (isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)'), backdropFilter: isMobile ? 'none' : 'blur(12px)', padding: isMobile ? '0' : '12px 0', marginBottom: 20 }}>
+          <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0 }}>
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Bills'))} style={{ width: 36, height: 36, flexShrink: 0, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
                 <FaChevronLeft size={13} />
               </button>
-              <div>
-                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 17, fontWeight: 800, color: T.textPri, margin: 0 }}>{isEdit ? 'Edit Vendor Bill' : 'New Vendor Bill'}</h1>
-                {pre.fromGRN && <p style={{ fontSize: 11, color: T.blue, margin: '2px 0 0' }}>Created from GRN: {pre.grnNumber}</p>}
+              <div style={{ minWidth: 0 }}>
+                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 15 : 17, fontWeight: 800, color: T.textPri, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isEdit ? 'Edit Vendor Bill' : 'New Vendor Bill'}</h1>
+                {pre.fromGRN && !isMobile && <p style={{ fontSize: 11, color: T.blue, margin: '2px 0 0' }}>Created from GRN: {pre.grnNumber}</p>}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => guard.leave(() => navigate('/Purchase/Bills'))} style={{ padding: '9px 18px', border: `1.5px solid ${T.border}`, borderRadius: 9, background: 'transparent', color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleSubmit} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 20px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+            <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Bills'))} style={{ padding: '9px 18px', border: `1.5px solid ${T.border}`, borderRadius: 9, background: 'transparent', color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer', flex: isMobile ? 1 : 'none' }}>Cancel</button>
+              <button onClick={handleSubmit} disabled={saving} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 20px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, flex: isMobile ? 1 : 'none' }}>
                 {saving ? <><FaSpinner size={12} style={{ animation: 'spin .7s linear infinite' }} /> Saving…</> : <><FaCheckCircle size={12} /> {isEdit ? 'Update Bill' : 'Save Bill'}</>}
               </button>
             </div>
@@ -385,7 +387,7 @@ export default function NewBill() {
         {/* Vendor + header */}
         <div style={sec}>
           <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 700, color: T.textPri, margin: '0 0 16px' }}>Bill Details</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 12 : 16, marginBottom: 16 }}>
             <div style={{ position: 'relative' }}>
               <label style={lbl}>Vendor <span style={{ color: '#ef4444' }}>*</span></label>
               <input value={vendorSearch} onChange={(e) => { setVendorSearch(e.target.value); setVendorId(''); setVendorName(''); }}
@@ -473,7 +475,7 @@ export default function NewBill() {
           </div>
 
           {/* RCM */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, padding: '12px 0', borderTop: `1px solid ${T.border}` }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginTop: 8, padding: '12px 0', borderTop: `1px solid ${T.border}` }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: T.textPri }}>
               <input type="checkbox" checked={rcmApplicable} onChange={(e) => { setRcmApplicable(e.target.checked); if (!e.target.checked) setRcmType(''); }}
                 style={{ width: 16, height: 16, cursor: 'pointer' }} />
@@ -577,7 +579,7 @@ export default function NewBill() {
         </div>
 
         {/* Totals */}
-        <div style={{ ...sec, maxWidth: 380, marginLeft: 'auto' }}>
+        <div style={{ ...sec, maxWidth: isMobile ? '100%' : 380, marginLeft: isMobile ? 0 : 'auto' }}>
           {discountTotal > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
               <span style={{ fontSize: 13, color: T.textSec }}>Gross Total</span>
@@ -644,13 +646,15 @@ export default function NewBill() {
         {!grnId && !fromGRN && (
           <div style={sec}>
             <label style={lbl}>Expense Account</label>
-            <select value={expenseAccount} onChange={(e) => setExpenseAccount(e.target.value)}
-              style={{ ...inp, cursor: 'pointer' }}>
-              <option value="">Cost of Goods Sold (default)</option>
-              {expAccounts.map(a => (
-                <option key={a._id} value={a._id}>[{a.accountCode}] {a.accountName}</option>
-              ))}
-            </select>
+            <CustomSelect
+              value={expenseAccount}
+              onChange={setExpenseAccount}
+              options={[
+                { value: '', label: 'Cost of Goods Sold (default)' },
+                ...expAccounts.map(a => ({ value: a._id, label: `[${a.accountCode}] ${a.accountName}` })),
+              ]}
+              T={T} isDark={isDark}
+            />
             <p style={{ fontSize: 11, color: T.textSec, margin: '6px 0 0' }}>
               Which account this bill is booked to (rent, utilities, services…).
             </p>

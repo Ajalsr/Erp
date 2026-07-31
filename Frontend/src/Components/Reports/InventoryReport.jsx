@@ -7,6 +7,7 @@ import { FaBoxOpen, FaWarehouse, FaExclamationTriangle, FaSync, FaDownload, FaSe
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import { useBaseCurrency, baseCurrency } from "../../helper/currency";
+import useIsMobile from "../../helper/useIsMobile";
 
 const fmtM = (n) => `${baseCurrency()} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtK = (n) => { if (n >= 1000000) return `${baseCurrency()} ${(n / 1000000).toFixed(1)}M`; if (n >= 1000) return `${baseCurrency()} ${(n / 1000).toFixed(1)}K`; return `${baseCurrency()} ${Math.round(n)}`; };
@@ -29,6 +30,7 @@ export default function InventoryReport() {
   useBaseCurrency();
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
+  const isMobile = useIsMobile();
 
   const [loading, setLoading] = useState(true);
   const [items,   setItems]   = useState([]);
@@ -105,27 +107,27 @@ export default function InventoryReport() {
   );
 
   return (
-    <div className="rpt-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+    <div className="rpt-root" style={{ background: T.bg, minHeight: "100vh", padding: isMobile ? "14px 14px 24px" : "24px 28px", color: T.textPri, overflowX: "hidden" }}>
       <style>{css}</style>
 
       {/* Header */}
-      <div className="rpt-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+      <div className="rpt-up" style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "flex-start", gap: isMobile ? 12 : 0, marginBottom: isMobile ? 16 : 24 }}>
         <div>
-          <h1 className="rpt-sora" style={{ fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em" }}>Inventory Report</h1>
+          <h1 className="rpt-sora" style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em" }}>Inventory Report</h1>
           <p style={{ color: T.textSec, fontSize: 13, margin: "4px 0 0" }}>Stock levels, valuation & category breakdown</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={load} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+        <div style={{ display: "flex", gap: 8, width: isMobile ? "100%" : "auto" }}>
+          <button onClick={load} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flex: isMobile ? 1 : "none" }}>
             <FaSync size={11} /> Refresh
           </button>
-          <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+          <button style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flex: isMobile ? 1 : "none" }}>
             <FaDownload size={11} /> Export
           </button>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="rpt-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
+      <div className="rpt-up-1" style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: isMobile ? 10 : 14, marginBottom: 20 }}>
         {[
           { label: "Total Items",    value: totalItems,          sub: `${inStock} in stock`,     icon: <FaBoxOpen />,             color: "#3b82f6", dim: T.blueDim   },
           { label: "Stock Value",    value: fmtK(totalStockVal), sub: "total valuation",         icon: <FaWarehouse />,           color: "#10b981", dim: T.greenDim  },
@@ -149,7 +151,7 @@ export default function InventoryReport() {
       </div>
 
       {/* Charts row */}
-      <div className="rpt-up-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
+      <div className="rpt-up-2" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
         {/* Stock level distribution */}
         <div style={{ ...card, padding: "20px" }}>
           <p className="rpt-sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: "0 0 16px" }}>Stock Level Distribution</p>
@@ -208,17 +210,17 @@ export default function InventoryReport() {
 
       {/* Full inventory table */}
       <div className="rpt-up-3" style={{ ...card, overflow: "hidden" }}>
-        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           <p className="rpt-sora" style={{ fontSize: 13, fontWeight: 700, color: T.textPri, margin: 0 }}>All Inventory Items</p>
-          <div style={{ position: "relative" }}>
+          <div style={{ position: "relative", width: isMobile ? "100%" : "auto" }}>
             <FaSearch style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted, fontSize: 11, pointerEvents: "none" }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items…"
-              style={{ padding: "7px 30px", border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, background: T.surface2, color: T.textPri, outline: "none", fontFamily: "inherit", width: 220 }} />
+              style={{ padding: "7px 30px", border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, background: T.surface2, color: T.textPri, outline: "none", fontFamily: "inherit", width: isMobile ? "100%" : 220, boxSizing: "border-box" }} />
             {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textMuted, padding: 0 }}><FaTimes size={10} /></button>}
           </div>
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <table style={{ width: "100%", minWidth: isMobile ? 900 : "auto", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: T.surface2 }}>
                 {["Item Name", "SKU / Code", "Category", "Stock on Hand", "Reorder Point", "Unit Price", "Stock Value", "Status"].map((h, i) => (

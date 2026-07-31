@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -30,7 +30,7 @@ function CustomSelect({ value, onChange, options, T, isDark, disabled }) {
     setCoords({ top: r.bottom + 4, left: r.left, width: r.width });
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     place();
     const close = (e) => {

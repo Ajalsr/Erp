@@ -4,6 +4,8 @@ import { IoClose } from 'react-icons/io5';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { drawerWidth } from '../../helper/responsive';
+import useIsMobile from '../../helper/useIsMobile';
 
 const STATUS = {
   in_stock:  { label: 'In Stock',   color: '#10b981', bg: 'rgba(16,185,129,0.15)',  bgL: '#f0fdf4'  },
@@ -20,6 +22,7 @@ function stockStatus(qty, reorder) {
 export default function StockSummary() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
+  const isMobile = useIsMobile();
 
   const [items, setItems]   = useState([]);
   const [loading, setLoading] = useState(true);
@@ -107,7 +110,7 @@ export default function StockSummary() {
   const s = (key) => isDark ? STATUS[key].bg : STATUS[key].bgL;
 
   return (
-    <div style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px', fontFamily: "'DM Sans',sans-serif" }}>
+    <div style={{ background: T.bg, minHeight: '100vh', padding: isMobile ? '16px 14px' : '28px 32px', fontFamily: "'DM Sans',sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; }
@@ -116,7 +119,7 @@ export default function StockSummary() {
 
       <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Stock Summary</h1>
+          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 19 : 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Stock Summary</h1>
           <p style={{ fontSize: 13, color: T.textSec, margin: '4px 0 0' }}>Real-time overview of all inventory levels</p>
         </div>
         <button onClick={handleBackfill} disabled={backfilling}
@@ -127,7 +130,7 @@ export default function StockSummary() {
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Total Items',    val: enriched.length,                                          color: '#3b82f6',            mono: true  },
           { label: 'In Stock',       val: inStock,                                                   color: STATUS.in_stock.color, mono: true  },
@@ -143,7 +146,7 @@ export default function StockSummary() {
       </div>
 
       {/* Stock value */}
-      <div style={{ padding: '16px 20px', background: isDark ? 'rgba(59,130,246,0.1)' : '#eff6ff', border: `1.5px solid ${isDark ? 'rgba(59,130,246,0.3)' : '#bfdbfe'}`, borderRadius: 12, marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ padding: isMobile ? '14px 16px' : '16px 20px', background: isDark ? 'rgba(59,130,246,0.1)' : '#eff6ff', border: `1.5px solid ${isDark ? 'rgba(59,130,246,0.3)' : '#bfdbfe'}`, borderRadius: 12, marginBottom: 20, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>Total Stock Value</p>
         <p style={{ fontFamily: "'DM Mono',monospace", fontSize: 20, fontWeight: 800, color: '#3b82f6', margin: 0 }}>
           AED {totalValue.toLocaleString('en-AE', { minimumFractionDigits: 2 })}
@@ -151,56 +154,60 @@ export default function StockSummary() {
       </div>
 
       {/* Search + filter */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10, marginBottom: 14 }}>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 40, border: `1.5px solid ${T.border}`, borderRadius: 10, background: T.surface }}>
           <FaSearch size={12} color={T.textSec} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or code…"
-            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: T.textPri, fontFamily: 'inherit' }} />
-          {search && <IoClose size={14} color={T.textSec} style={{ cursor: 'pointer' }} onClick={() => setSearch('')} />}
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: T.textPri, fontFamily: 'inherit', minWidth: 0 }} />
+          {search && <IoClose size={14} color={T.textSec} style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => setSearch('')} />}
         </div>
-        {['all','in_stock','low_stock','out'].map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            style={{ padding: '0 16px', height: 40, borderRadius: 10, border: `1.5px solid ${filter === f ? (f === 'all' ? '#3b82f6' : STATUS[f]?.color || '#3b82f6') : T.border}`, background: filter === f ? (f === 'all' ? (isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff') : s(f === 'all' ? 'in_stock' : f)) : T.surface2, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: filter === f ? (f === 'all' ? '#3b82f6' : STATUS[f]?.color) : T.textSec, fontFamily: 'inherit', transition: 'all .15s', whiteSpace: 'nowrap' }}>
-            {f === 'all' ? 'All' : STATUS[f]?.label}
-          </button>
-        ))}
+        <div style={{ display: 'flex', gap: 8, overflowX: isMobile ? 'auto' : 'visible' }}>
+          {['all','in_stock','low_stock','out'].map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              style={{ padding: '0 16px', height: 40, flexShrink: 0, borderRadius: 10, border: `1.5px solid ${filter === f ? (f === 'all' ? '#3b82f6' : STATUS[f]?.color || '#3b82f6') : T.border}`, background: filter === f ? (f === 'all' ? (isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff') : s(f === 'all' ? 'in_stock' : f)) : T.surface2, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: filter === f ? (f === 'all' ? '#3b82f6' : STATUS[f]?.color) : T.textSec, fontFamily: 'inherit', transition: 'all .15s', whiteSpace: 'nowrap' }}>
+              {f === 'all' ? 'All' : STATUS[f]?.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Table */}
-      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px 100px 100px 120px', padding: '9px 18px', borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
-          {['Code','Name','Unit','Qty','Reorder','Status'].map(h => (
-            <span key={h} style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec }}>{h}</span>
-          ))}
-        </div>
-        {loading ? (
-          <div style={{ padding: 48, textAlign: 'center', fontSize: 13, color: T.textSec }}>Loading stock data…</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center' }}>
-            <FaBoxOpen size={28} color={T.border} style={{ display: 'block', margin: '0 auto 10px' }} />
-            <p style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: '0 0 4px' }}>No items found</p>
-            <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Try adjusting your search or filter.</p>
+      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, overflowX: 'auto', overflowY: 'hidden' }}>
+        <div style={{ minWidth: isMobile ? 740 : 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px 100px 100px 120px', padding: '9px 18px', borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
+            {['Code','Name','Unit','Qty','Reorder','Status'].map(h => (
+              <span key={h} style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec }}>{h}</span>
+            ))}
           </div>
-        ) : filtered.map((item, i) => {
-          const st = STATUS[item.status];
-          return (
-            <div key={item._id} className="ss-row" onClick={() => setDrawer(item)}
-              style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px 100px 100px 120px', padding: '12px 18px', borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : 'none', alignItems: 'center', background: T.surface, cursor: 'pointer' }}>
-              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, fontWeight: 600, color: T.textPri }}>{item.item_code || '—'}</span>
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{item.name}</p>
-                {item.category && <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', textTransform: 'capitalize' }}>{item.category}</p>}
-              </div>
-              <span style={{ fontSize: 12, color: T.textSec }}>{item.unit || '—'}</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: st.color }}>{item.qty}</span>
-              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: T.textSec }}>{item.reorder || '—'}</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: isDark ? st.bg : st.bgL, color: st.color, width: 'fit-content' }}>
-                {item.status === 'low_stock' && <FaExclamationTriangle size={9} />}
-                {st.label}
-              </span>
+          {loading ? (
+            <div style={{ padding: 48, textAlign: 'center', fontSize: 13, color: T.textSec }}>Loading stock data…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 48, textAlign: 'center' }}>
+              <FaBoxOpen size={28} color={T.border} style={{ display: 'block', margin: '0 auto 10px' }} />
+              <p style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: '0 0 4px' }}>No items found</p>
+              <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Try adjusting your search or filter.</p>
             </div>
-          );
-        })}
+          ) : filtered.map((item, i) => {
+            const st = STATUS[item.status];
+            return (
+              <div key={item._id} className="ss-row" onClick={() => setDrawer(item)}
+                style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px 100px 100px 120px', padding: '12px 18px', borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : 'none', alignItems: 'center', background: T.surface, cursor: 'pointer' }}>
+                <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, fontWeight: 600, color: T.textPri }}>{item.item_code || '—'}</span>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{item.name}</p>
+                  {item.category && <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', textTransform: 'capitalize' }}>{item.category}</p>}
+                </div>
+                <span style={{ fontSize: 12, color: T.textSec }}>{item.unit || '—'}</span>
+                <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: st.color }}>{item.qty}</span>
+                <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: T.textSec }}>{item.reorder || '—'}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: isDark ? st.bg : st.bgL, color: st.color, width: 'fit-content' }}>
+                  {item.status === 'low_stock' && <FaExclamationTriangle size={9} />}
+                  {st.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Drawer */}
@@ -208,7 +215,7 @@ export default function StockSummary() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', justifyContent: 'flex-end' }} onClick={() => setDrawer(null)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
           <div onClick={e => e.stopPropagation()}
-            style={{ position: 'relative', width: 400, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, display: 'flex', flexDirection: 'column', zIndex: 1 }}>
+            style={{ position: 'relative', width: drawerWidth(400), height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, display: 'flex', flexDirection: 'column', zIndex: 1 }}>
 
             {/* Header */}
             <div style={{ padding: '18px 22px 0', borderBottom: `1px solid ${T.border}` }}>

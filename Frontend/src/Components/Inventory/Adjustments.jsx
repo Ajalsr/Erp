@@ -5,12 +5,15 @@ import AppDatePicker from '../common/AppDatePicker';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { drawerWidth } from '../../helper/responsive';
+import useIsMobile from '../../helper/useIsMobile';
 
 const REASONS = ['damaged','expired','found','correction','return','transfer','other'];
 
 export default function Adjustments() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
+  const isMobile = useIsMobile();
 
   const [adjustments, setAdjustments] = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -38,26 +41,26 @@ export default function Adjustments() {
   const decreases = adjustments.filter(a => a.type === 'decrease').length;
 
   return (
-    <div style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px', fontFamily: "'DM Sans',sans-serif" }}>
+    <div style={{ background: T.bg, minHeight: '100vh', padding: isMobile ? '16px 14px' : '28px 32px', fontFamily: "'DM Sans',sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; }
         .adj-row:hover { background: ${isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc'} !important; }
       `}</style>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Stock Adjustments</h1>
+      <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 0, marginBottom: 24 }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 19 : 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Stock Adjustments</h1>
           <p style={{ fontSize: 13, color: T.textSec, margin: '4px 0 0' }}>Manually adjust stock quantities with a reason</p>
         </div>
         <button onClick={() => setShowForm(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(59,130,246,.3)' }}>
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 20px', width: isMobile ? '100%' : 'auto', whiteSpace: 'nowrap', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(59,130,246,.3)' }}>
           <FaPlus size={11} /> New Adjustment
         </button>
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Total Adjustments', val: total,     color: '#3b82f6' },
           { label: 'Stock Added',       val: increases,  color: '#10b981' },
@@ -71,49 +74,51 @@ export default function Adjustments() {
       </div>
 
       {/* Filter */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
         {[['all','All'],['increase','Increases'],['decrease','Decreases']].map(([val, lbl]) => (
           <button key={val} onClick={() => setTypeFilter(val)}
-            style={{ padding: '7px 16px', borderRadius: 10, border: `1.5px solid ${typeFilter === val ? (val === 'increase' ? '#10b981' : val === 'decrease' ? '#ef4444' : '#3b82f6') : T.border}`, background: typeFilter === val ? (val === 'increase' ? (isDark ? 'rgba(16,185,129,0.15)' : '#f0fdf4') : val === 'decrease' ? (isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2') : (isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff')) : T.surface2, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: typeFilter === val ? (val === 'increase' ? '#10b981' : val === 'decrease' ? '#ef4444' : '#3b82f6') : T.textSec, fontFamily: 'inherit', transition: 'all .15s' }}>
+            style={{ padding: '7px 16px', borderRadius: 10, border: `1.5px solid ${typeFilter === val ? (val === 'increase' ? '#10b981' : val === 'decrease' ? '#ef4444' : '#3b82f6') : T.border}`, background: typeFilter === val ? (val === 'increase' ? (isDark ? 'rgba(16,185,129,0.15)' : '#f0fdf4') : val === 'decrease' ? (isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2') : (isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff')) : T.surface2, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: typeFilter === val ? (val === 'increase' ? '#10b981' : val === 'decrease' ? '#ef4444' : '#3b82f6') : T.textSec, fontFamily: 'inherit', transition: 'all .15s', whiteSpace: 'nowrap' }}>
             {lbl}
           </button>
         ))}
       </div>
 
       {/* Table */}
-      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr 100px 80px 80px 80px 120px 100px', padding: '9px 18px', borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
-          {['Type','Item','Reason','Qty','Before','After','Date','Ref'].map(h => (
-            <span key={h} style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec }}>{h}</span>
+      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, overflowX: 'auto', overflowY: 'hidden' }}>
+        <div style={{ minWidth: isMobile ? 840 : 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr 100px 80px 80px 80px 120px 100px', padding: '9px 18px', borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
+            {['Type','Item','Reason','Qty','Before','After','Date','Ref'].map(h => (
+              <span key={h} style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec }}>{h}</span>
+            ))}
+          </div>
+          {loading ? (
+            <div style={{ padding: 48, textAlign: 'center', fontSize: 13, color: T.textSec }}>Loading…</div>
+          ) : adjustments.length === 0 ? (
+            <div style={{ padding: 48, textAlign: 'center' }}>
+              <p style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: '0 0 4px' }}>No adjustments yet</p>
+              <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Create an adjustment to manually update stock quantities.</p>
+            </div>
+          ) : adjustments.map((adj, i) => (
+            <div key={adj._id} className="adj-row"
+              style={{ display: 'grid', gridTemplateColumns: '50px 1fr 100px 80px 80px 80px 120px 100px', padding: '11px 18px', borderBottom: i < adjustments.length - 1 ? `1px solid ${T.border}` : 'none', alignItems: 'center', background: T.surface }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: adj.type === 'increase' ? (isDark ? 'rgba(16,185,129,0.15)' : '#f0fdf4') : (isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2'), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {adj.type === 'increase' ? <FaArrowUp size={10} color="#10b981" /> : <FaArrowDown size={10} color="#ef4444" />}
+              </div>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{adj.itemName || adj.itemId}</p>
+                {adj.itemCode && <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', fontFamily: "'DM Mono',monospace" }}>{adj.itemCode}</p>}
+              </div>
+              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: T.surface2, color: T.textSec, fontWeight: 600, textTransform: 'capitalize', width: 'fit-content' }}>{adj.reason}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: adj.type === 'increase' ? '#10b981' : '#ef4444' }}>
+                {adj.type === 'increase' ? '+' : '-'}{adj.quantity}
+              </span>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: T.textSec }}>{adj.previousQty}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 600, color: T.textPri }}>{adj.newQty}</span>
+              <span style={{ fontSize: 11, color: T.textSec }}>{adj.adjustedAt ? new Date(adj.adjustedAt).toLocaleDateString() : '—'}</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: T.textSec }}>{adj.reference || '—'}</span>
+            </div>
           ))}
         </div>
-        {loading ? (
-          <div style={{ padding: 48, textAlign: 'center', fontSize: 13, color: T.textSec }}>Loading…</div>
-        ) : adjustments.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center' }}>
-            <p style={{ fontSize: 14, fontWeight: 700, color: T.textPri, margin: '0 0 4px' }}>No adjustments yet</p>
-            <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Create an adjustment to manually update stock quantities.</p>
-          </div>
-        ) : adjustments.map((adj, i) => (
-          <div key={adj._id} className="adj-row"
-            style={{ display: 'grid', gridTemplateColumns: '50px 1fr 100px 80px 80px 80px 120px 100px', padding: '11px 18px', borderBottom: i < adjustments.length - 1 ? `1px solid ${T.border}` : 'none', alignItems: 'center', background: T.surface }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: adj.type === 'increase' ? (isDark ? 'rgba(16,185,129,0.15)' : '#f0fdf4') : (isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2'), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {adj.type === 'increase' ? <FaArrowUp size={10} color="#10b981" /> : <FaArrowDown size={10} color="#ef4444" />}
-            </div>
-            <div>
-              <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{adj.itemName || adj.itemId}</p>
-              {adj.itemCode && <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', fontFamily: "'DM Mono',monospace" }}>{adj.itemCode}</p>}
-            </div>
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: T.surface2, color: T.textSec, fontWeight: 600, textTransform: 'capitalize', width: 'fit-content' }}>{adj.reason}</span>
-            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: adj.type === 'increase' ? '#10b981' : '#ef4444' }}>
-              {adj.type === 'increase' ? '+' : '-'}{adj.quantity}
-            </span>
-            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: T.textSec }}>{adj.previousQty}</span>
-            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 600, color: T.textPri }}>{adj.newQty}</span>
-            <span style={{ fontSize: 11, color: T.textSec }}>{adj.adjustedAt ? new Date(adj.adjustedAt).toLocaleDateString() : '—'}</span>
-            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: T.textSec }}>{adj.reference || '—'}</span>
-          </div>
-        ))}
       </div>
 
       {showForm && (
@@ -176,7 +181,7 @@ function AdjustmentForm({ T, isDark, onClose, onSaved }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
-      <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: 420, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
+      <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: drawerWidth(420), height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri, margin: 0 }}>New Adjustment</h2>
           <button onClick={onClose} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}><IoClose size={14} /></button>

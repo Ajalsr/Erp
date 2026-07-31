@@ -7,6 +7,8 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
 import axiosInstance from '../../helper/axiosInstance';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
+import { drawerWidth, BREAKPOINT_TABLET } from '../../helper/responsive';
+import useIsMobile from '../../helper/useIsMobile';
 
 /* ─── Colour palette derived from item name ─────────────────────────── */
 const PALETTE = [
@@ -314,7 +316,7 @@ function DiscardModal({ onConfirm, onCancel, T }) {
       background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(8px)',
     }}>
       <div style={{
-        background: T.surface, borderRadius: 20, padding: '32px 36px', width: 360,
+        background: T.surface, borderRadius: 20, padding: '32px 36px', width: drawerWidth(360),
         textAlign: 'center', boxShadow: '0 40px 100px rgba(0,0,0,.35)',
         border: `1.5px solid ${T.border}`,
         animation: 'nwModalIn .2s cubic-bezier(.34,1.56,.64,1) both',
@@ -362,6 +364,7 @@ const New = () => {
   // ── Theme ──
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
+  const isMobile = useIsMobile();
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
@@ -624,69 +627,74 @@ const New = () => {
         background: isDark ? 'rgba(13,21,38,.92)' : 'rgba(255,255,255,.92)',
         backdropFilter: 'blur(14px)',
         borderBottom: `1.5px solid ${T.border}`, height: 60,
-        display: 'flex', alignItems: 'center', padding: '0 28px',
+        display: 'flex', alignItems: 'center', padding: isMobile ? '0 12px' : '0 28px',
         justifyContent: 'space-between', boxShadow: isDark ? '0 1px 0 rgba(0,0,0,.3)' : '0 1px 0 rgba(0,0,0,.05)',
+        gap: 8,
       }}>
         {/* Left — close + title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0, flex: isMobile ? 1 : 'initial' }}>
           <button onClick={() => setShowDiscard(true)} className="nw2-close-btn" style={{
-            width: 34, height: 34, borderRadius: 10, border: `1.5px solid ${T.border}`,
+            width: 34, height: 34, flexShrink: 0, borderRadius: 10, border: `1.5px solid ${T.border}`,
             background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center',
             justifyContent: 'center', color: T.textSec, transition: 'all .15s',
           }}>
             <IoMdClose size={16} />
           </button>
-          <div style={{ width: 1, height: 22, background: T.border }} />
-          <div>
-            <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+          {!isMobile && <div style={{ width: 1, height: 22, background: T.border }} />}
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 13 : 15, fontWeight: 700, color: T.textPri, margin: 0, lineHeight: 1.1, letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {formData.name || <span style={{ color: T.textSec, fontStyle: 'italic' }}>{isEdit ? 'Edit Item' : 'New Item'}</span>}
             </p>
-            <p style={{ fontSize: 10, color: T.textSec, margin: '3px 0 0', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              {formData.item_code
-                ? <span style={{ fontFamily: "'DM Mono',monospace" }}>{formData.item_code}</span>
-                : 'Item Details Form'}
-            </p>
+            {!isMobile && (
+              <p style={{ fontSize: 10, color: T.textSec, margin: '3px 0 0', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                {formData.item_code
+                  ? <span style={{ fontFamily: "'DM Mono',monospace" }}>{formData.item_code}</span>
+                  : 'Item Details Form'}
+              </p>
+            )}
           </div>
         </div>
 
         {/* Centre — scroll spy dots */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {NAV_SECTIONS.map(s => (
-            <div key={s.id} title={s.label}
-              className={`nw2-navdot${activeSection === s.id ? ' active' : ''}`}
-              style={{ background: activeSection === s.id ? '#3b82f6' : T.border }}
-              onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-            />
-          ))}
-        </div>
+        {!isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {NAV_SECTIONS.map(s => (
+              <div key={s.id} title={s.label}
+                className={`nw2-navdot${activeSection === s.id ? ' active' : ''}`}
+                style={{ background: activeSection === s.id ? '#3b82f6' : T.border }}
+                onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Right — actions */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexShrink: 0 }}>
           <button onClick={() => setShowDiscard(true)} className="nw2-cancel-btn" style={{
-            padding: '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`,
+            padding: isMobile ? '8px 12px' : '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`,
             background: T.surface2, color: T.textSec, fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s',
+            cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s', whiteSpace: 'nowrap',
           }}>Cancel</button>
           <button className="nw2-save-btn" onClick={handleSubmit} disabled={saving} style={{
-            padding: '8px 22px', borderRadius: 10, border: 'none',
+            padding: isMobile ? '8px 12px' : '8px 22px', borderRadius: 10, border: 'none',
             background: saving ? '#94a3b8' : '#3b82f6', color: '#fff',
             fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
-            fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 7,
+            fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
             boxShadow: saving ? 'none' : '0 4px 16px rgba(59,130,246,.3)',
           }}>
             {saving
-              ? <><div style={{ width:13,height:13,border:'2px solid rgba(255,255,255,.35)',borderTopColor:'#fff',borderRadius:'50%',animation:'nwSpin .7s linear infinite' }} /> Saving…</>
-              : <><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg> {isEdit ? 'Update Item' : 'Save Item'}</>
+              ? <><div style={{ width:13,height:13,border:'2px solid rgba(255,255,255,.35)',borderTopColor:'#fff',borderRadius:'50%',animation:'nwSpin .7s linear infinite' }} /> {!isMobile && 'Saving…'}</>
+              : <><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg> {isMobile ? (isEdit ? 'Update' : 'Save') : (isEdit ? 'Update Item' : 'Save Item')}</>
             }
           </button>
         </div>
       </div>
 
       {/* ══ BODY ════════════════════════════════════════════════════ */}
-      <div style={{ display: 'flex', maxWidth: 1160, margin: '0 auto', padding: '28px 24px 80px', gap: 22 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', maxWidth: 1160, margin: '0 auto', padding: isMobile ? '16px 14px 80px' : '28px 24px 80px', gap: isMobile ? 16 : 22 }}>
 
         {/* ── FORM COLUMN ────────────────────────────────────────── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, order: isMobile ? 2 : 1 }}>
 
           {/* SECTION 1: Identity */}
           <div className="nw2-sec">
@@ -712,7 +720,7 @@ const New = () => {
                 ))}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
                 <F label="Item Name" req T={T}><Input name="name" value={formData.name} onChange={handleChange} placeholder="e.g. Ergonomic Office Chair" autoFocus T={T} error={errors.name} /></F>
                 <F label="Item Code" req T={T}>
                   <Input
@@ -791,7 +799,7 @@ const New = () => {
                 </div>
               </F>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginTop: 16, marginBottom: 16 }}>
                 <F label="Weight" T={T}><Input name="weight" value={formData.weight} onChange={handleChange} placeholder="0.00" suffix="kg" mono T={T} /></F>
                 <F label="Manufacturer" T={T}>
                   <input className="nw2-inp" name="manufacturer" value={formData.manufacturer} onChange={handleChange} placeholder="e.g. Sony, 3M, Honeywell…"
@@ -801,7 +809,7 @@ const New = () => {
 
               <div style={{ padding: '14px 16px', background: T.surface2, borderRadius: 12, border: `1.5px solid ${T.border}` }}>
                 <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, margin: '0 0 14px' }}>Barcode Identifiers</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
                   {[['upc','UPC'],['mpn','MPN'],['ean','EAN'],['isbn','ISBN']].map(([n,l]) => (
                     <F key={n} label={l} T={T}><Input name={n} value={formData[n]} onChange={handleChange} placeholder="—" mono T={T} /></F>
                   ))}
@@ -813,7 +821,7 @@ const New = () => {
           {/* SECTION 3: Pricing */}
           <div className="nw2-sec" style={{ animationDelay: '.12s' }}>
             <Section id="sec-pricing" title="Pricing & Accounts" icon="💰" accent="#10b981" T={T}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
                 {/* Sales panel */}
                 <div style={{
                   padding: 16, borderRadius: 12,
@@ -872,21 +880,21 @@ const New = () => {
                 const marg = ((profit / sell) * 100).toFixed(1);
                 const markup = ((profit / cost) * 100).toFixed(1);
                 return (
-                  <div style={{ marginTop: 14, padding: '14px 18px', background: T.surface2, borderRadius: 12, border: `1.5px solid ${T.border}`, display: 'flex', gap: 0, alignItems: 'center', animation: 'nwUp .2s ease both' }}>
+                  <div style={{ marginTop: 14, padding: isMobile ? '14px' : '14px 18px', background: T.surface2, borderRadius: 12, border: `1.5px solid ${T.border}`, display: 'flex', flexWrap: 'wrap', gap: isMobile ? 12 : 0, alignItems: 'center', animation: 'nwUp .2s ease both' }}>
                     {[
                       { label: 'Gross Profit', val: `AED ${profit.toFixed(2)}`, color: profit >= 0 ? '#10b981' : '#ef4444' },
                       { label: 'Margin',       val: `${marg}%`,                 color: marg >= 20 ? '#10b981' : marg >= 0 ? '#f59e0b' : '#ef4444' },
                       { label: 'Markup',       val: `${markup}%`,               color: '#3b82f6' },
                     ].map((m, i) => (
                       <React.Fragment key={m.label}>
-                        {i > 0 && <div style={{ width:1,background:T.border,alignSelf:'stretch',margin:'0 20px' }} />}
+                        {i > 0 && !isMobile && <div style={{ width:1,background:T.border,alignSelf:'stretch',margin:'0 20px' }} />}
                         <div>
                           <p style={{ fontSize:10,color:T.textSec,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',margin:'0 0 3px' }}>{m.label}</p>
                           <p style={{ fontFamily:"'DM Mono',monospace",fontSize:17,fontWeight:700,color:m.color,margin:0 }}>{m.val}</p>
                         </div>
                       </React.Fragment>
                     ))}
-                    <div style={{ marginLeft: 'auto', fontSize: 11, color: T.textSec }}>📊 profitability</div>
+                    {!isMobile && <div style={{ marginLeft: 'auto', fontSize: 11, color: T.textSec }}>📊 profitability</div>}
                   </div>
                 );
               })()}
@@ -896,7 +904,7 @@ const New = () => {
           {/* SECTION 4: Stock */}
           <div className="nw2-sec" style={{ animationDelay: '.18s' }}>
             <Section id="sec-stock" title="Inventory & Stock" icon="📦" accent="#f59e0b" T={T}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 16 }}>
                 <F label="Opening Quantity" req T={T}><Input type="number" name="quantity" value={formData.quantity} onChange={handleChange} placeholder="0" T={T} /></F>
                 <F label="Reorder Point" hint="alert threshold" T={T}><Input type="number" name="reorder_point" value={formData.reorder_point} onChange={handleChange} placeholder="0" T={T} /></F>
               </div>
@@ -931,7 +939,7 @@ const New = () => {
                       sub="Cannot be changed after transactions are recorded" T={T} />
                   </div>
                   {trackInventory && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, animation: 'nwUp .2s ease both' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14, animation: 'nwUp .2s ease both' }}>
                       <F label="Inventory Account" req T={T}>
                         <PortalSelect T={T} isDark={isDark} name="inventory_account" value={formData.inventory_account} onChange={handleChange}
                           placeholder={allAccounts.length ? 'Select account…' : 'No accounts yet — add in Finance'}
@@ -992,8 +1000,8 @@ const New = () => {
         </div>
 
         {/* ── STICKY PREVIEW SIDEBAR ─────────────────────────────── */}
-        <div style={{ width: 288, flexShrink: 0 }}>
-          <div className="nw2-preview" style={{ position: 'sticky', top: 78 }}>
+        <div style={{ width: isMobile ? '100%' : 288, flexShrink: 0, order: isMobile ? 1 : 2 }}>
+          <div className="nw2-preview" style={isMobile ? {} : { position: 'sticky', top: 78 }}>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', animation: 'nwPulse 2s ease infinite' }} />

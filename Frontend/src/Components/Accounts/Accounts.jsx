@@ -6,6 +6,7 @@ import axiosInstance from '../../helper/axiosInstance';
 import useRealtime from '../../helper/useRealtime';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { drawerWidth } from '../../helper/responsive';
 
 const TYPE_COLORS = {
   asset:     { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe', dark: 'rgba(59,130,246,0.15)' },
@@ -273,7 +274,7 @@ export default function Accounts() {
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)' }} />
           <div onClick={e => e.stopPropagation()}
             style={{
-              position: 'relative', width: 420, background: T.surface,
+              position: 'relative', width: drawerWidth(420), background: T.surface,
               border: `1.5px solid ${T.border}`, borderRadius: 16,
               padding: '28px 28px 24px', boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
               zIndex: 1, fontFamily: "'DM Sans', sans-serif",
@@ -311,7 +312,7 @@ export default function Accounts() {
           onClick={() => setLedgerAccount(null)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
           <div onClick={e => e.stopPropagation()}
-            style={{ position: 'relative', width: 560, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, display: 'flex', flexDirection: 'column', zIndex: 1 }}>
+            style={{ position: 'relative', width: drawerWidth(560), height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, display: 'flex', flexDirection: 'column', zIndex: 1 }}>
             {/* Header */}
             <div style={{ padding: '20px 24px', borderBottom: `1.5px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
               <div>
@@ -385,7 +386,7 @@ export default function Accounts() {
           onClick={() => setDrawerAccount(null)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
           <div onClick={e => e.stopPropagation()}
-            style={{ position: 'relative', width: 380, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 28, overflowY: 'auto', zIndex: 1 }}>
+            style={{ position: 'relative', width: drawerWidth(380), height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 28, overflowY: 'auto', zIndex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
               <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 17, fontWeight: 700, color: T.textPri, margin: 0 }}>Account Details</h2>
               <button onClick={() => setDrawerAccount(null)}

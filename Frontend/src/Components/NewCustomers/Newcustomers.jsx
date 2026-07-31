@@ -6,6 +6,7 @@ import useUpdateCustomer from '../../helper/useUpdateCustomer';
 import axiosInstance from '../../helper/axiosInstance';
 import toast from "../../helper/nexusToast";
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
+import { drawerWidth } from '../../helper/responsive';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import CountrySelect from '../common/CountrySelect';
@@ -17,6 +18,7 @@ import {
   FaPlus, FaTimes, FaCheckCircle
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useIsMobile from '../../helper/useIsMobile';
 import cc from 'currency-codes';
 
 // All ISO 4217 currencies: { label: "UAE Dirham (AED)", value: "AED" }
@@ -154,10 +156,10 @@ const DOCUMENT_TYPES = [
 ];
 
 // ── Tab panel components ───────────────────────────────────────────
-const FinanceTab = ({ formData, handleChange, T, isDark }) => (
+const FinanceTab = ({ formData, handleChange, T, isDark, isMobile }) => (
   <div>
     <SectionHeader icon={<FaWallet />} title="Finance Details" subtitle="Set credit limits and payment terms" T={T} isDark={isDark} />
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
       <div>
         <Label T={T}>Credit Limit</Label>
         <input className="nc-input" name="credit_limit" value={formData.credit_limit || ''} onChange={handleChange} placeholder="e.g. 50,000" />
@@ -207,7 +209,7 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
   </div>
 );
 
-const AddressTab = ({ formData, handleChange, T, isDark }) => (
+const AddressTab = ({ formData, handleChange, T, isDark, isMobile }) => (
   <div>
     <SectionHeader icon={<FaMapMarkerAlt />} title="Address" subtitle="Customer's billing and shipping address" T={T} isDark={isDark} />
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -216,7 +218,7 @@ const AddressTab = ({ formData, handleChange, T, isDark }) => (
         <textarea className="nc-textarea" name="streetAddress" value={formData.streetAddress}
           onChange={handleChange} placeholder="Enter full street address" rows={3} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
         <div>
           <Label T={T}>City</Label>
           <input className="nc-input" name="city" value={formData.city} onChange={handleChange} placeholder="Dubai" />
@@ -234,7 +236,7 @@ const AddressTab = ({ formData, handleChange, T, isDark }) => (
   </div>
 );
 
-const ContactPersonsTab = ({ contactPersons, setContactPersons, T, isDark }) => {
+const ContactPersonsTab = ({ contactPersons, setContactPersons, T, isDark, isMobile }) => {
   const handleAdd = useCallback(() => {
     setContactPersons(prev => [...prev, { id: Date.now(), name: '', email: '', phone: '' }]);
   }, [setContactPersons]);
@@ -283,7 +285,7 @@ const ContactPersonsTab = ({ contactPersons, setContactPersons, T, isDark }) => 
                   <FaTimes size={10} /> Remove
                 </button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '14px' }}>
                 <div>
                   <Label T={T}>Name</Label>
                   <input className="nc-input" type="text" value={contact.name}
@@ -394,7 +396,7 @@ function DiscardModal({ onConfirm, onCancel, T, isDark }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }} onClick={onCancel} />
       <div style={{
-        position: 'relative', zIndex: 1, width: 360, background: T.surface,
+        position: 'relative', zIndex: 1, width: drawerWidth(360), background: T.surface,
         border: `1.5px solid ${T.border}`, borderRadius: 20,
         padding: '32px 28px', textAlign: 'center',
         boxShadow: isDark ? '0 24px 64px rgba(0,0,0,0.6)' : '0 24px 64px rgba(0,0,0,0.14)',
@@ -746,10 +748,10 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
   );
 };
 
-const CustomFieldsTab = ({ customFields, setFormData, customerType, T, isDark }) => (
+const CustomFieldsTab = ({ customFields, setFormData, customerType, T, isDark, isMobile }) => (
   <div>
     <SectionHeader icon={<FaBuilding />} title="Custom Fields" subtitle="Additional business registration details" T={T} isDark={isDark} />
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
       {customerType === 'business' && (
         <>
           <div>
@@ -869,7 +871,7 @@ function SalutationInput({ value, onChange, name, T, isDark }) {
       </select>
       {showManage && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
-          <div style={{ background: T.surface, borderRadius: '16px', padding: '24px', width: '340px', border: `1.5px solid ${T.border}`, boxShadow: '0 24px 64px rgba(0,0,0,0.2)' }}>
+          <div style={{ background: T.surface, borderRadius: '16px', padding: '24px', width: drawerWidth(340), border: `1.5px solid ${T.border}`, boxShadow: '0 24px 64px rgba(0,0,0,0.2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <p style={{ fontSize: '15px', fontWeight: '700', color: T.textPri, margin: 0 }}>Manage Salutations</p>
               <button type="button" onClick={() => setShowManage(false)}
@@ -914,6 +916,7 @@ const Newcustomers = () => {
   const navigate    = useNavigate();
   const isDark      = useThemeStore((s) => s.isDark);
   const T           = getTheme(isDark);
+  const isMobile    = useIsMobile();
 
   const [activeTab,     setActiveTab]     = useState('finance');
   const [isSubmitting,  setIsSubmitting]  = useState(false);
@@ -1145,10 +1148,10 @@ const Newcustomers = () => {
 
   const blueC   = isDark ? '#60a5fa' : '#2563eb';
   const blueDim = isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff';
-  const card    = { background: T.surface, borderRadius: '16px', padding: '24px', border: `1px solid ${T.border}`, boxShadow: isDark ? '0 1px 8px rgba(0,0,0,0.3)' : '0 1px 4px rgba(0,0,0,0.04)' };
+  const card    = { background: T.surface, borderRadius: '16px', padding: isMobile ? '16px' : '24px', border: `1px solid ${T.border}`, boxShadow: isDark ? '0 1px 8px rgba(0,0,0,0.3)' : '0 1px 4px rgba(0,0,0,0.04)' };
 
   return (
-    <div className="nc-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px' }}>
+    <div className="nc-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: '100vh', padding: isMobile ? '16px 14px' : '28px 32px', overflowX: 'hidden' }}>
       <style>{makeStyles(T, isDark)}</style>
 
       {showDiscard && (
@@ -1172,15 +1175,15 @@ const Newcustomers = () => {
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 340px', gap: isMobile ? '14px' : '20px', alignItems: 'start' }}>
 
           {/* ── LEFT: main form ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minWidth: 0 }}>
 
             {/* Customer Type */}
             <div style={card}>
               <p style={{ fontSize: '13px', fontWeight: '700', color: T.textPri, margin: '0 0 14px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Customer Type</p>
-              <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: '12px' }}>
                 {[
                   { value: 'business',   label: 'Business',   icon: <FaBuilding size={18} />, desc: 'Company or organization' },
                   { value: 'individual', label: 'Individual', icon: <FaUser size={18} />,     desc: 'Personal customer'       },
@@ -1190,7 +1193,7 @@ const Newcustomers = () => {
                     <div key={type.value}
                       className={`type-card${active ? ' type-card-active' : ''}`}
                       onClick={() => setFormData(prev => ({ ...prev, customerType: type.value }))}
-                      style={{ flex: 1, border: `1.5px solid ${T.border}`, borderRadius: '12px', padding: '16px', display: 'flex', alignItems: 'center', gap: '14px', background: T.surface }}>
+                      style={{ flex: isMobile ? '1 1 100%' : 1, minWidth: 0, border: `1.5px solid ${T.border}`, borderRadius: '12px', padding: '16px', display: 'flex', alignItems: 'center', gap: '14px', background: T.surface }}>
                       <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: active ? blueDim : T.surface2, color: active ? blueC : T.textSec, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}>
                         {type.icon}
                       </div>
@@ -1214,7 +1217,7 @@ const Newcustomers = () => {
 
                 {/* Individual: salutation + first/last name */}
                 {formData.customerType === 'individual' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: '14px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '160px 1fr 1fr', gap: '14px' }}>
                     <CustomSelect name="salutation" label="Salutation" value={formData.salutation}
                       onChange={handleChange} options={salutations} placeholder="Select" T={T} isDark={isDark} />
                     <div>
@@ -1236,7 +1239,7 @@ const Newcustomers = () => {
                   </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
                   <div>
                     <Label required T={T}>Customer Display Name</Label>
                     <input className="nc-input" name="customerDisplayName" value={formData.customerDisplayName}
@@ -1267,7 +1270,7 @@ const Newcustomers = () => {
                       onChange={handleChange} placeholder="customer@company.com" style={{ paddingLeft: '38px' }} />
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
                   <div>
                     <Label T={T}>Customer Phone</Label>
                     <PhoneInput international countryCallingCodeEditable={false} defaultCountry="AE"
@@ -1309,11 +1312,11 @@ const Newcustomers = () => {
                 ))}
               </div>
               <div style={{ padding: '24px' }}>
-                {activeTab === 'finance'         && <FinanceTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} />}
-                {activeTab === 'address'         && <AddressTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} />}
-                {activeTab === 'contact-persons' && <ContactPersonsTab contactPersons={contactPersons} setContactPersons={setContactPersons} T={T} isDark={isDark} />}
+                {activeTab === 'finance'         && <FinanceTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} />}
+                {activeTab === 'address'         && <AddressTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} />}
+                {activeTab === 'contact-persons' && <ContactPersonsTab contactPersons={contactPersons} setContactPersons={setContactPersons} T={T} isDark={isDark} isMobile={isMobile} />}
                 {activeTab === 'documents'       && <DocumentsTab documents={formData.documents} handleFileUpload={handleFileUpload} removeDocument={removeDocument} getFileIcon={getFileIcon} formatFileSize={formatFileSize} T={T} isDark={isDark} />}
-                {activeTab === 'custom-fields'   && <CustomFieldsTab customFields={formData.customFields} customerType={formData.customerType} setFormData={setFormData} T={T} isDark={isDark} />}
+                {activeTab === 'custom-fields'   && <CustomFieldsTab customFields={formData.customFields} customerType={formData.customerType} setFormData={setFormData} T={T} isDark={isDark} isMobile={isMobile} />}
                 {activeTab === 'reporting-tags'  && <ReportingTagsTab reportingTags={formData.reportingTags} setFormData={setFormData} T={T} isDark={isDark} />}
                 {activeTab === 'remarks'         && <RemarksTab remarks={formData.remarks} handleChange={handleChange} T={T} isDark={isDark} />}
               </div>
@@ -1321,7 +1324,7 @@ const Newcustomers = () => {
           </div>
 
           {/* ── RIGHT: sticky sidebar ── */}
-          <div style={{ position: 'sticky', top: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ position: isMobile ? 'static' : 'sticky', top: '24px', display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
 
             {/* Live Preview */}
             <div style={{ ...card, padding: '22px' }}>

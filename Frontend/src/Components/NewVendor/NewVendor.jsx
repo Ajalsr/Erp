@@ -4,8 +4,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import PhoneInput, { getCountryCallingCode } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useIsMobile from '../../helper/useIsMobile';
 import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
+import { drawerWidth } from '../../helper/responsive';
 import axiosInstance from '../../helper/axiosInstance/';
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -430,7 +432,7 @@ function DiscardModal({ onConfirm, onCancel, T }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(8px)' }}>
       <div style={{
-        background: T.surface, borderRadius: 20, padding: '32px 36px', width: 360,
+        background: T.surface, borderRadius: 20, padding: '32px 36px', width: drawerWidth(360),
         textAlign: 'center', boxShadow: '0 40px 100px rgba(0,0,0,.35)',
         border: `1.5px solid ${T.border}`,
       }}>
@@ -504,6 +506,7 @@ export default function NewVendor() {
   const isEdit    = !!id;
   const isDark    = useThemeStore(s => s.isDark);
   const T         = { ...getTheme(isDark), isDark };
+  const isMobile  = useIsMobile();
 
   /* ── State ── */
   const [saving,       setSaving]       = useState(false);
@@ -692,8 +695,8 @@ export default function NewVendor() {
     border: `1.5px solid ${borderColor}`,
     ...extra,
   });
-  const grid2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 };
-  const grid3 = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 };
+  const grid2 = { display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 };
+  const grid3 = { display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 16 };
 
   const saveBtn = {
     display: 'flex', alignItems: 'center', gap: 8,
@@ -747,51 +750,51 @@ export default function NewVendor() {
       )}
 
       <div onInput={guard.markDirty} onChange={guard.markDirty} style={{
-        minHeight: '100vh', background: T.bg, paddingBottom: 100,
-        animation: 'nvFadeUp .3s ease both',
+        minHeight: '100vh', background: T.bg, paddingBottom: isMobile ? 90 : 100,
+        animation: 'nvFadeUp .3s ease both', overflowX: 'hidden',
       }}>
 
         {/* ── Top bar ── */}
         <div style={{
-          position: 'sticky', top: 0, zIndex: 100,
-          background: isDark ? 'rgba(8,13,26,.92)' : 'rgba(241,245,249,.92)',
-          backdropFilter: 'blur(16px)', borderBottom: `1px solid ${borderColor}`,
-          padding: '0 28px', height: 58,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          position: isMobile ? 'static' : 'sticky', top: 0, zIndex: 100,
+          background: isMobile ? T.bg : (isDark ? 'rgba(8,13,26,.92)' : 'rgba(241,245,249,.92)'),
+          backdropFilter: isMobile ? 'none' : 'blur(16px)', borderBottom: `1px solid ${borderColor}`,
+          padding: isMobile ? '8px 14px' : '0 28px', height: isMobile ? 'auto' : 58,
+          display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 8 : 0,
         }}>
           {/* Left */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0 }}>
             <button onClick={() => setShowDiscard(true)} style={{
-              display: 'flex', alignItems: 'center', gap: 7,
+              display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0,
               background: 'none', border: `1.5px solid ${borderColor}`,
               borderRadius: 10, padding: '7px 14px', color: T.textSec,
               fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             }}>
               <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-              Back
+              {!isMobile && 'Back'}
             </button>
-            <div style={{ width: 1, height: 24, background: borderColor }} />
-            <div>
-              <p style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>
+            {!isMobile && <div style={{ width: 1, height: 24, background: borderColor }} />}
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontFamily: "'Sora', sans-serif", fontSize: isMobile ? 13 : 15, fontWeight: 700, color: T.textPri, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {isEdit ? 'Edit Vendor' : 'New Vendor'}
               </p>
-              <p style={{ fontSize: 11, color: T.textSec, margin: 0 }}>
+              {!isMobile && <p style={{ fontSize: 11, color: T.textSec, margin: 0 }}>
                 Purchase → Vendors
-              </p>
+              </p>}
             </div>
           </div>
 
           {/* Right */}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
             <button onClick={() => setShowDiscard(true)} style={{
-              padding: '9px 18px', background: 'none',
+              padding: isMobile ? '9px 14px' : '9px 18px', background: 'none',
               border: `1.5px solid ${borderColor}`, borderRadius: 12,
               color: T.textSec, fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'inherit',
+              cursor: 'pointer', fontFamily: 'inherit', flex: isMobile ? 1 : 'initial', whiteSpace: 'nowrap',
             }}>
               Cancel
             </button>
-            <button style={saveBtn} onClick={handleSubmit} disabled={saving}>
+            <button style={{ ...saveBtn, flex: isMobile ? 1 : 'initial', justifyContent: 'center', whiteSpace: 'nowrap' }} onClick={handleSubmit} disabled={saving}>
               {saving
                 ? <><svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ animation: 'spin 1s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Saving…</>
                 : <><svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.8} strokeLinecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Vendor</>
@@ -801,10 +804,10 @@ export default function NewVendor() {
         </div>
 
         {/* ── Body ── */}
-        <div style={{ maxWidth: 1060, margin: '0 auto', padding: '24px 28px', display: 'grid', gridTemplateColumns: '180px 1fr', gap: 20, alignItems: 'start' }}>
+        <div style={{ maxWidth: 1060, margin: '0 auto', padding: isMobile ? '14px' : '24px 28px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '180px 1fr', gap: isMobile ? 14 : 20, alignItems: 'start' }}>
 
           {/* ── Left nav ── */}
-          <div style={{ position: 'sticky', top: 78 }}>
+          <div style={isMobile ? { minWidth: 0 } : { position: 'sticky', top: 78, minWidth: 0 }}>
             {/* Avatar card */}
             <div style={{ ...card({ padding: '22px 16px', textAlign: 'center', marginBottom: 12 }) }}>
               <div style={{
@@ -836,12 +839,12 @@ export default function NewVendor() {
             </div>
 
             {/* Nav pills */}
-            <div style={{ ...card({ padding: '8px' }) }}>
+            <div style={{ ...card({ padding: '8px' }), display: isMobile ? 'flex' : 'block', gap: isMobile ? 6 : 0, overflowX: isMobile ? 'auto' : 'visible' }}>
               {NAV.map(n => (
                 <button key={n.id} className="nv-nav-pill"
                   onClick={() => document.getElementById(n.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                   style={{
-                    width: '100%', padding: '8px 12px', textAlign: 'left',
+                    width: isMobile ? 'auto' : '100%', flexShrink: 0, padding: '8px 12px', textAlign: 'left', whiteSpace: 'nowrap',
                     background: activeSection === n.id ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : 'none',
                     border: 'none', borderRadius: 9,
                     color: activeSection === n.id ? '#3b82f6' : T.textSec,
@@ -859,7 +862,7 @@ export default function NewVendor() {
           </div>
 
           {/* ── Right form ── */}
-          <div>
+          <div style={{ minWidth: 0 }}>
 
             {/* ── IDENTITY ── */}
             <Section id="sec-identity" title="Vendor Identity" accent="#3b82f6" T={T}
@@ -1122,12 +1125,12 @@ export default function NewVendor() {
 
         {/* ── Sticky bottom save bar ── */}
         <div style={{
-          position: 'fixed', bottom: 0, left: 220, right: 0, zIndex: 90,
-          background: isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)',
-          backdropFilter: 'blur(12px)', borderTop: `1px solid ${borderColor}`,
-          padding: '12px 28px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10,
+          position: 'fixed', bottom: 0, left: isMobile ? 0 : 220, right: 0, zIndex: 90,
+          background: isMobile ? T.bg : (isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)'),
+          backdropFilter: isMobile ? 'none' : 'blur(12px)', borderTop: `1px solid ${borderColor}`,
+          padding: isMobile ? '10px 14px' : '12px 28px', display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'flex-end', gap: 10,
         }}>
-          <span style={{ fontSize: 12, color: T.textSec, marginRight: 'auto' }}>
+          <span style={{ fontSize: 12, color: T.textSec, marginRight: 'auto', width: isMobile ? '100%' : 'auto' }}>
             {Object.keys(errors).length > 0
               ? <span style={{ color: '#ef4444', fontWeight: 600 }}>⚠ {Object.keys(errors).length} required field{Object.keys(errors).length > 1 ? 's' : ''} missing</span>
               : <span style={{ color: isDark ? 'rgba(255,255,255,.2)' : '#cbd5e1' }}>Fill in the required fields and save</span>
@@ -1137,11 +1140,11 @@ export default function NewVendor() {
             padding: '9px 18px', background: 'none',
             border: `1.5px solid ${borderColor}`, borderRadius: 12,
             color: T.textSec, fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'inherit',
+            cursor: 'pointer', fontFamily: 'inherit', flex: isMobile ? 1 : 'initial', whiteSpace: 'nowrap',
           }}>
             Cancel
           </button>
-          <button style={saveBtn} onClick={handleSubmit} disabled={saving}>
+          <button style={{ ...saveBtn, flex: isMobile ? 1 : 'initial', justifyContent: 'center', whiteSpace: 'nowrap' }} onClick={handleSubmit} disabled={saving}>
             {saving
               ? 'Saving…'
               : <><svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.8} strokeLinecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Vendor</>

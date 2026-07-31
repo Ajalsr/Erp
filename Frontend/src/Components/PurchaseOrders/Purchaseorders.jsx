@@ -10,6 +10,7 @@ import {
 import { MdMoveToInbox } from 'react-icons/md';
 import { useNavigate } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useIsMobile from '../../helper/useIsMobile';
 import useAuthStore from '../../store/useAuthStore';
 import axiosInstance from '../../helper/axiosInstance';
 import useRealtime from '../../helper/useRealtime';
@@ -67,6 +68,7 @@ export default function Purchaseorders() {
   const navigate = useNavigate();
   const isDark   = useThemeStore(s => s.isDark);
   const T        = { ...getTheme(isDark), isDark };
+  const isMobile = useIsMobile();
   const { confirm, ConfirmModal } = useConfirm();
   const activeOrg = useAuthStore(s => s.activeOrg);
   const isAdmin   = ['owner','admin'].includes(activeOrg?.role);
@@ -216,25 +218,25 @@ export default function Purchaseorders() {
         .po-overlay { animation:poOverlay .2s ease forwards; }
       `}</style>
 
-      <div style={{ minHeight:'100vh', background:T.bg, padding:'24px 24px 80px', animation:'poFadeUp .3s ease both' }}>
+      <div style={{ minHeight:'100vh', background:T.bg, padding:isMobile?'14px 14px 70px':'24px 24px 80px', animation:'poFadeUp .3s ease both' }}>
 
         {/* Header */}
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:22 }}>
+        <div style={{ display:'flex', flexWrap:isMobile?'wrap':'nowrap', alignItems:'flex-start', justifyContent:'space-between', gap:isMobile?10:0, marginBottom:22 }}>
           <div>
-            <h1 style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:800, color:T.textPri, margin:'0 0 3px', letterSpacing:'-0.02em' }}>Purchase Orders</h1>
+            <h1 style={{ fontFamily:"'Sora',sans-serif", fontSize:isMobile?18:20, fontWeight:800, color:T.textPri, margin:'0 0 3px', letterSpacing:'-0.02em' }}>Purchase Orders</h1>
             <p style={{ fontSize:12, color:T.textSec, margin:0 }}>Manage and track all procurement orders</p>
           </div>
-          <div style={{ display:'flex', gap:8 }}>
+          <div style={{ display:'flex', gap:8, width:isMobile?'100%':'auto' }}>
             <button className="po-icon-btn" title="Export"><FaDownload size={12}/></button>
             <button className="po-icon-btn" title="More"><FaEllipsisV size={12}/></button>
-            <button onClick={() => navigate('/Purchase/Purchaseorders/Newpurchaseorders')} style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 14px rgba(59,130,246,.35)' }}>
+            <button onClick={() => navigate('/Purchase/Purchaseorders/Newpurchaseorders')} style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'9px 18px', flex:isMobile?1:'initial', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 14px rgba(59,130,246,.35)', whiteSpace:'nowrap' }}>
               <FaPlus size={10}/> New Order
             </button>
           </div>
         </div>
 
         {/* Stat cards */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:22 }}>
+        <div style={{ display:'grid', gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(5,1fr)', gap:12, marginBottom:22 }}>
           <StatCard T={T} label="Total Orders" value={stats.total}    accent={T.blue}   dimBg={T.blueDim}   icon={<FaFileInvoiceDollar/>}/>
           <StatCard T={T} label="Pending"      value={stats.pending}  accent={T.amber}  dimBg={T.amberDim}  icon={<FaClock/>}/>
           <StatCard T={T} label="Ordered"      value={stats.ordered}  accent={T.purple} dimBg={T.purpleDim} icon={<FaTruck/>}/>
@@ -247,7 +249,7 @@ export default function Purchaseorders() {
 
           {/* Toolbar */}
           <div style={{ padding:'14px 18px', borderBottom:`1px solid ${border}`, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:9, background:T.surface2, border:`1.5px solid ${border}`, borderRadius:10, padding:'8px 13px', flex:'1 1 260px', maxWidth:380 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:9, background:T.surface2, border:`1.5px solid ${border}`, borderRadius:10, padding:'8px 13px', flex:'1 1 260px', maxWidth:isMobile?'100%':380 }}>
               <FaSearch size={12} style={{ color:T.textSec, flexShrink:0 }}/>
               <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Search order no., vendor…" style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:13, color:T.textPri, fontFamily:"'DM Sans',sans-serif" }}/>
               {search && <button onClick={()=>{setSearch('');setPage(1);}} style={{ background:'none', border:'none', cursor:'pointer', color:T.textSec, padding:0, display:'flex', lineHeight:1 }}><FaTimes size={11}/></button>}
@@ -297,7 +299,7 @@ export default function Purchaseorders() {
             <Empty T={T} onNew={()=>navigate('/Purchase/Purchaseorders/Newpurchaseorders')}/>
           ) : (
             <div style={{ overflowX:'auto' }}>
-              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+              <table style={{ width:'100%', minWidth:isMobile?860:'auto', borderCollapse:'collapse' }}>
                 <thead>
                   <tr>
                     <th style={{ ...thS(), width:40, textAlign:'center' }}><input type="checkbox" style={{ accentColor:T.blue, cursor:'pointer' }} checked={displayed.length>0 && selectedRows.size===displayed.length} onChange={toggleAll}/></th>

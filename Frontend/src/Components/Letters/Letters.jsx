@@ -5,6 +5,7 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
 import { getLetterTypes, getLetters, deleteLetter } from '../../helper/letterApi';
 import useConfirm from '../common/useConfirm';
+import useIsMobile from '../../helper/useIsMobile';
 
 const fmtDate = (d) => {
   if (!d) return '—';
@@ -22,6 +23,7 @@ export default function Letters() {
   const base = isHR ? '/HR/Letters' : '/Letters';
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const { confirm, ConfirmModal } = useConfirm();
 
   const [types, setTypes] = useState([]);
@@ -64,22 +66,22 @@ export default function Letters() {
   const inputStyle = { padding: '9px 12px', borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, color: T.textPri, fontSize: 13, fontFamily: 'inherit', width: '100%' };
 
   return (
-    <div style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px', fontFamily: "'DM Sans', sans-serif" }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
+    <div style={{ background: T.bg, minHeight: '100vh', padding: isMobile ? '14px' : '28px 32px', fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 800, color: T.textPri, margin: 0 }}>{isHR ? 'HR Letters' : 'Letters'}</h1>
+          <h1 style={{ fontSize: isMobile ? 18 : 20, fontWeight: 800, color: T.textPri, margin: 0 }}>{isHR ? 'HR Letters' : 'Letters'}</h1>
           <p style={{ fontSize: 12, color: T.textSec, margin: '5px 0 0' }}>
             {isHR
               ? 'Offer, appointment, warning, experience and other employee letters — written on your company letterhead.'
               : 'Warranty letters, bank details, references — written on your company letterhead.'}
           </p>
         </div>
-        <button onClick={() => navigate(`${base}/new`)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 11, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,.35)' }}>
+        <button onClick={() => navigate(`${base}/new`)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 18px', width: isMobile ? '100%' : 'auto', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 11, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,.35)', whiteSpace: 'nowrap' }}>
           <FaPlus /> New Letter
         </button>
       </div>
 
-      <div style={{ marginBottom: 14, position: 'relative', maxWidth: 320 }}>
+      <div style={{ marginBottom: 14, position: 'relative', maxWidth: isMobile ? '100%' : 320 }}>
         <FaSearch style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: T.textSec, fontSize: 12 }} />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isHR ? 'Search number, title, employee…' : 'Search number, title, customer…'}
           style={{ ...inputStyle, paddingLeft: 32 }} />
@@ -87,7 +89,7 @@ export default function Letters() {
 
       <div style={card}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', minWidth: isMobile ? 700 : 'auto', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                 {['Number', 'Type', 'Title', 'Addressed To', 'Date', ''].map((h) => (

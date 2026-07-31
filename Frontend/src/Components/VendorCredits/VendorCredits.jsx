@@ -9,6 +9,7 @@ import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 import AppDatePicker from "../common/AppDatePicker";
 import nexusToast from "../../helper/nexusToast";
+import useIsMobile from "../../helper/useIsMobile";
 
 const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -271,6 +272,7 @@ const iStyle = (T) => ({
 export default function VendorCredits() {
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
+  const isMobile = useIsMobile();
 
   const [credits,        setCredits]        = useState([]);
   const [stats,          setStats]          = useState({});
@@ -410,22 +412,22 @@ export default function VendorCredits() {
   return (
     <>
       <style>{css}</style>
-      <div className="vc-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+      <div className="vc-root" style={{ background: T.bg, minHeight: "100vh", padding: isMobile ? "14px 14px 70px" : "24px 28px", color: T.textPri, overflowX: "hidden" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "flex-start", gap: isMobile ? 12 : 0, marginBottom: isMobile ? 16 : 24 }}>
           <div>
-            <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 20, fontWeight: 700, color: T.textPri, margin: 0 }}>Vendor Credits</h1>
+            <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 17 : 20, fontWeight: 700, color: T.textPri, margin: 0 }}>Vendor Credits</h1>
             <p style={{ color: T.textSec, fontSize: 13, margin: "4px 0 0" }}>Manage credit notes from vendors</p>
           </div>
           <button className="vc-btn" onClick={() => setModalOpen(true)}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 18px", background: T.blue, color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 18px", background: T.blue, color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", width: isMobile ? "100%" : "auto" }}>
             <FaPlus size={11} /> New Credit
           </button>
         </div>
 
         {/* Stat cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(3,1fr)", gap: isMobile ? 10 : 14, marginBottom: isMobile ? 14 : 20 }}>
           {statCards.map((c, i) => (
             <div key={i} style={{ ...card, padding: "18px 20px", position: "relative", overflow: "hidden" }}>
               <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,transparent 10%,${c.color}55,transparent 90%)` }} />
@@ -459,8 +461,8 @@ export default function VendorCredits() {
         </div>
 
         {/* Table */}
-        <div style={{ ...card, overflow: "hidden", marginBottom: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div style={{ ...card, overflowX: "auto", overflowY: "hidden", marginBottom: 12 }}>
+          <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
                 {["Credit #","Date","Vendor","Reason","Amount","Status",""].map((h, i) => (
@@ -508,7 +510,7 @@ export default function VendorCredits() {
 
         {/* Pagination */}
         {filtered.length > LIMIT && (
-          <div style={{ ...card, padding: "11px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ ...card, padding: "11px 18px", display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 12, color: T.textSec }}>Showing {(page-1)*LIMIT+1}–{Math.min(page*LIMIT, filtered.length)} of {filtered.length}</span>
             <div style={{ display: "flex", gap: 4 }}>
               <button onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1} style={{ padding: "5px 11px", border: `1px solid ${T.border}`, borderRadius: 7, background: "transparent", fontSize: 12, color: page===1?T.textMuted:T.textSec, cursor: page===1?"not-allowed":"pointer", display: "flex", alignItems: "center", gap: 4, fontFamily: "inherit" }}><FaChevronLeft size={10}/> Prev</button>
@@ -601,57 +603,106 @@ export default function VendorCredits() {
                   <span style={{ fontSize: 11, color: T.textSec }}>{form.lineItems.length} item{form.lineItems.length !== 1 ? "s" : ""}</span>
                 </div>
 
-                {/* Column headers */}
-                <div style={{ display: "grid", gridTemplateColumns: "155px 1fr 54px 52px 82px 62px 62px 80px 26px", gap: 6, marginBottom: 6, padding: "0 2px" }}>
-                  {["Item","Description","Unit","Qty","Unit Price","Disc %","Tax %","Total",""].map((h, i) => (
-                    <span key={i} style={{ fontSize: 9.5, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: i >= 3 && i <= 7 ? "center" : "left" }}>{h}</span>
-                  ))}
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  {form.lineItems.map((item, idx) => (
-                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "155px 1fr 54px 52px 82px 62px 62px 80px 26px", gap: 6, alignItems: "center" }}>
-                      {/* Item selector */}
-                      <div style={{ border: `1.5px solid ${T.border}`, borderRadius: 9, overflow: "hidden", background: T.surface }}>
-                        <ItemSelector
-                          value={item.itemId ? { id: item.itemId, name: item.description, code: item.itemCode } : null}
-                          onSelect={(v) => setItemFromCatalog(idx, v)}
-                          onClear={() => setItemFromCatalog(idx, null)}
-                          T={T} isDark={isDark}
-                        />
+                {isMobile ? (
+                  /* Stacked card per line item — the fixed-px 9-column grid
+                     (155/54/52/82/62/62/80/26) can't fit a phone width, so it
+                     bled straight past the modal's edge with no way to see the
+                     cut-off columns. */
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {form.lineItems.map((item, idx) => (
+                      <div key={idx} style={{ border: `1.5px solid ${T.border}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <div style={{ flex: 1, border: `1.5px solid ${T.border}`, borderRadius: 9, overflow: "hidden", background: T.surface }}>
+                            <ItemSelector
+                              value={item.itemId ? { id: item.itemId, name: item.description, code: item.itemCode } : null}
+                              onSelect={(v) => setItemFromCatalog(idx, v)}
+                              onClear={() => setItemFromCatalog(idx, null)}
+                              T={T} isDark={isDark}
+                            />
+                          </div>
+                          <button onClick={() => removeItem(idx)} disabled={form.lineItems.length === 1}
+                            style={{ flexShrink: 0, width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 7, background: "transparent", color: T.textSec, cursor: form.lineItems.length === 1 ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: form.lineItems.length === 1 ? 0.3 : 0.7, padding: 0 }}>
+                            <FaTimes size={11} />
+                          </button>
+                        </div>
+                        <input value={item.description} onChange={e => updateItem(idx, "description", e.target.value)}
+                          placeholder="Description" className="vc-inp"
+                          style={{ width: "100%", padding: "9px 10px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                          <F label="Unit" T={T}><input value={item.unit} onChange={e => updateItem(idx, "unit", e.target.value)} placeholder="Pcs" className="vc-inp"
+                            style={{ width: "100%", padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit", textAlign: "center", boxSizing: "border-box" }} /></F>
+                          <F label="Qty" T={T}><input type="number" min="0" value={item.qty} onChange={e => updateItem(idx, "qty", e.target.value)} className="vc-inp"
+                            style={{ width: "100%", padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center", boxSizing: "border-box" }} /></F>
+                          <F label="Unit Price" T={T}><input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(idx, "unitPrice", e.target.value)} className="vc-inp"
+                            style={{ width: "100%", padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "right", boxSizing: "border-box" }} /></F>
+                          <F label="Disc %" T={T}><input type="number" min="0" max="100" value={item.discount} onChange={e => updateItem(idx, "discount", e.target.value)} className="vc-inp"
+                            style={{ width: "100%", padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center", boxSizing: "border-box" }} /></F>
+                          <F label="Tax %" T={T}><input type="number" min="0" max="100" value={item.taxRate} onChange={e => updateItem(idx, "taxRate", e.target.value)} className="vc-inp"
+                            style={{ width: "100%", padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center", boxSizing: "border-box" }} /></F>
+                          <F label="Total" T={T}>
+                            <div style={{ padding: "9px 6px", border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface2, color: T.green, fontFamily: "'DM Mono',monospace", textAlign: "right", fontWeight: 700 }}>
+                              {fmtAED(item.total).replace("AED ", "")}
+                            </div>
+                          </F>
+                        </div>
                       </div>
-                      {/* Description */}
-                      <input value={item.description} onChange={e => updateItem(idx, "description", e.target.value)}
-                        placeholder="Description" className="vc-inp"
-                        style={{ padding: "9px 10px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit" }} />
-                      {/* Unit */}
-                      <input value={item.unit} onChange={e => updateItem(idx, "unit", e.target.value)}
-                        placeholder="Pcs" className="vc-inp"
-                        style={{ padding: "9px 8px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit", textAlign: "center" }} />
-                      {/* Qty */}
-                      <input type="number" min="0" value={item.qty} onChange={e => updateItem(idx, "qty", e.target.value)} className="vc-inp"
-                        style={{ padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center" }} />
-                      {/* Unit Price */}
-                      <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(idx, "unitPrice", e.target.value)} className="vc-inp"
-                        style={{ padding: "9px 8px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "right" }} />
-                      {/* Discount % */}
-                      <input type="number" min="0" max="100" value={item.discount} onChange={e => updateItem(idx, "discount", e.target.value)} className="vc-inp"
-                        style={{ padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center" }} />
-                      {/* Tax % */}
-                      <input type="number" min="0" max="100" value={item.taxRate} onChange={e => updateItem(idx, "taxRate", e.target.value)} className="vc-inp"
-                        style={{ padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center" }} />
-                      {/* Total (read-only) */}
-                      <div style={{ padding: "9px 8px", border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface2, color: T.green, fontFamily: "'DM Mono',monospace", textAlign: "right", fontWeight: 700 }}>
-                        {fmtAED(item.total).replace("AED ", "")}
-                      </div>
-                      {/* Remove */}
-                      <button onClick={() => removeItem(idx)} disabled={form.lineItems.length === 1}
-                        style={{ width: 26, height: 26, border: `1px solid ${T.border}`, borderRadius: 7, background: "transparent", color: T.textSec, cursor: form.lineItems.length === 1 ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: form.lineItems.length === 1 ? 0.3 : 0.7, padding: 0 }}>
-                        <FaTimes size={9} />
-                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    {/* Column headers */}
+                    <div style={{ display: "grid", gridTemplateColumns: "155px 1fr 54px 52px 82px 62px 62px 80px 26px", gap: 6, marginBottom: 6, padding: "0 2px" }}>
+                      {["Item","Description","Unit","Qty","Unit Price","Disc %","Tax %","Total",""].map((h, i) => (
+                        <span key={i} style={{ fontSize: 9.5, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: i >= 3 && i <= 7 ? "center" : "left" }}>{h}</span>
+                      ))}
                     </div>
-                  ))}
-                </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                      {form.lineItems.map((item, idx) => (
+                        <div key={idx} style={{ display: "grid", gridTemplateColumns: "155px 1fr 54px 52px 82px 62px 62px 80px 26px", gap: 6, alignItems: "center" }}>
+                          {/* Item selector */}
+                          <div style={{ border: `1.5px solid ${T.border}`, borderRadius: 9, overflow: "hidden", background: T.surface }}>
+                            <ItemSelector
+                              value={item.itemId ? { id: item.itemId, name: item.description, code: item.itemCode } : null}
+                              onSelect={(v) => setItemFromCatalog(idx, v)}
+                              onClear={() => setItemFromCatalog(idx, null)}
+                              T={T} isDark={isDark}
+                            />
+                          </div>
+                          {/* Description */}
+                          <input value={item.description} onChange={e => updateItem(idx, "description", e.target.value)}
+                            placeholder="Description" className="vc-inp"
+                            style={{ padding: "9px 10px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit" }} />
+                          {/* Unit */}
+                          <input value={item.unit} onChange={e => updateItem(idx, "unit", e.target.value)}
+                            placeholder="Pcs" className="vc-inp"
+                            style={{ padding: "9px 8px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "inherit", textAlign: "center" }} />
+                          {/* Qty */}
+                          <input type="number" min="0" value={item.qty} onChange={e => updateItem(idx, "qty", e.target.value)} className="vc-inp"
+                            style={{ padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center" }} />
+                          {/* Unit Price */}
+                          <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(idx, "unitPrice", e.target.value)} className="vc-inp"
+                            style={{ padding: "9px 8px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "right" }} />
+                          {/* Discount % */}
+                          <input type="number" min="0" max="100" value={item.discount} onChange={e => updateItem(idx, "discount", e.target.value)} className="vc-inp"
+                            style={{ padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center" }} />
+                          {/* Tax % */}
+                          <input type="number" min="0" max="100" value={item.taxRate} onChange={e => updateItem(idx, "taxRate", e.target.value)} className="vc-inp"
+                            style={{ padding: "9px 6px", border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface, color: T.textPri, outline: "none", fontFamily: "'DM Mono',monospace", textAlign: "center" }} />
+                          {/* Total (read-only) */}
+                          <div style={{ padding: "9px 8px", border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, background: T.surface2, color: T.green, fontFamily: "'DM Mono',monospace", textAlign: "right", fontWeight: 700 }}>
+                            {fmtAED(item.total).replace("AED ", "")}
+                          </div>
+                          {/* Remove */}
+                          <button onClick={() => removeItem(idx)} disabled={form.lineItems.length === 1}
+                            style={{ width: 26, height: 26, border: `1px solid ${T.border}`, borderRadius: 7, background: "transparent", color: T.textSec, cursor: form.lineItems.length === 1 ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: form.lineItems.length === 1 ? 0.3 : 0.7, padding: 0 }}>
+                            <FaTimes size={9} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
 
                 <button onClick={addItem}
                   style={{ marginTop: 8, padding: "7px 14px", border: `1.5px dashed ${T.border}`, borderRadius: 9, background: "transparent", color: T.textSec, cursor: "pointer", fontSize: 12, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6 }}
@@ -711,7 +762,7 @@ export default function VendorCredits() {
           <>
             <div className="vc-overlay" onClick={closeDrawer}
               style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.7)" : "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)", zIndex: 50 }} />
-            <div className="vc-drawer" style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: 460, maxWidth: "100vw", background: T.surface, borderLeft: `1px solid ${T.border}`, zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
+            <div className="vc-drawer" style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: 460, maxWidth: "100vw", boxSizing: "border-box", background: T.surface, borderLeft: `1px solid ${T.border}`, zIndex: 51, display: "flex", flexDirection: "column", boxShadow: isDark ? "-20px 0 60px rgba(0,0,0,0.6)" : "-8px 0 40px rgba(0,0,0,0.12)" }}>
               <div style={{ padding: "20px 20px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 5 }}>
@@ -792,7 +843,7 @@ export default function VendorCredits() {
                     />
                     {!applyBillId && <p style={{ fontSize: 10, color: "#f59e0b", margin: "4px 0 0" }}>Select an open bill to apply this credit to</p>}
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button className="vc-btn" disabled={applyingCredit || !applyBillId} onClick={() => handleApplyCredit(cr._id)}
                     style={{ flex: 1, padding: 10, background: applyBillId ? (isDark ? "rgba(16,185,129,0.12)" : "#f0fdf4") : T.surface2, color: applyBillId ? T.green : T.textMuted, border: `1px solid ${applyBillId ? (isDark ? "rgba(16,185,129,0.25)" : "#bbf7d0") : T.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: applyBillId ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
                     {applyingCredit ? "Applying…" : "Apply Credit"}

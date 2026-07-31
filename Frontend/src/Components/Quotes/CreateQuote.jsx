@@ -7,6 +7,7 @@ import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import useThemeStore from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import nexusToast from "../../helper/nexusToast";
 
 /* ─── Theme ─────────────────────────────────────────────────────────────── */
@@ -654,6 +655,7 @@ export default function CreateQuote() {
   const location  = useLocation();
   const isDark    = useThemeStore(s => s.isDark);
   const T         = getT(isDark);
+  const isMobile  = useIsMobile();
 
   const { handleGetCustomers, data: rawCustomers } = useGetCustomers();
   useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
@@ -890,24 +892,24 @@ export default function CreateQuote() {
         <style>{css}</style>
 
         {/* Top bar */}
-        <div style={{ background: T.topbar, borderBottom: `1px solid ${T.border}`, padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 0 }}>←</button>
-            <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.text }}>
+        <div style={{ background: T.topbar, borderBottom: `1px solid ${T.border}`, padding: isMobile ? "12px 14px" : "14px 28px", display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", alignItems: "center", justifyContent: "space-between", gap: isMobile ? 10 : 0, position: "sticky", top: 0, zIndex: 50 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <button onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 0, flexShrink: 0 }}>←</button>
+            <span style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 14 : 16, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {isEdit ? "Edit Quote" : "New Quote"}
             </span>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: isMobile ? "100%" : "auto" }}>
             <Btn v="ghost" onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} disabled={saving}>Cancel</Btn>
             {isEdit && prefill?._id && (
-              <Btn v="outline" onClick={() => navigate(`/Sales/Quotes/${prefill._id}/print`)} disabled={saving}>🖨 Preview &amp; Print</Btn>
+              <Btn v="outline" onClick={() => navigate(`/Sales/Quotes/${prefill._id}/print`)} disabled={saving}>🖨 {isMobile ? "Print" : "Preview & Print"}</Btn>
             )}
             <Btn v="outline" onClick={() => submit("draft")} disabled={saving}>{saving ? "Saving…" : "Save Draft"}</Btn>
-            <Btn v="primary" onClick={openSendModal} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
+            <Btn v="primary" onClick={openSendModal} disabled={saving}>{saving ? "Saving…" : (isMobile ? "Create" : "Create & Send")}</Btn>
           </div>
         </div>
 
-        <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 24px" }}>
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: isMobile ? "16px 14px" : "28px 24px" }}>
 
           {/* From-Enquiry banner */}
           {fromEnquiry && (
@@ -945,8 +947,9 @@ export default function CreateQuote() {
                       letterSpacing: "0.06em", color: isDark ? "#f59e0b" : "#b45309", marginBottom: 8 }}>
                       ⚠ Price Differences (Enquiry vs Catalogue)
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "4px 16px",
-                      fontSize: 12, color: T.text }}>
+                    <div style={{ overflowX: isMobile ? "auto" : "visible" }}>
+                     <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "4px 16px",
+                      fontSize: 12, color: T.text, minWidth: isMobile ? 360 : "auto" }}>
                       <span style={{ fontWeight: 700, color: T.muted }}>Item</span>
                       <span style={{ fontWeight: 700, color: T.muted, textAlign: "right" }}>Offered</span>
                       <span style={{ fontWeight: 700, color: T.muted, textAlign: "right" }}>Catalogue</span>
@@ -966,6 +969,7 @@ export default function CreateQuote() {
                           </span>
                         </>
                       ))}
+                     </div>
                     </div>
                   </div>
                 );
@@ -975,7 +979,7 @@ export default function CreateQuote() {
 
           {/* Customer + Dates */}
           <Section title="Quote Details">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Customer *">
                 <CustomerSelect value={customerId} onChange={handleCustomer} options={customerOpts} name="customerId" disabled={!!fromEnquiry} />
               </Field>
@@ -983,7 +987,7 @@ export default function CreateQuote() {
                 <Inp value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" type="email" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap: 16, marginBottom: 16 }}>
               <Field label="Quote Date">
                 <CustomDate value={quoteDate} onChange={setQuoteDate} />
               </Field>
@@ -999,7 +1003,7 @@ export default function CreateQuote() {
                   options={["Due on Receipt","Net 15","Net 30","Net 60","End of Month","30 Days PDC"].map(t => ({ value: t, label: t }))} />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Attention To (Contact Person)">
                 <Inp value={attentionTo} onChange={e => setAttentionTo(e.target.value)} placeholder="e.g. Mr. John Smith - Procurement" />
               </Field>
@@ -1010,7 +1014,7 @@ export default function CreateQuote() {
                 <Inp value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. Nashama School" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
               <Field label="Salesperson">
                 <CustomSelect value={salesperson} onChange={setSalesperson}
                   options={salespersonOptions}
@@ -1033,7 +1037,7 @@ export default function CreateQuote() {
 
           {/* Bill To */}
           <Section title="Bill To (Customer Address)">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
               <Field label="Name / Company">
                 <Inp value={billTo.name} onChange={e => setBillTo(b => ({ ...b, name: e.target.value }))} placeholder="Company / Contact name" />
               </Field>
@@ -1049,7 +1053,7 @@ export default function CreateQuote() {
           {/* Line Items */}
           <Section title="Line Items">
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     {["Part No.", "Description", "Qty", "Unit", "Unit Price", "Discount", "Tax %", "Total", ""].map((h, i) => (
@@ -1082,7 +1086,7 @@ export default function CreateQuote() {
 
             {/* Totals */}
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
-              <div style={{ width: 280 }}>
+              <div style={{ width: isMobile ? "100%" : 280 }}>
                 {[
                   ["Subtotal",    subtotalSum],
                   ["Discount",   -discountSum],
@@ -1103,7 +1107,7 @@ export default function CreateQuote() {
 
           {/* Notes */}
           <Section title="Notes">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
               <Field label="Notes (visible on PDF — each line becomes a bullet point)">
                 <Tex value={custNote} onChange={e => setCustNote(e.target.value)} placeholder={"e.g.\nAll prices are exclusive of additional taxes.\nPrices valid subject to prior sales."} />
               </Field>
@@ -1140,7 +1144,7 @@ export default function CreateQuote() {
 
           {/* Your Company Details */}
           <Section title="Your Company (PDF Header &amp; Footer)">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Company Name">
                 <Inp value={company.name} onChange={e => setCompany(c => ({ ...c, name: e.target.value }))} placeholder="Allied Building Materials L.L.C" />
               </Field>
@@ -1151,7 +1155,7 @@ export default function CreateQuote() {
                 <Tex value={company.address} onChange={e => setCompany(c => ({ ...c, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} placeholder="P.O. Box 8261, Abu Dhabi, UAE" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Phone">
                 <Inp value={company.phone} onChange={e => setCompany(c => ({ ...c, phone: e.target.value }))} placeholder="+971 54 4920990" />
               </Field>
@@ -1162,7 +1166,7 @@ export default function CreateQuote() {
                 <Inp value={company.website} onChange={e => setCompany(c => ({ ...c, website: e.target.value }))} placeholder="www.company.com" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
               <Field label="Signatory Name">
                 <Inp value={signatory.name} onChange={e => setSignatory(s => ({ ...s, name: e.target.value }))} placeholder="e.g. MANU" />
               </Field>
