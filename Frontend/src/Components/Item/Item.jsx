@@ -11,6 +11,8 @@ import { matchItem } from "../../helper/itemSearch";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
+import { drawerWidth, BREAKPOINT_TABLET } from "../../helper/responsive";
+import useIsMobile from "../../helper/useIsMobile";
 import CsvImportModal from "../common/CsvImportModal";
 
 const ITEM_IMPORT_FIELDS = [
@@ -63,6 +65,7 @@ export default function Item() {
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
+  const isMobile  = useIsMobile();
 
   const [selectedItem,  setSelectedItem]  = useState(null);
   const [activeTab,     setActiveTab]     = useState("overview");
@@ -222,6 +225,16 @@ export default function Item() {
     .inv-btn:hover{filter:brightness(${isDark?"1.1":".96"});transform:translateY(-1px)}
     .tx-acc:hover{filter:brightness(${isDark?"1.15":".97"})}
 
+    @media (max-width:${BREAKPOINT_TABLET}px){
+      .inv-stats{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+      .inv-stat-cell:nth-child(2n){border-right:none !important}
+      .inv-stat-cell{border-bottom:1px solid ${border}}
+      .inv-stat-cell:nth-last-child(-n+1){border-bottom:none}
+      .inv-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+      .inv-kpi{padding:11px !important}
+      .inv-kpi .kpi-v{font-size:16px !important}
+    }
+
     .inv-qa{transition:background .1s;cursor:pointer}
     .inv-qa:hover{background:${isDark?"rgba(255,255,255,.06)":"rgba(0,0,0,.05)"}}
 
@@ -273,27 +286,27 @@ export default function Item() {
       />
 
       {/* ══ PAGE HEAD ═══════════════════════════════════════════════════ */}
-      <div style={{background:surface,borderBottom:`1px solid ${border}`,padding:"12px 22px 8px",display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
-        <div>
-          <div className="display" style={{fontSize:21,...(isDark?{background:"linear-gradient(90deg,#60a5fa,#a78bfa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}:{color:"#1e293b"})}}>Inventory</div>
-          <div style={{color:isDark?"rgba(148,163,184,.9)":muted,fontSize:12,marginTop:2}}>{allItems.length} items in catalog · last sync just now</div>
+      <div style={{display:isMobile&&selectedItem?"none":"flex",flexWrap:isMobile?"wrap":"nowrap",background:surface,borderBottom:`1px solid ${border}`,padding:isMobile?"10px 14px 8px":"12px 22px 8px",alignItems:"center",gap:isMobile?8:14,flexShrink:0}}>
+        <div style={{minWidth:0}}>
+          <div className="display" style={{fontSize:isMobile?18:21,...(isDark?{background:"linear-gradient(90deg,#60a5fa,#a78bfa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}:{color:"#1e293b"})}}>Inventory</div>
+          <div style={{color:isDark?"rgba(148,163,184,.9)":muted,fontSize:11.5,marginTop:2}}>{allItems.length} items in catalog · last sync just now</div>
         </div>
-        <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-          <button className="inv-btn" style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
-            <FaDownload size={11}/> Export
+        <div style={{marginLeft:isMobile?0:"auto",width:isMobile?"100%":"auto",display:"flex",gap:8,alignItems:"center"}}>
+          <button className="inv-btn" style={{display:"flex",alignItems:"center",gap:6,height:32,padding:isMobile?"0 10px":"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
+            <FaDownload size={11}/> {!isMobile&&"Export"}
           </button>
-          <button className="inv-btn" onClick={()=>setShowImport(true)} style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
-            <FaFileImport size={11}/> Import
+          <button className="inv-btn" onClick={()=>setShowImport(true)} style={{display:"flex",alignItems:"center",gap:6,height:32,padding:isMobile?"0 10px":"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
+            <FaFileImport size={11}/> {!isMobile&&"Import"}
           </button>
           <button className="inv-btn" onClick={()=>navigate("/Items/Items/New")}
-            style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 14px",borderRadius:8,background:T.blue,border:"none",color:"#fff",fontSize:12.5,fontWeight:600,fontFamily:"inherit",boxShadow:`0 4px 14px ${isDark?"rgba(59,130,246,.35)":"rgba(37,99,235,.25)"}`}}>
+            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,height:32,padding:isMobile?"0 14px":"0 14px",flex:isMobile?1:"initial",marginLeft:isMobile?"auto":0,borderRadius:8,background:T.blue,border:"none",color:"#fff",fontSize:12.5,fontWeight:600,fontFamily:"inherit",boxShadow:`0 4px 14px ${isDark?"rgba(59,130,246,.35)":"rgba(37,99,235,.25)"}`}}>
             <FaPlus size={10}/> New item
           </button>
         </div>
       </div>
 
       {/* ══ SUMMARY STRIP ═══════════════════════════════════════════════ */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",borderBottom:`1px solid ${border}`,background:surface,flexShrink:0}}>
+      <div className="inv-stats" style={{display:isMobile&&selectedItem?"none":"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",borderBottom:`1px solid ${border}`,background:surface,flexShrink:0}}>
         {[
           { k:"Total SKUs",     v:fmtN(totalItems),  sub:`+${Math.max(0,totalItems-5)} this week`, color:T.blue,  icon:<FaLayerGroup size={12}/>,  sparkVals:[totalItems-8,totalItems-6,totalItems-4,totalItems-2,totalItems-1,totalItems] },
           { k:"In stock",       v:fmtN(inStockCount), sub:`${totalItems?Math.round(inStockCount/totalItems*100):0}%`,  color:T.green, icon:<FaCheckCircle size={12}/> },
@@ -301,7 +314,7 @@ export default function Item() {
           { k:"Out of stock",   v:fmtN(outCount),    sub:`${totalItems?Math.round(outCount/totalItems*100).toFixed(1):0}%`, color:T.red,   icon:<FaTimes size={12}/> },
           { k:"Portfolio value",v:`AED ${(totalValue/1000).toFixed(0)}K`, sub:"+AED 84K",          color:T.green, icon:<FaTag size={12}/>, sparkVals:[totalValue*.85,totalValue*.88,totalValue*.92,totalValue*.95,totalValue*.98,totalValue].map(x=>x/1000) },
         ].map((s,i)=>(
-          <div key={i} style={{padding:"14px 18px",borderRight:i<4?`1px solid ${border}`:"none"}}>
+          <div key={i} className="inv-stat-cell" style={{padding:"14px 18px",borderRight:i<4?`1px solid ${border}`:"none"}}>
             <div style={{fontSize:11,letterSpacing:".04em",textTransform:"uppercase",color:isDark?"rgba(148,163,184,.85)":muted,marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
               <span style={{color:s.color,opacity:.9}}>{s.icon}</span> {s.k}
             </div>
@@ -316,10 +329,10 @@ export default function Item() {
       </div>
 
       {/* ══ SPLIT CONTENT ═══════════════════════════════════════════════ */}
-      <div style={{display:"grid",gridTemplateColumns:selectedItem?"460px 1fr":"460px 1fr",flex:1,overflow:"hidden",minHeight:0}}>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"100%":"460px 1fr",flex:1,overflow:"hidden",minHeight:0}}>
 
         {/* ── LIST PANE ── */}
-        <div style={{borderRight:`1px solid ${border}`,background:surface2,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{display:isMobile&&selectedItem?"none":"flex",borderRight:isMobile?"none":`1px solid ${border}`,background:surface2,flexDirection:"column",overflow:"hidden"}}>
           {/* List header */}
           <div style={{padding:"12px 12px 0"}}>
             {/* Search */}
@@ -435,10 +448,10 @@ export default function Item() {
         </div>
 
         {/* ── DETAIL PANE ── */}
-        <div style={{background:bg,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+        <div style={{background:bg,overflow:"hidden",display:isMobile&&!selectedItem?"none":"flex",flexDirection:"column"}}>
           {selectedItem ? (
             <DetailPanel
-              item={selectedItem} T={T} isDark={isDark}
+              item={selectedItem} T={T} isDark={isDark} isMobile={isMobile}
               surface={surface} surface2={surface2} border={border} border2={border2}
               text={text} muted={muted} bg={bg}
               activeTab={activeTab} setActiveTab={setActiveTab}
@@ -465,7 +478,7 @@ export default function Item() {
       {/* ══ STOCK ADJUST MODAL ═══════════════════════════════════════════ */}
       {adjustItem&&(
         <div style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,.55)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setAdjustItem(null)}>
-          <div style={{background:isDark?"#0f172a":"#fff",border:`1px solid ${border}`,borderRadius:16,padding:"24px 28px",width:340,boxShadow:"0 32px 80px rgba(0,0,0,.45)"}} onClick={e=>e.stopPropagation()}>
+          <div style={{background:isDark?"#0f172a":"#fff",border:`1px solid ${border}`,borderRadius:16,padding:"24px 28px",width:drawerWidth(340),boxShadow:"0 32px 80px rgba(0,0,0,.45)"}} onClick={e=>e.stopPropagation()}>
             <p className="sora" style={{fontSize:14,fontWeight:700,color:text,margin:"0 0 4px"}}>Adjust Stock</p>
             <p style={{fontSize:12,color:muted,margin:"0 0 20px"}}>{adjustItem.name} · Current: <strong style={{color:text}}>{adjustItem.quantity??0}</strong></p>
             <label style={{fontSize:11,fontWeight:700,color:muted,textTransform:"uppercase",letterSpacing:".06em",display:"block",marginBottom:6}}>New Quantity</label>
@@ -512,7 +525,7 @@ function MiniSparkline({ vals, color }) {
 }
 
 /* ─── Detail panel ────────────────────────────────────────────────────── */
-function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, itemAdjustments, adjLoading, requested, availability, onClose, onAdjust, onEdit }) {
+function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, itemAdjustments, adjLoading, requested, availability, onClose, onAdjust, onEdit }) {
   const state = stockState(item.quantity, item.reorder_point);
   const qty   = parseFloat(item.quantity || 0);
   const reo   = parseFloat(item.reorder_point || 0);
@@ -534,8 +547,43 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
       {/* Sticky detail header */}
-      <div style={{background:surface,borderBottom:`1px solid ${border}`,padding:"20px 24px 14px",flexShrink:0}}>
+      <div style={{background:surface,borderBottom:`1px solid ${border}`,padding:isMobile?"12px 14px 12px":"20px 24px 14px",flexShrink:0}}>
         {/* Hero row */}
+        {isMobile ? (
+          <div style={{marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+              <button onClick={onClose} style={{width:30,height:30,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:7,border:`1px solid ${border}`,background:surface2,color:muted,cursor:"pointer"}}>
+                <FaArrowDown size={11} style={{transform:"rotate(90deg)"}}/>
+              </button>
+              <span style={{fontSize:11,fontWeight:600,color:muted,textTransform:"uppercase",letterSpacing:".04em"}}>Item detail</span>
+              <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+                <button className="inv-btn" onClick={()=>onEdit(item)} style={{width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:7,background:surface2,border:`1px solid ${border}`,color:text}}>
+                  <FaEdit size={12}/>
+                </button>
+                <button className="inv-btn" style={{width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:7,background:surface2,border:`1px solid ${border}`,color:text}} onClick={()=>{}}>
+                  <FaCopy size={12}/>
+                </button>
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:52,height:52,borderRadius:12,background:item.image?"transparent":thumbGrad(item.name||""),display:"grid",placeItems:"center",color:"#fff",flexShrink:0,overflow:"hidden"}}>
+                {item.image
+                  ? <img src={item.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  : <FaCubes size={22} style={{opacity:.8}}/>}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div className="display" style={{fontSize:16,color:text,lineHeight:1.25,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,flexWrap:"wrap"}}>
+                  {badge}
+                  <span className="mono" style={{fontSize:10.5,fontWeight:500,padding:"2px 6px",borderRadius:5,background:surface2,color:muted,fontFamily:"'DM Mono',monospace"}}>{item.item_code}</span>
+                </div>
+              </div>
+            </div>
+            <button className="inv-btn" style={{width:"100%",marginTop:12,height:34,borderRadius:8,background:T.blue,border:"none",color:"#fff",fontSize:12.5,fontWeight:600,fontFamily:"inherit"}} onClick={()=>{}}>
+              Open record
+            </button>
+          </div>
+        ) : (
         <div style={{display:"flex",alignItems:"flex-start",gap:16,marginBottom:14}}>
           <div style={{width:84,height:84,borderRadius:14,background:item.image?"transparent":thumbGrad(item.name||""),display:"grid",placeItems:"center",color:"#fff",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,.15) inset, 0 8px 16px -8px rgba(0,0,0,.3)",position:"relative",overflow:"hidden"}}>
             {item.image
@@ -568,6 +616,7 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
             </button>
           </div>
         </div>
+        )}
 
         {/* Quick actions */}
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
@@ -594,7 +643,7 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
       <div style={{flex:1,overflowY:"auto",background:bg}}>
         {/* AI Insight banner */}
         {showInsight&&(
-          <div style={{margin:"14px 24px 0",padding:"12px 14px",borderRadius:11,background:`linear-gradient(90deg, ${isDark?"rgba(99,102,241,.12)":"rgba(99,102,241,.07)"}, transparent 80%)`,border:`1px solid ${isDark?"rgba(99,102,241,.25)":"rgba(99,102,241,.18)"}`,display:"flex",alignItems:"flex-start",gap:12,position:"relative"}}>
+          <div style={{margin:isMobile?"12px 14px 0":"14px 24px 0",padding:"12px 14px",borderRadius:11,background:`linear-gradient(90deg, ${isDark?"rgba(99,102,241,.12)":"rgba(99,102,241,.07)"}, transparent 80%)`,border:`1px solid ${isDark?"rgba(99,102,241,.25)":"rgba(99,102,241,.18)"}`,display:"flex",flexWrap:isMobile?"wrap":"nowrap",alignItems:"flex-start",gap:12,position:"relative"}}>
             <span style={{position:"absolute",top:-8,left:14,fontSize:9.5,letterSpacing:".08em",textTransform:"uppercase",padding:"2px 7px",background:T.blue,color:"#fff",borderRadius:99,fontWeight:600}}>AI · Reorder</span>
             <div style={{width:26,height:26,borderRadius:8,flexShrink:0,background:T.blue,color:"#fff",display:"grid",placeItems:"center",boxShadow:`0 4px 12px -4px ${T.blue}`}}>
               <FaMagic size={12}/>
@@ -619,7 +668,7 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
         )}
 
         {/* KPI grid — 6 cols */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10,padding:"14px 24px 6px"}}>
+        <div className="inv-kpi-grid" style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10,padding:isMobile?"12px 14px 4px":"14px 24px 6px"}}>
           <KpiCard
             label="Stock on hand"
             value={`${qty} ${item.unit||"units"}`}
@@ -670,7 +719,7 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
         </div>
 
         {/* Tabs */}
-        <div style={{display:"flex",gap:4,padding:"14px 24px 0",borderBottom:`1px solid ${border}`,background:surface}}>
+        <div style={{display:"flex",gap:4,padding:isMobile?"12px 14px 0":"14px 24px 0",borderBottom:`1px solid ${border}`,background:surface}}>
           {["overview","transactions","history"].map(tab=>(
             <button key={tab} className="inv-tab-btn"
               onClick={()=>setActiveTab(tab)}
@@ -682,10 +731,10 @@ function DetailPanel({ item, T, isDark, surface, surface2, border, border2, text
 
         {/* Tab body */}
         {activeTab==="overview"&&(
-          <OverviewTab item={item} T={T} isDark={isDark} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} availability={availability} onEdit={onEdit}/>
+          <OverviewTab item={item} T={T} isDark={isDark} isMobile={isMobile} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} availability={availability} onEdit={onEdit}/>
         )}
         {(activeTab==="transactions"||activeTab==="history")&&(
-          <TxnHistoryTab activeTab={activeTab} item={item} T={T} isDark={isDark} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} ordersLoading={ordersLoading} itemAdjustments={itemAdjustments} adjLoading={adjLoading}/>
+          <TxnHistoryTab activeTab={activeTab} item={item} T={T} isDark={isDark} isMobile={isMobile} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} ordersLoading={ordersLoading} itemAdjustments={itemAdjustments} adjLoading={adjLoading}/>
         )}
       </div>
     </div>
@@ -740,7 +789,7 @@ function KpiCard({ label, value, tone, sub, icon, bar, T, isDark, muted, text })
 }
 
 /* ─── Overview tab ────────────────────────────────────────────────────── */
-function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, itemOrders }) {
+function OverviewTab({ item, T, isDark, isMobile, surface, border, border2, text, muted, itemOrders }) {
   const qty = parseFloat(item.quantity||0);
   const fmtD = (d)=>d?new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}):"—";
   const recentTxns = itemOrders.slice(-5).reverse();
@@ -751,7 +800,7 @@ function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, i
   const cardB     = { padding:"8px 14px 14px" };
 
   return (
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1.05fr",gap:14,padding:"18px 24px"}}>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1.05fr",gap:14,padding:isMobile?"14px":"18px 24px"}}>
       {/* LEFT */}
       <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
         {/* Item details card */}
@@ -846,7 +895,7 @@ function OverviewTab({ item, T, isDark, surface, border, border2, text, muted, i
 }
 
 /* ─── Transactions / History tab ─────────────────────────────────────── */
-function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, text, muted, itemOrders, ordersLoading, itemAdjustments, adjLoading }) {
+function TxnHistoryTab({ activeTab, item, T, isDark, isMobile, surface2, border, border2, text, muted, itemOrders, ordersLoading, itemAdjustments, adjLoading }) {
   void surface2;
   const [collapsed, setCollapsed] = useState({});
   const fmtA=(n)=>fmtAED(n);
@@ -866,7 +915,7 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
       .sort((a,b)=>new Date(a.adjustedAt||a.createdAt)-new Date(b.adjustedAt||b.createdAt));
     if(!histEntries.length) return <Empty text icon={<FaBarcode size={22}/>} title="No History" sub="Stock movements appear here after dispatches and adjustments." T={T} muted={muted}/>;
     return (
-      <div style={{padding:"20px 24px",display:"flex",flexDirection:"column",gap:0}}>
+      <div style={{padding:isMobile?"14px":"20px 24px",display:"flex",flexDirection:"column",gap:0}}>
         <TLine dotColor={T.green} text={text} muted={muted} border={border} label="Opening Stock" sub={`${item.opening_stock||0} units · Initial inventory`}/>
         {histEntries.map((a,i)=>{
           const isInc = a.type==="increase";
@@ -906,30 +955,32 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
         </span>
       </button>
       {isOpen && (
-      <div style={{border:`1px solid ${border}`,borderRadius:9,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1.1fr 1fr .8fr .7fr .8fr 70px",padding:"7px 12px",background:isDark?`${color}08`:`${color}10`,borderBottom:`1px solid ${border}`}}>
-          {["Date","Order #","Party","Qty","Total","Status"].map(h=>(
-            <span key={h} style={{fontSize:9,fontWeight:700,color:muted,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
-          ))}
-        </div>
-        {rows.map((o,i)=>{
-          const s=sc(o.status);
-          return (
-            <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.1fr 1fr .8fr .7fr .8fr 70px",padding:"9px 12px",borderBottom:i<rows.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
-              <span style={{fontSize:10,color:muted}}>{fmtD(o.date)}</span>
-              <span style={{fontSize:10,color,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
-              <span style={{fontSize:10,color:text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.partyName}{o.forCustomer&&<span style={{color:muted}}> · for {o.forCustomer}</span>}</span>
-              <span className="sora" style={{fontSize:11,fontWeight:700,color}}>{o.type==="sale"?"−":"+"}{ o.qty}</span>
-              <span style={{fontSize:10,color:text,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
-              <span style={{display:"inline-flex",alignItems:"center",gap:3,padding:"2px 7px",borderRadius:20,fontSize:9,fontWeight:600,background:s.bg,color:s.t,textTransform:"capitalize",width:"fit-content"}}>
-                <span style={{width:4,height:4,borderRadius:"50%",background:s.t}}/>{o.status||"—"}
-              </span>
-            </div>
-          );
-        })}
-        <div style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",borderTop:`1px solid ${border}`,background:isDark?`${color}05`:`${color}08`}}>
-          <span style={{fontSize:11,color:muted}}>{rows.length} order{rows.length!==1?"s":""}</span>
-          <span className="sora" style={{fontSize:12,fontWeight:700,color,fontFamily:"monospace"}}>{fmtA(rows.reduce((s,o)=>s+o.total,0))}</span>
+      <div style={{border:`1px solid ${border}`,borderRadius:9,overflowX:"auto",overflowY:"hidden"}}>
+        <div style={{minWidth:480}}>
+          <div style={{display:"grid",gridTemplateColumns:"1.1fr 1fr .8fr .7fr .8fr 70px",padding:"7px 12px",background:isDark?`${color}08`:`${color}10`,borderBottom:`1px solid ${border}`}}>
+            {["Date","Order #","Party","Qty","Total","Status"].map(h=>(
+              <span key={h} style={{fontSize:9,fontWeight:700,color:muted,textTransform:"uppercase",letterSpacing:".06em"}}>{h}</span>
+            ))}
+          </div>
+          {rows.map((o,i)=>{
+            const s=sc(o.status);
+            return (
+              <div key={o.id||i} style={{display:"grid",gridTemplateColumns:"1.1fr 1fr .8fr .7fr .8fr 70px",padding:"9px 12px",borderBottom:i<rows.length-1?`1px solid ${border2}`:"none",alignItems:"center"}}>
+                <span style={{fontSize:10,color:muted}}>{fmtD(o.date)}</span>
+                <span style={{fontSize:10,color,fontWeight:600,fontFamily:"monospace"}}>{o.orderNumber||"—"}</span>
+                <span style={{fontSize:10,color:text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.partyName}{o.forCustomer&&<span style={{color:muted}}> · for {o.forCustomer}</span>}</span>
+                <span className="sora" style={{fontSize:11,fontWeight:700,color}}>{o.type==="sale"?"−":"+"}{ o.qty}</span>
+                <span style={{fontSize:10,color:text,fontFamily:"monospace"}}>{fmtA(o.total)}</span>
+                <span style={{display:"inline-flex",alignItems:"center",gap:3,padding:"2px 7px",borderRadius:20,fontSize:9,fontWeight:600,background:s.bg,color:s.t,textTransform:"capitalize",width:"fit-content"}}>
+                  <span style={{width:4,height:4,borderRadius:"50%",background:s.t}}/>{o.status||"—"}
+                </span>
+              </div>
+            );
+          })}
+          <div style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",borderTop:`1px solid ${border}`,background:isDark?`${color}05`:`${color}08`}}>
+            <span style={{fontSize:11,color:muted}}>{rows.length} order{rows.length!==1?"s":""}</span>
+            <span className="sora" style={{fontSize:12,fontWeight:700,color,fontFamily:"monospace"}}>{fmtA(rows.reduce((s,o)=>s+o.total,0))}</span>
+          </div>
         </div>
       </div>
       )}
@@ -938,7 +989,7 @@ function TxnHistoryTab({ activeTab, item, T, isDark, surface2, border, border2, 
   };
 
   return (
-    <div style={{padding:"20px 24px"}}>
+    <div style={{padding:isMobile?"14px":"20px 24px"}}>
       {purchases.length>0&&<TxTable rows={purchases} color={T.green} label="Inbound — Goods Received (GRN)"/>}
       {onOrder.length>0&&<TxTable rows={onOrder} color={T.amber} label="On Order — Pending Receipt"/>}
       {sales.length>0&&<TxTable rows={sales} color={T.blue} label="Outbound — Sales Orders"/>}

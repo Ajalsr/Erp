@@ -215,6 +215,19 @@ export function reflowPageBreaks(bodyEl, topPx, botPx) {
         cursor = 0; // re-tally from this child, now at the top of the next page
         continue;   // re-evaluate the same child (loop advances via the next iteration)
       }
+      if (tooTallAlone) {
+        // Unsplittable single block (table/image/etc.) taller than one page —
+        // accepted limitation, it bleeds through its own page(s) as-is. But it
+        // must NOT be added to cursor: h can be many multiples of usableH, and
+        // letting that huge value carry forward corrupts every overflow check
+        // for the rest of the document, silently inserting far more page
+        // breaks than the actual remaining content needs. Reset to 0 instead —
+        // the next sibling starts tallying fresh, as if this block were its
+        // own page.
+        cursor = 0;
+        child = child.nextElementSibling;
+        continue;
+      }
       cursor += h;
       child = child.nextElementSibling;
     }

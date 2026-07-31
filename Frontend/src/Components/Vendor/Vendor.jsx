@@ -11,6 +11,7 @@ import {
 import { FaFileImport } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import CsvImportModal from "../common/CsvImportModal";
 
 const VENDOR_IMPORT_FIELDS = [
@@ -141,6 +142,7 @@ const Vendors = () => {
   const navigate = useNavigate();
   const isDark   = useThemeStore(s => s.isDark);
   const T        = getTheme(isDark);
+  const isMobile = useIsMobile();
   const { can }  = usePermissions();
   const canExport = can("vendors", "export");
 
@@ -367,28 +369,28 @@ const Vendors = () => {
       <div className="vnd-root" style={{ background: T.bg, display: "flex", height: "calc(100vh - 56px)", overflow: "hidden", color: T.textPri }}>
 
         {/* ── LEFT LIST PANEL ── */}
-        <div style={{ flex: selectedItem ? "0 0 44%" : "1", overflowY: "auto", padding: "20px", minWidth: 0, transition: "flex 0.3s ease", borderRight: selectedItem ? `1px solid ${T.border}` : "none" }}>
+        <div style={{ display: isMobile && selectedItem ? "none" : "block", flex: selectedItem ? (isMobile ? "1" : "0 0 44%") : "1", overflowY: "auto", padding: isMobile ? "14px" : "20px", minWidth: 0, transition: "flex 0.3s ease", borderRight: selectedItem && !isMobile ? `1px solid ${T.border}` : "none" }}>
 
           {/* Header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "center", gap: isMobile ? 8 : 0, marginBottom: "16px" }}>
             <div>
-              <h1 className="vnd-jakarta" style={{ fontSize: "18px", fontWeight: "700", color: T.textPri, margin: 0 }}>Vendors</h1>
+              <h1 className="vnd-jakarta" style={{ fontSize: isMobile ? "16px" : "18px", fontWeight: "700", color: T.textPri, margin: 0 }}>Vendors</h1>
               {!selectedItem && <p style={{ color: T.textSec, fontSize: "12px", marginTop: "3px" }}>Manage your supplier relationships</p>}
             </div>
-            <div style={{ display: "flex", gap: "6px" }}>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
               {[
                 { label: "Refresh", icon: <FaSync size={11} />,    onClick: loadVendors },
                 { label: "Import",  icon: <FaFileImport size={11} />, onClick: () => setShowImport(true) },
                 ...(canExport ? [{ label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport }] : []),
               ].map(btn => (
                 <button key={btn.label} title={btn.label} onClick={btn.onClick}
-                  style={{ height: "30px", padding: "0 12px", display: "flex", alignItems: "center", gap: "6px", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }}>
-                  {btn.icon}{btn.label}
+                  style={{ height: "30px", padding: isMobile ? "0 10px" : "0 12px", display: "flex", alignItems: "center", gap: "6px", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                  {btn.icon}{!isMobile && btn.label}
                 </button>
               ))}
               <button onClick={() => navigate("/Purchase/Vendors/NewVendor")}
-                style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 12px", borderRadius: "8px", border: "none", background: T.blue, color: "white", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                <FaPlus size={10} /> {selectedItem ? "New" : "New Vendor"}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", padding: "6px 12px", borderRadius: "8px", border: "none", background: T.blue, color: "white", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                <FaPlus size={10} /> {selectedItem || isMobile ? "New" : "New Vendor"}
               </button>
             </div>
           </div>
@@ -404,7 +406,7 @@ const Vendors = () => {
           />
 
           {/* Stat cards */}
-          <div style={{ display: "grid", gridTemplateColumns: selectedItem ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: "12px", marginBottom: "16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : (selectedItem ? "repeat(2,1fr)" : "repeat(4,1fr)"), gap: "12px", marginBottom: "16px" }}>
             {[
               { label: "Total Vendors", value: stats.total, icon: <FaStore />, color: T.blue, dim: T.blueDim, sub: `${stats.active} active · ${stats.pending} pending`, bar: null },
               { label: "Active",  value: stats.active,  icon: <FaCheckCircle />, color: T.green,  dim: T.greenDim, sub: stats.total ? `${Math.round((stats.active  / stats.total) * 100)}% of total` : "—", bar: stats.total ? (stats.active  / stats.total) * 100 : 0, barColor: T.green  },
@@ -616,7 +618,7 @@ const Vendors = () => {
           };
 
           return (
-            <div style={{ flex: "1", display: "flex", flexDirection: "column", overflow: "hidden", background: isDark ? "#0b1120" : "#f8fafc" }}>
+            <div style={{ flex: "1", width: isMobile ? "100%" : "auto", display: "flex", flexDirection: "column", overflow: "hidden", background: isDark ? "#0b1120" : "#f8fafc" }}>
 
               {/* Hero */}
               <div style={{ background: isDark ? T.surface : "#fff", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
@@ -671,7 +673,7 @@ const Vendors = () => {
                 </div>
 
                 {/* 4 stat chips */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", borderTop: `1px solid ${T.border}` }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr", borderTop: `1px solid ${T.border}` }}>
                   {[
                     { label: "OUTSTANDING", value: payable > 0 ? `AED ${payable.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—", sub: payable > 0 ? "Open payables" : "No open payables", color: payable > 0 ? "#ef4444" : T.textMuted || T.textSec },
                     { label: "CREDIT AVAILABLE", value: creditAvailable > 0 ? `AED ${creditAvailable.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—", sub: creditAvailable > 0 ? "Unused vendor credits" : "No credits", color: creditAvailable > 0 ? "#8b5cf6" : T.textMuted || T.textSec },
@@ -679,7 +681,7 @@ const Vendors = () => {
                     { label: "BILLS", value: String(billCount), sub: txData.bills?.[0]?.dueDate ? `Last due: ${fmtDate(txData.bills[0].dueDate)}` : "—", color: T.textPri },
                     { label: "VENDOR SINCE", value: v.createdAt ? new Date(v.createdAt).toLocaleDateString("en-AE", { month: "short", year: "numeric" }) : "—", sub: v.paymentTerms || "", color: T.textPri },
                   ].map((chip, i) => (
-                    <div key={i} style={{ padding: "12px 14px", borderRight: i < 4 ? `1px solid ${T.border}` : "none" }}>
+                    <div key={i} style={{ padding: "12px 14px", borderRight: (isMobile ? i % 2 === 0 : i < 4) ? `1px solid ${T.border}` : "none", borderBottom: isMobile && i < 3 ? `1px solid ${T.border}` : "none" }}>
                       <p style={{ fontSize: 9, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 5px" }}>{chip.label}</p>
                       <p style={{ fontSize: 15, fontWeight: 800, color: chip.color, margin: 0, lineHeight: 1, fontFamily: "'DM Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chip.value}</p>
                       <p style={{ fontSize: 10, color: T.textSec, margin: "4px 0 0" }}>{chip.sub}</p>

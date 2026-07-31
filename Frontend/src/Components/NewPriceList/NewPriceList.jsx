@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { IoMdClose } from 'react-icons/io';
@@ -9,6 +9,7 @@ import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
+import useIsMobile from '../../helper/useIsMobile';
 import 'react-datepicker/dist/react-datepicker.css';
 
 const CURRENCIES = ['AED', 'USD', 'EUR', 'GBP', 'SAR', 'INR'];
@@ -31,7 +32,7 @@ const Sel = ({ value, onChange, options = [], placeholder = 'Select…' }) => {
     }
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]);
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]);
 
   useEffect(() => {
     const h = (e) => {
@@ -142,7 +143,7 @@ const ModernDatePicker = ({ value, onChange, placeholder = 'Select date' }) => {
     }
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]);
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]);
 
   useEffect(() => {
     const h = (e) => {
@@ -273,6 +274,7 @@ export default function NewPriceList() {
   const guard = useUnsavedGuard({ hasDraft: false });
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
+  const isMobile = useIsMobile();
 
   const [saving, setSaving] = useState(false);
   const [allItems, setAllItems] = useState([]);
@@ -381,28 +383,28 @@ export default function NewPriceList() {
       `}</style>
 
       {/* Top bar */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 40, height: 58, background: isDark ? 'rgba(13,21,38,.92)' : 'rgba(255,255,255,.92)', backdropFilter: 'blur(12px)', borderBottom: `1.5px solid ${T.border}`, display: 'flex', alignItems: 'center', padding: '0 28px', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button onClick={() => guard.leave(() => navigate('/Items/price-lists'))} style={{ width: 34, height: 34, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 40, height: 58, background: isDark ? 'rgba(13,21,38,.92)' : 'rgba(255,255,255,.92)', backdropFilter: 'blur(12px)', borderBottom: `1.5px solid ${T.border}`, display: 'flex', alignItems: 'center', padding: isMobile ? '0 12px' : '0 28px', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0 }}>
+          <button onClick={() => guard.leave(() => navigate('/Items/price-lists'))} style={{ width: 34, height: 34, flexShrink: 0, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
             <IoMdClose size={16} />
           </button>
-          <div style={{ width: 1, height: 22, background: T.border }} />
-          <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>New Price List</p>
+          {!isMobile && <div style={{ width: 1, height: 22, background: T.border }} />}
+          <p style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 13 : 15, fontWeight: 700, color: T.textPri, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>New Price List</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => guard.leave(() => navigate('/Items/price-lists'))} style={{ padding: '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={saving} style={{ padding: '8px 22px', borderRadius: 10, border: 'none', background: saving ? '#94a3b8' : '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-            {saving ? 'Saving…' : 'Save Price List'}
+        <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexShrink: 0 }}>
+          <button onClick={() => guard.leave(() => navigate('/Items/price-lists'))} style={{ padding: isMobile ? '8px 12px' : '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface2, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={saving} style={{ padding: isMobile ? '8px 12px' : '8px 22px', borderRadius: 10, border: 'none', background: saving ? '#94a3b8' : '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+            {saving ? 'Saving…' : (isMobile ? 'Save' : 'Save Price List')}
           </button>
         </div>
       </div>
 
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px 80px' }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', padding: isMobile ? '16px 14px 80px' : '32px 24px 80px' }}>
 
         {/* Basic info */}
-        <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: '20px 22px', marginBottom: 16 }}>
+        <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: isMobile ? '16px' : '20px 22px', marginBottom: 16 }}>
           <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, margin: '0 0 16px' }}>Basic Information</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14, marginBottom: 14 }}>
             <div>
               <label style={lbl}>Name <span style={{ color: '#ef4444' }}>*</span></label>
               <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Wholesale Pricing" style={inp()} />
@@ -425,11 +427,11 @@ export default function NewPriceList() {
         </div>
 
         {/* Adjustment */}
-        <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: '20px 22px', marginBottom: 16 }}>
+        <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: isMobile ? '16px' : '20px 22px', marginBottom: 16 }}>
           <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, margin: '0 0 16px' }}>Global Price Adjustment</p>
           <p style={{ fontSize: 12, color: T.textSec, margin: '0 0 14px' }}>Apply a percentage markup or markdown to all item base prices. You can override individual items below.</p>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {[['percentage', '% Markup/down'], ['fixed', 'Fixed Amount']].map(([val, lbl]) => (
                 <div key={val} onClick={() => set('adjustmentType', val)}
                   style={{ padding: '9px 16px', borderRadius: 10, cursor: 'pointer', border: `1.5px solid ${form.adjustmentType === val ? '#3b82f6' : T.border}`, background: form.adjustmentType === val ? (isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff') : T.surface2, fontSize: 12, fontWeight: 600, color: form.adjustmentType === val ? '#3b82f6' : T.textSec }}>
@@ -450,9 +452,9 @@ export default function NewPriceList() {
         </div>
 
         {/* Validity */}
-        <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: '20px 22px', marginBottom: 16 }}>
+        <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: isMobile ? '16px' : '20px 22px', marginBottom: 16 }}>
           <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, margin: '0 0 16px' }}>Validity & Options</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14, marginBottom: 14 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>Valid From</label>
               <ModernDatePicker value={form.validFrom} onChange={(v) => set('validFrom', v)} placeholder="Select start date" />
@@ -475,14 +477,14 @@ export default function NewPriceList() {
         </div>
 
         {/* Item overrides */}
-        <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: '20px 22px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div>
+        <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: isMobile ? '16px' : '20px 22px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <div style={{ minWidth: 0 }}>
               <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, margin: '0 0 3px' }}>Item Price Overrides</p>
               <p style={{ fontSize: 11, color: T.textSec, margin: 0 }}>Override specific item prices (overrides the global adjustment above)</p>
             </div>
             <button onClick={() => setShowItemSearch(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: T.surface2, border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: T.textPri, fontFamily: 'inherit' }}>
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px 14px', width: isMobile ? '100%' : 'auto', background: T.surface2, border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: T.textPri, fontFamily: 'inherit' }}>
               <FaPlus size={9} /> Add Item
             </button>
           </div>
@@ -518,27 +520,29 @@ export default function NewPriceList() {
               <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>No item overrides added. The global adjustment above will apply to all items.</p>
             </div>
           ) : (
-            <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 36px', padding: '8px 12px', background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
-                {['Item', 'Base Price', 'Override Price', ''].map(h => (
-                  <span key={h} style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec }}>{h}</span>
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflowX: 'auto', overflowY: 'hidden' }}>
+              <div style={{ minWidth: isMobile ? 460 : 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 36px', padding: '8px 12px', background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
+                  {['Item', 'Base Price', 'Override Price', ''].map(h => (
+                    <span key={h} style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec }}>{h}</span>
+                  ))}
+                </div>
+                {form.items.map((item, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 36px', padding: '10px 12px', borderBottom: i < form.items.length - 1 ? `1px solid ${T.border}` : 'none', alignItems: 'center', background: T.surface }}>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{item.itemName}</p>
+                      <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', fontFamily: "'DM Mono',monospace" }}>{item.itemCode}</p>
+                    </div>
+                    <span style={{ fontSize: 12, color: T.textSec, fontFamily: "'DM Mono',monospace" }}>{item.basePrice?.toFixed(2)}</span>
+                    <input type="number" value={item.price} onChange={e => updateItemPrice(i, e.target.value)}
+                      style={{ height: 32, padding: '0 8px', border: `1.5px solid ${T.border}`, borderRadius: 8, fontSize: 12, color: T.textPri, background: T.surface2, outline: 'none', fontFamily: "'DM Mono',monospace", width: '100%' }} />
+                    <button onClick={() => removeItem(i)}
+                      style={{ width: 28, height: 28, border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <FaTrash size={10} />
+                    </button>
+                  </div>
                 ))}
               </div>
-              {form.items.map((item, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 36px', padding: '10px 12px', borderBottom: i < form.items.length - 1 ? `1px solid ${T.border}` : 'none', alignItems: 'center', background: T.surface }}>
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{item.itemName}</p>
-                    <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', fontFamily: "'DM Mono',monospace" }}>{item.itemCode}</p>
-                  </div>
-                  <span style={{ fontSize: 12, color: T.textSec, fontFamily: "'DM Mono',monospace" }}>{item.basePrice?.toFixed(2)}</span>
-                  <input type="number" value={item.price} onChange={e => updateItemPrice(i, e.target.value)}
-                    style={{ height: 32, padding: '0 8px', border: `1.5px solid ${T.border}`, borderRadius: 8, fontSize: 12, color: T.textPri, background: T.surface2, outline: 'none', fontFamily: "'DM Mono',monospace", width: '100%' }} />
-                  <button onClick={() => removeItem(i)}
-                    style={{ width: 28, height: 28, border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <FaTrash size={10} />
-                  </button>
-                </div>
-              ))}
             </div>
           )}
         </div>

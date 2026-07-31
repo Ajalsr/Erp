@@ -18,6 +18,7 @@ import useAuthStore from "../../store/useAuthStore";
 import { usePermissions } from "../../helper/permissions";
 import axiosInstance from "../../helper/axiosInstance";
 import useConfirm from "../common/useConfirm";
+import useIsMobile from "../../helper/useIsMobile";
 
 // ── CustomSelect (portal dropdown, unchanged logic) ──────────────
 const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWidth = 120 }) => {
@@ -228,6 +229,7 @@ const Salesorders = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const { confirm, ConfirmModal } = useConfirm();
   const activeOrg = useAuthStore((s) => s.activeOrg);
   const myUserId = useAuthStore((s) => s.user?.userId || s.activeOrg?.userId || "");
@@ -677,32 +679,32 @@ const Salesorders = () => {
       <div className="so" style={{ background: C.bg, minHeight: "100vh", color: C.textPri }}>
 
         {/* ── PAGE HEADER ─────────────────────────────────────── */}
-        <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 28px", boxShadow: isDark ? "0 1px 0 rgba(255,255,255,0.04)" : "0 1px 4px rgba(0,0,0,0.04)" }}>
-          <div className="anim-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "60px" }}>
+        <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: isMobile ? "10px 14px" : "0 28px", boxShadow: isDark ? "0 1px 0 rgba(255,255,255,0.04)" : "0 1px 4px rgba(0,0,0,0.04)" }}>
+          <div className="anim-up" style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "center", gap: isMobile ? 10 : 0, height: isMobile ? "auto" : "60px" }}>
             {/* Breadcrumb + title */}
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "12px", color: C.textMuted }}>Sales</span>
-              <span style={{ color: C.textMuted, fontSize: "12px" }}>/</span>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ width: "28px", height: "28px", borderRadius: "7px", background: C.blueDim, color: C.blueLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+              {!isMobile && <><span style={{ fontSize: "12px", color: C.textMuted }}>Sales</span>
+              <span style={{ color: C.textMuted, fontSize: "12px" }}>/</span></>}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                <div style={{ width: "28px", height: "28px", flexShrink: 0, borderRadius: "7px", background: C.blueDim, color: C.blueLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
                   <FaShoppingCart />
                 </div>
-                <h1 className="so-heading" style={{ fontSize: "15px", fontWeight: "700", color: C.textPri, margin: 0, letterSpacing: "-0.01em" }}>Sales Orders</h1>
-                <span style={{ fontSize: "11px", fontWeight: "600", background: C.blueDim, color: C.blueLight, padding: "2px 7px", borderRadius: "5px" }}>{allOrders.length}</span>
+                <h1 className="so-heading" style={{ fontSize: "15px", fontWeight: "700", color: C.textPri, margin: 0, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Sales Orders</h1>
+                <span style={{ fontSize: "11px", fontWeight: "600", background: C.blueDim, color: C.blueLight, padding: "2px 7px", borderRadius: "5px", flexShrink: 0 }}>{allOrders.length}</span>
               </div>
             </div>
 
             {/* Actions */}
-            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", width: isMobile ? "100%" : "auto" }}>
               {canExport && (
               <button className="so-ghost-btn so-icon-btn"
                 onClick={() => exportOrdersCSV(filtered)}
-                style={{ height: "32px", padding: "0 12px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit", background: "transparent", color: C.textSec, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "5px" }}>
-                <FaDownload size={11} /> Export CSV
+                style={{ height: "32px", padding: isMobile ? "0 10px" : "0 12px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit", background: "transparent", color: C.textSec, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", whiteSpace: "nowrap", flex: isMobile ? 1 : "initial" }}>
+                <FaDownload size={11} /> {isMobile ? "Export" : "Export CSV"}
               </button>
               )}
               <button className="so-primary-btn" onClick={() => navigate("/Sales/Salesorders/Newsalesorders")}
-                style={{ height: "32px", padding: "0 14px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", background: C.blue, color: "white", border: "none", display: "flex", alignItems: "center", gap: "5px" }}>
+                style={{ height: "32px", padding: isMobile ? "0 12px" : "0 14px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", background: C.blue, color: "white", border: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", whiteSpace: "nowrap", flex: isMobile ? 1 : "initial" }}>
                 <FaPlus size={10} /> New Order
               </button>
             </div>
@@ -710,10 +712,10 @@ const Salesorders = () => {
         </div>
 
         {/* ── MAIN CONTENT ────────────────────────────────────── */}
-        <div style={{ padding: "20px 28px" }}>
+        <div style={{ padding: isMobile ? "14px" : "20px 28px" }}>
 
           {/* ── STAT CARDS ──────────────────────────────────── */}
-          <div className="anim-up1" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: "12px", marginBottom: "18px" }}>
+          <div className="anim-up1" style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(5,1fr)", gap: "12px", marginBottom: "18px" }}>
             {[
               { label: "Total Orders",   value: stats.total,                       icon: <FaShoppingCart />, color: C.blue,   dim: C.blueDim,   sub: `${stats.open} active`      },
               { label: "Active",         value: stats.open,                        icon: <FaBolt />,         color: C.green,  dim: C.greenDim,  sub: "open + confirmed"          },
@@ -785,8 +787,8 @@ const Salesorders = () => {
             </div>
 
             {/* Search + sort row */}
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", padding: "10px 14px" }}>
-              <div style={{ position: "relative", flex: 1, minWidth: "200px", maxWidth: "360px" }}>
+            <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", gap: "8px", alignItems: "center", padding: "10px 14px" }}>
+              <div style={{ position: "relative", flex: 1, minWidth: isMobile ? "100%" : "200px", maxWidth: isMobile ? "none" : "360px" }}>
                 <FaSearch style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)", color: C.textMuted, fontSize: "11px", pointerEvents: "none" }} />
                 <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
                   placeholder="Search orders, customers, LPO…"

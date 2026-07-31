@@ -15,6 +15,74 @@ import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import nexusToast from '../../helper/nexusToast';
 import { getLetterTypes, getLetter, createLetter, updateLetter, getNextLetterNumber } from '../../helper/letterApi';
 import { A4_W, A4_H, SIDE_PX, padsPx, seedTemplate, reflowPageBreaks, waitForLetterFonts } from './letterShared';
+import useIsMobile from '../../helper/useIsMobile';
+
+/* ── TypeSelect — custom styled dropdown for letter type ─────────── */
+const TypeSelect = ({ value, onChange, options, T, isMobile }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const sel = options.find((o) => o.value === value);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', width: isMobile ? '100%' : 220 }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={{
+        width: '100%', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        border: `1px solid ${open ? '#3b82f6' : T.border}`, borderRadius: 9,
+        background: T.surface, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
+        boxShadow: open ? '0 0 0 3px rgba(59,130,246,.12)' : 'none', transition: 'all .15s',
+      }}>
+        <span style={{ color: sel ? T.textPri : T.textSec, fontWeight: sel ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {sel ? sel.label : 'Select type…'}
+        </span>
+        <svg style={{ flexShrink: 0, transition: 'transform .2s', transform: open ? 'rotate(180deg)' : 'none', color: open ? '#3b82f6' : T.textSec }}
+          width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: isMobile ? 0 : 'auto',
+          width: isMobile ? 'auto' : 260, zIndex: 50,
+          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12,
+          boxShadow: '0 20px 48px rgba(0,0,0,.2)', overflow: 'hidden', maxHeight: 280, overflowY: 'auto',
+        }}>
+          {options.map((o) => {
+            const active = value === o.value;
+            return (
+              <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); }}
+                style={{
+                  padding: '10px 13px', cursor: 'pointer', fontSize: 13,
+                  fontWeight: active ? 700 : 500,
+                  color: active ? '#3b82f6' : T.textPri,
+                  background: active ? 'rgba(59,130,246,.1)' : 'transparent',
+                  borderBottom: `1px solid ${T.border}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  transition: 'background .1s',
+                }}
+                onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = T.surface2; }}
+                onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
+                {o.label}
+                {active && (
+                  <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6L9 17l-5-5" />
+                  </svg>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function LetterEditor() {
   const navigate = useNavigate();
@@ -28,6 +96,7 @@ export default function LetterEditor() {
   const base = isHR ? '/HR/Letters' : '/Letters';
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const guard = useUnsavedGuard({ hasDraft: false });
 
   const activeOrg = useAuthStore((s) => s.activeOrg);
@@ -300,24 +369,28 @@ export default function LetterEditor() {
       `}</style>
 
       {/* Toolbar */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 30, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <button onClick={() => guard.leave(() => navigate(base))} style={{ ...tbBtn, width: 'auto', padding: '0 12px', gap: 7 }}><FaArrowLeft size={11} /> Back</button>
-          <div style={{ fontSize: 15, fontWeight: 800 }}>{isEdit ? 'Edit Letter' : isHR ? 'New HR Letter' : 'New Letter'}</div>
-          <button onClick={save} disabled={saving} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 30, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: isMobile ? '10px 12px' : '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap' }}>
+          <button onClick={() => guard.leave(() => navigate(base))} style={{ ...tbBtn, width: 'auto', padding: '0 12px', gap: 7 }}><FaArrowLeft size={11} /> {!isMobile && 'Back'}</button>
+          <div style={{ fontSize: isMobile ? 13 : 15, fontWeight: 800 }}>{isEdit ? 'Edit Letter' : isHR ? 'New HR Letter' : 'New Letter'}</div>
+          <button onClick={save} disabled={saving} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, padding: isMobile ? '9px 14px' : '9px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, whiteSpace: 'nowrap' }}>
             <FaSave size={12} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Letter'}
           </button>
         </div>
 
         {/* Meta row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <select value={type} onChange={(e) => setType(e.target.value)} style={inputStyle}>
-            {scopedTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Letter title (e.g. Warranty Certificate)" style={{ ...inputStyle, flex: 1, minWidth: 200 }} />
+          <TypeSelect
+            value={type}
+            onChange={setType}
+            options={scopedTypes}
+            T={T}
+            isMobile={isMobile}
+          />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Letter title (e.g. Warranty Certificate)" style={{ ...inputStyle, flex: 1, minWidth: isMobile ? '100%' : 200 }} />
           {typeCategory === 'employee' ? (
-            <div style={{ position: 'relative' }}>
-              <input value={empQuery} onChange={(e) => { setEmpQuery(e.target.value); setEmployeeId(''); setEmpOpen(true); }} onFocus={() => setEmpOpen(true)} placeholder="Address to employee" style={{ ...inputStyle, width: 240 }} />
+            <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto' }}>
+              <input value={empQuery} onChange={(e) => { setEmpQuery(e.target.value); setEmployeeId(''); setEmpOpen(true); }} onFocus={() => setEmpOpen(true)} placeholder="Address to employee" style={{ ...inputStyle, width: isMobile ? '100%' : 240, boxSizing: 'border-box' }} />
               {empOpen && filteredEmployees.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginTop: 4, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.15)' }}>
                   {filteredEmployees.map((e) => (
@@ -329,8 +402,8 @@ export default function LetterEditor() {
               )}
             </div>
           ) : (
-            <div style={{ position: 'relative' }}>
-              <input value={custQuery} onChange={(e) => { setCustQuery(e.target.value); setCustomerId(''); setCustOpen(true); }} onFocus={() => setCustOpen(true)} placeholder="Address to customer (optional)" style={{ ...inputStyle, width: 240 }} />
+            <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto' }}>
+              <input value={custQuery} onChange={(e) => { setCustQuery(e.target.value); setCustomerId(''); setCustOpen(true); }} onFocus={() => setCustOpen(true)} placeholder="Address to customer (optional)" style={{ ...inputStyle, width: isMobile ? '100%' : 240, boxSizing: 'border-box' }} />
               {custOpen && filteredCustomers.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, marginTop: 4, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.15)' }}>
                   {filteredCustomers.map((c) => (
@@ -342,7 +415,7 @@ export default function LetterEditor() {
               )}
             </div>
           )}
-          <input value={watermark} onChange={(e) => setWatermark(e.target.value)} placeholder="Watermark (optional, e.g. DRAFT)" style={{ ...inputStyle, width: 200 }} />
+          <input value={watermark} onChange={(e) => setWatermark(e.target.value)} placeholder="Watermark (optional, e.g. DRAFT)" style={{ ...inputStyle, width: isMobile ? '100%' : 200, boxSizing: 'border-box' }} />
         </div>
 
         {/* Format row */}
@@ -380,11 +453,12 @@ export default function LetterEditor() {
       </div>
 
       {/* Canvas */}
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '28px 16px 60px' }}>
+      <div style={{ overflowX: 'auto', padding: isMobile ? '16px 0 40px' : 0 }}>
+      <div style={{ display: 'flex', justifyContent: isMobile ? 'flex-start' : 'center', padding: isMobile ? '0 16px' : '28px 16px 60px' }}>
         {loading ? (
           <div style={{ padding: 60, color: T.textSec }}>Loading…</div>
         ) : (
-          <div ref={pageRef} style={{ width: A4_W, minHeight: A4_H, position: 'relative', background: '#fff', boxShadow: '0 8px 40px rgba(0,0,0,.25)' }}>
+          <div ref={pageRef} style={{ width: A4_W, minHeight: A4_H, flexShrink: 0, position: 'relative', background: '#fff', boxShadow: '0 8px 40px rgba(0,0,0,.25)' }}>
             {/* Letterhead tiled per page */}
             {Array.from({ length: pageCount }, (_, k) => (
               lh.image
@@ -410,6 +484,7 @@ export default function LetterEditor() {
             />
           </div>
         )}
+      </div>
       </div>
     </div>
   );

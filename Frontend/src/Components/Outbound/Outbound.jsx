@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import useGetItem from "../../helper/useGetItem";
 import useGetAllSalesOrder from "../../helper/useGetAllSalesOrder";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
 
@@ -63,6 +64,7 @@ export default function Outbound() {
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
+  const isMobile  = useIsMobile();
   const activeOrg  = useAuthStore((s) => s.activeOrg);
   const authUser   = useAuthStore((s) => s.user);
   const isAdmin    = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase());
@@ -473,30 +475,30 @@ export default function Outbound() {
   return (
     <>
       <style>{css}</style>
-      <div className="ob-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+      <div className="ob-root" style={{ background: T.bg, minHeight: "100vh", padding: isMobile ? "14px" : "24px 28px", color: T.textPri }}>
 
         {/* ── HEADER ─────────────────────────────────────────── */}
-        <div className="ob-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "22px" }}>
+        <div className="ob-up" style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "flex-start", gap: isMobile ? 12 : 0, marginBottom: "22px" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-              <div style={{ width: "32px", height: "32px", borderRadius: "9px", background: T.blueDim, color: T.blue, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>
+              <div style={{ width: "32px", height: "32px", flexShrink: 0, borderRadius: "9px", background: T.blueDim, color: T.blue, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>
                 <FaTruck />
               </div>
-              <h1 className="ob-jakarta" style={{ fontSize: "19px", fontWeight: "800", color: T.textPri, margin: 0 }}>Outbound</h1>
+              <h1 className="ob-jakarta" style={{ fontSize: isMobile ? "17px" : "19px", fontWeight: "800", color: T.textPri, margin: 0 }}>Outbound</h1>
             </div>
-            <p style={{ color: T.textSec, fontSize: "12px", margin: 0, paddingLeft: "42px" }}>
+            {!isMobile && <p style={{ color: T.textSec, fontSize: "12px", margin: 0, paddingLeft: "42px" }}>
               Prepare and dispatch items from sales orders
-            </p>
+            </p>}
           </div>
 
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", width: isMobile ? "100%" : "auto" }}>
             {/* Search */}
-            <div ref={searchRef} style={{ position: "relative" }}>
+            <div ref={searchRef} style={{ position: "relative", width: isMobile ? "100%" : "auto", order: isMobile ? -1 : 0 }}>
               <FaSearch style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)", color: T.textSec, fontSize: "11px", pointerEvents: "none" }} />
               <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                 onFocus={() => searchTerm.trim() && setShowDrop(true)}
                 placeholder="Search items, orders…"
-                style={{ padding: "8px 32px 8px 32px", width: "240px", border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", background: T.surface, color: T.textPri, fontFamily: "inherit" }} />
+                style={{ padding: "8px 32px 8px 32px", width: isMobile ? "100%" : "240px", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", background: T.surface, color: T.textPri, fontFamily: "inherit" }} />
               {searchTerm && (
                 <button onClick={() => { setSearchTerm(""); setShowDrop(false); }}
                   style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textSec, padding: 0 }}>
@@ -530,22 +532,22 @@ export default function Outbound() {
 
             {/* Print button */}
             <button className="ob-btn" onClick={() => setShowPrintModal(true)} disabled={outboundItems.length === 0}
-              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 14px", background: T.surface, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: outboundItems.length === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: outboundItems.length === 0 ? 0.5 : 1 }}>
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", padding: isMobile ? "8px 12px" : "8px 14px", background: T.surface, color: T.textSec, border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: outboundItems.length === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: outboundItems.length === 0 ? 0.5 : 1, flex: isMobile ? "1" : "initial", whiteSpace: "nowrap" }}>
               <FaPrint size={12} /> Print
             </button>
 
             {/* Save button */}
             <button className="ob-btn" onClick={handleSave} disabled={selectedIds.size === 0 || savingDN}
-              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 18px", background: selectedIds.size === 0 ? T.surface2 : T.blue, color: selectedIds.size === 0 ? T.textMuted : "white", border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", padding: isMobile ? "8px 14px" : "8px 18px", background: selectedIds.size === 0 ? T.surface2 : T.blue, color: selectedIds.size === 0 ? T.textMuted : "white", border: `1px solid ${selectedIds.size === 0 ? T.border : "transparent"}`, borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", flex: isMobile ? "2" : "initial", whiteSpace: "nowrap" }}>
               <FaShippingFast size={12} />
-              {savingDN ? "Saving…" : "Create Delivery Note"}
+              {savingDN ? "Saving…" : (isMobile ? "Create DN" : "Create Delivery Note")}
               {!savingDN && selectedIds.size > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px" }}>{selectedIds.size}</span>}
             </button>
           </div>
         </div>
 
         {/* ── STAT CARDS ─────────────────────────────────────── */}
-        <div className="ob-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "12px", marginBottom: "18px" }}>
+        <div className="ob-up-1" style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: "12px", marginBottom: "18px" }}>
           {[
             { label: "Total Items",    value: outboundItems.length,          icon: <FaWarehouse />,      color: T.blue,   dim: T.blueDim,   sub: `${selectedIds.size} selected` },
             { label: "Selected Value", value: fmtAED(totalValue),            icon: <FaTag />,            color: T.green,  dim: T.greenDim,  sub: `${totalQty} units total`, small: true },
@@ -606,7 +608,8 @@ export default function Outbound() {
 
         {/* ── TABLE ──────────────────────────────────────────── */}
         <div style={{ ...card, overflow: "hidden", marginBottom: "12px" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+         <div style={{ overflowX: "auto", overflowY: "hidden" }}>
+          <table style={{ width: "100%", minWidth: isMobile ? 720 : "auto", borderCollapse: "collapse", fontSize: "13px" }}>
             <thead>
               <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
                 <th style={{ padding: "11px 14px", width: "32px" }}>
@@ -828,6 +831,7 @@ export default function Outbound() {
               )}
             </tbody>
           </table>
+         </div>
         </div>
 
         {/* ── PAGINATION ─────────────────────────────────────── */}
@@ -918,48 +922,52 @@ export default function Outbound() {
         <>
           <div className="ob-fade" onClick={() => { setShowCancelModal(false); setCancelReason(""); }}
             style={{ position: "fixed", inset: 0, background: isDark ? "rgba(5,9,20,0.75)" : "rgba(15,23,42,0.45)", backdropFilter: "blur(6px)", zIndex: 100 }} />
-          <div className="ob-up" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 101, width: "400px", maxWidth: "calc(100vw - 32px)", ...card, padding: "24px", boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.6)" : "0 16px 48px rgba(0,0,0,0.15)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-              <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: isAdmin ? "rgba(239,68,68,0.1)" : "rgba(139,92,246,0.1)", color: isAdmin ? "#ef4444" : "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", flexShrink: 0 }}>
-                {isAdmin ? <FaBan /> : <FaUserShield />}
+          {/* Flex-centered wrapper instead of left:50%+translate — immune to any
+              ancestor establishing an unexpected containing block for position:fixed. */}
+          <div style={{ position: "fixed", inset: 0, zIndex: 101, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", pointerEvents: "none" }}>
+            <div className="ob-up" style={{ pointerEvents: "auto", width: "400px", maxWidth: "100%", boxSizing: "border-box", ...card, padding: "24px", boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.6)" : "0 16px 48px rgba(0,0,0,0.15)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
+                <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: isAdmin ? "rgba(239,68,68,0.1)" : "rgba(139,92,246,0.1)", color: isAdmin ? "#ef4444" : "#8b5cf6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", flexShrink: 0 }}>
+                  {isAdmin ? <FaBan /> : <FaUserShield />}
+                </div>
+                <div>
+                  <h3 className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "700", color: T.textPri, margin: 0 }}>
+                    {isAdmin ? "Cancel Item" : "Request Cancellation"}
+                  </h3>
+                  <p style={{ fontSize: "12px", color: T.textSec, margin: "2px 0 0" }}>
+                    {isAdmin ? "Item will be immediately removed from this dispatch." : "Your request will be sent to the admin / owner for approval."}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="ob-jakarta" style={{ fontSize: "15px", fontWeight: "700", color: T.textPri, margin: 0 }}>
-                  {isAdmin ? "Cancel Item" : "Request Cancellation"}
-                </h3>
-                <p style={{ fontSize: "12px", color: T.textSec, margin: "2px 0 0" }}>
-                  {isAdmin ? "Item will be immediately removed from this dispatch." : "Your request will be sent to the admin / owner for approval."}
-                </p>
-              </div>
-            </div>
 
-            {/* Member info strip */}
-            {!isAdmin && (
-              <div style={{ marginBottom: "14px", padding: "9px 12px", background: isDark ? "rgba(139,92,246,0.08)" : "#f5f3ff", border: `1px solid ${isDark ? "rgba(139,92,246,0.25)" : "#ddd6fe"}`, borderRadius: "9px", display: "flex", alignItems: "center", gap: "8px" }}>
-                <FaExclamationTriangle size={11} style={{ color: "#8b5cf6", flexShrink: 0 }} />
-                <p style={{ fontSize: "11px", color: isDark ? "#c4b5fd" : "#6d28d9", margin: 0, fontWeight: "600" }}>
-                  Only admins and owners can approve cancellations. The item will show as <em>awaiting approval</em> until reviewed.
-                </p>
-              </div>
-            )}
+              {/* Member info strip */}
+              {!isAdmin && (
+                <div style={{ marginBottom: "14px", padding: "9px 12px", background: isDark ? "rgba(139,92,246,0.08)" : "#f5f3ff", border: `1px solid ${isDark ? "rgba(139,92,246,0.25)" : "#ddd6fe"}`, borderRadius: "9px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <FaExclamationTriangle size={11} style={{ color: "#8b5cf6", flexShrink: 0 }} />
+                  <p style={{ fontSize: "11px", color: isDark ? "#c4b5fd" : "#6d28d9", margin: 0, fontWeight: "600" }}>
+                    Only admins and owners can approve cancellations. The item will show as <em>awaiting approval</em> until reviewed.
+                  </p>
+                </div>
+              )}
 
-            <label style={{ fontSize: "11px", fontWeight: "600", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: "6px" }}>
-              Reason for Cancellation <span style={{ color: "#ef4444" }}>*</span>
-            </label>
-            <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)}
-              placeholder="Please describe the reason…"
-              rows={3}
-              className="ob-note"
-              style={{ width: "100%", padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", background: T.surface2, color: T.textPri, fontFamily: "inherit", resize: "none" }} />
-            <div style={{ display: "flex", gap: "8px", marginTop: "16px", justifyContent: "flex-end" }}>
-              <button className="ob-btn" onClick={() => { setShowCancelModal(false); setCancelReason(""); }}
-                style={{ padding: "8px 18px", border: `1px solid ${T.border}`, borderRadius: "9px", background: "transparent", color: T.textSec, fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                Dismiss
-              </button>
-              <button className="ob-btn" onClick={confirmCancel}
-                style={{ padding: "8px 18px", background: isAdmin ? "#ef4444" : "#8b5cf6", color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-                {isAdmin ? "Cancel Item" : "Submit for Approval"}
-              </button>
+              <label style={{ fontSize: "11px", fontWeight: "600", color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: "6px" }}>
+                Reason for Cancellation <span style={{ color: "#ef4444" }}>*</span>
+              </label>
+              <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+                placeholder="Please describe the reason…"
+                rows={3}
+                className="ob-note"
+                style={{ width: "100%", padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: "9px", fontSize: "12px", background: T.surface2, color: T.textPri, fontFamily: "inherit", resize: "none", boxSizing: "border-box" }} />
+              <div style={{ display: "flex", gap: "8px", marginTop: "16px", justifyContent: "flex-end" }}>
+                <button className="ob-btn" onClick={() => { setShowCancelModal(false); setCancelReason(""); }}
+                  style={{ padding: "8px 18px", border: `1px solid ${T.border}`, borderRadius: "9px", background: "transparent", color: T.textSec, fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                  Dismiss
+                </button>
+                <button className="ob-btn" onClick={confirmCancel}
+                  style={{ padding: "8px 18px", background: isAdmin ? "#ef4444" : "#8b5cf6", color: "white", border: "none", borderRadius: "9px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
+                  {isAdmin ? "Cancel Item" : "Submit for Approval"}
+                </button>
+              </div>
             </div>
           </div>
         </>

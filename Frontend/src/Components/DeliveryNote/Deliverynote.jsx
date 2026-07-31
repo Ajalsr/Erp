@@ -9,9 +9,11 @@ import {
   FaEye, FaMapMarkerAlt, FaBox, FaClipboardList, FaChevronDown,
 } from 'react-icons/fa';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useIsMobile from '../../helper/useIsMobile';
 import { usePermissions } from '../../helper/permissions';
 import useAuthStore from '../../store/useAuthStore';
 import api from '../../helper/axiosInstance';
+import { drawerWidth } from '../../helper/responsive';
 
 const EMIRATES = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'];
 
@@ -187,6 +189,7 @@ export default function DeliveryNote() {
   const navigate  = useNavigate();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
+  const isMobile  = useIsMobile();
   const { can }   = usePermissions();
   const canExport = can('delivery_notes', 'export');
   const activeOrg = useAuthStore((s) => s.activeOrg);
@@ -626,7 +629,7 @@ export default function DeliveryNote() {
 
       {deliverConfirm && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif" }}>
-          <div style={{ background: isDark ? '#1e2433' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)'}`, borderRadius: 16, padding: '32px 28px', width: 380, boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}>
+          <div style={{ background: isDark ? '#1e2433' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)'}`, borderRadius: 16, padding: '32px 28px', width: drawerWidth(380), boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <FaCheckCircle size={16} color="#10b981" />
@@ -733,7 +736,7 @@ export default function DeliveryNote() {
               background: isDark ? 'rgba(8,13,26,0.94)' : 'rgba(255,255,255,0.94)',
               backdropFilter: 'blur(14px)',
               borderBottom: `1px solid ${T.border}`,
-              padding: '10px 24px',
+              padding: isMobile ? '10px 14px' : '10px 24px',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -779,7 +782,7 @@ export default function DeliveryNote() {
             </div>
 
             {/* Content */}
-            <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 28px 56px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ maxWidth: 900, margin: '0 auto', padding: isMobile ? '16px 14px 40px' : '24px 28px 56px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
               {/* Status progress */}
               <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 13, padding: '16px 24px' }}>
@@ -822,7 +825,7 @@ export default function DeliveryNote() {
               </div>
 
               {/* Info grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
 
                 {/* Customer card */}
                 <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 13, padding: '20px 22px' }}>
@@ -905,7 +908,8 @@ export default function DeliveryNote() {
                     {items.length} {items.length === 1 ? 'item' : 'items'}
                   </span>
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <div style={{ overflowX: 'auto', overflowY: 'hidden' }}>
+                <table style={{ width: '100%', minWidth: isMobile ? 480 : 'auto', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: isDark ? 'rgba(255,255,255,.03)' : '#f8fafc', borderBottom: `1px solid ${T.border}` }}>
                       {[
@@ -937,6 +941,7 @@ export default function DeliveryNote() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
 
               {/* Notes */}

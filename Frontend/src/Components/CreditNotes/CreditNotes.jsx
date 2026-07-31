@@ -4,9 +4,11 @@ import { useLocation } from "react-router-dom";
 import { FaPlus, FaTimes, FaSearch, FaFileInvoiceDollar, FaChevronLeft, FaChevronRight, FaBan, FaCheck } from "react-icons/fa";
 import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
+import { drawerWidth } from "../../helper/responsive";
 
 /* ─── Refund payment mode config ────────────────────────────────────────── */
 const CN_MODES = [
@@ -573,6 +575,7 @@ const calcTotals = (items) => {
 export default function CreditNotes({ prefill: inlinePrefill = null, onClose: onInlineClose = null }) {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const location = useLocation();
 
   const [notes,      setNotes]      = useState([]);
@@ -934,16 +937,16 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
     <>
       <style>{css}</style>
       {!onInlineClose && (
-      <div className="cn-root" style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", color: T.textPri }}>
+      <div className="cn-root" style={{ background: T.bg, minHeight: "100vh", padding: isMobile ? "14px" : "24px 28px", color: T.textPri }}>
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "flex-start", gap: isMobile ? 10 : 0, marginBottom: 24 }}>
           <div>
-            <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 20, fontWeight: 700, color: T.textPri, margin: 0 }}>Credit Notes</h1>
+            <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: isMobile ? 18 : 20, fontWeight: 700, color: T.textPri, margin: 0 }}>Credit Notes</h1>
             <p style={{ color: T.textSec, fontSize: 13, marginTop: 4 }}>Issue and manage customer credit notes</p>
           </div>
           <button className="cn-btn" onClick={() => openModal()}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 18px", background: T.blue, color: "white", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 18px", width: isMobile ? "100%" : "auto", background: T.blue, color: "white", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
             <FaPlus size={11} /> New Credit Note
           </button>
         </div>
@@ -969,8 +972,8 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
         </div>
 
         {/* Table */}
-        <div style={{ ...card, overflow: "hidden", marginBottom: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div style={{ ...card, overflowX: "auto", overflowY: "hidden", marginBottom: 12 }}>
+          <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: T.surface2, borderBottom: `1px solid ${T.border}` }}>
                 {["Credit #", "Date", "Customer", "Invoice", "Reason", "Amount", "Status", ""].map((h, i) => (
@@ -1066,7 +1069,7 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
               </button>
             </div>
 
-            <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ padding: isMobile ? "16px" : "20px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
               {/* CN number notice */}
               <div style={{ padding: "10px 14px", borderRadius: 8, background: isDark ? "rgba(59,130,246,0.08)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.25)" : "#bfdbfe"}`, display: "flex", alignItems: "center", gap: 8 }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={isDark ? "#60a5fa" : "#2563eb"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -1076,7 +1079,7 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
               </div>
 
               {/* Customer + Date */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <F label="Customer" req T={T}>
                   <CustomerDropdown
                     value={form.customerId}
@@ -1189,6 +1192,8 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
                     </>
                   )}
                 </div>
+                <div style={{ overflowX: isMobile ? "auto" : "visible" }}>
+                 <div style={{ minWidth: isMobile ? 560 : "auto" }}>
                 {/* Column headers — item mode */}
                 {form.lineItems.some(i => i.mode !== "manual") && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 100px 70px 90px 32px", gap: 8, padding: "0 2px", marginBottom: 2 }}>
@@ -1258,6 +1263,8 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
                       </div>
                     );
                   })}
+                </div>
+                 </div>
                 </div>
                 <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
                   <button onClick={addItem} style={{ padding: "7px 14px", border: `1px dashed ${T.border}`, borderRadius: 8, background: "transparent", color: T.textSec, cursor: "pointer", fontSize: 12, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6 }}>
@@ -1538,7 +1545,7 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
         return (
           <div style={{ position: "fixed", inset: 0, zIndex: 9400, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
             onClick={e => e.target === e.currentTarget && setRefundModal(false)}>
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: 24, width: 440, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,0.4)" }}>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: 24, width: drawerWidth(440), maxHeight: "88vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,0.4)" }}>
               <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, marginBottom: 4 }}>↩ Refund as Cash</div>
               <div style={{ fontSize: 12, color: T.textSec, marginBottom: 18 }}>
                 {selected.creditNoteNumber} · Remaining credit: <strong style={{ fontFamily: "'DM Mono', monospace" }}>{fmt(maxAmt)}</strong>

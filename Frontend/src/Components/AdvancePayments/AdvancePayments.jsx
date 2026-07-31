@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import ReactDOM from "react-dom";
 import DatePicker from "react-datepicker";
 import { format, addDays, addMonths, isSameDay } from "date-fns";
 import useThemeStore from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
@@ -96,7 +97,7 @@ const Sel = ({ value, onChange, options, placeholder = "Select…", T, icon }) =
     setPos({ top: above ? r.top : r.bottom, left: r.left, width: r.width, above });
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]); // eslint-disable-line
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]); // eslint-disable-line
   useEffect(() => {
     const h = e => { if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target)) setOpen(false); };
     const sc = e => { if (open && !portalRef.current?.contains(e.target)) setOpen(false); };
@@ -176,9 +177,11 @@ const DateField = ({ value, onChange, T }) => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
     const above = window.innerHeight - r.bottom < PANEL_H + 16 && r.top > PANEL_H + 16;
-    setPos({ top: above ? r.top : r.bottom, left: r.left, width: r.width, above });
+    const panelW = Math.max(r.width, 320);
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - panelW - 8);
+    setPos({ top: above ? r.top : r.bottom, left, width: r.width, above });
   };
-  useEffect(() => { if (open) updatePos(); }, [open]); // eslint-disable-line
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]); // eslint-disable-line
   useEffect(() => {
     const h = e => { if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target)) setOpen(false); };
     const sc = e => { if (open && !portalRef.current?.contains(e.target)) setOpen(false); };
@@ -262,6 +265,7 @@ const DateField = ({ value, onChange, T }) => {
 export default function AdvancePayments() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = buildTheme(isDark);
+  const isMobile = useIsMobile();
 
   const [advances, setAdvances] = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -308,7 +312,7 @@ export default function AdvancePayments() {
   const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, marginBottom: 6 };
 
   return (
-    <div style={{ background: T.bg, minHeight: "100vh", padding: "24px 28px", fontFamily: "'DM Sans',sans-serif", color: T.text }}>
+    <div style={{ background: T.bg, minHeight: "100vh", padding: isMobile ? "14px" : "24px 28px", fontFamily: "'DM Sans',sans-serif", color: T.text }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; }
@@ -316,15 +320,15 @@ export default function AdvancePayments() {
         input:focus { border-color: rgba(245,158,11,.5) !important; }
       `}</style>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
+      <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "flex-start", gap: isMobile ? 10 : 0, marginBottom: 22 }}>
         <div>
-          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 21, fontWeight: 800, color: T.text, margin: 0 }}>Customer Advances</h1>
+          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 18 : 21, fontWeight: 800, color: T.text, margin: 0 }}>Customer Advances</h1>
           <p style={{ fontSize: 13, color: T.muted, margin: "4px 0 0" }}>Payments received before invoicing — held as liability, applied to future invoices</p>
         </div>
-        <button onClick={() => setShowCreate(true)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "10px 18px", background: T.accent, color: "#0a0e1a", border: "none", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ Record Advance</button>
+        <button onClick={() => setShowCreate(true)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 18px", width: isMobile ? "100%" : "auto", background: T.accent, color: "#0a0e1a", border: "none", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>+ Record Advance</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 22 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(3,1fr)", gap: 14, marginBottom: 22 }}>
         {[{ label: "Total Advances", val: fmt(totals.total), color: T.blue }, { label: "Available", val: fmt(totals.available), color: T.accent }, { label: "Applied", val: fmt(totals.applied), color: T.green }].map(s => (
           <div key={s.label} style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12, padding: "16px 18px" }}>
             <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: T.muted, margin: "0 0 6px" }}>{s.label}</p>
@@ -333,9 +337,10 @@ export default function AdvancePayments() {
         ))}
       </div>
 
-      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search advance #, customer, reference…" style={{ ...inputStyle, maxWidth: 340, marginBottom: 16 }} />
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search advance #, customer, reference…" style={{ ...inputStyle, maxWidth: isMobile ? "100%" : 340, marginBottom: 16 }} />
 
-      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, overflowX: "auto", overflowY: "hidden" }}>
+       <div style={{ minWidth: isMobile ? 800 : "auto" }}>
         <div style={{ display: "grid", gridTemplateColumns: "130px 1fr 120px 120px 120px 110px 90px", padding: "11px 16px", borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
           {["Advance #", "Customer", "Amount", "Applied", "Available", "Status", ""].map((h, i) => (
             <span key={i} style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, textAlign: i >= 2 && i <= 4 ? "right" : "left" }}>{h}</span>
@@ -369,6 +374,7 @@ export default function AdvancePayments() {
             </div>
           );
         })}
+       </div>
       </div>
 
       {filtered.length > 0 && (
@@ -413,6 +419,7 @@ export default function AdvancePayments() {
 
 /* ─── Create Advance Modal ────────────────────────────────────── */
 function CreateAdvanceModal({ T, customers, inputStyle, labelStyle, onClose, onSaved }) {
+  const isMobile = useIsMobile();
   const [form, setForm] = useState({ customerId: "", customerName: "", amount: "", date: localISO(new Date()), paymentMode: "Cash", depositAccount: "", salesOrderId: "", salesOrderNumber: "", notes: "" });
   const [details, setDetails] = useState({});
   const [sos, setSos] = useState([]);
@@ -462,7 +469,7 @@ function CreateAdvanceModal({ T, customers, inputStyle, labelStyle, onClose, onS
           <Sel T={T} value={form.customerId} options={custOpts} placeholder="Select customer…" icon="🏢"
             onChange={v => { const c = customers.find(x => x._id === v); setForm(f => ({ ...f, customerId: v, customerName: c?.customerDisplayName || c?.companyName || "", salesOrderId: "", salesOrderNumber: "" })); }} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
           <div>
             <label style={labelStyle}>Amount <span style={{ color: "#ef4444" }}>*</span></label>
             <input type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} style={inputStyle} placeholder="0.00" />
@@ -486,7 +493,7 @@ function CreateAdvanceModal({ T, customers, inputStyle, labelStyle, onClose, onS
         </div>
         {/* Dynamic per-mode fields */}
         {modeFields.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: modeFields.length > 1 ? "1fr 1fr" : "1fr", gap: 12, padding: "12px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || modeFields.length <= 1 ? "1fr" : "1fr 1fr", gap: 12, padding: "12px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.border}` }}>
             {modeFields.map(f => (
               <div key={f.key} style={{ gridColumn: f.type === "date" || modeFields.length === 1 ? "1 / -1" : "auto" }}>
                 <label style={labelStyle}>{f.label}{f.required && <span style={{ color: "#ef4444" }}> *</span>}</label>
@@ -602,9 +609,10 @@ function ApplyAdvanceModal({ T, advance, inputStyle, labelStyle, onClose, onAppl
 
 /* ─── Shared overlay ──────────────────────────────────────────── */
 function Overlay({ T, title, onClose, children }) {
+  const isMobile = useIsMobile();
   return (
-    <div onClick={e => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", padding: 20 }}>
-      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: 24, width: 480, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+    <div onClick={e => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", padding: isMobile ? 10 : 20 }}>
+      <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: isMobile ? 16 : 24, width: 480, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
         <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 18 }}>{title}</div>
         {children}
       </div>

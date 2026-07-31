@@ -189,7 +189,7 @@ const Sidebar = ({ isCollapsed, isMobile = false, mobileOpen = false, onClose = 
         display:     'flex',
         flexDirection: 'column',
         position:    'fixed',
-        zIndex:      20,
+        zIndex:      300,
         height:      '100vh',
         flexShrink:  0,
         width:       isMobile ? '240px' : (isCollapsed ? '60px' : '220px'),

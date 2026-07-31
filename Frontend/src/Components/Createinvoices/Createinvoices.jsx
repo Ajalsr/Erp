@@ -6,6 +6,7 @@ import axiosInstance from "../../helper/axiosInstance";
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import nexusToast from "../../helper/nexusToast";
 
 /* ─── Theme ─────────────────────────────────────────────────────────────── */
@@ -264,6 +265,7 @@ const CustomerSelect = ({ value, onChange, options, name, disabled }) => {
 /* ─── Line Items Table ──────────────────────────────────────────────────── */
 const LineItems = ({ items }) => {
   const T = useT();
+  const isMobile = useIsMobile();
 
   const { subtotal: gSub, discAmt: gDisc, taxAmt: gTax, total: gRawTotal } = useMemo(() =>
     items.reduce((acc, item) => {
@@ -289,7 +291,8 @@ const LineItems = ({ items }) => {
 
   return (
     <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+     <div style={{ overflowX: "auto", overflowY: "hidden" }}>
+      <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse" }}>
         <colgroup>{COLS.map((c, i) => <col key={i} style={{ width: c.w }} />)}</colgroup>
         <thead>
           <tr style={{ background: T.surface2 }}>
@@ -330,6 +333,7 @@ const LineItems = ({ items }) => {
           </tr>
         </tfoot>
       </table>
+     </div>
     </div>
   );
 };
@@ -379,6 +383,7 @@ const ProductInput = ({ row, stockList, setItems }) => {
 /* ─── Editable line items — direct-invoice mode (add/search products) ────── */
 const EditableLineItems = ({ items, setItems, stockList }) => {
   const T = useT();
+  const isMobile = useIsMobile();
   const upd = (id, field, val) => setItems(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
   const remove = (id) => setItems(prev => prev.filter(r => r.id !== id));
   const addRow = () => setItems(prev => [...prev, { id: uid(), desc: "", stockId: "", qty: 1, unitPrice: "", discount: 0, discountType: "fixed", taxRate: VAT_RATE, _stock: false }]);
@@ -386,8 +391,8 @@ const EditableLineItems = ({ items, setItems, stockList }) => {
 
   return (
     <div>
-      <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 12 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 12, overflowX: "auto", overflowY: "hidden" }}>
+        <table style={{ width: "100%", minWidth: isMobile ? 780 : "auto", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: T.surface2 }}>
               {["Product / Description", "Qty", "Unit Price", "Disc", "Tax %", "Line Total", ""].map((h, i) => (
@@ -429,6 +434,7 @@ const CreateInvoice = () => {
   const location  = useLocation();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getT(isDark);
+  const isMobile  = useIsMobile();
   const { handleGetCustomers, data: customersData } = useGetCustomers();
 
   useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
@@ -818,13 +824,13 @@ const CreateInvoice = () => {
       <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif", transition: "background 0.25s, color 0.25s" }}>
 
         {/* Topbar */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 24px", borderBottom: `1px solid ${T.border}`, background: T.topbar, transition: "background 0.25s, border-color 0.25s" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <button onClick={() => guard.leave(() => navigate(-1))} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Invoices</button>
-            <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 600, color: T.text }}>
+        <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "10px 14px" : "12px 24px", borderBottom: `1px solid ${T.border}`, background: T.topbar, transition: "background 0.25s, border-color 0.25s", gap: isMobile ? 8 : 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, flexWrap: "wrap", minWidth: 0 }}>
+            <button onClick={() => guard.leave(() => navigate(-1))} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit", whiteSpace: "nowrap" }}>← {isMobile ? "" : "Invoices"}</button>
+            <span style={{ fontFamily: "'Sora', sans-serif", fontSize: isMobile ? 13 : 15, fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>
               {invoiceDocType === "proforma" ? "Create Proforma" : "Create Invoice"}
             </span>
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.accent, background: `${T.accent}1a`, border: `1px solid ${T.accent}44`, padding: "3px 10px", borderRadius: 4 }}>{invoiceNumber}</span>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.accent, background: `${T.accent}1a`, border: `1px solid ${T.accent}44`, padding: "3px 10px", borderRadius: 4, whiteSpace: "nowrap" }}>{invoiceNumber}</span>
 
             {/* Document type toggle */}
             <div style={{ display: "flex", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, overflow: "hidden" }}>
@@ -837,34 +843,34 @@ const CreateInvoice = () => {
                   });
                 }} style={{
                   padding: "4px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                  fontFamily: "inherit", border: "none", transition: "all 0.15s",
+                  fontFamily: "inherit", border: "none", transition: "all 0.15s", whiteSpace: "nowrap",
                   background: invoiceDocType === val ? (val === "proforma" ? "#7c3aed" : T.accent) : "transparent",
                   color: invoiceDocType === val ? "#fff" : T.muted,
                 }}>{lbl}</button>
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn v="ghost" onClick={() => guard.leave(() => navigate(-1))}>Discard</Btn>
-            <Btn v="outline" onClick={handleSaveDraft} disabled={submitting}>Save Draft</Btn>
-            <Btn v="primary" onClick={handleSubmit} disabled={submitting} style={{ opacity: submitting ? .7 : 1 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: isMobile ? "100%" : "auto" }}>
+            <Btn v="ghost" onClick={() => guard.leave(() => navigate(-1))} style={isMobile ? { flex: 1 } : undefined}>Discard</Btn>
+            <Btn v="outline" onClick={handleSaveDraft} disabled={submitting} style={isMobile ? { flex: 1 } : undefined}>Save Draft</Btn>
+            <Btn v="primary" onClick={handleSubmit} disabled={submitting} style={{ opacity: submitting ? .7 : 1, ...(isMobile ? { flex: 1 } : {}) }}>
               {submitting ? "Saving…" : invoiceDocType === "proforma" ? "Save Proforma →" : "Issue Invoice →"}
             </Btn>
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", minHeight: "calc(100vh - 57px)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 320px", minHeight: "calc(100vh - 57px)" }}>
 
           {/* ── Main ── */}
-          <div style={{ padding: 24, overflowY: "auto", borderRight: `1px solid ${T.border}` }}>
+          <div style={{ padding: isMobile ? 14 : 24, overflowY: "auto", borderRight: isMobile ? "none" : `1px solid ${T.border}` }}>
 
             <Section title="Invoice Details">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <Field label="Invoice #"><Inp value={invoiceNumber} readOnly style={{ color: T.muted }} /></Field>
                 <Field label="Issue Date"><AppDatePicker value={issueDate} onChange={setIssueDate} /></Field>
                 <Field label="Due Date"><AppDatePicker value={dueDate} onChange={(v) => { if (!isFromDN) setDueDate(v); }} disabled={isFromDN} /></Field>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <Field label="Currency">
                   <Sel value={currency} onChange={e => setCurrency(e.target.value)}>
                     {[["AED","AED — UAE Dirham"],["USD","USD — US Dollar"],["EUR","EUR — Euro"],["GBP","GBP — British Pound"],["SAR","SAR — Saudi Riyal"]].map(([code,label]) => <option key={code} value={code}>{label}</option>)}
@@ -884,7 +890,7 @@ const CreateInvoice = () => {
             </Section>
 
             <Section title="Parties">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                 {/* From */}
                 <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 14 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginBottom: 10 }}>From (Your Company)</div>
@@ -947,8 +953,8 @@ const CreateInvoice = () => {
 
               {activeTab === 1 && (
                 <div>
-                  <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, marginBottom: 12 }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <div style={{ borderRadius: 8, overflowX: "auto", overflowY: "hidden", border: `1px solid ${T.border}`, marginBottom: 12 }}>
+                    <table style={{ width: "100%", minWidth: isMobile ? 620 : "auto", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ background: T.surface2 }}>
                           {["Description", "Qty", "Unit Price", "Tax %", "Line Total", ""].map((h, i) => (
@@ -1002,7 +1008,7 @@ const CreateInvoice = () => {
             </Section>
 
             <Section title="Notes & Attachments">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <Field label="Customer Note (visible on invoice)"><Tex placeholder="Thank you for your business!" value={custNote} onChange={e => setCustNote(e.target.value)} /></Field>
                 <Field label="Internal Memo (not shown to customer)"><Tex placeholder="Internal reference or approval notes…" value={internalNote} onChange={e => setInternalNote(e.target.value)} /></Field>
               </div>
@@ -1010,7 +1016,7 @@ const CreateInvoice = () => {
           </div>
 
           {/* ── Sidebar ── */}
-          <div style={{ padding: 24, background: T.surface, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 20, overflowY: "auto", transition: "background 0.25s" }}>
+          <div style={{ padding: isMobile ? 14 : 24, background: T.surface, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", display: "flex", flexDirection: "column", gap: 20, overflowY: "auto", transition: "background 0.25s" }}>
 
             {/* Status */}
             <div>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import ReactDOM from "react-dom";
 import DatePicker from "react-datepicker";
@@ -6,8 +6,10 @@ import { format, addDays, addMonths, isSameDay } from "date-fns";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 import useThemeStore from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
+import { drawerWidth } from "../../helper/responsive";
 import CreditNotes from "../CreditNotes/CreditNotes";
 import useConfirm from "../common/useConfirm";
 import "react-datepicker/dist/react-datepicker.css";
@@ -208,7 +210,7 @@ const PaymentDatePicker = ({ value, onChange, T }) => {
     }
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]);
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]);
   useEffect(() => {
     const h = e => {
       if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target))
@@ -465,7 +467,7 @@ const RecordPaymentModal = ({ T, isDark, invoice, onClose, onSaved }) => {
       <style>{`@keyframes pmtIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
       <div style={{
-        background: T.surface, borderRadius: 18, width: 520, maxHeight: "90vh",
+        background: T.surface, borderRadius: 18, width: drawerWidth(520), maxHeight: "90vh",
         overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)",
         border: `1.5px solid ${T.border}`, animation: "pmtIn .2s ease both",
       }}>
@@ -631,6 +633,7 @@ const Invoices = () => {
   const canExport = can("invoices", "export");
   const isDark = useThemeStore((s) => s.isDark);
   const T = buildTheme(isDark);
+  const isMobile = useIsMobile();
   const { confirm, ConfirmModal } = useConfirm();
 
   /* data */
@@ -1065,7 +1068,7 @@ const Invoices = () => {
       <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif", position: "relative", overflow: "hidden" }}>
 
         {/* ── Stat Cards ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, padding: "24px 28px 0" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 16, padding: isMobile ? "14px 14px 0" : "24px 28px 0" }}>
           <StatCard T={T} label="Total Invoiced"  value={fmt(stats.total)}       sub={`${invoices.length} invoices`}                                          accent={T.accent}  icon="📄" />
           <StatCard T={T} label="Total Received"  value={fmt(stats.received)}    sub={`${invoices.filter(i=>i.status==="paid").length} paid`}              accent={T.accent2} icon="✅" />
           <StatCard T={T} label="Outstanding"     value={fmt(stats.outstanding)} sub="Awaiting payment"                                                    accent={T.blue}    icon="⏳" />
@@ -1073,9 +1076,9 @@ const Invoices = () => {
         </div>
 
         {/* ── Toolbar ── */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 28px 0", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "16px 14px 0" : "20px 28px 0", flexWrap: "wrap", gap: 12 }}>
           {/* Search */}
-          <div style={{ position: "relative", flex: "0 0 280px" }}>
+          <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 0 280px" }}>
             <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: T.muted, fontSize: 14, pointerEvents: "none" }}>🔍</span>
             <input
               value={search}
@@ -1122,16 +1125,16 @@ const Invoices = () => {
           </select>
 
           {/* Actions */}
-          <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+          <div style={{ display: "flex", gap: 8, marginLeft: isMobile ? 0 : "auto", width: isMobile ? "100%" : "auto" }}>
             {canExport && (
-            <button onClick={exportInvoicesCSV} style={{ ...inputStyle, padding: "7px 14px", cursor: "pointer", fontSize: 13, transition: ".15s" }}
+            <button onClick={exportInvoicesCSV} style={{ ...inputStyle, padding: "7px 14px", cursor: "pointer", fontSize: 13, transition: ".15s", flex: isMobile ? 1 : "initial", whiteSpace: "nowrap" }}
               onMouseEnter={e => e.currentTarget.style.borderColor = T.subtle}
               onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
             >Export CSV</button>
             )}
             <button
               onClick={() => navigate("/Sales/Createinvoices")}
-              style={{ padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none", transition: ".15s" }}
+              style={{ padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: T.accent, color: "#0a0e1a", border: "none", transition: ".15s", flex: isMobile ? 1 : "initial", whiteSpace: "nowrap" }}
               onMouseEnter={e => e.currentTarget.style.background = "#fbbf24"}
               onMouseLeave={e => e.currentTarget.style.background = T.accent}
             >+ New Invoice</button>
@@ -1140,7 +1143,7 @@ const Invoices = () => {
 
         {/* ── Bulk Actions Bar ── */}
         {selectedIds.size > 0 && (
-          <div style={{ margin: "12px 28px 0", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", background: isDark ? "rgba(245,158,11,0.08)" : "#fffbeb", border: `1px solid rgba(245,158,11,0.3)`, borderRadius: 9 }}>
+          <div style={{ margin: isMobile ? "12px 14px 0" : "12px 28px 0", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "10px 16px", background: isDark ? "rgba(245,158,11,0.08)" : "#fffbeb", border: `1px solid rgba(245,158,11,0.3)`, borderRadius: 9 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>{selectedIds.size} selected</span>
             {canExport && <button onClick={bulkExportCSV} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit" }}>Export CSV</button>}
             <button onClick={bulkSend} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", background: T.accent, border: "none", color: "#0a0e1a", fontFamily: "inherit" }}>📧 Send Selected</button>
@@ -1149,9 +1152,9 @@ const Invoices = () => {
         )}
 
         {/* ── Table ── */}
-        <div style={{ margin: "12px 28px 0", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ margin: isMobile ? "12px 14px 0" : "12px 28px 0", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+            <table style={{ width: "100%", minWidth: isMobile ? 860 : "auto", borderCollapse: "collapse", tableLayout: "fixed" }}>
               <colgroup>
                 {COLS.map(c => <col key={c.key} style={{ width: c.w }} />)}
               </colgroup>
@@ -1260,7 +1263,7 @@ const Invoices = () => {
             />
             {/* Panel */}
             <div style={{
-              position: "fixed", top: 0, right: 0, bottom: 0, width: 480,
+              position: "fixed", top: 0, right: 0, bottom: 0, width: drawerWidth(480),
               background: T.surface, borderLeft: `1px solid ${T.border}`,
               zIndex: 50, display: "flex", flexDirection: "column",
               animation: "slideIn .2s ease",
@@ -1960,7 +1963,7 @@ const Invoices = () => {
       {sendModal && selected && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
           onClick={e => e.target === e.currentTarget && setSendModal(null)}>
-          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 400, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: drawerWidth(400), boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
             <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>
               {sendModal === 'send' ? '📧 Send Invoice' : '🔔 Send Reminder'}
             </div>
@@ -1996,7 +1999,7 @@ const Invoices = () => {
         <div style={{ position: "fixed", inset: 0, zIndex: 9200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
           onClick={e => e.target === e.currentTarget && setRefundModal(null)}>
           {(() => { const refundRemaining = (refundModal.amount || 0) - (refundModal.refundedAmount || 0); return (
-          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: drawerWidth(420), boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
             <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>↩ Reverse Payment</div>
             <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>
               {refundModal.paymentNumber} · Original: {fmt(refundModal.amount)}
@@ -2081,7 +2084,7 @@ const Invoices = () => {
         return (
           <div style={{ position: "fixed", inset: 0, zIndex: 9300, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
             onClick={e => e.target === e.currentTarget && setReturnModal(false)}>
-            <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 520, maxHeight: "82vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: drawerWidth(520), maxHeight: "82vh", overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
               <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>↩ Return Items</div>
               <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>{selected.id}</div>
 
@@ -2182,7 +2185,7 @@ const Invoices = () => {
       {voidModal && selected && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)" }}
           onClick={e => e.target === e.currentTarget && setVoidModal(false)}>
-          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: 420, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+          <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 16, padding: "24px", width: drawerWidth(420), boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
             <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>🚫 Void Invoice</div>
             <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>
               {selected.id} · This action cannot be undone.

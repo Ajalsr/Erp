@@ -27,6 +27,7 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
+import useIsMobile from "../../helper/useIsMobile";
 
 
 
@@ -155,6 +156,7 @@ const Customers = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
+  const isMobile = useIsMobile();
 
   // ── Avatar palettes — reactive to theme ──────────────────────────
   const AVATAR_PALETTES = [
@@ -501,28 +503,28 @@ const Customers = () => {
 
       <div className="cust-root" style={{ background: T.bg, display: "flex", height: "calc(100vh - 56px)", overflow: "hidden", color: T.textPri }}>
         {/* ── LEFT LIST PANEL ── */}
-        <div style={{ flex: selectedItem ? "0 0 44%" : "1", overflowY: "auto", padding: "20px 20px", minWidth: 0, transition: "flex 0.3s ease", borderRight: selectedItem ? `1px solid ${T.border}` : "none" }}>
+        <div style={{ display: isMobile && selectedItem ? "none" : "block", flex: selectedItem ? (isMobile ? "1" : "0 0 44%") : "1", overflowY: "auto", padding: isMobile ? "14px" : "20px 20px", minWidth: 0, transition: "flex 0.3s ease", borderRight: selectedItem && !isMobile ? `1px solid ${T.border}` : "none" }}>
 
         {/* ── HEADER ── */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "center", gap: isMobile ? 8 : 0, marginBottom: "16px" }}>
           <div>
-            <h1 className="cust-jakarta" style={{ fontSize: "18px", fontWeight: "700", color: T.textPri, margin: 0 }}>Customers</h1>
+            <h1 className="cust-jakarta" style={{ fontSize: isMobile ? "16px" : "18px", fontWeight: "700", color: T.textPri, margin: 0 }}>Customers</h1>
             {!selectedItem && <p style={{ color: T.textSec, fontSize: "12px", marginTop: "3px" }}>Manage your customer relationships</p>}
           </div>
-          <div style={{ display: "flex", gap: "6px" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             {[
               { label: "Refresh", icon: <FaSync size={11} />,    onClick: handleRefresh },
               { label: "Import",  icon: <FaFileImport size={11} />, onClick: () => setShowImport(true) },
               ...(canExport ? [{ label: "Export",  icon: <FaDownload size={11} />, onClick: handleExport }] : []),
             ].map(btn => (
               <button key={btn.label} title={btn.label} onClick={btn.onClick}
-                style={{ height: "30px", padding: "0 12px", display: "flex", alignItems: "center", gap: "6px", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit" }}>
-                {btn.icon}{btn.label}
+                style={{ height: "30px", padding: isMobile ? "0 10px" : "0 12px", display: "flex", alignItems: "center", gap: "6px", borderRadius: "8px", border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                {btn.icon}{!isMobile && btn.label}
               </button>
             ))}
             <button onClick={() => navigate("/Sales/Customers/Newcustomers")}
-              style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 12px", borderRadius: "8px", border: "none", background: T.blue, color: "white", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
-              <FaPlus size={10} /> {selectedItem ? "New" : "New Customer"}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", padding: "6px 12px", borderRadius: "8px", border: "none", background: T.blue, color: "white", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+              <FaPlus size={10} /> {selectedItem || isMobile ? "New" : "New Customer"}
             </button>
           </div>
         </div>
@@ -538,7 +540,7 @@ const Customers = () => {
         />
 
         {/* ── STAT CARDS ── */}
-        <div style={{ display: "grid", gridTemplateColumns: selectedItem ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: "12px", marginBottom: "16px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : (selectedItem ? "repeat(2,1fr)" : "repeat(4,1fr)"), gap: "12px", marginBottom: "16px" }}>
           {[
             {
               label: "Total Customers", value: stats.total,
@@ -834,7 +836,7 @@ const Customers = () => {
 
         return (
           <div style={{
-            flex: "1", display: "flex", flexDirection: "column", overflow: "hidden",
+            flex: "1", width: isMobile ? "100%" : "auto", display: "flex", flexDirection: "column", overflow: "hidden",
             background: isDark ? "#0b1120" : "#f8fafc",
           }}>
 
@@ -920,14 +922,14 @@ const Customers = () => {
                       </div>
 
                       {/* ── 4 stat chips (horizontal dividers) ── */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", borderTop: `1px solid ${T.border}` }}>
+                      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", borderTop: `1px solid ${T.border}` }}>
                         {[
                           { label: "OUTSTANDING", value: outstanding > 0 ? `AED ${outstanding.toLocaleString("en-AE",{minimumFractionDigits:0,maximumFractionDigits:0})}` : "—", sub: outstanding > 0 ? "Open invoices" : "No open invoices", color: outstanding > 0 ? "#ef4444" : T.textMuted },
                           { label: "LIFETIME VALUE", value: `AED ${invData.receivables ? (invData.receivables * 1.4).toLocaleString("en-AE",{minimumFractionDigits:0,maximumFractionDigits:0}) : "0"}`, sub: `${invData.total || 0} invoices`, color: T.blueLight },
                           { label: "INVOICES", value: String(invData.total || 0), sub: invData.lastDate ? `Last: ${new Date(invData.lastDate).toLocaleDateString("en-AE",{day:"2-digit",month:"short"})}` : "Last: —", color: T.textPri },
                           { label: "CUSTOMER FOR", value: selectedItem.created_at ? new Date(selectedItem.created_at).toLocaleDateString("en-AE",{month:"short",year:"numeric"}) : "—", sub: custSince || "", color: T.textPri },
                         ].map((chip, i) => (
-                          <div key={i} style={{ padding: "12px 14px", borderRight: i < 3 ? `1px solid ${T.border}` : "none" }}>
+                          <div key={i} style={{ padding: "12px 14px", borderRight: (isMobile ? i % 2 === 0 : i < 3) ? `1px solid ${T.border}` : "none", borderBottom: isMobile && i < 2 ? `1px solid ${T.border}` : "none" }}>
                             <p style={{ fontSize: 9, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 5px" }}>{chip.label}</p>
                             <p style={{ fontSize: 15, fontWeight: 800, color: chip.color, margin: 0, lineHeight: 1, fontFamily: "'DM Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chip.value}</p>
                             <p style={{ fontSize: 10, color: T.textSec, margin: "4px 0 0" }}>{chip.sub}</p>

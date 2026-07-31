@@ -20,6 +20,7 @@ import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 import useGetCustomers from "../../helper/useGetCustomers";
 import { usePermissions } from "../../helper/permissions";
+import useIsMobile from "../../helper/useIsMobile";
 
 const STATUSES = [
   { key: "all",       label: "All" },
@@ -511,6 +512,7 @@ const LIMIT = 15;
 export default function Enquiries() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const focusId = searchParams.get("id");
@@ -786,19 +788,19 @@ export default function Enquiries() {
         .enq-phone .PhoneInputCountryIcon { box-shadow:none; }
       `}</style>
 
-      <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", padding: "24px 28px" }}>
+      <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", padding: isMobile ? "14px" : "24px 28px", overflowX: "hidden" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em" }}>Enquiries</h1>
+        <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", alignItems: "center", justifyContent: "space-between", gap: isMobile ? 10 : 0, marginBottom: 24 }}>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: isMobile ? 19 : 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em" }}>Enquiries</h1>
             <p style={{ fontSize: 13, color: T.textSec, margin: "4px 0 0" }}>Track and manage customer enquiries &amp; leads</p>
           </div>
           <button
             onClick={() => { setForm(EMPTY_FORM); setModalOpen(true); }}
-            style={{ display: "flex", alignItems: "center", gap: 7, padding: "10px 18px",
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 18px", width: isMobile ? "100%" : "auto",
               background: T.blue, color: "#fff", border: "none", borderRadius: 10,
-              fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
             <FaPlus size={11}/> New Enquiry
           </button>
         </div>
@@ -870,7 +872,7 @@ export default function Enquiries() {
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table style={{ width: "100%", minWidth: isMobile ? 860 : "auto", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     {["Enquiry #", "Customer", "Project", "Subject", "Source", "Priority", "Follow Up", "Status", "Value"].map(h => (
@@ -1268,7 +1270,8 @@ export default function Enquiries() {
                         + Add Item
                       </button>
                     </div>
-                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflowX: "auto", overflowY: "hidden" }}>
+                     <div style={{ minWidth: isMobile ? 420 : "auto" }}>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 52px 72px 50px 72px 20px", gap: 0,
                         background: T.surface2, padding: "5px 8px", fontSize: 10, fontWeight: 700,
                         letterSpacing: "0.06em", textTransform: "uppercase", color: T.textSec }}>
@@ -1351,6 +1354,7 @@ export default function Enquiries() {
                           AED {(editForm.lineItems || []).reduce((s, li) => s + (lineTot(li)), 0).toFixed(2)}
                         </span>
                       </div>
+                     </div>
                     </div>
                   </div>
 
@@ -1444,8 +1448,8 @@ export default function Enquiries() {
             </div>
 
             {/* Modal body */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "20px 22px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
 
                 {/* Link existing customer (optional) */}
                 <div style={{ gridColumn: "1 / -1" }}>
@@ -1522,7 +1526,8 @@ export default function Enquiries() {
                       + Add Item
                     </button>
                   </div>
-                  <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflowX: "auto", overflowY: "hidden" }}>
+                   <div style={{ minWidth: isMobile ? 480 : "auto" }}>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 56px 82px 54px 78px 24px", gap: 0,
                       background: T.surface2, padding: "5px 10px", fontSize: 10, fontWeight: 700,
                       letterSpacing: "0.06em", textTransform: "uppercase", color: T.textSec }}>
@@ -1605,6 +1610,7 @@ export default function Enquiries() {
                         AED {form.lineItems.reduce((s, li) => s + (lineTot(li)), 0).toFixed(2)}
                       </span>
                     </div>
+                   </div>
                   </div>
                 </div>
 

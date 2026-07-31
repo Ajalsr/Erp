@@ -124,10 +124,18 @@ export default function Layout() {
         onClose={() => setMobileOpen(false)}
       />
 
-      {/* Mobile drawer backdrop */}
-      {isMobile && mobileOpen && (
+      {/* Mobile drawer backdrop — always mounted while on mobile (not just
+          while open) so opacity can transition instead of hard mount/unmount;
+          pointerEvents off when hidden so it doesn't eat clicks underneath.
+          0.3s matches the drawer's own slide transition in Sidebar.jsx. */}
+      {isMobile && (
         <div onClick={() => setMobileOpen(false)}
-          style={{ position: 'fixed', inset: 0, zIndex: 19, background: 'rgba(0,0,0,0.5)' }} />
+          style={{
+            position: 'fixed', inset: 0, zIndex: 299, background: 'rgba(0,0,0,0.5)',
+            opacity: mobileOpen ? 1 : 0,
+            pointerEvents: mobileOpen ? 'auto' : 'none',
+            transition: 'opacity 0.3s ease',
+          }} />
       )}
 
       <div style={{

@@ -13,6 +13,7 @@ import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
 import useConfirm from "../common/useConfirm";
+import useIsMobile from "../../helper/useIsMobile";
 
 const STATUSES = [
   { key: "all",       label: "All" },
@@ -63,6 +64,7 @@ export default function Quotes() {
   const canExport = can("quotes", "export");
   const isDark    = useThemeStore(s => s.isDark);
   const T         = getTheme(isDark);
+  const isMobile  = useIsMobile();
   const { confirm, ConfirmModal } = useConfirm();
 
   const [quotes,     setQuotes]     = useState([]);
@@ -207,43 +209,43 @@ export default function Quotes() {
       <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
 
         {/* ── Main panel ── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ display: isMobile && selected ? "none" : "flex", flex: 1, flexDirection: "column", overflow: "hidden" }}>
 
           {/* Header */}
-          <div style={{ padding: "22px 28px 0", flexShrink: 0 }}>
+          <div style={{ padding: isMobile ? "14px 14px 0" : "22px 28px 0", flexShrink: 0 }}>
 
             {/* Title row */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <div>
-                <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri || T.text, margin: 0, letterSpacing: "-0.4px" }}>
+            <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "center", gap: isMobile ? 10 : 0, marginBottom: 20 }}>
+              <div style={{ minWidth: 0 }}>
+                <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: isMobile ? 19 : 22, fontWeight: 800, color: T.textPri || T.text, margin: 0, letterSpacing: "-0.4px" }}>
                   Quotes
                 </h1>
                 <p style={{ fontSize: 12, color: T.textSec || T.muted, margin: "3px 0 0" }}>
                   {total} quote{total !== 1 ? "s" : ""} · all pipelines
                 </p>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, width: isMobile ? "100%" : "auto" }}>
                 {canExport && (
                 <button
                   onClick={exportQuotesCSV}
                   style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "9px 16px", background: "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    padding: isMobile ? "9px 12px" : "9px 16px", background: "transparent",
                     color: T.textSec || T.muted, border: `1.5px solid ${T.border}`,
                     borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer",
-                    fontFamily: "inherit",
+                    fontFamily: "inherit", whiteSpace: "nowrap", flex: isMobile ? "1" : "initial",
                   }}>
-                  <FaDownload size={11} /> Export CSV
+                  <FaDownload size={11} /> {isMobile ? "Export" : "Export CSV"}
                 </button>
                 )}
                 <button
                   onClick={() => navigate("/Sales/Quotes/Create")}
                   style={{
-                    display: "flex", alignItems: "center", gap: 7,
-                    padding: "9px 20px", background: T.blue || T.accent,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                    padding: isMobile ? "9px 12px" : "9px 20px", background: T.blue || T.accent,
                     color: "#fff", border: "none", borderRadius: 10,
                     fontSize: 13, fontWeight: 700, cursor: "pointer",
-                    fontFamily: "inherit", letterSpacing: "0.01em",
+                    fontFamily: "inherit", letterSpacing: "0.01em", whiteSpace: "nowrap", flex: isMobile ? "1" : "initial",
                     boxShadow: `0 2px 10px ${T.blueDim || "rgba(59,130,246,0.3)"}`,
                   }}>
                   <FaPlus size={11} /> New Quote
@@ -252,7 +254,7 @@ export default function Quotes() {
             </div>
 
             {/* Stat cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
               {STAT_CARDS.map(sc => {
                 const d = stats[sc.key] || {};
                 const Icon = sc.icon;
@@ -288,8 +290,8 @@ export default function Quotes() {
             </div>
 
             {/* Search + filter row */}
-            <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
-              <div style={{ position: "relative", width: 260 }}>
+            <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, marginBottom: 16, alignItems: isMobile ? "stretch" : "center" }}>
+              <div style={{ position: "relative", width: isMobile ? "100%" : 260 }}>
                 <FaSearch style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: T.textSec || T.muted, fontSize: 11, pointerEvents: "none" }} />
                 <input
                   className="qt-search"
@@ -332,13 +334,13 @@ export default function Quotes() {
           </div>
 
           {/* Table */}
-          <div style={{ flex: 1, overflow: "auto", padding: "0 28px 20px" }}>
+          <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "0 14px 16px" : "0 28px 20px" }}>
             <div style={{
               background: T.surface,
               border: `1px solid ${T.border}`,
-              borderRadius: 14, overflow: "hidden",
+              borderRadius: 14, overflowX: "auto", overflowY: "hidden",
             }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <table style={{ width: "100%", minWidth: isMobile ? 720 : "auto", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)" }}>
                     {[
@@ -530,9 +532,9 @@ export default function Quotes() {
         {/* ── Drawer ── */}
         {selected && (
           <div className="qt-drawer" style={{
-            width: 400, flexShrink: 0,
+            width: isMobile ? "100%" : 400, flexShrink: 0,
             background: T.surface,
-            borderLeft: `1px solid ${T.border}`,
+            borderLeft: isMobile ? "none" : `1px solid ${T.border}`,
             display: "flex", flexDirection: "column",
             height: "100%", overflow: "hidden",
           }}>
