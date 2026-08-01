@@ -24,14 +24,20 @@ export default function VATReport() {
   const [from,    setFrom]    = useState(firstOfQuarter());
   const [to,      setTo]      = useState(today());
   const [data,    setData]    = useState(null);
+  const [lines,   setLines]   = useState(null);   // { sales:[], purchases:[], totals:{} }
+  const [tab,     setTab]     = useState("combined"); // combined | sales | purchases
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!from || !to) return;
     setLoading(true);
     try {
-      const res = await axiosInstance.get(`/api/reports/vat?from=${from}&to=${to}`);
-      setData(res.data?.data);
+      const [sumRes, lineRes] = await Promise.all([
+        axiosInstance.get(`/api/reports/vat?from=${from}&to=${to}`),
+        axiosInstance.get(`/api/reports/vat/lines?from=${from}&to=${to}`),
+      ]);
+      setData(sumRes.data?.data);
+      setLines(lineRes.data?.data);
     } catch (e) {
       nexusToast.error(e.response?.data?.message || "Failed to load VAT report");
     } finally { setLoading(false); }
@@ -58,6 +64,25 @@ export default function VATReport() {
     a.click();
   };
 
+  const exportDetailCSV = () => {
+    if (!lines) return;
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const section = (title, rows, partyLabel) => {
+      const out = [[title], ["Ser", "Tax Invoice/Credit Note No", "Date", "Amount (before VAT)", "VAT Amount", partyLabel, `${partyLabel} TRN`, "Description"]];
+      (rows || []).forEach((r, i) => out.push([i + 1, r.number, r.date, Number(r.amount || 0).toFixed(2), Number(r.vat || 0).toFixed(2), r.party, r.trn, r.description]));
+      return out;
+    };
+    let rows = [["VAT Report — Transaction Detail", `${lines.period.from} to ${lines.period.to}`], []];
+    if (tab !== "purchases") rows = rows.concat(section("SALES (Output VAT)", lines.sales, "Customer"), [[]]);
+    if (tab !== "sales") rows = rows.concat(section("PURCHASES (Input VAT)", lines.purchases, "Supplier"), [[]]);
+    rows.push(["Net VAT Payable", "", "", "", (lines.totals?.netVATPayable || 0).toFixed(2)]);
+    const csv = rows.map((r) => r.map(esc).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `vat_detail_${tab}_${from}_${to}.csv`;
+    a.click();
+  };
+
   const card = (label, taxable, vat, color, sub) => (
     <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${color}`, borderRadius: 12, padding: "16px 20px" }}>
       <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.textSec, margin: "0 0 10px" }}>{label}</p>
@@ -77,7 +102,17 @@ export default function VATReport() {
 
   return (
     <div style={{ background: T.bg, minHeight: "100vh", color: T.textPri, fontFamily: "'DM Sans', sans-serif", padding: "28px" }}>
-      <style>{`* { box-sizing: border-box; } ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }`}</style>
+      <style>{`
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }
+        @media print {
+          .vat-noprint { display: none !important; }
+          @page { size: A4; margin: 12mm; }
+          body { background: #fff !important; }
+          table { page-break-inside: auto; }
+          tr { page-break-inside: avoid; }
+        }
+      `}</style>
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
@@ -85,15 +120,22 @@ export default function VATReport() {
           <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri, margin: "0 0 4px", letterSpacing: "-0.4px" }}>VAT Report</h1>
           <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>UAE VAT 201 summary — output tax, input tax, net payable</p>
         </div>
-        {data && canExport && (
-          <button onClick={exportCSV} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
-            ⬇ Export CSV
-          </button>
+        {data && (
+          <div className="vat-noprint" style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => window.print()} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
+              🖨 Print / PDF
+            </button>
+            {canExport && (
+              <button onClick={exportCSV} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
+                ⬇ Export CSV
+              </button>
+            )}
+          </div>
         )}
       </div>
 
       {/* Date range picker */}
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 28, flexWrap: "wrap" }}>
+      <div className="vat-noprint" style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 28, flexWrap: "wrap" }}>
         <div>
           <label style={{ fontSize: 11, fontWeight: 600, color: T.textSec, display: "block", marginBottom: 4 }}>From</label>
           <AppDatePicker value={from} onChange={setFrom} placeholder="From" />
@@ -237,8 +279,126 @@ export default function VATReport() {
               </div>
             ))}
           </div>
+
+          {/* ── Transaction detail (FTA Sales / Purchases sheets) ── */}
+          {lines && (
+            <div style={{ marginTop: 24 }}>
+              <div className="vat-noprint" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 14 }}>
+                <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4 }}>
+                  {[
+                    { k: "combined",  label: "Combined" },
+                    { k: "sales",     label: `Sales (${lines.sales?.length || 0})` },
+                    { k: "purchases", label: `Purchases (${lines.purchases?.length || 0})` },
+                    { k: "rcm",       label: `RCM (${lines.rcm?.length || 0})` },
+                  ].map(t => (
+                    <button key={t.k} onClick={() => setTab(t.k)}
+                      style={{ padding: "7px 16px", borderRadius: 7, fontSize: 12.5, fontWeight: 700, cursor: "pointer", border: "none", fontFamily: "inherit",
+                        background: tab === t.k ? (T.blue || T.accent) : "transparent",
+                        color: tab === t.k ? "#fff" : T.textSec }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                {canExport && (
+                  <button onClick={exportDetailCSV} style={{ padding: "8px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
+                    ⬇ Export Detail CSV
+                  </button>
+                )}
+              </div>
+
+              {(tab === "combined" || tab === "sales") && (
+                <LineTable T={T} isDark={isDark} title="VAT on Sales & Other Outputs (Output VAT)" partyLabel="Customer" accent="#10b981"
+                  rows={lines.sales} totalAmount={lines.totals?.salesTaxable} totalVAT={lines.totals?.salesVAT} />
+              )}
+              {(tab === "combined" || tab === "purchases") && (
+                <div style={{ marginTop: tab === "combined" ? 20 : 0 }}>
+                  <LineTable T={T} isDark={isDark} title="VAT on Expenses & Purchases (Input VAT)" partyLabel="Supplier" accent="#3b82f6"
+                    rows={lines.purchases} totalAmount={lines.totals?.purchaseTaxable} totalVAT={lines.totals?.purchaseVAT} />
+                </div>
+              )}
+
+              {tab === "rcm" && (
+                <>
+                  <LineTable T={T} isDark={isDark} title="Goods Imported into the UAE (appearing on FTA portal)" partyLabel="Supplier" accent="#7c3aed"
+                    rows={(lines.rcm || []).filter(r => r.imported)} />
+                  <div style={{ marginTop: 20 }}>
+                    <LineTable T={T} isDark={isDark} title="Supplies under Reverse Charge (not appearing on FTA portal)" partyLabel="Supplier" accent="#7c3aed"
+                      rows={(lines.rcm || []).filter(r => !r.imported)} />
+                  </div>
+                  <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+                    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: "3px solid #7c3aed", borderRadius: 10, padding: "12px 20px", fontSize: 13 }}>
+                      <span style={{ color: T.textSec }}>Total RCM VAT accounted (Box 3 / Box 10): </span>
+                      <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 800, color: "#7c3aed" }}>{fmt(lines.totals?.rcmVAT || 0)}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {tab === "combined" && (
+                <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+                  <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${lines.totals?.netVATPayable >= 0 ? "#ef4444" : "#10b981"}`, borderRadius: 10, padding: "12px 20px", fontSize: 13 }}>
+                    <span style={{ color: T.textSec }}>Net VAT (Output − Input): </span>
+                    <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 800, color: lines.totals?.netVATPayable >= 0 ? "#ef4444" : "#10b981" }}>
+                      {lines.totals?.netVATPayable < 0 ? "−" : ""}{fmt(Math.abs(lines.totals?.netVATPayable || 0))}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
+    </div>
+  );
+}
+
+function LineTable({ T, isDark, title, partyLabel, accent, rows, totalAmount, totalVAT }) {
+  const fmt = (n) => `AED ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const tAmount = totalAmount != null ? totalAmount : (rows || []).reduce((s, r) => s + (r.amount || 0), 0);
+  const tVAT    = totalVAT    != null ? totalVAT    : (rows || []).reduce((s, r) => s + (r.vat || 0), 0);
+  const cols = ["#", "Tax Invoice / Credit Note No", "Date", "Amount (before VAT)", "VAT Amount", partyLabel, `${partyLabel} TRN`, "Description"];
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, borderLeft: `3px solid ${accent}` }}>
+        <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 14, fontWeight: 700, color: T.textPri, margin: 0 }}>{title}</h2>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 860 }}>
+          <thead>
+            <tr style={{ background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)" }}>
+              {cols.map((h, i) => (
+                <th key={h} style={{ padding: "10px 14px", textAlign: i === 3 || i === 4 ? "right" : "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: T.textSec, borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(!rows || rows.length === 0) ? (
+              <tr><td colSpan={8} style={{ padding: 24, textAlign: "center", color: T.textSec }}>No transactions in this period.</td></tr>
+            ) : rows.map((r, i) => (
+              <tr key={i} style={{ borderBottom: `1px solid ${T.border}` }}>
+                <td style={{ padding: "10px 14px", color: T.textSec }}>{i + 1}</td>
+                <td style={{ padding: "10px 14px", fontFamily: "'DM Mono',monospace", fontWeight: 600, color: T.textPri }}>{r.number || "—"}</td>
+                <td style={{ padding: "10px 14px", color: T.textSec, whiteSpace: "nowrap" }}>{r.date || "—"}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", fontFamily: "'DM Mono',monospace" }}>{fmt(r.amount)}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", fontFamily: "'DM Mono',monospace", color: accent, fontWeight: 600 }}>{fmt(r.vat)}</td>
+                <td style={{ padding: "10px 14px", color: T.textPri, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.party || "—"}</td>
+                <td style={{ padding: "10px 14px", fontFamily: "'DM Mono',monospace", color: T.textSec }}>{r.trn || "—"}</td>
+                <td style={{ padding: "10px 14px", color: T.textSec, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+          {rows && rows.length > 0 && (
+            <tfoot>
+              <tr style={{ background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)", fontWeight: 700 }}>
+                <td colSpan={3} style={{ padding: "11px 14px", color: T.textPri }}>Total</td>
+                <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "'DM Mono',monospace", color: T.textPri }}>{fmt(tAmount)}</td>
+                <td style={{ padding: "11px 14px", textAlign: "right", fontFamily: "'DM Mono',monospace", color: accent }}>{fmt(tVAT)}</td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
     </div>
   );
 }

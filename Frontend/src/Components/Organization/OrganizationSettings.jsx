@@ -110,6 +110,7 @@ const NUM_ENTITIES = [
   { key: 'credit_note',    label: 'Credit Note' },
   { key: 'debit_note',     label: 'Debit Note' },
   { key: 'journal_entry',  label: 'Journal Entry' },
+  { key: 'project',        label: 'Project No.' },
 ]
 
 // Legacy default formats per entity (mirror backend entityDefaultFormats).
@@ -125,6 +126,7 @@ const ENTITY_DEFAULTS = {
   bill: _litYMS('BILL-'), payment: _litYMS('PAY-'), vendor_payment: _litYMS('VPAY-'),
   advance: _litYMS('ADV-'), vendor_credit: _litYMS('VCR-'), journal_entry: _litYMS('JE-'),
   sales_order: _litMYS('SO'), purchase_order: _litMYS('PO'),
+  project: _litYS('PRJ-'),
 }
 
 const newSegment = (type) => {

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { guardNav } from '../../helper/useUnsavedGuard'
 import { IoHome, IoChevronDown, IoSettingsOutline } from 'react-icons/io5'
-import { FaBoxOpen, FaCartArrowDown, FaClipboardCheck, FaCloudUploadAlt, FaUsers } from 'react-icons/fa'
+import { FaBoxOpen, FaCartArrowDown, FaClipboardCheck, FaCloudUploadAlt, FaUsers, FaProjectDiagram } from 'react-icons/fa'
 import { MdInventory2 } from 'react-icons/md'
 import { HiShoppingCart } from 'react-icons/hi'
 import { TbReportAnalytics } from 'react-icons/tb'
@@ -77,6 +77,7 @@ const MENU = [
     { name: 'Payroll',     route: '/HR/Payroll',    mod: 'payroll' },
     { name: 'Time Off',    route: '/HR/TimeOff',    mod: 'timeoff' },
   ]},
+  { icon: FaProjectDiagram,   label: 'Projects',  route: '/Projects',  tourKey: 'nav-projects' },
   { icon: FaClipboardCheck,   label: 'Approvals', route: '/Approvals', tourKey: 'nav-approvals' },
   { icon: FaCloudUploadAlt,   label: 'Backups',   route: '/Backups',   ownerOnly: true, tourKey: 'nav-backups' },
   { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },

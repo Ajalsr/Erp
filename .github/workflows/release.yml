@@ -1,11 +1,15 @@
 name: Release desktop app
 
 # Push a tag like v1.0.1 to trigger, or run manually from the Actions tab.
-# Download links stay fixed (/downloads/Spifora_1.0.0_x64-setup.exe etc)
-# regardless of the real build version — if you ever bump the app to a new
-# major filename scheme, update those hrefs in spifora.html by hand. The
-# "Version X.X.X — released YYYY-MM-DD" badge text, though, IS kept in sync
-# automatically below, read straight from src-tauri/tauri.conf.json.
+# Builds BOTH Windows (.msi/.exe) and macOS (.dmg, universal Intel+Apple
+# Silicon) in parallel on their native runners, attaches all installers to one
+# GitHub Release, then a single publish-site job copies them into Spifora-site
+# with fixed filenames and syncs the version badge.
+#
+# Download links on spifora.html stay fixed (/downloads/Spifora_1.0.0_x64-setup.exe
+# etc) regardless of the real build version — if you bump to a new filename
+# scheme, update those hrefs by hand. The "Version X.X.X — released YYYY-MM-DD"
+# badge IS kept in sync automatically, read from src-tauri/tauri.conf.json.
 on:
   push:
     tags:
@@ -13,11 +17,20 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  build-and-release:
-    runs-on: windows-latest
-    # GITHUB_TOKEN defaults to read-only on repos/orgs with restrictive
-    # default token permissions — without this, tauri-action's "create a
-    # release" API call 403s with "Resource not accessible by integration".
+  # ── 1. Build installers on each OS, attach to one GitHub Release ──────────
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+    runs-on: ${{ matrix.platform }}
+    # GITHUB_TOKEN defaults to read-only on repos/orgs with restrictive default
+    # token permissions — without this, tauri-action's "create a release" API
+    # call 403s with "Resource not accessible by integration".
     permissions:
       contents: write
     steps:
@@ -31,6 +44,9 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # macOS universal binary needs both arch targets present.
+          targets: ${{ matrix.platform == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
 
       - name: Rust build cache
         uses: swatinem/rust-cache@v2
@@ -46,10 +62,9 @@ jobs:
 
       # Builds Frontend (via tauri.conf.json's beforeBuildCommand, using
       # Frontend/.env.production — must already point at the real hosted
-      # api.spifora.com, this workflow doesn't touch env files), compiles
-      # the Rust shell, bundles NSIS/MSI, and creates/updates a GitHub
-      # Release with those installers attached. That release is an internal
-      # artifact archive only — nothing on spifora.html ever links to it.
+      # api.spifora.com), compiles the Rust shell, bundles the platform
+      # installers, and creates/updates a single GitHub Release with them
+      # attached (the first matrix leg creates it, the second reuses it).
       - name: Build + create GitHub Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -57,16 +72,25 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: "Spifora v__VERSION__"
-          releaseBody: "Internal build artifact — not linked from spifora.com. See Spifora-site/downloads/ for the public installer."
+          releaseBody: "Internal build artifact — not linked from spifora.com. See Spifora-site/downloads/ for the public installers."
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.args }}
 
-      # Requires a repo secret SPIFORA_SITE_PAT: a GitHub Personal Access
-      # Token (classic, "repo" scope, or a fine-grained token scoped to
-      # Ajalsr/Spifora-site with Contents: read/write) added under this
-      # repo's Settings → Secrets and variables → Actions. The default
-      # GITHUB_TOKEN above only has permission inside THIS repo — pushing to
-      # a different repo needs its own credential, which only you can create.
+  # ── 2. Publish installers to the public site (runs once, after both) ─────
+  publish-site:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Erp (for version)
+        uses: actions/checkout@v4
+        with:
+          path: erp
+
+      # Requires a repo secret SPIFORA_SITE_PAT: a GitHub Personal Access Token
+      # (classic "repo" scope, or fine-grained scoped to Ajalsr/Spifora-site
+      # with Contents: read/write). The default GITHUB_TOKEN only has access
+      # inside THIS repo — pushing to another repo needs its own credential.
       - name: Checkout Spifora-site
         uses: actions/checkout@v4
         with:
@@ -74,23 +98,34 @@ jobs:
           token: ${{ secrets.SPIFORA_SITE_PAT }}
           path: spifora-site
 
+      # Source of truth is tauri.conf.json's own version, not the pushed git
+      # tag (they may not match) — so we download exactly what was built.
+      - name: Download release installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -e
+          VERSION=$(node -p "require('./erp/src-tauri/tauri.conf.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir -p assets
+          gh release download "app-v${VERSION}" --repo Ajalsr/Erp --dir assets \
+            --pattern "*.exe" --pattern "*.msi" --pattern "*.dmg"
+          ls -la assets
+
       - name: Copy installers into Spifora-site/downloads (fixed filenames)
         shell: bash
         run: |
           set -e
-          cp src-tauri/target/release/bundle/nsis/Spifora_*_x64-setup.exe \
-             spifora-site/downloads/Spifora_1.0.0_x64-setup.exe
-          cp src-tauri/target/release/bundle/msi/Spifora_*_x64_en-US.msi \
-             spifora-site/downloads/Spifora_1.0.0_x64_en-US.msi
+          mkdir -p spifora-site/downloads
+          cp assets/*x64-setup.exe   spifora-site/downloads/Spifora_1.0.0_x64-setup.exe
+          cp assets/*_x64_en-US.msi  spifora-site/downloads/Spifora_1.0.0_x64_en-US.msi
+          cp assets/*.dmg            spifora-site/downloads/Spifora_1.0.0_universal.dmg
 
-      # Source of truth is tauri.conf.json's own version field, not the
-      # pushed git tag (they're not guaranteed to match if someone tags
-      # loosely) — so the badge always reflects what was ACTUALLY built.
       - name: Update version badge on spifora.html
         shell: bash
         run: |
           set -e
-          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
           RELEASE_DATE=$(date -u +%Y-%m-%d)
           sed -i -E "s/Version [0-9]+\.[0-9]+\.[0-9]+ — released [0-9]{4}-[0-9]{2}-[0-9]{2}/Version ${VERSION} — released ${RELEASE_DATE}/" \
             spifora-site/spifora.html
@@ -101,6 +136,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add downloads/Spifora_1.0.0_x64-setup.exe downloads/Spifora_1.0.0_x64_en-US.msi spifora.html
+          git add downloads/Spifora_1.0.0_x64-setup.exe downloads/Spifora_1.0.0_x64_en-US.msi downloads/Spifora_1.0.0_universal.dmg spifora.html
           git diff --cached --quiet || git commit -m "chore: refresh desktop installers + version badge (Erp ${{ github.ref_name }})"
           git push

@@ -153,6 +153,7 @@ func main() {
 	routes.BackupRoutes(router)
 	routes.ExportRoutes(router)
 	routes.LetterRoutes(router)
+	routes.ProjectRoutes(router)
 	routes.EmployeeRoutes(router)
 	routes.PayrollRoutes(router)
 	routes.TimeOffRoutes(router)
