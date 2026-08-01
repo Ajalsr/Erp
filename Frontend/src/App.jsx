@@ -51,6 +51,7 @@ const Approvals = lazy(() => import("./Components/Approvals/Approvals"))
 const TransactionExport = lazy(() => import("./Components/Export/TransactionExport"))
 const Backups = lazy(() => import("./Components/Backups/Backups"))
 const Letters = lazy(() => import("./Components/Letters/Letters"))
+const Projects = lazy(() => import("./Components/Projects/Projects"))
 const LetterPrint = lazy(() => import("./Components/Letters/LetterPrint"))
 const LetterEditor = lazy(() => import("./Components/Letters/LetterEditor"))
 const VendorCredits = lazy(() => import("./Components/VendorCredits/VendorCredits"))
@@ -228,6 +229,7 @@ function App() {
               <Route path="/Reports/export-transactions" element={<TransactionExport />} />
               <Route path="/Backups" element={<Backups />} />
               <Route path="/Letters" element={<Letters />} />
+              <Route path="/Projects" element={<Projects />} />
               <Route path="/Letters/new" element={<LetterEditor />} />
               <Route path="/Letters/:id/edit" element={<LetterEditor />} />
               <Route path="/Letters/:id/print" element={<LetterPrint />} />

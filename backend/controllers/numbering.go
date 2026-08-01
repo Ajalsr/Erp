@@ -45,6 +45,7 @@ func GetNextNumberPreview() gin.HandlerFunc {
 			"delivery_note":  {deliveryNotesCollection, "dnNumber"},
 			"employee":       {employeeCollection, "employeeCode"},
 			"pay_run":        {payRunCollection, "runNumber"},
+			"project":        {projectCollection, "projectNo"},
 		}
 		s, ok := sources[key]
 		if !ok {
@@ -90,6 +91,7 @@ var entityDefaultFormats = map[string]utils.NumberFormat{
 	"quote":         fmtSeg("QUO-", segYear4, segDash, seg4),
 	"delivery_note": fmtSeg("DN-", segYear4, segDash, seg4),
 	"letter":        fmtSeg("LTR-", segYear4, segDash, seg4),
+	"project":       fmtSeg("PRJ-", segYear4, segDash, seg4),
 
 	// PREFIX-0001
 	"credit_note":   fmtSeg("CN-", seg4),

@@ -527,6 +527,7 @@ func ReportsRoutes(router *gin.Engine) {
 	rptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("reports"), middlewares.RequireModule("reports"))
 	{
 		rptRoutes.GET("/vat", controllers.GetVATReport())
+		rptRoutes.GET("/vat/lines", controllers.GetVATReportLines())
 		rptRoutes.GET("/vendor-aging", controllers.GetVendorAging())
 		rptRoutes.GET("/profit-loss", controllers.GetProfitAndLoss())
 		rptRoutes.GET("/balance-sheet", controllers.GetBalanceSheet())
