@@ -37,6 +37,7 @@ var approvalFieldCatalog = map[string][]apprField{
 	"quotes":          {{"amount", "money"}, {"customer", "text"}},
 	"customers":       {{"name", "text"}},
 	"vendors":         {{"name", "text"}},
+	"projects":        {{"name", "text"}},
 }
 
 func fieldType(moduleKey, field string) string {
@@ -128,6 +129,8 @@ func docFieldValue(moduleKey, field string, p bson.M) interface{} {
 		return nestedStr(p, "customerDisplayName")
 	case "vendors":
 		return nestedStr(p, "displayName")
+	case "projects":
+		return nestedStr(p, "projectName")
 	}
 	return nil
 }
@@ -320,7 +323,7 @@ func docTypeLabel(dt string) string {
 	if l := map[string]string{
 		"po": "Purchase order", "bill": "Bill", "vendor_payment": "Vendor payment",
 		"payment": "Customer payment", "invoice": "Invoice", "customer": "Customer", "vendor": "Vendor",
-		"quote": "Quote",
+		"quote": "Quote", "project": "Project",
 	}[dt]; l != "" {
 		return l
 	}
@@ -829,6 +832,8 @@ func replayApprovedCreate(ctx context.Context, orgIDStr, requestedBy string, ar 
 			return syntheticReplay(CreateVendor(), http.MethodPost, nil, orgIDStr, requestedBy, ar.Payload, "")
 		case "quote":
 			return syntheticReplay(CreateQuote(), http.MethodPost, nil, orgIDStr, requestedBy, ar.Payload, "")
+		case "project":
+			return syntheticReplay(CreateProject(), http.MethodPost, nil, orgIDStr, requestedBy, ar.Payload, "")
 		}
 	}
 	return "", "", fmt.Errorf("unsupported %s/%s", ar.Action, ar.DocType)

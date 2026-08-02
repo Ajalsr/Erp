@@ -15,6 +15,7 @@ const APPROVAL_MODULES = [
   { key: 'invoices',        label: 'Invoices',         group: 'Sales' },
   { key: 'customers',       label: 'Customers',        group: 'Contacts' },
   { key: 'vendors',         label: 'Vendors',          group: 'Contacts' },
+  { key: 'projects',        label: 'Projects',         group: 'Projects' },
 ]
 const modLabel = (k) => (APPROVAL_MODULES.find(m => m.key === k) || {}).label || k
 const modGroup = (k) => (APPROVAL_MODULES.find(m => m.key === k) || {}).group || ''
@@ -30,6 +31,7 @@ const MODULE_ACTIONS = {
   invoices:        ['create', 'update'],
   customers:       ['create', 'update'],
   vendors:         ['create', 'update'],
+  projects:        ['create'],
 }
 const actionsFor = (k) => MODULE_ACTIONS[k] || ['create']
 const ACTION_LABEL = { create: 'Create', update: 'Edit', delete: 'Delete' }
@@ -46,6 +48,7 @@ const APPROVAL_FIELDS = {
   invoices:        [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
   customers:       [{ key: 'name', label: 'Name', type: 'text' }],
   vendors:         [{ key: 'name', label: 'Name', type: 'text' }],
+  projects:        [{ key: 'name', label: 'Name', type: 'text' }],
 }
 const OPS = {
   money: [{ v: 'gte', l: '≥' }, { v: 'lte', l: '≤' }, { v: 'gt', l: '>' }, { v: 'lt', l: '<' }, { v: 'eq', l: '=' }, { v: 'ne', l: '≠' }],

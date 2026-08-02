@@ -98,6 +98,16 @@ func CreateProject() gin.HandlerFunc {
 		}
 
 		p := req.toModel()
+
+		// Approval gate — hold the create for an approver when the org requires
+		// it. Placed before the numbering assignment below so a held (possibly
+		// rejected) request never consumes a project number.
+		if !c.GetBool("approvalReplay") {
+			if holdActionForApproval(c, ctx, orgID, userID, "", "project", "create", "projects", p.ProjectName, 0, "", p) {
+				return
+			}
+		}
+
 		p.ID = primitive.NewObjectID().Hex()
 		p.OrgID = orgID
 		// Project No. is auto-generated from the org's configured numbering format

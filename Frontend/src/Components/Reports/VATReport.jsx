@@ -1,9 +1,14 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import axiosInstance from "../../helper/axiosInstance";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
+import useAuthStore from "../../store/useAuthStore";
 import AppDatePicker from "../common/AppDatePicker";
 import nexusToast from "../../helper/nexusToast";
 import { usePermissions } from "../../helper/permissions";
+import { loadImageDataUrl } from "../Letters/letterShared";
 
 const fmt = (n) =>
   `AED ${Number(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -27,6 +32,26 @@ export default function VATReport() {
   const [lines,   setLines]   = useState(null);   // { sales:[], purchases:[], totals:{} }
   const [tab,     setTab]     = useState("combined"); // combined | sales | purchases
   const [loading, setLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  // Org letterhead for the PDF export (mirrors GRN.jsx / InvoicePrint's pattern).
+  const activeOrg = useAuthStore((s) => s.activeOrg);
+  const [letterhead, setLetterhead] = useState("");
+  const [letterTop,  setLetterTop]  = useState(13);
+  const [letterBot,  setLetterBot]  = useState(8);
+  const [orgName,    setOrgName]    = useState("");
+
+  useEffect(() => {
+    const orgId = activeOrg?._id;
+    if (!orgId) return;
+    axiosInstance.get(`/api/organizations/${orgId}?withImages=true`).then((r) => {
+      const d = r.data?.data || {};
+      setLetterhead(d.letterheadImage || "");
+      setLetterTop(d.letterheadTopPad || 13);
+      setLetterBot(d.letterheadBottomPad || 8);
+      setOrgName(d.name || d.companyName || "");
+    }).catch(() => {});
+  }, [activeOrg]);
 
   const load = useCallback(async () => {
     if (!from || !to) return;
@@ -43,44 +68,101 @@ export default function VATReport() {
     } finally { setLoading(false); }
   }, [from, to]);
 
-  const exportCSV = () => {
-    if (!data) return;
-    const rows = [
-      ["VAT Report", `${data.period.from} to ${data.period.to}`],
-      [],
-      ["Section", "Taxable Amount (AED)", "VAT Amount (AED)"],
-      ["Standard Rated Sales", data.sales.taxableAmount?.toFixed(2), data.sales.outputVAT?.toFixed(2)],
-      ["Credit Note Adjustments", `-${data.creditNoteAdjustments.taxableAmount?.toFixed(2)}`, `-${data.creditNoteAdjustments.vatAdjusted?.toFixed(2)}`],
-      ["Net Taxable Sales", (data.sales.taxableAmount - data.creditNoteAdjustments.taxableAmount).toFixed(2), (data.sales.outputVAT - data.creditNoteAdjustments.vatAdjusted).toFixed(2)],
-      [],
-      ["Standard Rated Purchases", data.purchases.taxableAmount?.toFixed(2), data.purchases.inputVAT?.toFixed(2)],
-      [],
-      ["Net VAT Payable", "", data.netVATPayable?.toFixed(2)],
-    ];
-    const csv = rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `vat_report_${from}_${to}.csv`;
-    a.click();
-  };
-
-  const exportDetailCSV = () => {
+  const exportDetailExcel = () => {
     if (!lines) return;
-    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const section = (title, rows, partyLabel) => {
       const out = [[title], ["Ser", "Tax Invoice/Credit Note No", "Date", "Amount (before VAT)", "VAT Amount", partyLabel, `${partyLabel} TRN`, "Description"]];
-      (rows || []).forEach((r, i) => out.push([i + 1, r.number, r.date, Number(r.amount || 0).toFixed(2), Number(r.vat || 0).toFixed(2), r.party, r.trn, r.description]));
+      (rows || []).forEach((r, i) => out.push([i + 1, r.number, r.date, Number(r.amount || 0), Number(r.vat || 0), r.party, r.trn, r.description]));
       return out;
     };
     let rows = [["VAT Report — Transaction Detail", `${lines.period.from} to ${lines.period.to}`], []];
     if (tab !== "purchases") rows = rows.concat(section("SALES (Output VAT)", lines.sales, "Customer"), [[]]);
     if (tab !== "sales") rows = rows.concat(section("PURCHASES (Input VAT)", lines.purchases, "Supplier"), [[]]);
-    rows.push(["Net VAT Payable", "", "", "", (lines.totals?.netVATPayable || 0).toFixed(2)]);
-    const csv = rows.map((r) => r.map(esc).join(",")).join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `vat_detail_${tab}_${from}_${to}.csv`;
-    a.click();
+    rows.push(["Net VAT Payable", "", "", "", lines.totals?.netVATPayable || 0]);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 5 }, { wch: 26 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 30 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "VAT Detail");
+    XLSX.writeFile(wb, `vat_detail_${tab}_${from}_${to}.xlsx`);
+  };
+
+  // Print / PDF — same scope as "Export Detail Excel" (only the current tab's
+  // transaction rows, not the whole dashboard), stamped with the org letterhead.
+  // This is a Tauri desktop webview, not a browser tab — window.open()/popups
+  // don't apply here (matches every other Print page in this app, e.g.
+  // QuotePrint.jsx: load the PDF into a hidden same-window iframe and call
+  // iframe.contentWindow.print() for the native print dialog).
+  const printDetailPDF = async () => {
+    if (!lines) return;
+    setPdfLoading(true);
+    try {
+      const letterheadData = letterhead ? await loadImageDataUrl(letterhead) : null;
+
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const topPadMM = letterheadData ? (letterTop / 100) * pageH : 14;
+      const botPadMM = letterheadData ? (letterBot / 100) * pageH : 14;
+
+      const cols = ["Ser", "Tax Invoice/Credit Note No", "Date", "Amount (before VAT)", "VAT Amount", "Party", "Party TRN", "Description"];
+      const body = [];
+      const addSection = (title, rows) => {
+        body.push([{ content: title, colSpan: 8, styles: { fontStyle: "bold", fillColor: [226, 232, 240], textColor: [15, 23, 42] } }]);
+        if (!rows || !rows.length) {
+          body.push([{ content: "No transactions in this period.", colSpan: 8, styles: { textColor: [100, 116, 139], halign: "center" } }]);
+        } else {
+          rows.forEach((r, i) => body.push([i + 1, r.number || "—", r.date || "—", Number(r.amount || 0).toFixed(2), Number(r.vat || 0).toFixed(2), r.party || "—", r.trn || "—", r.description || "—"]));
+        }
+      };
+      if (tab !== "purchases") addSection("SALES (Output VAT)", lines.sales);
+      if (tab !== "sales") addSection("PURCHASES (Input VAT)", lines.purchases);
+      body.push([
+        { content: "Net VAT Payable", colSpan: 4, styles: { fontStyle: "bold" } },
+        { content: fmt(lines.totals?.netVATPayable || 0), colSpan: 4, styles: { fontStyle: "bold", halign: "right" } },
+      ]);
+
+      autoTable(doc, {
+        head: [cols],
+        body,
+        startY: topPadMM,
+        margin: { top: topPadMM, bottom: botPadMM, left: 10, right: 10 },
+        tableWidth: "auto",
+        styles: { fontSize: 11, cellPadding: 4, valign: "middle" },
+        headStyles: { fillColor: [30, 58, 95], textColor: 255, fontStyle: "bold", fontSize: 11 },
+        columnStyles: { 0: { cellWidth: 12 }, 3: { halign: "right" }, 4: { halign: "right" } },
+        // willDrawPage (not didDrawPage) fires BEFORE that page's table content is
+        // drawn, so the letterhead lands underneath the table instead of over it.
+        willDrawPage: () => { if (letterheadData) doc.addImage(letterheadData, "PNG", 0, 0, pageW, pageH); },
+      });
+
+      doc.setProperties({ title: `VAT Detail — ${tab} — ${from} to ${to}${orgName ? ` — ${orgName}` : ""}` });
+      const url = doc.output("bloburl");
+
+      // Reuse one hidden same-window iframe across calls instead of popups —
+      // load the PDF into it and trigger the OS print dialog directly (its own
+      // "Save as PDF" printer covers the "PDF" half of this button).
+      let iframe = document.getElementById("vat-pdf-frame");
+      if (!iframe) {
+        iframe = document.createElement("iframe");
+        iframe.id = "vat-pdf-frame";
+        iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+        document.body.appendChild(iframe);
+      }
+      iframe.onload = () => {
+        try { iframe.contentWindow.focus(); iframe.contentWindow.print(); }
+        catch {
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `vat_detail_${tab}_${from}_${to}.pdf`;
+          a.click();
+        }
+      };
+      iframe.src = url;
+    } catch {
+      nexusToast.error("Failed to generate PDF");
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   const card = (label, taxable, vat, color, sub) => (
@@ -122,14 +204,9 @@ export default function VATReport() {
         </div>
         {data && (
           <div className="vat-noprint" style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => window.print()} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
-              🖨 Print / PDF
+            <button onClick={printDetailPDF} disabled={!lines || pdfLoading} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: (!lines || pdfLoading) ? "not-allowed" : "pointer", opacity: (!lines || pdfLoading) ? 0.6 : 1, background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
+              🖨 {pdfLoading ? "Generating…" : "Print / PDF"}
             </button>
-            {canExport && (
-              <button onClick={exportCSV} style={{ padding: "9px 18px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
-                ⬇ Export CSV
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -300,8 +377,8 @@ export default function VATReport() {
                   ))}
                 </div>
                 {canExport && (
-                  <button onClick={exportDetailCSV} style={{ padding: "8px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
-                    ⬇ Export Detail CSV
+                  <button onClick={exportDetailExcel} style={{ padding: "8px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "transparent", border: `1.5px solid ${T.border}`, color: T.textPri, fontFamily: "inherit" }}>
+                    ⬇ Export Detail Excel
                   </button>
                 )}
               </div>

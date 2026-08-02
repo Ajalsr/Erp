@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useOrganization from '../../helper/useOrganization'
 import useAuthStore from '../../store/useAuthStore'
-import toast from 'react-hot-toast'
+import nexusToast from '../../helper/nexusToast'
 
 const MODULE_LABELS = {
   items: 'Items', item_groups: 'Item Groups', price_lists: 'Price Lists',
@@ -42,12 +42,12 @@ const CreateOrganization = () => {
 
   const handleVerify = async () => {
     const key = licenseKeyInput.trim()
-    if (!key) { toast.error('Enter a license key'); return }
+    if (!key) { nexusToast.error('Enter a license key'); return }
     setVerifying(true)
     try {
       const data = await verifyLicenseKey(key)
       if (data.status !== 'active') {
-        toast.error(`This license key is ${data.status}`)
+        nexusToast.error(`This license key is ${data.status}`)
         setLicense(null)
         return
       }
@@ -55,7 +55,7 @@ const CreateOrganization = () => {
       setSelectedModules(data.allowedModules || []) // default: all licensed modules on
       setMaxUsers(data.maxUsersPerOrg > 0 ? data.maxUsersPerOrg : 1) // default: full seat ceiling, or 1 if unlimited
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'License key not found')
+      nexusToast.error(err?.response?.data?.message || 'License key not found')
       setLicense(null)
     } finally {
       setVerifying(false)
@@ -67,10 +67,10 @@ const CreateOrganization = () => {
   }
 
   const handleCreate = async () => {
-    if (!name.trim()) { toast.error('Organization name is required'); return }
-    if (!license) { toast.error('Verify a license key first'); return }
-    if (selectedModules.length === 0) { toast.error('Select at least one module'); return }
-    if (usersInvalid) { toast.error(`Number of users must be between 1 and ${usersCeiling}`); return }
+    if (!name.trim()) { nexusToast.error('Organization name is required'); return }
+    if (!license) { nexusToast.error('Verify a license key first'); return }
+    if (selectedModules.length === 0) { nexusToast.error('Select at least one module'); return }
+    if (usersInvalid) { nexusToast.error(`Number of users must be between 1 and ${usersCeiling}`); return }
     setLoading(true)
     try {
       const res = await createOrganization({
@@ -83,10 +83,10 @@ const CreateOrganization = () => {
       const org = res.data
       setActiveOrg({ ...org, role: 'owner' })
       await getMyOrganizations()
-      toast.success('Organization created!')
+      nexusToast.success('Organization created!')
       navigate('/Home')
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to create organization')
+      nexusToast.error(err?.response?.data?.message || 'Failed to create organization')
     } finally {
       setLoading(false)
     }
@@ -157,6 +157,19 @@ const CreateOrganization = () => {
 
       <div className="co-root co-bg min-h-screen flex items-center justify-center p-4">
         <div className="co-card rounded-2xl w-full max-w-lg p-8 md:p-10 shadow-2xl" style={{ maxHeight: '92vh', overflowY: 'auto' }}>
+
+          {/* Back — this page is reachable both from the zero-org gate (nothing
+              meaningful behind it) and from the org switcher's "New Organization"
+              item (a real previous page); browser history back does the right
+              thing in both cases. */}
+          <button
+            onClick={() => navigate(-1)}
+            className="co-fade co-1"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: '#94a3b8', fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: 0, marginBottom: 20 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back
+          </button>
 
           {/* Logo */}
           <div className="co-fade co-1 flex items-center gap-2 mb-8">

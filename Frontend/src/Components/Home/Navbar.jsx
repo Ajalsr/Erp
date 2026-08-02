@@ -176,7 +176,17 @@ const OrgSwitcher = ({ isDark, D }) => {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const handleSwitch = (org) => { switchOrganization(org); setOpen(false) }
+  // Most pages fetch their data once on mount and never re-run when activeOrg
+  // changes underneath them, so switching orgs while sitting on the same
+  // route left stale data on screen. A full reload forces every component to
+  // remount and refetch under the new org — same pattern Slack/Notion use for
+  // workspace switching.
+  const handleSwitch = (org) => {
+    if (org._id === activeOrg?._id) { setOpen(false); return }
+    switchOrganization(org)
+    setOpen(false)
+    window.location.href = '/Home'
+  }
 
   return (
     <div style={{ position: 'relative' }} ref={ref}>
@@ -246,6 +256,17 @@ const OrgSwitcher = ({ isDark, D }) => {
             )}
           </div>
           <div style={{ borderTop: `1px solid ${D.border}`, padding: '4px 0' }}>
+            {(activeOrg?.role || '').toLowerCase() === 'owner' && (
+              <button
+                className="nx-dropdown-item"
+                onClick={() => { setOpen(false); navigate('/organizations/create') }}
+              >
+                <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 5v14M5 12h14" />
+                </svg>
+                New Organization
+              </button>
+            )}
             {activeOrg && (
               <button
                 className="nx-dropdown-item"
