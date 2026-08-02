@@ -41,6 +41,8 @@ export const PERM_MODULES = [
   { key: 'employees',        label: 'Employees',        group: 'HR' },
   { key: 'payroll',          label: 'Payroll',          group: 'HR' },
   { key: 'timeoff',          label: 'Time Off',         group: 'HR' },
+  // Projects
+  { key: 'projects',         label: 'Projects',         group: 'Projects' },
 ];
 
 // Module keys grouped by category — used by the sidebar to show a section when the
@@ -57,6 +59,7 @@ export const PERM_APPROVALS = [
   { key: 'bill',    label: 'Approve Bills' },
   { key: 'invoice', label: 'Approve Invoices' },
   { key: 'payment', label: 'Approve Payments' },
+  { key: 'project', label: 'Approve Projects' },
 ];
 
 export const PERM_LEVELS = ['none', 'view', 'edit'];

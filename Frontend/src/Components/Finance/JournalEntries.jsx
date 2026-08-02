@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { FaBook, FaPlus, FaTimes, FaTrash, FaChevronDown, FaChevronRight } from 'react-icons/fa';
 import AppDatePicker from '../common/AppDatePicker';
 import toast from 'react-hot-toast';
@@ -6,6 +7,64 @@ import axiosInstance from '../../helper/axiosInstance';
 import useRealtime from '../../helper/useRealtime';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import { useBaseCurrency, baseCurrency } from '../../helper/currency';
+
+/* ── Portal helper: anchor a popup under a trigger, escape the modal's own
+   overflow:auto scroll clipping. Mirrors Bills.jsx's useAnchoredPopup. ── */
+function useAnchoredPopup(open) {
+  const triggerRef = useRef(null);
+  const popupRef   = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const place = () => {
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    }
+  };
+  useLayoutEffect(() => {
+    if (!open) return;
+    place();
+    const onScroll = (e) => { if (!popupRef.current?.contains(e.target)) place(); };
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', onScroll, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', onScroll, true); };
+  }, [open]);
+  return { triggerRef, popupRef, pos };
+}
+
+/* ── AccountSelect — custom portal dropdown, replaces the native <select> ── */
+function AccountSelect({ value, onChange, accounts, T, isDark }) {
+  const [open, setOpen] = useState(false);
+  const { triggerRef, popupRef, pos } = useAnchoredPopup(open);
+  const sel = accounts.find(a => a._id === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (!triggerRef.current?.contains(e.target) && !popupRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]); // eslint-disable-line
+
+  return (
+    <>
+      <button type="button" ref={triggerRef} onClick={() => setOpen(o => !o)}
+        style={{ width: '100%', padding: '7px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, border: `1.5px solid ${open ? '#8b5cf6' : T.border}`, borderRadius: 8, background: T.surface, color: sel ? T.textPri : T.textSec, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', boxShadow: open ? '0 0 0 3px rgba(139,92,246,.12)' : 'none', transition: 'all .15s' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sel ? `${sel.accountCode} · ${sel.accountName}` : 'Select account…'}</span>
+        <FaChevronDown size={9} style={{ flexShrink: 0, color: open ? '#8b5cf6' : T.textSec, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+      </button>
+      {open && createPortal(
+        <div ref={popupRef} style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, minWidth: 220, zIndex: 20000, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.14)', overflow: 'hidden', maxHeight: 260, overflowY: 'auto' }}>
+          {accounts.map(a => (
+            <button key={a._id} type="button" onClick={() => { onChange(a._id); setOpen(false); }}
+              style={{ width: '100%', padding: '9px 12px', fontSize: 12, background: a._id === value ? (isDark ? 'rgba(139,92,246,.15)' : '#f5f3ff') : 'transparent', color: a._id === value ? '#8b5cf6' : T.textPri, fontWeight: a._id === value ? 700 : 400, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.accountCode} · {a.accountName}</span>
+              {a._id === value && <span style={{ fontSize: 10, flexShrink: 0, marginLeft: 8 }}>✓</span>}
+            </button>
+          ))}
+          {accounts.length === 0 && <div style={{ padding: '12px', fontSize: 12, color: T.textSec, textAlign: 'center' }}>No accounts</div>}
+        </div>, document.body)}
+    </>
+  );
+}
 
 const fmt = v => Number(v || 0).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const REFTYPE_COLOR = {
@@ -99,7 +158,6 @@ export default function JournalEntries() {
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; }
         .je-row:hover { background: ${isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc'} !important; }
-        .je-select option { background: ${isDark ? '#0f172a' : '#fff'}; color: ${T.textPri}; }
       `}</style>
 
       {/* Header */}
@@ -205,10 +263,7 @@ export default function JournalEntries() {
             </div>
             {lines.map((l, i) => (
               <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px 28px', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                <select className="je-select" value={l.accountId} onChange={e => pickAccount(i, e.target.value)} style={{ ...inputStyle, width: '100%', cursor: 'pointer' }}>
-                  <option value="">Select account…</option>
-                  {accounts.map(a => <option key={a._id} value={a._id}>{a.accountCode} · {a.accountName}</option>)}
-                </select>
+                <AccountSelect value={l.accountId} onChange={accId => pickAccount(i, accId)} accounts={accounts} T={T} isDark={isDark} />
                 <input type="number" min="0" step="0.01" value={l.debit} onChange={e => setLine(i, { debit: e.target.value, credit: e.target.value ? '' : l.credit })} placeholder="0.00" style={{ ...inputStyle, width: '100%', textAlign: 'right', fontFamily: "'DM Mono',monospace" }} />
                 <input type="number" min="0" step="0.01" value={l.credit} onChange={e => setLine(i, { credit: e.target.value, debit: e.target.value ? '' : l.debit })} placeholder="0.00" style={{ ...inputStyle, width: '100%', textAlign: 'right', fontFamily: "'DM Mono',monospace" }} />
                 <button onClick={() => setLines(ls => ls.length > 2 ? ls.filter((_, j) => j !== i) : ls)} disabled={lines.length <= 2}

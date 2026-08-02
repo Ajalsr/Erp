@@ -6,12 +6,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ProjectRoutes — CRUD for the Projects module. Gated on auth + org membership
-// only (no per-module license/permission gate), so it's available to every org
-// without a licensing migration.
+// ProjectRoutes — CRUD for the Projects module. Now gated the same as every
+// other module: license must include "projects" (see MODULE_GROUPS.Project in
+// spifora.html's pricing calculator), and the caller's role needs the
+// capability for the request (RequireModule → helper/permissions.js
+// PERM_MODULES 'projects' entry).
 func ProjectRoutes(router *gin.Engine) {
 	projectRoutes := router.Group("/api/projects")
-	projectRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	projectRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("projects"), middlewares.RequireModule("projects"))
 	{
 		projectRoutes.GET("/", controllers.GetAllProjects())
 		projectRoutes.POST("/", controllers.CreateProject())

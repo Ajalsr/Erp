@@ -195,7 +195,7 @@ export default function StockSummary() {
                 <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, fontWeight: 600, color: T.textPri }}>{item.item_code || '—'}</span>
                 <div>
                   <p style={{ fontSize: 13, fontWeight: 600, color: T.textPri, margin: 0 }}>{item.name}</p>
-                  {item.category && <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', textTransform: 'capitalize' }}>{item.category}</p>}
+                  {item.categoryName && <p style={{ fontSize: 11, color: T.textSec, margin: '1px 0 0', textTransform: 'capitalize' }}>{item.categoryName}</p>}
                 </div>
                 <span style={{ fontSize: 12, color: T.textSec }}>{item.unit || '—'}</span>
                 <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color: st.color }}>{item.qty}</span>
@@ -250,7 +250,7 @@ export default function StockSummary() {
                   </div>
                   {[
                     ['Item Code',    drawer.item_code || '—'],
-                    ['Category',     drawer.category  || '—'],
+                    ['Category',     drawer.categoryName  || '—'],
                     ['Unit',         drawer.unit       || '—'],
                     ['Qty on Hand',  drawer.qty],
                     ['Reorder Point',drawer.reorder || '—'],
