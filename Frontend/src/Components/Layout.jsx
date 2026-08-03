@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Sidebar    from './Home/Sidebar'
 import Navbar     from './Home/Navbar'
 import UnsavedModal from './common/UnsavedModal'
+import UpdateBanner from './common/UpdateBanner'
 // import TourGuide  from './Tour/TourGuide'
 import useThemeStore from '../store/useThemeStore'
 import useWebSocket from '../helper/useWebSocket'
@@ -146,6 +147,7 @@ export default function Layout() {
         minWidth:      0,
         transition:    'margin-left 0.3s ease',
       }}>
+        <UpdateBanner />
         <Navbar onToggleSidebar={onToggleSidebar} />
 
         <main style={{
