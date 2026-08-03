@@ -349,10 +349,11 @@ func AdminApproveLicense() gin.HandlerFunc {
 			}
 			newMaxOrgs := target.MaxOrganizations + addOrgs
 
-			// Plan/seat bump — merge requested modules into what the key already
-			// allows (never remove access it already had), overwrite the seat
-			// ceiling to whatever's requested (a plan change sets a new number,
-			// it doesn't add to the old one the way org/seat *counts* do).
+			// Plan/seat change — the requested module set REPLACES the key's
+			// ceiling outright (supports downgrades, not just upgrades); the seat
+			// ceiling is likewise overwritten to whatever's requested, same as
+			// the module set (a plan change sets a new number/list, it doesn't
+			// add to the old one the way org/seat *counts* elsewhere do).
 			newModules := target.AllowedModules
 			newMaxUsers := target.MaxUsersPerOrg
 			newPlanTier := target.PlanTier
@@ -362,18 +363,7 @@ func AdminApproveLicense() gin.HandlerFunc {
 				reqModules = key.RequestedModules
 			}
 			if len(reqModules) > 0 {
-				seen := make(map[string]bool, len(target.AllowedModules))
-				merged := append([]string{}, target.AllowedModules...)
-				for _, m := range target.AllowedModules {
-					seen[m] = true
-				}
-				for _, m := range reqModules {
-					if !seen[m] {
-						merged = append(merged, m)
-						seen[m] = true
-					}
-				}
-				newModules = merged
+				newModules = reqModules
 			}
 			reqMaxUsers := input.MaxUsersPerOrg
 			if reqMaxUsers <= 0 {
