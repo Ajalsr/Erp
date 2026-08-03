@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react"
+import { lazy, Suspense, useEffect, useRef } from "react"
 import { Route, Routes, useNavigate } from "react-router-dom"
 import { Toaster } from "react-hot-toast";
 import { onOpenUrl, getCurrent } from "@tauri-apps/plugin-deep-link"
@@ -121,12 +121,21 @@ function App() {
   // getCurrent() covers the case where THIS launch of the app was the one
   // the OS spawned for the link. Both just strip the custom scheme down to
   // the path/query the app's own router already understands.
+  // Windows/Linux redeliver the same launch URL several times in quick
+  // succession (single-instance forwarding + getCurrent() both resolving for
+  // one real click) — each delivery used to call navigate() unconditionally,
+  // so the 2nd/3rd redelivery would yank the user back to the invite screen
+  // right after they'd already navigated away from it. Track the last URL
+  // actually handled and skip repeats of it.
+  const lastDeepLinkRef = useRef(null)
+
   useEffect(() => {
     if (!('__TAURI_INTERNALS__' in window)) return // plain web build — no desktop bridge to talk to
 
     const routeToDeepLink = (urls) => {
       const raw = urls?.[0]
-      if (!raw) return
+      if (!raw || raw === lastDeepLinkRef.current) return
+      lastDeepLinkRef.current = raw
       navigate(raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '/'))
     }
 
