@@ -1,3 +1,4 @@
+use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -12,7 +13,18 @@ pub fn run() {
     // fires as it would natively on macOS — one JS listener covers every OS.
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // A spifora:// link clicked while the app is already running lands here
+            // instead of spawning a new process. The deep-link feature forwards the
+            // URL to JS automatically, but this window itself was never told to come
+            // forward — left as a background/unfocused window, it renders the new
+            // route correctly but silently eats every click. Bring it to front.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
     }
 
     builder
