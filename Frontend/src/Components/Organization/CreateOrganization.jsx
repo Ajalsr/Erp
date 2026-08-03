@@ -16,6 +16,7 @@ const MODULE_LABELS = {
   vendor_payments: 'Payments Made', advance_payments: 'Advance Payments',
   reports: 'Reports', dashboard: 'Dashboard',
   employees: 'Employees', payroll: 'Payroll', timeoff: 'Time Off',
+  projects: 'Projects',
 }
 const moduleLabel = (m) => MODULE_LABELS[m] || m
 
