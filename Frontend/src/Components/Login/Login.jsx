@@ -9,6 +9,7 @@ const Login = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [inputs, setInputs] = useState({ userId: '', password: '' })
+  const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [otpStep, setOtpStep] = useState(null) // { userId, email } when a new device needs OTP
@@ -27,7 +28,7 @@ const Login = () => {
     }
     setLoading(true)
     try {
-      const res = await handleSignin(inputs)
+      const res = await handleSignin({ ...inputs, rememberMe })
       if (res?.otpRequired) {
         setOtpStep({ userId: res.userId, email: res.email })
         return
@@ -50,7 +51,7 @@ const Login = () => {
   const handleResend = async () => {
     if (resendIn > 0) return
     try {
-      const res = await handleSignin(inputs)
+      const res = await handleSignin({ ...inputs, rememberMe })
       if (res?.otpRequired) { setResendIn(30); toast.success('Code resent to your email') }
     } catch (error) {
       toast.error(error?.error || 'Could not resend code')
@@ -61,7 +62,7 @@ const Login = () => {
     if (!otp.trim()) { toast.error('Enter the code from your email'); return }
     setLoading(true)
     try {
-      await verifyOtp(otpStep.userId, otp.trim())
+      await verifyOtp(otpStep.userId, otp.trim(), rememberMe)
       setInputs({ userId: '', password: '' }); setOtp(''); setOtpStep(null)
       goAfterLogin()
     } catch (error) {
@@ -288,7 +289,16 @@ const Login = () => {
                   </div>
                 </div>
 
-                <div className="fade-up fade-up-4 flex justify-end">
+                <div className="fade-up fade-up-4 flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-slate-400 text-xs cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer"
+                    />
+                    Keep me logged in
+                  </label>
                   <button type="button" onClick={() => navigate('/forgot-password')} className="text-blue-400 text-xs hover:text-blue-300 transition-colors">
                     Forgot password?
                   </button>

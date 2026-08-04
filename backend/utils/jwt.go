@@ -24,11 +24,17 @@ func init() {
 }
 
 // GenerateToken creates a signed JWT for the given userId.
-// Expiry is 8 hours — suitable for a full work day in a desktop ERP.
-func GenerateToken(userId string) (string, error) {
+// Expiry is 8 hours — suitable for a full work day in a desktop ERP — unless
+// rememberMe is set ("Keep me logged in" on the Login page), which extends it
+// to 30 days so the session actually survives an app restart.
+func GenerateToken(userId string, rememberMe bool) (string, error) {
+	exp := time.Now().Add(time.Hour * 8)
+	if rememberMe {
+		exp = time.Now().Add(time.Hour * 24 * 30)
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"userId": userId,
-		"exp":    time.Now().Add(time.Hour * 8).Unix(),
+		"exp":    exp.Unix(),
 		"iat":    time.Now().Unix(),
 	})
 	return token.SignedString(jwtSecret)

@@ -43,16 +43,18 @@ func salespersonInitials(s string) string {
 
 // nextQuoteNumber generates a quote number. When the org enables
 // quoteNumberBySalesperson, the format is  <INITIALS>/<MMYY>/<MM><NN>  (NN is a
-// 2-digit counter that resets monthly per salesperson), e.g. "MS/0626/0601".
+// 2-digit counter that resets monthly per signatory), e.g. "MS/0626/0601" for
+// a quote signed "Muhammed Shahid". Initials come from the quote's Signatory
+// Name (the person actually signing it), not the assigned Salesperson field.
 // Otherwise it falls back to the org's configured/default quote format.
-func nextQuoteNumber(ctx context.Context, orgID, salesperson string) string {
+func nextQuoteNumber(ctx context.Context, orgID, signatoryName string) string {
 	var doc struct {
 		QuoteNumberBySalesperson bool `bson:"quoteNumberBySalesperson"`
 	}
 	_ = orgSettingsCollection.FindOne(ctx, bson.M{"orgId": orgID}).Decode(&doc)
 
-	if doc.QuoteNumberBySalesperson && strings.TrimSpace(salesperson) != "" {
-		ini := salespersonInitials(salesperson)
+	if doc.QuoteNumberBySalesperson && strings.TrimSpace(signatoryName) != "" {
+		ini := salespersonInitials(signatoryName)
 		format := utils.NumberFormat{Segments: []utils.NumberSegment{
 			{Type: "literal", Value: ini + "/"},
 			{Type: "month", Digits: 2},
@@ -123,7 +125,7 @@ func CreateQuote() gin.HandlerFunc {
 		}
 
 		q.ID = primitive.NewObjectID()
-		q.QuoteNumber = nextQuoteNumber(ctx, fmt.Sprintf("%v", orgID), q.Salesperson)
+		q.QuoteNumber = nextQuoteNumber(ctx, fmt.Sprintf("%v", orgID), q.Signatory.Name)
 		q.OrgID = orgID.(string)
 		q.CreatedBy = func() string {
 			if userID != nil {

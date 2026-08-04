@@ -3,15 +3,28 @@ import { persist } from 'zustand/middleware'
 
 /**
  * useAuthStore - Global auth state using Zustand
- * 
- * persist middleware saves to sessionStorage so the user stays
- * logged in on refresh but is cleared when the browser tab closes.
- * Change to localStorage if you want to stay logged in across sessions.
+ *
+ * persist middleware saves to sessionStorage by default — the user stays
+ * logged in on refresh but is cleared when the browser tab/app closes.
+ * "Keep me logged in" (Login page checkbox) calls setRememberMe(true) BEFORE
+ * signing in, which switches the storage backend to localStorage so the
+ * session survives a full app restart too.
  *
  * Usage anywhere in the app:
  *   const { token, user, isAuthenticated } = useAuthStore()
  *   const { setAuth, clearAuth } = useAuthStore()
  */
+const REMEMBER_KEY = 'auth-remember-me'
+
+// Call before setAuth() with the Login page's "Keep me logged in" checkbox
+// value. Persisted in localStorage itself (not sessionStorage) so the choice
+// is still readable on a fresh tab/restart, before any session exists.
+export const setRememberMe = (remember) => {
+  if (remember) localStorage.setItem(REMEMBER_KEY, '1')
+  else localStorage.removeItem(REMEMBER_KEY)
+}
+
+const activeBackend = () => (localStorage.getItem(REMEMBER_KEY) === '1' ? localStorage : sessionStorage)
 const useAuthStore = create(
   persist(
     (set) => ({
@@ -38,15 +51,18 @@ const useAuthStore = create(
         }
       }),
 
-      clearAuth: () => set({
-        token: null,
-        user: null,
-        isAuthenticated: false,
-        activeOrg: null,
-        organizations: [],
-        notifications: [],
-        unreadCount: 0,
-      }),
+      clearAuth: () => {
+        setRememberMe(false) // don't leave a stale "keep logged in" flag for the next signin
+        set({
+          token: null,
+          user: null,
+          isAuthenticated: false,
+          activeOrg: null,
+          organizations: [],
+          notifications: [],
+          unreadCount: 0,
+        })
+      },
 
       setNotifications: (notifs) => set({
         notifications: notifs,
@@ -87,19 +103,22 @@ const useAuthStore = create(
       })),
     }),
     {
-      name: 'auth-storage',       // key name in sessionStorage
+      name: 'auth-storage',       // key name in session/localStorage
       storage: {
-        // Use sessionStorage instead of localStorage:
-        // - Cleared when tab/browser closes
-        // - Not accessible from other tabs (more secure)
+        // sessionStorage by default (cleared on tab/app close, not shared
+        // across tabs — more secure); localStorage instead when the user
+        // checked "Keep me logged in" at sign-in (see setRememberMe above).
         getItem: (name) => {
-          const value = sessionStorage.getItem(name)
+          const value = activeBackend().getItem(name)
           return value ? JSON.parse(value) : null
         },
         setItem: (name, value) => {
-          sessionStorage.setItem(name, JSON.stringify(value))
+          activeBackend().setItem(name, JSON.stringify(value))
         },
         removeItem: (name) => {
+          // Clear both — avoids a leftover copy in the OTHER backend if the
+          // remember-me flag changes between login and logout.
+          localStorage.removeItem(name)
           sessionStorage.removeItem(name)
         },
       },

@@ -1476,16 +1476,18 @@ const OrganizationSettings = () => {
                   The counter resets each period when a Month or Year piece comes before it.
                 </p>
 
-                {/* Quote-by-salesperson toggle */}
-                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '11px 14px', borderRadius: 10, background: bgInset, border: `1px solid ${quoteBySalesperson ? accent : border}`, marginBottom: 16, cursor: 'pointer' }}>
-                  <div>
-                    <div style={{ color: textPri, fontSize: 13, fontWeight: 600 }}>Quote number by salesperson</div>
-                    <div style={{ color: textSec, fontSize: 11.5, marginTop: 2 }}>
-                      Overrides the Quote format below. Pattern: <strong style={{ fontFamily: 'ui-monospace, monospace' }}>INITIALS/MMYY/MM##</strong> — e.g. <strong style={{ fontFamily: 'ui-monospace, monospace' }}>MS/0626/0601</strong> (counter resets monthly per salesperson).
+                {/* Quote-by-salesperson toggle — only relevant to the Quote document */}
+                {numEntity === 'quote' && (
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '11px 14px', borderRadius: 10, background: bgInset, border: `1px solid ${quoteBySalesperson ? accent : border}`, marginBottom: 16, cursor: 'pointer' }}>
+                    <div>
+                      <div style={{ color: textPri, fontSize: 13, fontWeight: 600 }}>Quote number by signatory</div>
+                      <div style={{ color: textSec, fontSize: 11.5, marginTop: 2 }}>
+                        Overrides the Quote format below. Pattern: <strong style={{ fontFamily: 'ui-monospace, monospace' }}>INITIALS/MMYY/MM##</strong> — e.g. <strong style={{ fontFamily: 'ui-monospace, monospace' }}>MS/0626/0601</strong> for a quote signed "Muhammed Shahid" (counter resets monthly per signatory).
+                      </div>
                     </div>
-                  </div>
-                  <input type="checkbox" checked={quoteBySalesperson} onChange={toggleQuoteBySalesperson} style={{ width: 18, height: 18, accentColor: accent, cursor: 'pointer', flexShrink: 0 }} />
-                </label>
+                    <input type="checkbox" checked={quoteBySalesperson} onChange={toggleQuoteBySalesperson} style={{ width: 18, height: 18, accentColor: accent, cursor: 'pointer', flexShrink: 0 }} />
+                  </label>
+                )}
 
                 {/* Entity picker */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
