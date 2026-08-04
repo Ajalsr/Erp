@@ -584,9 +584,17 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
   const [viewMonth, setViewMonth] = useState(() => value ? new Date(value).getMonth()     : new Date().getMonth());
   const [pickingY,  setPickingY]  = useState(false);
   const [dropPos,   setDropPos]   = useState({ top: 0, left: 0, width: 0 });
-  const triggerRef = useRef(null);
-  const dropRef    = useRef(null);
-  const rafRef     = useRef(null);
+  const triggerRef     = useRef(null);
+  const dropRef        = useRef(null);
+  const rafRef         = useRef(null);
+  const yearGridRef    = useRef(null);
+  const selectedYearRef = useRef(null);
+
+  useEffect(() => {
+    if (pickingY && selectedYearRef.current) {
+      selectedYearRef.current.scrollIntoView({ block: 'center' });
+    }
+  }, [pickingY]);
 
   const measurePos = useCallback(() => {
     if (!triggerRef.current) return;
@@ -631,7 +639,7 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
   const display     = parsed ? `${String(parsed.getDate()).padStart(2,'0')} ${MONTHS[parsed.getMonth()].slice(0,3)} ${parsed.getFullYear()}` : '';
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const firstDay    = new Date(viewYear, viewMonth, 1).getDay();
-  const yearRange   = Array.from({ length: 31 }, (_, i) => new Date().getFullYear() - 10 + i);
+  const yearRange   = Array.from({ length: 111 }, (_, i) => new Date().getFullYear() - 100 + i);
 
   const selectDay = d => {
     const iso = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -678,9 +686,9 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
       </div>
 
       {pickingY ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+        <div ref={yearGridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
           {yearRange.map(y => (
-            <button key={y} type="button"
+            <button key={y} type="button" ref={y === viewYear ? selectedYearRef : null}
               onClick={e => { e.stopPropagation(); setViewYear(y); setPickingY(false); }}
               style={{ padding: '7px 2px', borderRadius: '7px', fontSize: '12px', fontWeight: y === viewYear ? '700' : '400', border: 'none', cursor: 'pointer', background: y === viewYear ? blueC : 'transparent', color: y === viewYear ? 'white' : T.textPri }}>
               {y}

@@ -50,19 +50,22 @@ func pushNotificationWithMeta(userID, notifType, title, message, orgID, orgName 
 }
 
 // GET /api/notifications
-// Returns the calling user's last 50 notifications (newest first).
+// Returns the calling user's last 50 notifications for the active org
+// (newest first) — scoped by X-Org-ID so switching orgs shows that org's own
+// notifications instead of the same global list every time.
 func GetNotifications() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		userID, _ := c.Get("userId")
+		orgID, _ := c.Get("orgId")
 
 		opts := options.Find().
 			SetSort(bson.M{"createdAt": -1}).
 			SetLimit(50)
 
-		cursor, err := notificationCollection.Find(ctx, bson.M{"userId": userID.(string)}, opts)
+		cursor, err := notificationCollection.Find(ctx, bson.M{"userId": userID.(string), "orgId": orgID}, opts)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "error", "error": err.Error()})
 			return
@@ -87,17 +90,18 @@ func GetNotifications() gin.HandlerFunc {
 }
 
 // PUT /api/notifications/read-all
-// Marks every unread notification for the calling user as read.
+// Marks every unread notification for the calling user, in the active org, as read.
 func MarkAllNotificationsRead() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		userID, _ := c.Get("userId")
+		orgID, _ := c.Get("orgId")
 
 		_, err := notificationCollection.UpdateMany(
 			ctx,
-			bson.M{"userId": userID.(string), "read": false},
+			bson.M{"userId": userID.(string), "orgId": orgID, "read": false},
 			bson.M{"$set": bson.M{"read": true}},
 		)
 		if err != nil {

@@ -1439,21 +1439,17 @@ const Invoices = () => {
                       {canExport && (
                       <button
                         onClick={() => {
-                          const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
                           const base = import.meta.env.VITE_API_URL || "http://localhost:8080";
                           const pdfUrl = `${base}/api/invoices/${selected._id}/pdf`;
-                          if (isTauri) {
-                            window.__TAURI_INTERNALS__.invoke("plugin:shell|open", { path: pdfUrl }).catch(() => {});
-                          } else {
-                            axiosInstance.get(`/api/invoices/${selected._id}/pdf`, { responseType: "blob" })
-                              .then(res => {
-                                const a = document.createElement("a");
-                                a.href = URL.createObjectURL(res.data);
-                                a.download = `invoice-${selected.id}.pdf`;
-                                a.click();
-                              })
-                              .catch(() => window.open(pdfUrl, "_blank"));
-                          }
+                          axiosInstance.get(`/api/invoices/${selected._id}/pdf`, { responseType: "blob" })
+                            .then(res => {
+                              const a = document.createElement("a");
+                              a.href = URL.createObjectURL(res.data);
+                              a.download = `invoice-${selected.id}.pdf`;
+                              a.click();
+                              nexusToast.success("Invoice PDF downloaded");
+                            })
+                            .catch(() => window.open(pdfUrl, "_blank"));
                         }}
                         style={{ padding: "9px 0", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>
                         ⬇ Download PDF

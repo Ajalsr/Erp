@@ -33,6 +33,7 @@ type QuoteParty struct {
 	Name    string `json:"name"    bson:"name"`
 	Address string `json:"address" bson:"address"`
 	TRN     string `json:"trn"     bson:"trn"`
+	POBox   string `json:"poBox"   bson:"poBox"`
 }
 
 type QuoteCompany struct {
@@ -72,6 +73,7 @@ type Quote struct {
 
 	// Reference / document fields
 	AttentionTo string `json:"attentionTo"  bson:"attentionTo"`
+	Salutation  string `json:"salutation"   bson:"salutation"` // e.g. "Madam," / "Dear Sir,"
 	Subject     string `json:"subject"      bson:"subject"`
 	ProjectName string `json:"projectName"  bson:"projectName"`
 	IntroText   string `json:"introText"    bson:"introText"`

@@ -162,9 +162,18 @@ function EnqDatePicker({ value, onChange, placeholder = "Select date", T }) {
   const [open, setOpen]     = useState(false);
   const [mode, setMode]     = useState("calendar");
   const [pos, setPos]       = useState({ top: 0, left: 0, width: 0 });
+  const [pickingY, setPickingY] = useState(false);
   const trigRef = useRef(null);
   const dropRef = useRef(null);
+  const changeYearRef = useRef(null); // captured from renderCustomHeader — only exposed while it's mounted
+  const viewDateRef = useRef(new Date());
+  const activeYearBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (pickingY) activeYearBtnRef.current?.scrollIntoView({ block: "center" });
+  }, [pickingY]);
   const sel = value ? new Date(value) : null;
+  const yearRange = Array.from({ length: 111 }, (_, i) => new Date().getFullYear() - 100 + i);
 
   const presets = [
     { label: "Today",      v: new Date() },
@@ -177,7 +186,11 @@ function EnqDatePicker({ value, onChange, placeholder = "Select date", T }) {
 
   const measure = () => {
     const r = trigRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    if (!r) return;
+    const dropH = 380; // approx height of the calendar+tabs panel below
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > dropH ? r.bottom + 4 : Math.max(8, r.top - dropH + 40);
+    setPos({ top, left: r.left, width: r.width });
   };
 
   useEffect(() => {
@@ -272,26 +285,55 @@ function EnqDatePicker({ value, onChange, placeholder = "Select date", T }) {
           </div>
 
           {mode === "calendar" ? (
-            <div style={{ padding: "8px 6px 6px" }}>
+            <div style={{ padding: "8px 6px 6px", position: "relative" }}>
               <DatePicker selected={sel} onChange={pick} inline
-                renderCustomHeader={({ date, decreaseMonth, increaseMonth }) => (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 8px" }}>
-                    <button onClick={decreaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
-                      border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
-                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <FaChevronLeft style={{ fontSize: 9 }}/>
-                    </button>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: T.textPri }}>
-                      {format(date, "MMMM yyyy")}
-                    </span>
-                    <button onClick={increaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
-                      border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
-                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <FaChevronRight style={{ fontSize: 9 }}/>
-                    </button>
-                  </div>
-                )}
+                renderCustomHeader={({ date, decreaseMonth, increaseMonth, changeYear }) => {
+                  changeYearRef.current = changeYear;
+                  viewDateRef.current = date;
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 8px" }}>
+                      <button onClick={decreaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
+                        border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <FaChevronLeft style={{ fontSize: 9 }}/>
+                      </button>
+                      <button type="button" onClick={() => setPickingY(p => !p)}
+                        style={{ display: "flex", alignItems: "center", gap: 5, background: pickingY ? (isDark ? "rgba(59,130,246,0.15)" : "#eff6ff") : "transparent",
+                          border: "none", borderRadius: 7, padding: "3px 8px", cursor: "pointer",
+                          fontWeight: 700, fontSize: 13, color: T.textPri, fontFamily: "inherit" }}>
+                        {format(date, "MMMM yyyy")}
+                        <svg width={9} height={9} viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth={2.5}>
+                          <polyline points={pickingY ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}/>
+                        </svg>
+                      </button>
+                      <button onClick={increaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
+                        border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <FaChevronRight style={{ fontSize: 9 }}/>
+                      </button>
+                    </div>
+                  );
+                }}
               />
+              {pickingY && (
+                <div style={{ position: "absolute", top: 34, left: 0, right: 0, bottom: 0,
+                  background: T.surface, zIndex: 5, display: "grid", gridTemplateColumns: "repeat(4,1fr)",
+                  gap: 4, overflowY: "auto", padding: "4px 6px" }}>
+                  {yearRange.map(y => {
+                    const active = y === viewDateRef.current.getFullYear();
+                    return (
+                      <button key={y} type="button" ref={active ? activeYearBtnRef : null}
+                        onClick={() => { changeYearRef.current?.(y); setPickingY(false); }}
+                        style={{ padding: "7px 2px", borderRadius: 7, fontSize: 12,
+                          fontWeight: active ? 700 : 400, border: "none", cursor: "pointer",
+                          background: active ? T.blue : "transparent",
+                          color: active ? "#fff" : T.textPri, fontFamily: "inherit" }}>
+                        {y}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ padding: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
@@ -631,6 +673,9 @@ export default function Enquiries() {
   useEffect(() => { loadStats(); }, [loadStats]);
 
   const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [convertModalOpen, setConvertModalOpen] = useState(false);
+  const EMPTY_CONVERT_FORM = { customerType: "individual", trnNumber: "", tradeLicenseNumber: "", registrationDate: "", licenseExpiryDate: "" };
+  const [convertForm, setConvertForm] = useState(EMPTY_CONVERT_FORM);
 
   const openDrawer = (enq) => { if (!canOpenDetail(enq)) return; setSelected(enq); setDrawerOpen(true); setDrawerTab("overview"); setEditing(false); };
   const closeDrawer = () => { setDrawerOpen(false); setSelected(null); setEditing(false); };
@@ -650,6 +695,12 @@ export default function Enquiries() {
 
   const handleCreateCustomer = async () => {
     if (!selected) return;
+    if (!convertForm.trnNumber.trim()) { nexusToast.error("TRN Number is required"); return; }
+    if (convertForm.customerType === "business") {
+      if (!convertForm.tradeLicenseNumber.trim()) { nexusToast.error("Trade License Number is required"); return; }
+      if (!convertForm.registrationDate)           { nexusToast.error("Registration Date is required"); return; }
+      if (!convertForm.licenseExpiryDate)           { nexusToast.error("License Expiry Date is required"); return; }
+    }
     setCreatingCustomer(true);
     try {
       const nameParts = (selected.customerName || "").trim().split(" ");
@@ -659,10 +710,18 @@ export default function Enquiries() {
         lastName:            nameParts.slice(1).join(" ") || "",
         customerEmail:       selected.email || "",
         customerPhone:       selected.phone || "",
-        customerType:        "business",
+        customerType:        convertForm.customerType,
+        trnNumber:           convertForm.trnNumber.trim(),
+        customFields: convertForm.customerType === "business" ? {
+          tradeLicenseNumber: convertForm.tradeLicenseNumber.trim(),
+          registrationDate:   convertForm.registrationDate,
+          licenseExpiryDate:  convertForm.licenseExpiryDate,
+        } : undefined,
       });
       const newId = res.data?.data?._id || res.data?._id;
       nexusToast.success("Customer created successfully");
+      setConvertModalOpen(false);
+      setConvertForm(EMPTY_CONVERT_FORM);
       // Link enquiry to new customer
       if (newId) {
         await axiosInstance.put(`/api/enquiries/${selected._id}`, { customerId: newId });
@@ -1019,12 +1078,10 @@ export default function Enquiries() {
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                           <span style={{ fontSize: 11, color: T.textSec }}>Not linked to a customer record</span>
                           <button
-                            disabled={creatingCustomer}
-                            onClick={handleCreateCustomer}
+                            onClick={() => { setConvertForm(EMPTY_CONVERT_FORM); setConvertModalOpen(true); }}
                             style={{ padding: "5px 12px", background: T.blue, color: "#fff", border: "none",
-                              borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: creatingCustomer ? "not-allowed" : "pointer",
-                              opacity: creatingCustomer ? 0.6 : 1, fontFamily: "inherit" }}>
-                            {creatingCustomer ? "Creating…" : "+ Add to Customers"}
+                              borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                            + Add to Customers
                           </button>
                         </div>
                       </div>
@@ -1242,16 +1299,19 @@ export default function Enquiries() {
                   ].map(({ key, label, type }) => (
                     <div key={key}>
                       <label style={labelStyle}>{label}</label>
-                      {key === "contactPhone" ? (
+                      {key === "contactPhone" || key === "phone" ? (
                         <div className="enq-phone">
                           <PhoneInput international countryCallingCodeEditable={false} defaultCountry="AE"
                             countrySelectComponent={CountrySelect}
-                            value={editForm.contactPhone || ""} onChange={v => setEditForm(f => ({ ...f, contactPhone: v || "" }))} />
+                            value={editForm[key] || ""} onChange={v => setEditForm(f => ({ ...f, [key]: v || "" }))} />
                         </div>
                       ) : key === "assignedTo" ? (
                         <EnqSelect T={T} value={editForm.assignedTo || ""} options={assigneeOptions}
                           onChange={v => setEditForm(f => ({ ...f, assignedTo: v }))}
                           placeholder={assigneeOptions.length ? "Select sales rep…" : "No sales reps yet"} />
+                      ) : key === "followUpDate" ? (
+                        <EnqDatePicker value={editForm.followUpDate} T={T} placeholder="Select date"
+                          onChange={v => setEditForm(f => ({ ...f, followUpDate: v }))} />
                       ) : (
                         <input type={type || "text"} value={editForm[key] || ""} className="enq-input"
                           onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
@@ -1427,6 +1487,96 @@ export default function Enquiries() {
         </>
       )}
 
+      {/* ── Convert to Customer Modal ─────────────────────────────────────
+          The backend requires TRN Number (and, for business customers, trade
+          license + registration/expiry dates) on every customer record —
+          this used to be silently missing here, so every conversion failed
+          with "TRN Number is required" until these were collected first. */}
+      {convertModalOpen && (
+        <>
+          <div onClick={() => setConvertModalOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 60, animation: "enqOverlay .2s ease" }}/>
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+            width: 440, maxWidth: "95vw", maxHeight: "90vh", background: T.surface,
+            border: `1px solid ${border}`, borderRadius: 16, zIndex: 61,
+            display: "flex", flexDirection: "column", animation: "enqModalIn .2s cubic-bezier(0.16,1,0.3,1)" }}>
+
+            <div style={{ padding: "18px 22px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.textPri }}>Add to Customers</div>
+                <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>A couple more details are required to create the customer record</div>
+              </div>
+              <button onClick={() => setConvertModalOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec }}>
+                <FaTimes size={16}/>
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Customer Type *</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {["individual", "business"].map(t => (
+                    <button key={t} type="button"
+                      onClick={() => setConvertForm(f => ({ ...f, customerType: t }))}
+                      style={{ flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, textTransform: "capitalize",
+                        cursor: "pointer", fontFamily: "inherit",
+                        border: convertForm.customerType === t ? `1.5px solid ${T.blue}` : `1.5px solid ${border}`,
+                        background: convertForm.customerType === t ? T.blueDim : "transparent",
+                        color: convertForm.customerType === t ? T.blue : T.textSec }}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label style={labelStyle}>TRN Number *</label>
+                <input className="enq-input" style={inputStyle} placeholder="100XXXXXXXXXXXX"
+                  value={convertForm.trnNumber}
+                  onChange={e => setConvertForm(f => ({ ...f, trnNumber: e.target.value }))} />
+              </div>
+
+              {convertForm.customerType === "business" && (
+                <>
+                  <div>
+                    <label style={labelStyle}>Trade License Number *</label>
+                    <input className="enq-input" style={inputStyle} placeholder="TL-XXXXXXXX"
+                      value={convertForm.tradeLicenseNumber}
+                      onChange={e => setConvertForm(f => ({ ...f, tradeLicenseNumber: e.target.value }))} />
+                  </div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Registration Date *</label>
+                      <EnqDatePicker value={convertForm.registrationDate} T={T} placeholder="Select date"
+                        onChange={v => setConvertForm(f => ({ ...f, registrationDate: v }))} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>License Expiry Date *</label>
+                      <EnqDatePicker value={convertForm.licenseExpiryDate} T={T} placeholder="Select date"
+                        onChange={v => setConvertForm(f => ({ ...f, licenseExpiryDate: v }))} />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ padding: "14px 20px", borderTop: `1px solid ${border}`, flexShrink: 0, display: "flex", gap: 10 }}>
+              <button onClick={handleCreateCustomer} disabled={creatingCustomer}
+                style={{ flex: 1, padding: 10, background: T.blue, color: "#fff", border: "none",
+                  borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: creatingCustomer ? "not-allowed" : "pointer",
+                  opacity: creatingCustomer ? 0.6 : 1, fontFamily: "inherit" }}>
+                {creatingCustomer ? "Creating…" : "Create Customer"}
+              </button>
+              <button onClick={() => setConvertModalOpen(false)}
+                style={{ padding: "10px 16px", background: T.surface2, color: T.textSec,
+                  border: `1.5px solid ${border}`, borderRadius: 10, fontSize: 13,
+                  fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ── Create Modal ───────────────────────────────────────────────── */}
       {modalOpen && (
         <>
@@ -1487,11 +1637,11 @@ export default function Enquiries() {
                 ].map(({ key, label, full }) => (
                   <div key={key} style={{ gridColumn: full ? "1 / -1" : undefined }}>
                     <label style={labelStyle}>{label}</label>
-                    {key === "contactPhone" ? (
+                    {key === "contactPhone" || key === "phone" ? (
                       <div className="enq-phone">
                         <PhoneInput international countryCallingCodeEditable={false} defaultCountry="AE"
                           countrySelectComponent={CountrySelect}
-                          value={form.contactPhone || ""} onChange={v => setForm(f => ({ ...f, contactPhone: v || "" }))} />
+                          value={form[key] || ""} onChange={v => setForm(f => ({ ...f, [key]: v || "" }))} />
                       </div>
                     ) : key === "assignedTo" ? (
                       <EnqSelect T={T} value={form.assignedTo || ""} options={assigneeOptions}
