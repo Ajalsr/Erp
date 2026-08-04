@@ -47,7 +47,7 @@ const fmtMoney = (n) =>
 
 const fmtCustAddr = (c) => {
   const l1 = c.streetAddress || "";
-  const l2 = [c.city, c.postalCode, c.country].filter(Boolean).join(", ");
+  const l2 = [c.city, c.country].filter(Boolean).join(", ");
   return [l1, l2].filter(Boolean).join("\n");
 };
 
@@ -673,10 +673,12 @@ export default function CreateQuote() {
   const [customerId,    setCustomerId]    = useState(prefill?.customerId || fromEnquiry?.customerId || "");
   const [customerName,  setCustomerName]  = useState(prefill?.customerName || fromEnquiry?.customerName || "");
   const [customerEmail, setCustomerEmail] = useState(prefill?.customerEmail || fromEnquiry?.email || "");
-  const [billTo,        setBillTo]        = useState(prefill?.billTo || {
+  const [billTo,        setBillTo]        = useState({
     name: fromEnquiry?.customerName || "",
     address: fromEnquiry?.company ? `${fromEnquiry.company}` : "",
     trn: "",
+    poBox: "",
+    ...(prefill?.billTo || {}), // older saved quotes may predate poBox — falls back to ""
   });
   const [quoteDate,     setQuoteDate]     = useState(today());
   const [validUntil,    setValidUntil]    = useState(net30());
@@ -715,6 +717,7 @@ export default function CreateQuote() {
 
   // Reference / document fields
   const [attentionTo,  setAttentionTo]  = useState(prefill?.attentionTo  || fromEnquiry?.contactPerson || "");
+  const [salutation,   setSalutation]   = useState(prefill?.salutation  || "");
   const [subject,      setSubject]      = useState(prefill?.subject      || fromEnquiry?.subject || "");
   const [projectName,  setProjectName]  = useState(prefill?.projectName  || fromEnquiry?.projectName || "");
   const [introText,    setIntroText]    = useState(prefill?.introText    || "");
@@ -784,8 +787,21 @@ export default function CreateQuote() {
     if (!cust) return;
     setCustomerName(cust.customerDisplayName || cust.companyName || `${cust.firstName} ${cust.lastName}`.trim());
     setCustomerEmail(cust.customerEmail || "");
-    setBillTo({ name: cust.customerDisplayName || cust.companyName || "", address: fmtCustAddr(cust), trn: cust.trn || "" });
+    setBillTo({ name: cust.customerDisplayName || cust.companyName || "", address: fmtCustAddr(cust), trn: cust.trn || "", poBox: cust.postalCode || "" });
   };
+
+  // Converting from an Enquiry locks the customer picker (its onChange, and
+  // therefore the auto-fill above, never fires) — the enquiry itself only
+  // carries a loose name/company string, not the customer's real TRN/address.
+  // Look the linked customer up once the list loads and fill Bill To from it.
+  useEffect(() => {
+    if (!fromEnquiry?.customerId || prefill) return;
+    const cust = (rawCustomers || []).find(c => c._id === fromEnquiry.customerId);
+    if (!cust) return;
+    setCustomerName(cust.customerDisplayName || cust.companyName || `${cust.firstName} ${cust.lastName}`.trim());
+    setCustomerEmail(prev => prev || cust.customerEmail || "");
+    setBillTo({ name: cust.customerDisplayName || cust.companyName || "", address: fmtCustAddr(cust), trn: cust.trn || "", poBox: cust.postalCode || "" });
+  }, [fromEnquiry, prefill, rawCustomers]);
 
   const updateItem = (uid, updated) => setLineItems(prev => prev.map(li => li._uid === uid ? { ...li, ...updated } : li));
   const removeItem = (uid) => setLineItems(prev => prev.filter(li => li._uid !== uid));
@@ -816,7 +832,7 @@ export default function CreateQuote() {
         customerId, customerName, customerEmail,
         billTo,
         quoteDate, validUntil, currency, paymentTerms,
-        attentionTo, subject, projectName, introText, salesperson,
+        attentionTo, salutation, subject, projectName, introText, salesperson,
         company, signatory,
         termsAndConditions: terms,
         lineItems: lineItems.map((li, i) => {
@@ -1003,9 +1019,12 @@ export default function CreateQuote() {
                   options={["Due on Receipt","Net 15","Net 30","Net 60","End of Month","30 Days PDC"].map(t => ({ value: t, label: t }))} />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Attention To (Contact Person)">
                 <Inp value={attentionTo} onChange={e => setAttentionTo(e.target.value)} placeholder="e.g. Mr. John Smith - Procurement" />
+              </Field>
+              <Field label="Salutation">
+                <Inp value={salutation} onChange={e => setSalutation(e.target.value)} placeholder="e.g. Madam," />
               </Field>
               <Field label="Subject">
                 <Inp value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Offer for supply of…" />
@@ -1044,8 +1063,13 @@ export default function CreateQuote() {
               <Field label="TRN">
                 <Inp value={billTo.trn} onChange={e => setBillTo(b => ({ ...b, trn: e.target.value }))} placeholder="Tax Registration Number" />
               </Field>
-              <Field label="Address (Street, City, P.O. Box, Country)">
-                <Tex value={billTo.address} onChange={e => setBillTo(b => ({ ...b, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} placeholder={"e.g.\nP.O. Box: 37579\nDubai, U.A.E"} />
+              <Field label="P.O. Box">
+                <Inp value={billTo.poBox} onChange={e => setBillTo(b => ({ ...b, poBox: e.target.value }))} placeholder="e.g. 37579" />
+              </Field>
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <Field label="Address (Street, City, Country)">
+                <Tex value={billTo.address} onChange={e => setBillTo(b => ({ ...b, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} placeholder={"e.g.\nDubai, United Arab Emirates"} />
               </Field>
             </div>
           </Section>

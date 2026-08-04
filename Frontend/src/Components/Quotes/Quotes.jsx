@@ -712,21 +712,17 @@ export default function Quotes() {
                     {canExport && (
                     <ActionBtn
                       onClick={() => {
-                        const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
                         const base = import.meta.env.VITE_API_URL || "http://localhost:8080";
                         const pdfUrl = `${base}/api/quotes/${selected._id}/pdf`;
-                        if (isTauri) {
-                          window.__TAURI_INTERNALS__.invoke("plugin:shell|open", { path: pdfUrl }).catch(() => {});
-                        } else {
-                          axiosInstance.get(`/api/quotes/${selected._id}/pdf`, { responseType: "blob" })
-                            .then(res => {
-                              const a = document.createElement("a");
-                              a.href = URL.createObjectURL(res.data);
-                              a.download = `quote-${selected.quoteNumber}.pdf`;
-                              a.click();
-                            })
-                            .catch(() => window.open(pdfUrl, "_blank"));
-                        }
+                        axiosInstance.get(`/api/quotes/${selected._id}/pdf`, { responseType: "blob" })
+                          .then(res => {
+                            const a = document.createElement("a");
+                            a.href = URL.createObjectURL(res.data);
+                            a.download = `quote-${selected.quoteNumber}.pdf`;
+                            a.click();
+                            nexusToast.success("Quote PDF downloaded");
+                          })
+                          .catch(() => window.open(pdfUrl, "_blank"));
                       }}
                       icon={<FaDownload />}
                       label="Download PDF"
@@ -801,7 +797,7 @@ export default function Quotes() {
                       outline
                     />
 
-                    {selected.status !== "converted" && canEditRecord("quotes", selected.createdBy) && (
+                    {selected.status === "draft" && canEditRecord("quotes", selected.createdBy) && (
                       <ActionBtn
                         onClick={() => handleDelete(selected)}
                         icon={<FaTrash />}

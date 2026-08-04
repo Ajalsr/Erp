@@ -370,19 +370,28 @@ func UpdateQuote() gin.HandlerFunc {
 		}
 
 		update := bson.M{"$set": bson.M{
-			"status":        payload.Status,
-			"quoteDate":     payload.QuoteDate,
-			"validUntil":    payload.ValidUntil,
-			"currency":      payload.Currency,
-			"paymentTerms":  payload.PaymentTerms,
-			"customerName":  payload.CustomerName,
-			"customerEmail": payload.CustomerEmail,
-			"customerId":    payload.CustomerID,
-			"billTo":        payload.BillTo,
-			"lineItems":     payload.LineItems,
-			"totals":        payload.Totals,
-			"notes":         payload.Notes,
-			"updatedAt":     time.Now(),
+			"status":             payload.Status,
+			"quoteDate":          payload.QuoteDate,
+			"validUntil":         payload.ValidUntil,
+			"currency":           payload.Currency,
+			"paymentTerms":       payload.PaymentTerms,
+			"customerName":       payload.CustomerName,
+			"customerEmail":      payload.CustomerEmail,
+			"customerId":         payload.CustomerID,
+			"billTo":             payload.BillTo,
+			"lineItems":          payload.LineItems,
+			"totals":             payload.Totals,
+			"notes":              payload.Notes,
+			"attentionTo":        payload.AttentionTo,
+			"salutation":         payload.Salutation,
+			"subject":            payload.Subject,
+			"projectName":        payload.ProjectName,
+			"introText":          payload.IntroText,
+			"company":            payload.Company,
+			"signatory":          payload.Signatory,
+			"termsAndConditions": payload.TermsAndConditions,
+			"salesperson":        payload.Salesperson,
+			"updatedAt":          time.Now(),
 		}}
 
 		if _, err := quoteCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update); err != nil {
@@ -710,8 +719,8 @@ func DeleteQuote() gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only delete quotes you created"})
 			return
 		}
-		if existing.Status == "converted" {
-			c.JSON(http.StatusConflict, gin.H{"message": "Converted quotes cannot be deleted"})
+		if existing.Status != "draft" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Only draft quotes can be deleted — this one is " + existing.Status})
 			return
 		}
 

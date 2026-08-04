@@ -1130,8 +1130,8 @@ func GetCustomerStatement() gin.HandlerFunc {
 			"customerId": custIDStr,
 			"issueDate":  bson.M{"$gte": fromStr, "$lte": toStr},
 			// Drafts are not real receivables (no GL posting) — exclude with void.
-			"status":     bson.M{"$nin": []string{"void", "draft"}},
-			"type":       bson.M{"$ne": "proforma"},
+			"status": bson.M{"$nin": []string{"void", "draft"}},
+			"type":   bson.M{"$ne": "proforma"},
 		}, options.Find().SetSort(bson.D{{Key: "issueDate", Value: 1}}))
 		var invoices []models.Invoice
 		if invCursor != nil {
@@ -1179,7 +1179,9 @@ func GetCustomerStatement() gin.HandlerFunc {
 			{"$group": bson.M{"_id": nil, "balance": bson.M{"$sum": "$balanceDue"}}},
 		})
 		if prevInvCursor != nil {
-			var res []struct{ Balance float64 `bson:"balance"` }
+			var res []struct {
+				Balance float64 `bson:"balance"`
+			}
 			prevInvCursor.All(ctx, &res)
 			if len(res) > 0 {
 				openingBalance = res[0].Balance

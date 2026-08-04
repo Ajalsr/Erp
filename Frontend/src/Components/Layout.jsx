@@ -37,10 +37,13 @@ export default function Layout() {
   }, [])
 
   const onEvent = useCallback((event) => {
-    if (event.type === 'notification' && event.payload) {
+    // Real-time pushes arrive over one socket regardless of which org is
+    // active — without this check, an event for an org the user isn't
+    // currently viewing would still land in the open one's notification list.
+    if (event.type === 'notification' && event.payload && event.payload.orgId === activeOrg?._id) {
       addNotification(event.payload)
     }
-  }, [addNotification])
+  }, [addNotification, activeOrg])
 
   useWebSocket(onEvent)
 
