@@ -7,6 +7,7 @@ import useThemeStore from '../../store/useThemeStore'
 import nexusToast from '../../helper/nexusToast'
 import axiosInstance from '../../helper/axiosInstance'
 import { PERM_MODULES, PERM_CAPS, invalidatePermissions, usePermissions } from '../../helper/permissions'
+import CheckUpdateButton from '../common/CheckUpdateButton'
 
 // Grid template for the module-access matrix: module label + one column per capability.
 const PERM_GRID = `minmax(104px,1.3fr) repeat(${PERM_CAPS.length}, minmax(58px,1fr))`
@@ -1205,6 +1206,7 @@ const OrganizationSettings = () => {
 
         {tab === 'settings' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <CheckUpdateButton />
             <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
               <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 18px', fontFamily: 'inherit' }}>
                 General Settings

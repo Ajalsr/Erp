@@ -5,6 +5,7 @@ import { onOpenUrl, getCurrent } from "@tauri-apps/plugin-deep-link"
 
 // Eager: app shell + auth landing. These paint first, so no lazy/Suspense flash.
 import Login from "./Components/Login/Login"
+import UpdatePrompt from "./Components/common/UpdatePrompt"
 import Layout from "./Components/Layout"
 import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute"
 import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
@@ -167,6 +168,7 @@ function App() {
           },
         }}
       />
+      <UpdatePrompt />
       <ErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
           <Routes>

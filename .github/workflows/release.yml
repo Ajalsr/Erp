@@ -69,6 +69,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the updater artifacts and generates/merges latest.json on the
+          # release (one manifest, all platforms). Add these as repo Secrets:
+          # TAURI_SIGNING_PRIVATE_KEY = contents of the generated private key,
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD = its password (empty string here).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: app-v__VERSION__
           releaseName: "Spifora v__VERSION__"
