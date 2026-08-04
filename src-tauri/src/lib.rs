@@ -25,6 +25,13 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }));
+
+        // Auto-updater: checks plugins.updater.endpoints (latest.json) for a
+        // newer signed build; the JS side (useAppUpdater) drives the prompt +
+        // download + relaunch. process plugin provides the relaunch.
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init());
     }
 
     builder
