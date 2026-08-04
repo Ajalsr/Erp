@@ -1721,7 +1721,28 @@ func buildQuotePDF(q models.Quote) *gofpdf.Fpdf {
 	// the reference: a closing line, "Yours Truly", "For [Company]", the org's
 	// stamp/signature image if one's been uploaded, then signatory name/title
 	// and contact details. Kept whole on one page.
-	closeH := 55.0
+	//
+	// closeH is sized to what's ACTUALLY going to render, not a flat worst-case
+	// guess — a fixed 55mm reservation used to force the whole block onto a
+	// fresh page even when there was easily enough room, leaving a large blank
+	// gap at the bottom of the previous page for no reason.
+	stampData, stampType, hasStamp := loadOrgStamp(q.OrgID)
+	closeH := 25.0 // two closing lines + "Yours Truly" + "For [Company]"
+	if hasStamp {
+		closeH += 28
+	}
+	if q.Signatory.Name != "" {
+		closeH += 4.5
+	}
+	if q.Signatory.Title != "" {
+		closeH += 4.5
+	}
+	if company.Phone != "" {
+		closeH += 4.5
+	}
+	if company.Email != "" {
+		closeH += 4.5
+	}
 	breakIfNeeded(&y, closeH)
 	pdf.SetXY(x0, y)
 	pdf.SetFont("Helvetica", "", 9)
@@ -1742,7 +1763,7 @@ func buildQuotePDF(q models.Quote) *gofpdf.Fpdf {
 	y = pdf.GetY() + 2
 
 	// Stamp/signature image, if the org has one uploaded.
-	if stampData, stampType, ok := loadOrgStamp(q.OrgID); ok {
+	if hasStamp {
 		var sOpt gofpdf.ImageOptions
 		sOpt.ImageType = stampType
 		pdf.RegisterImageOptionsReader("quote-stamp", sOpt, bytes.NewReader(stampData))

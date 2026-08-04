@@ -724,6 +724,7 @@ export default function CreateQuote() {
   // Salesperson — selectable; drives the quote number (initials) when the org enables
   // salesperson numbering, and carries to a converted Sales Order.
   const [salesperson, setSalesperson] = useState(prefill?.salesperson || fromEnquiry?.assignedTo || "");
+  const activeOrg   = useAuthStore((s) => s.activeOrg);
   const activeOrgId = useAuthStore((s) => s.activeOrg?._id || s.user?.orgId || "");
   const [salesReps, setSalesReps] = useState([]);
   useEffect(() => {
@@ -739,6 +740,13 @@ export default function CreateQuote() {
     name: "", address: "", trn: "", phone: "", email: "", website: "",
   });
   const [signatory, setSignatory] = useState(prefill?.signatory || { name: "", title: "" });
+
+  // Company Name defaults to the active org's own name — a brand-new quote has
+  // no reason to make the user retype what's already on their account.
+  useEffect(() => {
+    if (prefill || !activeOrg?.name) return;
+    setCompany(c => c.name ? c : { ...c, name: activeOrg.name });
+  }, [prefill, activeOrg]);
 
   // "Create & Send" — pick one or more email recipients before sending.
   const [sendOpen,    setSendOpen]    = useState(false);
@@ -1170,7 +1178,7 @@ export default function CreateQuote() {
           <Section title="Your Company (PDF Header &amp; Footer)">
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Company Name">
-                <Inp value={company.name} onChange={e => setCompany(c => ({ ...c, name: e.target.value }))} placeholder="Allied Building Materials L.L.C" />
+                <Inp value={company.name} onChange={e => setCompany(c => ({ ...c, name: e.target.value }))} />
               </Field>
               <Field label="TRN">
                 <Inp value={company.trn} onChange={e => setCompany(c => ({ ...c, trn: e.target.value }))} placeholder="Tax Registration Number" />

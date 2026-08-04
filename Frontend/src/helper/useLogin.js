@@ -1,5 +1,5 @@
 import axios from 'axios'
-import useAuthStore from '../store/useAuthStore'
+import useAuthStore, { setRememberMe } from '../store/useAuthStore'
 import nexusToast from './nexusToast'
 import { seedPermissions } from './permissions'
 
@@ -22,8 +22,11 @@ const useLogin = () => {
   const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const { setAuth } = useAuthStore()
 
-  const finishLogin = (resData) => {
+  // rememberMe: false by default, so a page that forgets to pass it never
+  // silently upgrades a session to localStorage.
+  const finishLogin = (resData, rememberMe = false) => {
     const { data, token, organizations } = resData
+    setRememberMe(rememberMe) // must run before setAuth() writes to storage
     setAuth(token, data, organizations)
     // Prime the perms cache so the sidebar renders the right menu immediately,
     // before any GET /api/organizations/:id resolves.
@@ -33,10 +36,11 @@ const useLogin = () => {
 
   const handleSignin = async (inputs) => {
     try {
-      const response = await axios.post(`${BASE_URL}/api/auth/signin`, { ...inputs, deviceId: getDeviceId() })
+      const { rememberMe, ...creds } = inputs
+      const response = await axios.post(`${BASE_URL}/api/auth/signin`, { ...creds, rememberMe: !!rememberMe, deviceId: getDeviceId() })
       // New/changed device → server emailed an OTP; don't authenticate yet.
-      if (response.data?.otpRequired) return response.data
-      finishLogin(response.data)
+      if (response.data?.otpRequired) return { ...response.data, rememberMe: !!rememberMe }
+      finishLogin(response.data, !!rememberMe)
       return response.data
     } catch (error) {
       const errorMessage =
@@ -48,10 +52,10 @@ const useLogin = () => {
     }
   }
 
-  const verifyOtp = async (userId, otp) => {
+  const verifyOtp = async (userId, otp, rememberMe = false) => {
     try {
-      const response = await axios.post(`${BASE_URL}/api/auth/verify-otp`, { userId, otp, deviceId: getDeviceId() })
-      finishLogin(response.data)
+      const response = await axios.post(`${BASE_URL}/api/auth/verify-otp`, { userId, otp, rememberMe: !!rememberMe, deviceId: getDeviceId() })
+      finishLogin(response.data, !!rememberMe)
       return response.data
     } catch (error) {
       const errorMessage =

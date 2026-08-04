@@ -314,7 +314,7 @@ func SignIn() gin.HandlerFunc {
 			return
 		}
 
-		token, tErr := utils.GenerateToken(loginUserID)
+		token, tErr := utils.GenerateToken(loginUserID, user.RememberMe)
 		if tErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -682,9 +682,10 @@ func VerifyLoginOTP() gin.HandlerFunc {
 		}
 
 		var body struct {
-			UserID   string `json:"userId"`
-			OTP      string `json:"otp"`
-			DeviceID string `json:"deviceId"`
+			UserID     string `json:"userId"`
+			OTP        string `json:"otp"`
+			DeviceID   string `json:"deviceId"`
+			RememberMe bool   `json:"rememberMe"`
 		}
 		if err := c.BindJSON(&body); err != nil || strings.TrimSpace(body.UserID) == "" || strings.TrimSpace(body.OTP) == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "userId and otp are required"})
@@ -739,7 +740,7 @@ func VerifyLoginOTP() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to fetch user data"})
 			return
 		}
-		token, err := utils.GenerateToken(loginUserID)
+		token, err := utils.GenerateToken(loginUserID, body.RememberMe)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Could not generate token"})
 			return
