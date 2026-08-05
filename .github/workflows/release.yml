@@ -1,6 +1,11 @@
 name: Release desktop app
 
 # Push a tag like v1.0.1 to trigger, or run manually from the Actions tab.
+# The pushed tag IS the version — a "Set version from tag" step overwrites
+# src-tauri/tauri.conf.json's version field with it before building, so you
+# never have to hand-edit that file or remember to commit it first. (Running
+# manually via workflow_dispatch, with no tag, falls back to whatever version
+# is already committed in tauri.conf.json.)
 # Builds BOTH Windows (.msi/.exe) and macOS (.dmg, universal Intel+Apple
 # Silicon) in parallel on their native runners, attaches all installers to one
 # GitHub Release, then a single publish-site job copies them into Spifora-site
@@ -9,7 +14,7 @@ name: Release desktop app
 # Download links on spifora.html stay fixed (/downloads/Spifora_1.0.0_x64-setup.exe
 # etc) regardless of the real build version — if you bump to a new filename
 # scheme, update those hrefs by hand. The "Version X.X.X — released YYYY-MM-DD"
-# badge IS kept in sync automatically, read from src-tauri/tauri.conf.json.
+# badge IS kept in sync automatically.
 on:
   push:
     tags:
@@ -41,6 +46,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # The pushed tag (e.g. "v1.0.12") IS the version — write it into
+      # tauri.conf.json before anything builds, so the compiled binary, the
+      # release tag (app-v__VERSION__), and the signed latest.json manifest
+      # all agree. Skipped on a manual workflow_dispatch run (no tag), which
+      # keeps whatever version is already committed.
+      - name: Set version from tag
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "
+            const fs = require('fs');
+            const p = 'src-tauri/tauri.conf.json';
+            const conf = JSON.parse(fs.readFileSync(p, 'utf8'));
+            conf.version = '$VERSION';
+            fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
+          "
+          echo "tauri.conf.json version set to $VERSION"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -104,15 +129,22 @@ jobs:
           token: ${{ secrets.SPIFORA_SITE_PAT }}
           path: spifora-site
 
-      # Source of truth is tauri.conf.json's own version, not the pushed git
-      # tag (they may not match) — so we download exactly what was built.
+      # The build job now writes the pushed tag's version into tauri.conf.json
+      # before building, so the two always agree on a tag-triggered run —
+      # derive it the same way here rather than re-reading the file. Falls
+      # back to whatever's committed in tauri.conf.json on a manual
+      # workflow_dispatch run (no tag to derive from).
       - name: Download release installers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -e
-          VERSION=$(node -p "require('./erp/src-tauri/tauri.conf.json').version")
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(node -p "require('./erp/src-tauri/tauri.conf.json').version")
+          fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           mkdir -p assets
           gh release download "app-v${VERSION}" --repo Ajalsr/Erp --dir assets \
