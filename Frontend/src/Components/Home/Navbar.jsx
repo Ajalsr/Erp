@@ -740,7 +740,7 @@ const Navbar = ({ onToggleSidebar }) => {
             title="Start guided tour"
             style={{ width: '28px', height: '28px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', color: D.textSec, fontFamily: 'inherit' }}
           >
-            
+            ?
           </button>
 
           {/* User menu */}
