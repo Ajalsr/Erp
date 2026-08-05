@@ -4,12 +4,20 @@ import useLogin from '../../helper/useLogin'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 
+// "Keep me logged in" also remembers the User ID field (not the password —
+// that would mean storing it in plain, readable local storage) so returning
+// to the login screen after a session expiry or sign-out doesn't require
+// retyping it, matching what the checkbox implies even though it's a
+// separate mechanism from the actual session-persistence it also controls.
+const REMEMBERED_USERID_KEY = 'nx_remembered_userid'
+
 const Login = () => {
   const { handleSignin, verifyOtp } = useLogin()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [inputs, setInputs] = useState({ userId: '', password: '' })
-  const [rememberMe, setRememberMe] = useState(false)
+  const rememberedUserId = localStorage.getItem(REMEMBERED_USERID_KEY) || ''
+  const [inputs, setInputs] = useState({ userId: rememberedUserId, password: '' })
+  const [rememberMe, setRememberMe] = useState(!!rememberedUserId)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [otpStep, setOtpStep] = useState(null) // { userId, email } when a new device needs OTP
@@ -26,6 +34,8 @@ const Login = () => {
       toast.error('Please fill in all fields')
       return
     }
+    if (rememberMe) localStorage.setItem(REMEMBERED_USERID_KEY, inputs.userId.trim())
+    else localStorage.removeItem(REMEMBERED_USERID_KEY)
     setLoading(true)
     try {
       const res = await handleSignin({ ...inputs, rememberMe })
@@ -33,7 +43,7 @@ const Login = () => {
         setOtpStep({ userId: res.userId, email: res.email })
         return
       }
-      setInputs({ userId: '', password: '' })
+      setInputs({ userId: rememberMe ? inputs.userId : '', password: '' })
       goAfterLogin()
     } catch (error) {
       toast.error(error?.error || 'Sign in failed')
@@ -63,7 +73,7 @@ const Login = () => {
     setLoading(true)
     try {
       await verifyOtp(otpStep.userId, otp.trim(), rememberMe)
-      setInputs({ userId: '', password: '' }); setOtp(''); setOtpStep(null)
+      setInputs({ userId: rememberMe ? inputs.userId : '', password: '' }); setOtp(''); setOtpStep(null)
       goAfterLogin()
     } catch (error) {
       toast.error(error?.error || 'Verification failed')
