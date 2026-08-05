@@ -160,13 +160,25 @@ jobs:
           cp assets/*_x64_en-US.msi  spifora-site/downloads/Spifora_1.0.0_x64_en-US.msi
           cp assets/*.dmg            spifora-site/downloads/Spifora_1.0.0_universal.dmg
 
-      - name: Update version badge on spifora.html
+      # Two DIFFERENT badges exist across the site, plus two pairs of files
+      # that are physical duplicates of each other (cleanUrls maps /download
+      # and /home to these exact filenames — they don't share content at
+      # request time, so both copies of each pair need the same edit or they
+      # silently drift apart):
+      #   spifora.html / download.html — "Version X.X.X — released YYYY-MM-DD"
+      #   index.html / home.html       — "Native desktop ERP · vX.X.X" (no date)
+      - name: Update version badges on spifora-site
         shell: bash
         run: |
           set -e
+          cd spifora-site
           RELEASE_DATE=$(date -u +%Y-%m-%d)
           sed -i -E "s/Version [0-9]+\.[0-9]+\.[0-9]+ — released [0-9]{4}-[0-9]{2}-[0-9]{2}/Version ${VERSION} — released ${RELEASE_DATE}/" \
-            spifora-site/spifora.html
+            spifora.html
+          sed -i -E "s/Native desktop ERP · v[0-9]+\.[0-9]+\.[0-9]+/Native desktop ERP · v${VERSION}/" \
+            index.html
+          cp spifora.html download.html
+          cp index.html home.html
 
       - name: Commit and push to Spifora-site
         working-directory: spifora-site
@@ -174,6 +186,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add downloads/Spifora_1.0.0_x64-setup.exe downloads/Spifora_1.0.0_x64_en-US.msi downloads/Spifora_1.0.0_universal.dmg spifora.html
-          git diff --cached --quiet || git commit -m "chore: refresh desktop installers + version badge (Erp ${{ github.ref_name }})"
+          git add downloads/Spifora_1.0.0_x64-setup.exe downloads/Spifora_1.0.0_x64_en-US.msi downloads/Spifora_1.0.0_universal.dmg \
+            spifora.html download.html index.html home.html
+          git diff --cached --quiet || git commit -m "chore: refresh desktop installers + version badges (Erp ${{ github.ref_name }})"
           git push
