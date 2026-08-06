@@ -990,7 +990,7 @@ func SendBill() gin.HandlerFunc {
 
 		var ex billExtras
 		if b.VendorID != "" {
-			ex.vendorCode, ex.vendorAddress, ex.vendorPhone, _ = loadVendorInfo(ctx, b.VendorID)
+			ex.vendorCode, ex.vendorAddress, ex.vendorPhone, _, _ = loadVendorInfo(ctx, b.VendorID)
 		}
 		var pdfBuf bytes.Buffer
 		pdf := buildBillPDF(b, ex)

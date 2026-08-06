@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FaChevronLeft, FaPrint, FaFileDownload, FaSpinner } from 'react-icons/fa';
 import api from '../../helper/axiosInstance';
 import { usePermissions } from '../../helper/permissions';
+import nexusToast from '../../helper/nexusToast';
 
 /**
  * Generic PDF print/preview page. The on-screen preview embeds the same
@@ -61,6 +62,7 @@ export default function DocPrint({ apiBase, module, backPath, title, filePrefix,
     document.body.appendChild(a);
     a.click();
     a.remove();
+    nexusToast.success(`${title} PDF downloaded`);
   };
 
   const printPdf = () => {

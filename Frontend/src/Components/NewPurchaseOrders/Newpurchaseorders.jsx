@@ -2,8 +2,10 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, Fra
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useAuthStore from '../../store/useAuthStore';
 import useIsMobile from '../../helper/useIsMobile';
 import useGetItem from '../../helper/useGetItem';
+import useOrganization from '../../helper/useOrganization';
 import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
@@ -86,11 +88,11 @@ const buildCSS = (isDark) => {
   .npo-irow:last-child{border-bottom:none;}
   .npo-irow:hover{background:${isDark?'rgba(59,130,246,0.08)':'#eff6ff'};}
   .npo-bottombar{position:fixed;bottom:0;left:220px;right:0;z-index:20;background:${isDark?'rgba(8,13,26,.97)':'rgba(255,255,255,.97)'};backdrop-filter:blur(14px);border-top:1.5px solid ${border};padding:14px 32px;display:flex;align-items:center;justify-content:space-between;box-shadow:${isDark?'0 -8px 32px rgba(0,0,0,.4)':'0 -8px 32px rgba(0,0,0,.06)'};}
-  .react-datepicker{font-family:'DM Sans',sans-serif!important;border:1.5px solid ${border}!important;border-radius:14px!important;box-shadow:${isDark?'0 20px 40px rgba(0,0,0,.5)':'0 20px 40px rgba(0,0,0,.12)'}!important;background:${surface}!important;}
-  .react-datepicker__header{background:${surface2}!important;border-bottom:1.5px solid ${border}!important;border-radius:14px 14px 0 0!important;padding-top:14px!important;}
-  .react-datepicker__current-month{font-size:14px!important;font-weight:700!important;color:${text}!important;font-family:'Sora',sans-serif!important;}
-  .react-datepicker__day-name{color:${textMuted}!important;font-weight:600!important;font-size:11px!important;}
-  .react-datepicker__day{width:2.2rem!important;height:2.2rem!important;line-height:2.2rem!important;border-radius:8px!important;font-size:13px!important;transition:all .12s!important;color:${text}!important;}
+  .react-datepicker{font-family:'DM Sans',sans-serif!important;border:1.5px solid ${border}!important;border-radius:12px!important;box-shadow:${isDark?'0 20px 40px rgba(0,0,0,.5)':'0 20px 40px rgba(0,0,0,.12)'}!important;background:${surface}!important;font-size:.8rem!important;}
+  .react-datepicker__header{background:${surface2}!important;border-bottom:1.5px solid ${border}!important;border-radius:12px 12px 0 0!important;padding-top:10px!important;}
+  .react-datepicker__current-month{font-size:12px!important;font-weight:700!important;color:${text}!important;font-family:'Sora',sans-serif!important;}
+  .react-datepicker__day-name{color:${textMuted}!important;font-weight:600!important;font-size:10px!important;width:1.7rem!important;line-height:1.7rem!important;margin:.1rem!important;}
+  .react-datepicker__day{width:1.7rem!important;height:1.7rem!important;line-height:1.7rem!important;border-radius:7px!important;font-size:11px!important;margin:.1rem!important;transition:all .12s!important;color:${text}!important;}
   .react-datepicker__day:hover{background:${isDark?'rgba(59,130,246,0.2)':'#eff6ff'}!important;color:#3b82f6!important;}
   .react-datepicker__day--selected{background:#3b82f6!important;color:#fff!important;font-weight:700!important;box-shadow:0 2px 8px rgba(59,130,246,.3)!important;}
   .react-datepicker__day--today{background:${isDark?'rgba(59,130,246,0.15)':'#dbeafe'}!important;color:#2563eb!important;font-weight:700!important;}
@@ -112,12 +114,21 @@ const getVendorTaxRate = origin => {
   const o = normaliseOrigin(origin);
   return (o === 'free_zone' || o === 'overseas') ? 0.0 : 0.05;
 };
-const PAYMENT_TERMS_OPTS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 90', 'End of Month', 'Cash on Delivery', 'Custom'];
-const SHIP_PREFS = [
-  { value: 'standard',  label: 'Standard'  },
-  { value: 'express',   label: 'Express'   },
-  { value: 'overnight', label: 'Overnight' },
+const PAYMENT_TERMS_OPTS = [
+  'Advance Payment', 'Cash Against Delivery (CAD)',
+  'CDC 30 Days', 'CDC 60 Days', 'CDC 90 Days',
+  'Credit 30 Days', 'Credit 60 Days', 'Credit 90 Days',
+  'Due on Receipt',
 ];
+const SHIP_PREFS = [
+  { value: 'immediate',      label: 'Immediate'       },
+  { value: 'within_3_days',  label: 'Within 3 Days'   },
+  { value: 'within_7_days',  label: 'Within 7 Days'   },
+  { value: 'within_15_days', label: 'Within 15 Days'  },
+  { value: 'within_30_days', label: 'Within 30 Days'  },
+  { value: 'as_scheduled',   label: 'As Scheduled'    },
+];
+const CURRENCY_OPTS = ['AED', 'USD', 'EUR', 'GBP', 'SAR'];
 const AVATAR_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4'];
 
 const calcLineBase = (qty, rate, discount, discountType) => {
@@ -433,7 +444,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
     <div ref={portalRef} style={{
       position: 'fixed', zIndex: 9998, top: pos.top + 6, left: pos.left,
       background: T.surface, borderRadius: 16, border: `1.5px solid ${T.border}`,
-      boxShadow: '0 24px 60px rgba(0,0,0,.18)', width: Math.max(pos.width, 340),
+      boxShadow: '0 24px 60px rgba(0,0,0,.18)', width: Math.max(pos.width, 280),
       overflow: 'hidden', fontFamily: "'DM Sans',sans-serif",
     }}>
       <div style={{ display: 'flex', borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
@@ -454,7 +465,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
         ))}
       </div>
 
-      <div style={{ padding: '14px 14px 10px' }}>
+      <div style={{ padding: '10px 10px 8px' }}>
         {mode === 'calendar' ? (
           <RDatePicker
             selected={sel}
@@ -554,6 +565,8 @@ export default function Newpurchaseorders() {
   const isDark   = useThemeStore(s => s.isDark);
   const T        = getTheme(isDark);
   const isMobile = useIsMobile();
+  const activeOrg = useAuthStore(s => s.activeOrg);
+  const { getOrganization } = useOrganization();
 
   /* ── Item state ── */
   const [items, setItems] = useState([{
@@ -573,14 +586,35 @@ export default function Newpurchaseorders() {
   const [orderDate,      setOrderDate]      = useState(new Date().toLocaleDateString('en-CA'));
   const [expectedDate,   setExpectedDate]   = useState('');
   const [paymentTerms,   setPaymentTerms]   = useState('Due on Receipt');
-  const [deliveryAddr,   setDeliveryAddr]   = useState('organization');
-  const [shipPref,       setShipPref]       = useState('');
+  const [deliveryAddressLine, setDeliveryAddressLine] = useState('');
+  const [shipPref,       setShipPref]       = useState('immediate');
   const [referenceNo,    setReferenceNo]    = useState('');
+  const [project,        setProject]        = useState('');
+  const [currency,       setCurrency]       = useState('AED');
+  const [vendorEmail,    setVendorEmail]    = useState('');
+  const [vendorPhone,    setVendorPhone]    = useState('');
+  const [vendorPOBox,    setVendorPOBox]    = useState('');
+  const [attentionTo,    setAttentionTo]    = useState('');
+  const [orgProfile,     setOrgProfile]     = useState(null); // { address, trn }
   const [customerNotes,  setCustomerNotes]  = useState('');
   const [terms,          setTerms]          = useState('');
   const [shipping,       setShipping]       = useState('0');
   const [adjustment,     setAdjustment]     = useState('0');
   const [saving,         setSaving]         = useState(false);
+
+  /* ── Org profile (address + TRN, for delivery-address prefill & the TRN row) ── */
+  useEffect(() => {
+    if (!activeOrg?._id) return;
+    getOrganization(activeOrg._id).then(o => setOrgProfile({ address: o?.address || '', trn: o?.trn || '' })).catch(() => {});
+  }, [activeOrg?._id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Prefill delivery address from the org profile when "Organization" is picked
+     and the field is still empty (never overwrite something the user already typed). ── */
+  useEffect(() => {
+    if (!deliveryAddressLine && orgProfile?.address) {
+      setDeliveryAddressLine(orgProfile.address);
+    }
+  }, [orgProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Inventory ── */
   const { handleGetItem, data: inventoryData, loading: inventoryLoading } = useGetItem();
@@ -609,9 +643,15 @@ export default function Newpurchaseorders() {
       if (po.orderDate) setOrderDate(new Date(po.orderDate).toLocaleDateString('en-CA'));
       setExpectedDate(po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('en-CA') : '');
       setPaymentTerms(po.paymentTerms || 'Due on Receipt');
-      setDeliveryAddr(po.deliveryAddress || 'organization');
-      setShipPref(po.shipmentPreference || '');
+      setDeliveryAddressLine(po.deliveryAddressLine || '');
+      setShipPref(po.shipmentPreference || 'immediate');
       setReferenceNo(po.referenceNo || '');
+      setProject(po.project || '');
+      setCurrency(po.currency || 'AED');
+      setVendorEmail(po.vendorEmail || '');
+      setVendorPhone(po.vendorPhone || '');
+      setVendorPOBox(po.vendorPoBox || '');
+      setAttentionTo(po.attentionTo || '');
       setCustomerNotes(po.customerNotes || '');
       setTerms(po.termsAndConditions || '');
       setShipping(String(po.shippingCharges ?? 0));
@@ -759,9 +799,12 @@ export default function Newpurchaseorders() {
       const payload = {
         vendorId:   selectedVendor._id,
         vendorName: selectedVendor.displayName || selectedVendor.companyName || '',
+        vendorEmail, vendorPhone, vendorPoBox: vendorPOBox, attentionTo,
         orderDate: new Date(orderDate).toISOString(),
         expectedDeliveryDate: expectedDate ? new Date(expectedDate).toISOString() : null,
-        poType, paymentTerms, deliveryAddress: deliveryAddr, shipmentPreference: shipPref, referenceNo,
+        poType, paymentTerms,
+        deliveryAddressLine,
+        shipmentPreference: shipPref, referenceNo, project, currency,
         items: computedItems.filter(i => i.details && i.quantity > 0).map(i => ({
           itemId: i.itemId, details: i.details, quantity: parseFloat(i.quantity),
           rate: parseFloat(i.rate)||0, discount: parseFloat(i.discount)||0, discountType: i.discountType, unit: i.unit,
@@ -771,16 +814,21 @@ export default function Newpurchaseorders() {
       };
       if (isEdit) {
         const res = await axiosInstance.put(`/api/purchase-orders/${editId}`, payload);
-        nexusToast.success(res.data?.data?.status === 'pending_approval'
-          ? 'Edit submitted for approval' : 'Purchase order updated');
+        if (status === 'draft') {
+          nexusToast.success('Draft updated');
+        } else {
+          nexusToast.success(res.data?.data?.status === 'pending_approval'
+            ? 'Purchase order submitted for approval' : 'Purchase order submitted successfully');
+        }
       } else {
         await axiosInstance.post('/api/purchase-orders/', payload);
-        nexusToast.success('Purchase order created successfully!');
+        nexusToast.success(status === 'draft' ? 'Purchase order saved as draft' : 'Purchase order created successfully!');
       }
       guard.reset();
       setTimeout(() => navigate('/Purchase/Purchaseorders'), 1500);
     } catch (err) {
-      nexusToast.error(err?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} purchase order`);
+      const msg = err?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} purchase order`;
+      nexusToast.error(msg);
     } finally { setSaving(false); }
   };
 
@@ -819,11 +867,11 @@ export default function Newpurchaseorders() {
             <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
               {!isMobile && !isEdit && <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>}
               <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg" style={isMobile ? { flex: 1 } : undefined}>Cancel</button>
-              {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700, ...(isMobile ? { flex: 1 } : {}) }}>{saving ? 'Saving…' : 'Save Draft'}</button>}
+              <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700, ...(isMobile ? { flex: 1 } : {}) }}>{saving ? 'Saving…' : (isEdit ? 'Update Draft' : 'Save Draft')}</button>
               <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded} style={isMobile ? { flex: 1, justifyContent: 'center' } : undefined}>
                 {saving
                   ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
-                  : <><FaCheckCircle size={12} />{isEdit ? 'Save Changes' : 'Save & Submit'}</>}
+                  : <><FaCheckCircle size={12} />Save & Submit</>}
               </button>
             </div>
           </div>
@@ -843,6 +891,8 @@ export default function Newpurchaseorders() {
                   <VendorSelect value={selectedVendor} onChange={v => {
                     setSelectedVendor(v);
                     if (v?.paymentTerms) setPaymentTerms(v.paymentTerms);
+                    setVendorEmail(v?.email || '');
+                    setVendorPhone(v?.phone || v?.mobile || '');
                   }} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} />
                 </Field>
                 {selectedVendor && (
@@ -866,6 +916,25 @@ export default function Newpurchaseorders() {
                         </>
                       );
                     })()}
+                  </div>
+                )}
+                {selectedVendor && (
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12, marginTop: 12 }}>
+                    <Field label="Vendor Email">
+                      <input className="npo-inp" type="email" value={vendorEmail} onChange={e => setVendorEmail(e.target.value)} placeholder="vendor@example.com" />
+                    </Field>
+                    <Field label="Vendor Phone">
+                      <input className="npo-inp" value={vendorPhone} onChange={e => setVendorPhone(e.target.value)} placeholder="+971 …" style={{ fontFamily: "'DM Mono',monospace" }} />
+                    </Field>
+                    <Field label="Vendor TRN">
+                      <input className="npo-inp" value={selectedVendor.trn || ''} readOnly placeholder="Not set on vendor" style={{ fontFamily: "'DM Mono',monospace", background: T.surface2, color: T.textSec }} />
+                    </Field>
+                    <Field label="Vendor P.O. Box">
+                      <input className="npo-inp" value={vendorPOBox} onChange={e => setVendorPOBox(e.target.value)} placeholder="P.O. Box 8261" />
+                    </Field>
+                    <Field label="Attention">
+                      <input className="npo-inp" value={attentionTo} onChange={e => setAttentionTo(e.target.value)} placeholder="Contact person" />
+                    </Field>
                   </div>
                 )}
               </div>
@@ -892,19 +961,21 @@ export default function Newpurchaseorders() {
               <Field label="Payment Terms">
                 <CustomSelect value={paymentTerms} onChange={setPaymentTerms} options={PAYMENT_TERMS_OPTS} placeholder="Select terms" T={T} isDark={isDark} />
               </Field>
-              <Field label="Shipment Preference">
-                <CustomSelect value={shipPref} onChange={setShipPref} options={SHIP_PREFS} placeholder="Choose preference" T={T} isDark={isDark} />
+              <Field label="Delivery Terms">
+                <CustomSelect value={shipPref} onChange={setShipPref} options={SHIP_PREFS} placeholder="Choose delivery terms" T={T} isDark={isDark} />
+              </Field>
+              <Field label="Currency">
+                <CustomSelect value={currency} onChange={setCurrency} options={CURRENCY_OPTS} placeholder="Select currency" T={T} isDark={isDark} />
+              </Field>
+              <Field label="Project">
+                <input className="npo-inp" value={project} onChange={e => setProject(e.target.value)} placeholder="e.g. Marina Tower Fit-out" />
+              </Field>
+              <Field label="Our TRN">
+                <input className="npo-inp" value={orgProfile?.trn || ''} readOnly placeholder="Set in Organization Settings" style={{ fontFamily: "'DM Mono',monospace", background: T.surface2, color: T.textSec }} />
               </Field>
               <div style={{ gridColumn: '1/-1' }}>
                 <Field label="Delivery Address">
-                  <div style={{ display: 'flex', gap: 20 }}>
-                    {['organization', 'customer'].map(opt => (
-                      <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: T.textPri }}>
-                        <input type="radio" value={opt} checked={deliveryAddr === opt} onChange={e => setDeliveryAddr(e.target.value)} style={{ accentColor: '#3b82f6' }} />
-                        {opt.charAt(0).toUpperCase() + opt.slice(1)}
-                      </label>
-                    ))}
-                  </div>
+                  <textarea className="npo-inp" rows={2} value={deliveryAddressLine} onChange={e => setDeliveryAddressLine(e.target.value)} placeholder="Delivery address" style={{ resize: 'none' }} />
                 </Field>
               </div>
             </div>
@@ -1170,11 +1241,11 @@ export default function Newpurchaseorders() {
           </div>
           <div style={{ display: 'flex', gap: isMobile ? 6 : 10, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
             <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg">Cancel</button>
-            {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save as Draft'}</button>}
+            <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : (isEdit ? 'Update Draft' : 'Save as Draft')}</button>
             <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
               {saving
                 ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
-                : <><FaCheckCircle size={12} />{isEdit ? 'Save Changes' : 'Save & Submit'}</>}
+                : <><FaCheckCircle size={12} />Save & Submit</>}
             </button>
           </div>
         </div>

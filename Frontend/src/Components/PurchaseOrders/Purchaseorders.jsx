@@ -390,10 +390,14 @@ export default function Purchaseorders() {
                         a.href = url; a.download = `po-${selected.orderNumber || selected._id}.pdf`;
                         document.body.appendChild(a); a.click(); a.remove();
                         URL.revokeObjectURL(url);
-                      } catch (e) { console.error('Download PO PDF failed', e); }
+                        nexusToast.success('Purchase order PDF downloaded');
+                      } catch (e) {
+                        console.error('Download PO PDF failed', e);
+                        nexusToast.error('Failed to download purchase order PDF');
+                      }
                     }}
                     className="po-icon-btn" title="Download PDF" style={{ padding:8 }}><FaDownload size={13}/></button>
-                  {!['cancelled','received'].includes(selected.status) && (
+                  {selected.status === 'draft' && (
                     <button onClick={() => navigate(`/Purchase/Purchaseorders/Newpurchaseorders/${selected._id}`)} className="po-icon-btn" title="Edit" style={{ padding:8, color:T.blue }}><FaEdit size={13}/></button>
                   )}
                   <button onClick={closeDrawer} className="po-icon-btn" style={{ padding:8 }}><FaTimes size={14}/></button>
@@ -460,7 +464,6 @@ export default function Purchaseorders() {
                   <DRow label="Order Date"    value={fmtDate(selected.orderDate)} T={T}/>
                   <DRow label="Expected By"   value={fmtDate(selected.expectedDeliveryDate||selected.expectedDate)} T={T}/>
                   <DRow label="Payment Terms" value={selected.paymentTerms} T={T}/>
-                  <DRow label="Delivery To"   value={selected.deliveryAddress||selected.warehouse} T={T}/>
                   <DRow label="Supplier Reference" value={selected.referenceNo||selected.lpoNumber} T={T}/>
                   <DRow label="Created By"    value={selected.createdBy} T={T}/>
                   <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>

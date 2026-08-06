@@ -488,6 +488,7 @@ func GetOrganization() gin.HandlerFunc {
 			"name":                org.Name,
 			"description":         org.Description,
 			"address":             org.Address,
+			"trn":                 org.TRN,
 			"baseCurrency":        org.BaseCurrency,
 			"letterheadImage":     org.LetterheadImage,
 			"letterheadTopPad":    org.LetterheadTopPad,
@@ -527,6 +528,7 @@ func UpdateOrganization() gin.HandlerFunc {
 			Name         string `json:"name"`
 			Description  string `json:"description"`
 			Address      string `json:"address"`
+			TRN          string `json:"trn"`
 			BaseCurrency string `json:"baseCurrency"`
 		}
 		c.ShouldBindJSON(&input)
@@ -535,6 +537,7 @@ func UpdateOrganization() gin.HandlerFunc {
 			"name":        input.Name,
 			"description": input.Description,
 			"address":     strings.TrimSpace(input.Address),
+			"trn":         strings.TrimSpace(input.TRN),
 			"updatedAt":   time.Now(),
 		}
 		// Only touch baseCurrency when supplied, so name/description-only saves don't

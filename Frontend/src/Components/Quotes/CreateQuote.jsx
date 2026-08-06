@@ -748,12 +748,29 @@ export default function CreateQuote() {
     setCompany(c => c.name ? c : { ...c, name: activeOrg.name });
   }, [prefill, activeOrg]);
 
+  // "Your Company" only needs to be complete once a quote is actually going
+  // out (Create & Send) — a draft can be saved half-filled. TRN and Website
+  // stay optional even when sending, since not every org has them. Checked
+  // both here (so the send modal doesn't even open on incomplete info) and
+  // again inside submit() as the final gate.
+  const companySendError = () => {
+    if (!company.name.trim())    return "Your Company: Company Name is required to send";
+    if (!company.address.trim()) return "Your Company: Address is required to send";
+    if (!company.phone.trim())   return "Your Company: Phone is required to send";
+    if (!company.email.trim())   return "Your Company: Email is required to send";
+    if (!signatory.name.trim())  return "Your Company: Signatory Name is required to send";
+    if (!signatory.title.trim()) return "Your Company: Signatory Title is required to send";
+    return "";
+  };
+
   // "Create & Send" — pick one or more email recipients before sending.
   const [sendOpen,    setSendOpen]    = useState(false);
   const [recipients,  setRecipients]  = useState([""]);
   const [sendMessage, setSendMessage] = useState("");
   const openSendModal = () => {
     if (!customerId) { nexusToast.error("Please select a customer"); return; }
+    const err = companySendError();
+    if (err) { nexusToast.error(err); return; }
     setRecipients(customerEmail ? [customerEmail] : [""]);
     setSendMessage("");
     setSendOpen(true);
@@ -833,6 +850,12 @@ export default function CreateQuote() {
 
   async function submit(status, recipients) {
     if (!customerId) { nexusToast.error("Please select a customer"); return; }
+    // Final gate — openSendModal already checks this before the recipient
+    // modal opens, this just guards any other path that could reach "sent".
+    if (status === "sent") {
+      const err = companySendError();
+      if (err) { nexusToast.error(err); return; }
+    }
     setSaving(true);
     try {
       const payload = {

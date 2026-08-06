@@ -19,7 +19,7 @@ type PurchaseOrderItem struct {
 	ItemID       string             `json:"itemId"           bson:"itemId"`
 	Details      string             `json:"details"          bson:"details"`
 	Quantity     float64            `json:"quantity"         bson:"quantity"`
-	ReceivedQty  float64            `json:"receivedQty"      bson:"receivedQty"`  // cumulative accepted qty from confirmed GRNs
+	ReceivedQty  float64            `json:"receivedQty"      bson:"receivedQty"` // cumulative accepted qty from confirmed GRNs
 	Rate         float64            `json:"rate"             bson:"rate"`
 	Discount     float64            `json:"discount"         bson:"discount"`
 	DiscountType string             `json:"discountType"     bson:"discountType"` // "percentage" | "fixed"
@@ -39,19 +39,31 @@ type PurchaseOrderItem struct {
 }
 
 type PurchaseOrder struct {
-	ID                   primitive.ObjectID  `json:"_id,omitempty"           bson:"_id,omitempty"`
-	OrderNumber          string              `json:"orderNumber"             bson:"orderNumber"`
-	VendorID             string              `json:"vendorId"                bson:"vendorId"`
-	VendorName           string              `json:"vendorName"              bson:"vendorName"`
-	VendorCode           string              `json:"vendorCode"              bson:"vendorCode"`
-	VendorOrigin         string              `json:"vendorOrigin"            bson:"vendorOrigin"`         // free_zone | mainland | overseas
-	OrderDate            time.Time           `json:"orderDate"               bson:"orderDate"`
-	ExpectedDeliveryDate *time.Time          `json:"expectedDeliveryDate"    bson:"expectedDeliveryDate"`
-	PaymentTerms         string              `json:"paymentTerms"            bson:"paymentTerms"`
-	DeliveryAddress      string              `json:"deliveryAddress"         bson:"deliveryAddress"`
-	ShipmentPreference   string              `json:"shipmentPreference"      bson:"shipmentPreference"`
-	ReferenceNo          string              `json:"referenceNo"             bson:"referenceNo"`
-	Items                []PurchaseOrderItem `json:"items"                   bson:"items"`
+	ID                   primitive.ObjectID `json:"_id,omitempty"           bson:"_id,omitempty"`
+	OrderNumber          string             `json:"orderNumber"             bson:"orderNumber"`
+	VendorID             string             `json:"vendorId"                bson:"vendorId"`
+	VendorName           string             `json:"vendorName"              bson:"vendorName"`
+	VendorCode           string             `json:"vendorCode"              bson:"vendorCode"`
+	VendorOrigin         string             `json:"vendorOrigin"            bson:"vendorOrigin"` // free_zone | mainland | overseas
+	OrderDate            time.Time          `json:"orderDate"               bson:"orderDate"`
+	ExpectedDeliveryDate *time.Time         `json:"expectedDeliveryDate"    bson:"expectedDeliveryDate"`
+	PaymentTerms         string             `json:"paymentTerms"            bson:"paymentTerms"`
+	DeliveryAddress      string             `json:"deliveryAddress"         bson:"deliveryAddress"` // "organization" | "customer"
+	DeliveryAddressLine  string             `json:"deliveryAddressLine,omitempty" bson:"deliveryAddressLine,omitempty"`
+	DeliveryPOBox        string             `json:"deliveryPoBox,omitempty"       bson:"deliveryPoBox,omitempty"`
+	ShipmentPreference   string             `json:"shipmentPreference"      bson:"shipmentPreference"`
+	ReferenceNo          string             `json:"referenceNo"             bson:"referenceNo"`
+	Project              string             `json:"project,omitempty"       bson:"project,omitempty"`
+	Currency             string             `json:"currency,omitempty"      bson:"currency,omitempty"`
+	// Vendor contact snapshot — auto-filled from the vendor record when selected,
+	// but editable per-order (e.g. a different contact email for this one PO).
+	VendorEmail string `json:"vendorEmail,omitempty" bson:"vendorEmail,omitempty"`
+	VendorPhone string `json:"vendorPhone,omitempty" bson:"vendorPhone,omitempty"`
+	// AttentionTo / VendorPOBox: no equivalent field on the Vendor record itself
+	// (like Quote's AttentionTo), so these are typed fresh per PO.
+	AttentionTo   string              `json:"attentionTo,omitempty"   bson:"attentionTo,omitempty"`
+	VendorPOBox   string              `json:"vendorPoBox,omitempty"   bson:"vendorPoBox,omitempty"`
+	Items         []PurchaseOrderItem `json:"items"                   bson:"items"`
 
 	// ── Calculated totals ───────────────────────────────────────────────
 	SubTotal        float64    `json:"subTotal"        bson:"subTotal"`  // sum of baseAmounts
@@ -68,7 +80,7 @@ type PurchaseOrder struct {
 	// Set when this PO was raised to source a customer's sales order (back-to-back).
 	SourceSalesOrderID string `json:"sourceSalesOrderId,omitempty" bson:"sourceSalesOrderId,omitempty"`
 	SourceSONumber     string `json:"sourceSoNumber,omitempty"     bson:"sourceSoNumber,omitempty"`
-	ForCustomerID      string `json:"forCustomerId,omitempty"      bson:"forCustomerId,omitempty"`   // who you buy FOR
+	ForCustomerID      string `json:"forCustomerId,omitempty"      bson:"forCustomerId,omitempty"` // who you buy FOR
 	ForCustomerName    string `json:"forCustomerName,omitempty"    bson:"forCustomerName,omitempty"`
 	// POType: goods = must go through GRN before bill; service = bill directly from PO
 	POType string `json:"poType" bson:"poType"` // goods | service
