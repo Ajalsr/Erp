@@ -44,10 +44,10 @@ const useOrganization = () => {
     return res.data.data
   }
 
-  const updateOrganization = async (id, { name, description, baseCurrency }) => {
+  const updateOrganization = async (id, { name, description, address, trn, baseCurrency }) => {
     const res = await axios.put(
       `${BASE_URL}/api/organizations/${id}`,
-      { name, description, baseCurrency },
+      { name, description, address, trn, baseCurrency },
       authHeaders()
     )
     return res.data

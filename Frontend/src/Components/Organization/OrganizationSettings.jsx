@@ -237,6 +237,7 @@ const OrganizationSettings = () => {
   const [orgName, setOrgName] = useState('')
   const [orgDesc, setOrgDesc] = useState('')
   const [orgAddress, setOrgAddress] = useState('')
+  const [orgTRN, setOrgTRN] = useState('')
   const [baseCurrency, setBaseCurrency] = useState('AED')
   const [saving, setSaving] = useState(false)
 
@@ -423,6 +424,7 @@ const OrganizationSettings = () => {
       setOrgName(orgData?.name || '')
       setOrgDesc(orgData?.description || '')
       setOrgAddress(orgData?.address || '')
+      setOrgTRN(orgData?.trn || '')
       setBaseCurrency(orgData?.baseCurrency || 'AED')
       setLetterhead(orgData?.letterheadImage || '')
       setLetterheadTopPad(orgData?.letterheadTopPad || 13)
@@ -453,7 +455,7 @@ const OrganizationSettings = () => {
     if (!orgName.trim()) { nexusToast.error('Name is required'); return }
     setSaving(true)
     try {
-      await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim(), address: orgAddress.trim(), baseCurrency: (baseCurrency || 'AED').trim().toUpperCase() })
+      await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim(), address: orgAddress.trim(), trn: orgTRN.trim(), baseCurrency: (baseCurrency || 'AED').trim().toUpperCase() })
       if (activeOrg?._id === id) setActiveOrg({ ...activeOrg, name: orgName.trim() })
       nexusToast.success('Organization updated')
       load()
@@ -1247,6 +1249,21 @@ const OrganizationSettings = () => {
                     onChange={(e) => setOrgAddress(e.target.value)}
                     disabled={!canManage}
                   />
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: textSec, fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
+                    TRN (Tax Registration Number)
+                  </label>
+                  <input
+                    style={{ ...inputStyle, maxWidth: 240 }}
+                    value={orgTRN}
+                    onChange={(e) => setOrgTRN(e.target.value)}
+                    placeholder="100123456700003"
+                    disabled={!canManage}
+                  />
+                  <p style={{ color: textSec, fontSize: '11px', margin: '6px 0 0' }}>
+                    Shown on Purchase Orders and other printed documents.
+                  </p>
                 </div>
                 <div>
                   <label style={{ display: 'block', color: textSec, fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>

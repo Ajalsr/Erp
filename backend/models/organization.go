@@ -85,6 +85,7 @@ type Organization struct {
 	Name        string             `bson:"name" json:"name" binding:"required"`
 	Description string             `bson:"description,omitempty" json:"description,omitempty"`
 	Address     string             `bson:"address,omitempty" json:"address,omitempty"`
+	TRN         string             `bson:"trn,omitempty" json:"trn,omitempty"` // Tax Registration Number, shown on documents (e.g. Purchase Order)
 	// BaseCurrency is the org's reporting/ledger currency (ISO 4217, e.g. "AED").
 	// Every transaction in a foreign currency is converted to this for GL postings
 	// and financial statements. Empty on legacy orgs → treated as "AED".
