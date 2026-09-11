@@ -54,6 +54,13 @@ func StockRoutes(router *gin.Engine) {
 	}
 }
 
+// ReorderAlertRoutes — same underlying item list as StockRoutes.GetAllStocks, exposed
+// under its own path + module key so the Reorder Alerts view can be granted independently
+// of general Items access.
+func ReorderAlertRoutes(router *gin.Engine) {
+	router.GET("/api/stocks/reorder-alerts", middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("reorder_alerts"), middlewares.RequireModule("reorder_alerts"), controllers.GetAllStocks())
+}
+
 func CustomerRoutes(router *gin.Engine) {
 	custRoutes := router.Group("/api/customers")
 	custRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("customers"), middlewares.RequireModule("customers"))
@@ -72,9 +79,9 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.DELETE("/:id", controllers.DeleteCustomer())
 	custRoutes.GET("/:id/transactions", controllers.GetCustomerTransactions())
 	custRoutes.GET("/:id/history", controllers.GetCustomerHistory())
-	// Reports page only — gate on "reports" too, not just "customers" (org could license
-	// customers without reports; this endpoint has no other caller, see CustomerStatement.jsx).
-	custRoutes.GET("/:id/statement", middlewares.RequireLicenseModule("reports"), middlewares.RequireModule("reports"), controllers.GetStatementOfAccount())
+	// Reports page only — gate on its own module too, not just "customers" (org could
+	// license customers without this report; endpoint has no other caller, see CustomerStatement.jsx).
+	custRoutes.GET("/:id/statement", middlewares.RequireLicenseModule("customer_statement_report"), middlewares.RequireModule("customer_statement_report"), controllers.GetStatementOfAccount())
 	custRoutes.POST("/:id/history", controllers.AddCustomerHistory())
 	custRoutes.GET("/:id/credit-status", controllers.GetCustomerCreditStatus())
 	custRoutes.POST("/:id/apply-credit", controllers.ApplyCredit())
@@ -122,8 +129,8 @@ func InvoiceRoutes(router *gin.Engine) {
 		invRoutes.PUT("/:id", controllers.UpdateInvoice())
 		invRoutes.PATCH("/:id/status", controllers.UpdateInvoiceStatus())
 		invRoutes.PATCH("/:id/void", controllers.VoidInvoice())
-		// Reports page only (AgingReport.jsx) — gate on "reports" too, not just "invoices".
-		invRoutes.GET("/aging", middlewares.RequireLicenseModule("reports"), middlewares.RequireModule("reports"), controllers.GetInvoiceAging())
+		// Reports page only (AgingReport.jsx) — gate on its own module too, not just "invoices".
+		invRoutes.GET("/aging", middlewares.RequireLicenseModule("ar_aging_report"), middlewares.RequireModule("ar_aging_report"), controllers.GetInvoiceAging())
 		invRoutes.POST("/:id/finalize", controllers.FinalizeProforma())
 		invRoutes.POST("/:id/send", controllers.SendInvoice())
 		invRoutes.POST("/:id/send-reminder", controllers.SendInvoiceReminder())
@@ -241,7 +248,6 @@ func GRNRoutes(router *gin.Engine) {
 		grnRoutes.POST("/", controllers.CreateGRN())
 		grnRoutes.GET("/", controllers.GetAllGRNs())
 		grnRoutes.GET("/stats", controllers.GetGRNStats())
-		grnRoutes.GET("/batches", controllers.GetGRNBatches())
 		grnRoutes.GET("/:id", controllers.GetGRNByID())
 		grnRoutes.PATCH("/:id", controllers.UpdateGRN())
 		grnRoutes.POST("/:id/confirm", controllers.ConfirmGRN())
@@ -249,6 +255,12 @@ func GRNRoutes(router *gin.Engine) {
 		grnRoutes.GET("/:id/preview", controllers.PreviewGRNPDF())
 		grnRoutes.DELETE("/:id", controllers.DiscardDraftGRN())
 	}
+}
+
+// BatchExpiryRoutes — the batch/expiry-tracking view over GRN receipts, exposed under
+// its own module key so it can be granted independently of general GRN access.
+func BatchExpiryRoutes(router *gin.Engine) {
+	router.GET("/api/grns/batches", middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("batch_expiry"), middlewares.RequireModule("batch_expiry"), controllers.GetGRNBatches())
 }
 
 func PaymentRoutes(router *gin.Engine) {
@@ -303,10 +315,10 @@ func BillRoutes(router *gin.Engine) {
 }
 
 func ExpenseRoutes(router *gin.Engine) {
-	// Fast spend entries (salary, petrol, rent…). Reuses the "bills" module for
-	// permissions — expenses are payables-adjacent, so no new module to seed.
+	// Fast spend entries (salary, petrol, rent…), payables-adjacent to Bills but
+	// independently grantable via its own "expenses" module.
 	expenseRoutes := router.Group("/api/expenses")
-	expenseRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("bills"), middlewares.RequireModule("bills"))
+	expenseRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("expenses"), middlewares.RequireModule("expenses"))
 	{
 		expenseRoutes.POST("/", controllers.CreateExpense())
 		expenseRoutes.GET("/", controllers.GetAllExpenses())
@@ -371,6 +383,42 @@ func ItemGroupRoutes(router *gin.Engine) {
 	}
 }
 
+func UOMRoutes(router *gin.Engine) {
+	uomRoutes := router.Group("/api/uoms")
+	uomRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("uom"), middlewares.RequireModule("uom"))
+	{
+		uomRoutes.POST("/", controllers.CreateUOM())
+		uomRoutes.GET("/", controllers.GetAllUOMs())
+		uomRoutes.GET("/:id", controllers.GetUOMByID())
+		uomRoutes.PUT("/:id", controllers.UpdateUOM())
+		uomRoutes.DELETE("/:id", controllers.DeleteUOM())
+	}
+}
+
+func PaymentTermRoutes(router *gin.Engine) {
+	ptRoutes := router.Group("/api/payment-terms")
+	ptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("payment_terms"), middlewares.RequireModule("payment_terms"))
+	{
+		ptRoutes.POST("/", controllers.CreatePaymentTerm())
+		ptRoutes.GET("/", controllers.GetAllPaymentTerms())
+		ptRoutes.GET("/:id", controllers.GetPaymentTermByID())
+		ptRoutes.PUT("/:id", controllers.UpdatePaymentTerm())
+		ptRoutes.DELETE("/:id", controllers.DeletePaymentTerm())
+	}
+}
+
+func SalesTypeRoutes(router *gin.Engine) {
+	stRoutes := router.Group("/api/sales-types")
+	stRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("sales_types"), middlewares.RequireModule("sales_types"))
+	{
+		stRoutes.POST("/", controllers.CreateSalesType())
+		stRoutes.GET("/", controllers.GetAllSalesTypes())
+		stRoutes.GET("/:id", controllers.GetSalesTypeByID())
+		stRoutes.PUT("/:id", controllers.UpdateSalesType())
+		stRoutes.DELETE("/:id", controllers.DeleteSalesType())
+	}
+}
+
 func PriceListRoutes(router *gin.Engine) {
 	plRoutes := router.Group("/api/price-lists")
 	plRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("price_lists"), middlewares.RequireModule("price_lists"))
@@ -391,12 +439,17 @@ func AccountRoutes(router *gin.Engine) {
 		accRoutes.POST("/seed", controllers.SeedDefaultAccounts())
 		accRoutes.GET("/", controllers.GetAllAccounts())
 		accRoutes.GET("/stats", controllers.GetAccountStats())
-		accRoutes.GET("/trial-balance", controllers.GetTrialBalance())
 		accRoutes.GET("/:id", controllers.GetAccountByID())
 		accRoutes.GET("/:id/ledger", controllers.GetAccountLedger())
 		accRoutes.PUT("/:id", controllers.UpdateAccount())
 		accRoutes.DELETE("/:id", controllers.DeleteAccount())
 	}
+}
+
+// TrialBalanceRoutes — its own module key so it can be granted independently of
+// general Chart of Accounts access.
+func TrialBalanceRoutes(router *gin.Engine) {
+	router.GET("/api/accounts/trial-balance", middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("trial_balance"), middlewares.RequireModule("trial_balance"), controllers.GetTrialBalance())
 }
 
 func JournalEntryRoutes(router *gin.Engine) {
@@ -411,7 +464,7 @@ func JournalEntryRoutes(router *gin.Engine) {
 
 func BankReconciliationRoutes(router *gin.Engine) {
 	brRoutes := router.Group("/api/bank-reconciliation")
-	brRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("accounts"), middlewares.RequireModule("accounts"))
+	brRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("bank_reconciliation"), middlewares.RequireModule("bank_reconciliation"))
 	{
 		brRoutes.GET("/transactions", controllers.GetBankTransactions())
 		brRoutes.POST("/toggle", controllers.ToggleBankClearing())
@@ -455,8 +508,8 @@ func DeliveryNoteRoutes(router *gin.Engine) {
 		dnRoutes.GET("/:id", controllers.GetDeliveryNoteByID())
 		dnRoutes.PATCH("/:id/status", controllers.UpdateDeliveryNoteStatus())
 		dnRoutes.PATCH("/:id/location", controllers.UpdateDeliveryNoteLocation())
-		// Reports page only (SalesByEmirate.jsx) — gate on "reports" too, not just "delivery_notes".
-		dnRoutes.GET("/sales-by-emirate", middlewares.RequireLicenseModule("reports"), middlewares.RequireModule("reports"), controllers.GetSalesByEmirate())
+		// Reports page only (SalesByEmirate.jsx) — gate on its own module too, not just "delivery_notes".
+		dnRoutes.GET("/sales-by-emirate", middlewares.RequireLicenseModule("sales_by_emirate_report"), middlewares.RequireModule("sales_by_emirate_report"), controllers.GetSalesByEmirate())
 		dnRoutes.PATCH("/:id/invoice", controllers.MarkDeliveryNoteInvoiced())
 		dnRoutes.GET("/:id/pdf", controllers.DownloadDeliveryNotePDF())
 		dnRoutes.GET("/:id/preview", controllers.PreviewDeliveryNotePDF())
@@ -473,14 +526,15 @@ func EnquiryRoutes(router *gin.Engine) {
 		enqRoutes.GET("/:id", controllers.GetEnquiryByID())
 		enqRoutes.PATCH("/:id/status", controllers.UpdateEnquiryStatus())
 		enqRoutes.PUT("/:id", controllers.UpdateEnquiry())
+		enqRoutes.POST("/:id/followups", controllers.AddEnquiryFollowUp())
 	}
 }
 
 // RecurringInvoiceRoutes — templates that auto-generate invoices on a schedule.
-// Gated by the invoices module (a recurring profile is just an invoice factory).
+// Independently grantable via its own "recurring_invoices" module.
 func RecurringInvoiceRoutes(router *gin.Engine) {
 	riRoutes := router.Group("/api/recurring-invoices")
-	riRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("invoices"), middlewares.RequireModule("invoices"))
+	riRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("recurring_invoices"), middlewares.RequireModule("recurring_invoices"))
 	{
 		riRoutes.POST("/", controllers.CreateRecurringInvoice())
 		riRoutes.GET("/", controllers.GetAllRecurringInvoices())
@@ -505,7 +559,7 @@ func ExchangeRateRoutes(router *gin.Engine) {
 	}
 
 	fxWrite := router.Group("/api/exchange-rates")
-	fxWrite.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("accounts"), middlewares.RequireModule("accounts"))
+	fxWrite.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("exchange_rates"), middlewares.RequireModule("exchange_rates"))
 	{
 		fxWrite.POST("/", controllers.CreateExchangeRate())
 	}
@@ -522,15 +576,18 @@ func SearchRoutes(router *gin.Engine) {
 	}
 }
 
+// ReportsRoutes — each report independently grantable via its own module key
+// (previously all shared one generic "reports" key).
 func ReportsRoutes(router *gin.Engine) {
-	rptRoutes := router.Group("/api/reports")
-	rptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("reports"), middlewares.RequireModule("reports"))
+	vatRoutes := router.Group("/api/reports")
+	vatRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("vat_report"), middlewares.RequireModule("vat_report"))
 	{
-		rptRoutes.GET("/vat", controllers.GetVATReport())
-		rptRoutes.GET("/vat/lines", controllers.GetVATReportLines())
-		rptRoutes.GET("/vendor-aging", controllers.GetVendorAging())
-		rptRoutes.GET("/profit-loss", controllers.GetProfitAndLoss())
-		rptRoutes.GET("/balance-sheet", controllers.GetBalanceSheet())
-		rptRoutes.GET("/cash-flow", controllers.GetCashFlow())
+		vatRoutes.GET("/vat", controllers.GetVATReport())
+		vatRoutes.GET("/vat/lines", controllers.GetVATReportLines())
 	}
+
+	router.GET("/api/reports/vendor-aging", middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("vendor_aging_report"), middlewares.RequireModule("vendor_aging_report"), controllers.GetVendorAging())
+	router.GET("/api/reports/profit-loss", middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("profit_loss_report"), middlewares.RequireModule("profit_loss_report"), controllers.GetProfitAndLoss())
+	router.GET("/api/reports/balance-sheet", middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("balance_sheet_report"), middlewares.RequireModule("balance_sheet_report"), controllers.GetBalanceSheet())
+	router.GET("/api/reports/cash-flow", middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("cash_flow_report"), middlewares.RequireModule("cash_flow_report"), controllers.GetCashFlow())
 }

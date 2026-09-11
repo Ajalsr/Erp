@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, createContext, useContext } f
 import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { matchItem } from "../../helper/itemSearch";
+import { resolveItemPrice, getPriceListFxRate } from "../../helper/priceList";
 import useGetCustomers from "../../helper/useGetCustomers";
 import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
@@ -296,7 +297,7 @@ const CustomerSelect = ({ value, onChange, options, name, disabled }) => {
 };
 
 /* ─── Item Combo (desc + stock picker) ─────────────────────────────────── */
-const ItemCombo = ({ value, stockId, onChange }) => {
+const ItemCombo = ({ value, stockId, onChange, priceList, priceListFxRate }) => {
   const T      = useT();
   const stocks = useStock();
   const [q, setQ]           = useState(value || "");
@@ -324,7 +325,7 @@ const ItemCombo = ({ value, stockId, onChange }) => {
     setOpen(true);
   };
   const pick = (s) => {
-    const price = parseFloat(s.selling_price || s.price || 0);
+    const price = resolveItemPrice(s, priceList, priceListFxRate);
     setQ(s.name || "");
     setOpen(false);
     onChange({ desc: s.name || "", unitPrice: price, stockId: s._id });
@@ -397,7 +398,7 @@ const ItemCombo = ({ value, stockId, onChange }) => {
 };
 
 /* ─── Line Item Row ─────────────────────────────────────────────────────── */
-const LineRow = ({ item, onChange, onRemove, isOnly }) => {
+const LineRow = ({ item, onChange, onRemove, isOnly, priceList, priceListFxRate }) => {
   const T = useT();
   const set = (k, v) => onChange({ ...item, [k]: v });
   const { subtotal, discAmt, taxAmt, total } = calcLine(item);
@@ -417,7 +418,7 @@ const LineRow = ({ item, onChange, onRemove, isOnly }) => {
         <Inp value={item.partNumber} onChange={e => set("partNumber", e.target.value)} placeholder="Part No." />
       </td>
       <td style={{ padding: "6px 4px" }}>
-        <ItemCombo value={item.desc} stockId={item.stockId} onChange={handleItemPick} />
+        <ItemCombo value={item.desc} stockId={item.stockId} onChange={handleItemPick} priceList={priceList} priceListFxRate={priceListFxRate} />
       </td>
       <td style={{ padding: "6px 4px", width: 62 }}>
         <Inp type="number" min="0.01" step="0.01" value={item.qty} onChange={e => set("qty", e.target.value)} style={{ textAlign: "right" }} />
@@ -806,6 +807,17 @@ export default function CreateQuote() {
   const taxSum       = computed.reduce((s, c) => s + c.taxAmt,   0);
   const grandTotal   = computed.reduce((s, c) => s + c.total,    0);
 
+  // Customer's assigned Price List (if any) — resolved per line item via ItemCombo/LineRow.
+  const [activePriceList, setActivePriceList] = useState(null);
+  const [priceListFxRate, setPriceListFxRate] = useState(1);
+  // Recompute whenever the price list or the quote's own currency changes — the list's
+  // currency may not match what this quote is actually being billed in.
+  useEffect(() => {
+    if (!activePriceList?.currency) { setPriceListFxRate(1); return; }
+    let live = true;
+    getPriceListFxRate(activePriceList.currency, currency).then(r => { if (live) setPriceListFxRate(r); });
+    return () => { live = false; };
+  }, [activePriceList, currency]);
   const handleCustomer = (e) => {
     const cust = e.customer;
     setCustomerId(e.target.value);
@@ -813,6 +825,11 @@ export default function CreateQuote() {
     setCustomerName(cust.customerDisplayName || cust.companyName || `${cust.firstName} ${cust.lastName}`.trim());
     setCustomerEmail(cust.customerEmail || "");
     setBillTo({ name: cust.customerDisplayName || cust.companyName || "", address: fmtCustAddr(cust), trn: cust.trn || "", poBox: cust.postalCode || "" });
+    if (cust.price_list_id) {
+      axiosInstance.get(`/api/price-lists/${cust.price_list_id}`).then(r => setActivePriceList(r.data?.data || null)).catch(() => setActivePriceList(null));
+    } else {
+      setActivePriceList(null);
+    }
   };
 
   // Converting from an Enquiry locks the customer picker (its onChange, and
@@ -826,6 +843,9 @@ export default function CreateQuote() {
     setCustomerName(cust.customerDisplayName || cust.companyName || `${cust.firstName} ${cust.lastName}`.trim());
     setCustomerEmail(prev => prev || cust.customerEmail || "");
     setBillTo({ name: cust.customerDisplayName || cust.companyName || "", address: fmtCustAddr(cust), trn: cust.trn || "", poBox: cust.postalCode || "" });
+    if (cust.price_list_id) {
+      axiosInstance.get(`/api/price-lists/${cust.price_list_id}`).then(r => setActivePriceList(r.data?.data || null)).catch(() => setActivePriceList(null));
+    }
   }, [fromEnquiry, prefill, rawCustomers]);
 
   const updateItem = (uid, updated) => setLineItems(prev => prev.map(li => li._uid === uid ? { ...li, ...updated } : li));
@@ -1122,6 +1142,8 @@ export default function CreateQuote() {
                       onChange={updated => updateItem(li._uid, updated)}
                       onRemove={() => removeItem(li._uid)}
                       isOnly={lineItems.length === 1}
+                      priceList={activePriceList}
+                      priceListFxRate={priceListFxRate}
                     />
                   ))}
                 </tbody>

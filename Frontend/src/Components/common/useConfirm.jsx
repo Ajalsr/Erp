@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef } from 'react';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 
-// useConfirm — themed replacement for window.confirm(). Promise-based so an
-// existing `if (!window.confirm(x)) return;` becomes `if (!(await confirm(x))) return;`
-// with no other restructuring.
+// useConfirm — themed replacement for window.confirm() and window.alert().
+// Promise-based so an existing `if (!window.confirm(x)) return;` becomes
+// `if (!(await confirm(x))) return;` with no other restructuring.
 //
 //   const { confirm, ConfirmModal } = useConfirm();
 //   ...
@@ -12,6 +12,8 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore';
 //   return <div>{ConfirmModal}</div>
 //
 // `confirm` also accepts a plain string as shorthand for `{ message }`.
+// Pass `{ hideCancel: true }` for a window.alert()-style single-button notice
+// (no Cancel button; resolves true when dismissed).
 export default function useConfirm() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
@@ -36,13 +38,15 @@ export default function useConfirm() {
         {state.title && <h3 style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: '0 0 8px' }}>{state.title}</h3>}
         <p style={{ fontSize: 13, color: T.textSec, margin: 0, lineHeight: 1.5 }}>{state.message}</p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-          <button onClick={() => close(false)}
-            style={{ padding: '8px 16px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${T.border}`, background: 'transparent', color: T.textPri }}>
-            {state.cancelLabel || 'Cancel'}
-          </button>
+          {!state.hideCancel && (
+            <button onClick={() => close(false)}
+              style={{ padding: '8px 16px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${T.border}`, background: 'transparent', color: T.textPri }}>
+              {state.cancelLabel || 'Cancel'}
+            </button>
+          )}
           <button onClick={() => close(true)}
             style={{ padding: '8px 16px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', border: 'none', background: state.danger ? '#dc2f3c' : '#3b82f6', color: '#fff' }}>
-            {state.confirmLabel || 'Confirm'}
+            {state.confirmLabel || (state.hideCancel ? 'OK' : 'Confirm')}
           </button>
         </div>
       </div>

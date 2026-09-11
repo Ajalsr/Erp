@@ -24,7 +24,7 @@ export default function VATReport() {
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
   const { can } = usePermissions();
-  const canExport = can("reports", "export");
+  const canExport = can("vat_report", "export");
 
   const [from,    setFrom]    = useState(firstOfQuarter());
   const [to,      setTo]      = useState(today());

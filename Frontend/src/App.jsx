@@ -75,6 +75,9 @@ const JournalEntries = lazy(() => import("./Components/Finance/JournalEntries"))
 const BankReconciliation = lazy(() => import("./Components/Finance/BankReconciliation"))
 const ExchangeRates = lazy(() => import("./Components/Finance/ExchangeRates"))
 const ItemGroups = lazy(() => import("./Components/ItemGroups/ItemGroups"))
+const UOM = lazy(() => import("./Components/UOM/UOM"))
+const PaymentTerms = lazy(() => import("./Components/PaymentTerms/PaymentTerms"))
+const SalesTypes = lazy(() => import("./Components/SalesTypes/SalesTypes"))
 const PriceLists = lazy(() => import("./Components/PriceLists/PriceLists"))
 const NewPriceList = lazy(() => import("./Components/NewPriceList/NewPriceList"))
 const StockSummary = lazy(() => import("./Components/Inventory/StockSummary"))
@@ -203,6 +206,7 @@ function App() {
               <Route path="/sales/customers/edit/:id" element={<Newcustomers />} />
               <Route path="/Sales/Enquiries" element={<Enquiries />} />
               <Route path="/Sales/Salesorders" element={<Salesorders />} />
+              <Route path="/Sales/sales-types" element={<SalesTypes />} />
               <Route path="/Sales/Outbound" element={<Outbound />} />
               <Route path="/Sales/Deliverynote" element={<DeliveryNoteList />} />
               <Route path="/Sales/Deliverynote/:id" element={<DeliveryNote />} />
@@ -266,12 +270,14 @@ function App() {
               <Route path="/Reports/cash-flow"            element={<CashFlow />} />
               <Route path="/Reports/vendor-aging"         element={<VendorAging />} />
               <Route path="/Finance/Accounts"        element={<Accounts />} />
+              <Route path="/Finance/PaymentTerms"    element={<PaymentTerms />} />
               <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
               <Route path="/Finance/Accounts/:id/edit" element={<NewAccount />} />
               <Route path="/Finance/JournalEntries"  element={<JournalEntries />} />
               <Route path="/Finance/BankReconciliation" element={<BankReconciliation />} />
               <Route path="/Finance/ExchangeRates" element={<ExchangeRates />} />
               <Route path="/Items/item-groups"        element={<ItemGroups />} />
+              <Route path="/Items/uom"                element={<UOM />} />
               <Route path="/Items/price-lists"        element={<PriceLists />} />
               <Route path="/Items/price-lists/new"    element={<NewPriceList />} />
               <Route path="/Inventory/stock-summary"  element={<StockSummary />} />

@@ -9,6 +9,7 @@ import axiosInstance from '../../helper/axiosInstance';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import { drawerWidth, BREAKPOINT_TABLET } from '../../helper/responsive';
 import useIsMobile from '../../helper/useIsMobile';
+import QuickCreateModal from '../common/QuickCreateModal';
 
 /* ─── Colour palette derived from item name ─────────────────────────── */
 const PALETTE = [
@@ -87,7 +88,7 @@ function Input({ prefix, suffix, mono, T, error, ...props }) {
 
 
 /* ─── PortalSelect — modern themed dropdown ─────────────────────────── */
-function PortalSelect({ T, isDark, name, value, onChange, options = [], placeholder = 'Select…', error }) {
+function PortalSelect({ T, isDark, name, value, onChange, options = [], placeholder = 'Select…', error, onCreateNew, createLabel }) {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [query,   setQuery]   = useState('');
@@ -221,12 +222,35 @@ function PortalSelect({ T, isDark, name, value, onChange, options = [], placehol
                   );
                 })}
           </div>
+          {onCreateNew && (
+            <div onClick={() => { onCreateNew(); setOpen(false); setReady(false); setQuery(''); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '10px 11px',
+                borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#3b82f6',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              {createLabel || 'Create new'}
+            </div>
+          )}
         </div>,
         document.body
       )}
     </div>
   );
 }
+
+const QUICK_GROUP_FIELDS = [
+  { name: 'name',   label: 'Group Name',        placeholder: 'e.g. Electronics',      required: true, autoFocus: true },
+  { name: 'prefix', label: 'Item Code Prefix',   placeholder: 'e.g. ELEC (optional)',  mono: true },
+];
+const QUICK_UNIT_FIELDS = [
+  { name: 'name',   label: 'Unit Name',   placeholder: 'e.g. Kilogram',      required: true, autoFocus: true },
+  { name: 'symbol', label: 'Symbol',      placeholder: 'e.g. kg (optional)', mono: true },
+];
 
 /* ─── Textarea ───────────────────────────────────────────────────────── */
 function Textarea({ T, disabled, ...props }) {
@@ -379,6 +403,8 @@ const New = () => {
   const [allAccounts, setAllAccounts]       = useState([]);
   const [groupOptions, setGroupOptions]     = useState([]);
   const [groupMap, setGroupMap]             = useState({});  // id → { prefix }
+  const [uomOptions, setUomOptions]         = useState([]);
+  const [quickCreate, setQuickCreate]       = useState(null); // 'group' | 'unit' | null
 
   const showInventorySection = salesEnabled && purchaseEnabled;
 
@@ -414,6 +440,53 @@ const New = () => {
     setErrors(prev => { const n = { ...prev }; delete n[name]; return n; });
   }, [groupMap]);
 
+  /* ── Item groups + UOM (fetched separately so quick-create can refresh just one) ── */
+  const fetchGroupOptions = useCallback(() => {
+    return axiosInstance.get('/api/item-groups/?status=active')
+      .then(res => {
+        const list = res.data?.data?.groups || [];
+        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
+        const map = {};
+        list.forEach(g => { map[g._id] = { prefix: g.prefix || '' }; });
+        setGroupMap(map);
+        return list;
+      })
+      .catch(() => []);
+  }, []);
+
+  const fetchUomOptions = useCallback(() => {
+    return axiosInstance.get('/api/uoms/?status=active')
+      .then(res => {
+        const list = res.data?.data?.uoms || [];
+        setUomOptions(list.map(u => ({ label: u.symbol ? `${u.name} (${u.symbol})` : u.name, value: u._id })));
+        return list;
+      })
+      .catch(() => []);
+  }, []);
+
+  const handleCreateGroup = useCallback(async (form) => {
+    const res = await axiosInstance.post('/api/item-groups/', { name: form.name, prefix: form.prefix });
+    const newId = res.data?.data?.id;
+    await fetchGroupOptions();
+    if (newId) {
+      const prefixStem = form.prefix ? form.prefix.toUpperCase().replace(/\s/g, '') + '-' : '';
+      setFormData(prev => {
+        const next = { ...prev, category: newId };
+        if (prefixStem && (!prev.item_code || /^[A-Z]+-$/.test(prev.item_code))) next.item_code = prefixStem;
+        return next;
+      });
+    }
+    nexusToast.success('Group created');
+  }, [fetchGroupOptions]);
+
+  const handleCreateUnit = useCallback(async (form) => {
+    const res = await axiosInstance.post('/api/uoms/', { name: form.name, symbol: form.symbol });
+    const newId = res.data?.data?.id;
+    await fetchUomOptions();
+    if (newId) setFormData(prev => ({ ...prev, unit: newId }));
+    nexusToast.success('Unit created');
+  }, [fetchUomOptions]);
+
   /* ── Vendor + Account lists ── */
   useEffect(() => {
     axiosInstance.get('/api/vendors/?limit=500')
@@ -433,16 +506,9 @@ const New = () => {
       })
       .catch(() => {});
 
-    axiosInstance.get('/api/item-groups/?status=active')
-      .then(res => {
-        const list = res.data?.data?.groups || [];
-        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
-        const map = {};
-        list.forEach(g => { map[g._id] = { prefix: g.prefix || '' }; });
-        setGroupMap(map);
-      })
-      .catch(() => {});
-  }, []);
+    fetchGroupOptions();
+    fetchUomOptions();
+  }, [fetchGroupOptions, fetchUomOptions]);
 
   /* ── Load item when editing ── */
   useEffect(() => {
@@ -511,7 +577,7 @@ const New = () => {
     if (!formData.name.trim()) newErrors.name = 'Item name is required';
     const codeSuffix = groupPrefix ? formData.item_code.slice(groupPrefix.length).trim() : formData.item_code.trim();
     if (!codeSuffix) newErrors.item_code = groupPrefix ? `Enter a code after the "${groupPrefix}" prefix` : 'Item code is required';
-    if (!formData.unit) newErrors.unit = 'Unit of measure is required';
+    if (formData.type !== 'service' && !formData.unit) newErrors.unit = 'Unit of measure is required';
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -619,6 +685,16 @@ const New = () => {
           onConfirm={() => { setShowDiscard(false); navigate('/Items/Items'); }}
           onCancel={() => setShowDiscard(false)}
         />
+      )}
+
+      {/* ── Quick-create shortcuts for Category/Group and Unit of Measure ── */}
+      {quickCreate === 'group' && (
+        <QuickCreateModal title="New Item Group" fields={QUICK_GROUP_FIELDS} T={T} isDark={isDark}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateGroup} />
+      )}
+      {quickCreate === 'unit' && (
+        <QuickCreateModal title="New Unit of Measure" fields={QUICK_UNIT_FIELDS} T={T} isDark={isDark}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateUnit} />
       )}
 
       {/* ══ TOP BAR ═════════════════════════════════════════════════ */}
@@ -742,34 +818,18 @@ const New = () => {
                 {/* <F label="SKU" T={T}><Input name="sku" value={formData.sku} onChange={handleChange} placeholder="Stock keeping unit" mono T={T} /></F> */}
                 <F label="Category / Group" T={T}>
                   <PortalSelect T={T} isDark={isDark} name="category" value={formData.category} onChange={handleChange}
-                    placeholder={groupOptions.length ? 'Select group…' : 'No groups yet — add in Item Groups'}
-                    options={groupOptions} />
+                    placeholder={groupOptions.length ? 'Select group…' : 'No groups yet…'}
+                    options={groupOptions}
+                    onCreateNew={() => setQuickCreate('group')} createLabel="Create new group" />
                 </F>
-                <F label="Unit of Measure" req T={T}>
-                  <PortalSelect T={T} isDark={isDark} name="unit" value={formData.unit} onChange={handleChange} placeholder="Select unit…" error={errors.unit}
-                    options={[
-                      { label: 'Piece (pcs)',        value: 'piece'   },
-                      { label: 'Box',                value: 'box'     },
-                      { label: 'Carton (ctn)',       value: 'carton'  },
-                      { label: 'Pallet',             value: 'pallet'  },
-                      { label: 'Set',                value: 'set'     },
-                      { label: 'Pair',               value: 'pair'    },
-                      { label: 'Dozen (dz)',         value: 'dozen'   },
-                      { label: 'Kilogram (kg)',      value: 'kg'      },
-                      { label: 'Gram (g)',           value: 'g'       },
-                      { label: 'Ton (t)',            value: 'ton'     },
-                      { label: 'Liter (L)',          value: 'liter'   },
-                      { label: 'Milliliter (mL)',    value: 'ml'      },
-                      { label: 'Meter (m)',          value: 'meter'   },
-                      { label: 'Centimeter (cm)',    value: 'cm'      },
-                      { label: 'Square Meter (m²)',  value: 'sqm'     },
-                      { label: 'Cubic Meter (m³)',   value: 'cbm'     },
-                      { label: 'Roll',               value: 'roll'    },
-                      { label: 'Sheet',              value: 'sheet'   },
-                      { label: 'Bundle',             value: 'bundle'  },
-                      { label: 'Unit',               value: 'unit'    },
-                    ]} />
-                </F>
+                {formData.type !== 'service' && (
+                  <F label="Unit of Measure" req T={T}>
+                    <PortalSelect T={T} isDark={isDark} name="unit" value={formData.unit} onChange={handleChange}
+                      placeholder={uomOptions.length ? 'Select unit…' : 'No units yet…'} error={errors.unit}
+                      options={uomOptions}
+                      onCreateNew={() => setQuickCreate('unit')} createLabel="Create new unit" />
+                  </F>
+                )}
                 <F label="Brand" T={T}>
                   <input className="nw2-inp" name="brand" value={formData.brand} onChange={handleChange} placeholder="e.g. Samsung, Bosch…"
                     style={{ width: '100%', height: 42, padding: '0 13px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: "'DM Sans',sans-serif", transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box' }} />
@@ -901,7 +961,8 @@ const New = () => {
             </Section>
           </div>
 
-          {/* SECTION 4: Stock */}
+          {/* SECTION 4: Stock — not applicable to services (nothing to hold/reorder) */}
+          {formData.type !== 'service' && (
           <div className="nw2-sec" style={{ animationDelay: '.18s' }}>
             <Section id="sec-stock" title="Inventory & Stock" icon="📦" accent="#f59e0b" T={T}>
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 16 }}>
@@ -961,6 +1022,7 @@ const New = () => {
               )}
             </Section>
           </div>
+          )}
 
           {/* SECTION 5: Media */}
           <div className="nw2-sec" style={{ animationDelay: '.24s' }}>

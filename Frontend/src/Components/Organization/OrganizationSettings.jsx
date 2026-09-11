@@ -49,23 +49,27 @@ const ROLE_TEMPLATES = [
   {
     key: 'accountant', label: 'Accountant', desc: 'Read finance & reports, export — no edits',
     modules: {
-      customers: _VE, invoices: _VE, credit_notes: _VE, payments: _VE, advance_payments: _V,
-      vendors: _VE, bills: _VE, vendor_payments: _V, vendor_credits: _V, accounts: _VE, reports: _VE,
+      customers: _VE, invoices: _VE, recurring_invoices: _VE, credit_notes: _VE, payments: _VE, advance_payments: _V,
+      vendors: _VE, bills: _VE, expenses: _VE, vendor_payments: _V, vendor_credits: _V,
+      accounts: _VE, bank_reconciliation: _VE, exchange_rates: _VE, trial_balance: _VE,
+      vat_report: _VE, ar_aging_report: _VE, vendor_aging_report: _VE, customer_statement_report: _VE,
+      profit_loss_report: _VE, balance_sheet_report: _VE, cash_flow_report: _VE, export_transactions: _VE,
     },
   },
   {
     key: 'sales', label: 'Sales Rep', desc: 'Manage the sales cycle',
     modules: {
       items: _V, customers: _FULL, enquiries: _FULL, quotes: _FULL, sales_orders: _FULL,
-      delivery_notes: ['view', 'add'], invoices: _FULL, credit_notes: _V,
-      payments: ['view', 'add'], advance_payments: ['view', 'add'], reports: _V,
+      delivery_notes: ['view', 'add'], invoices: _FULL, recurring_invoices: _FULL, credit_notes: _V,
+      payments: ['view', 'add'], advance_payments: ['view', 'add'],
+      ar_aging_report: _V, customer_statement_report: _V, sales_by_emirate_report: _V,
     },
   },
   {
     key: 'purchaser', label: 'Purchaser', desc: 'Manage the purchasing cycle',
     modules: {
-      items: _V, vendors: _FULL, purchase_orders: _FULL, grns: _FULL, bills: _FULL,
-      vendor_credits: _V, vendor_payments: ['view', 'add'], reports: _V,
+      items: _V, vendors: _FULL, purchase_orders: _FULL, grns: _FULL, batch_expiry: _FULL, bills: _FULL, expenses: _FULL,
+      vendor_credits: _V, vendor_payments: ['view', 'add'], vendor_aging_report: _V,
     },
   },
   {

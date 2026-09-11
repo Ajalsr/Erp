@@ -9,7 +9,10 @@ import useAddSalesOrder from '../../helper/useAddSalesOrder';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import axiosInstance from '../../helper/axiosInstance';
 import { matchItem } from '../../helper/itemSearch';
+import { resolveItemPrice, getRateToBase } from '../../helper/priceList';
 import { drawerWidth } from '../../helper/responsive';
+import QuickCreateModal from '../common/QuickCreateModal';
+import QuickAddItemModal from '../common/QuickAddItemModal';
 import { debounce } from 'lodash';
 import DatePicker from 'react-datepicker';
 import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
@@ -131,7 +134,7 @@ const Field = ({ label, req, children, hint }) => {
 };
 
 /* ── PortalSelect — matches customer dropdown style ── */
-const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null }) => {
+const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null, onCreateNew, createLabel }) => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const [open,setOpen]=useState(false);
@@ -232,6 +235,17 @@ const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null }
             );
           })}
           </div>
+          {onCreateNew && (
+            <div onClick={() => { onCreateNew(); setOpen(false); }}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'10px 14px', borderTop:`1px solid ${T.border}`, cursor:'pointer', fontSize:12.5, fontWeight:700, color:'#3b82f6', flexShrink:0 }}
+              onMouseEnter={e=>{e.currentTarget.style.background=T.surface2;}}
+              onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}>
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              {createLabel || 'Create new'}
+            </div>
+          )}
         </div>,
         document.body
       )}
@@ -538,36 +552,37 @@ const Newsalesorders = () => {
   const isEditMode = !!editId;
   const fromQuoteLock = !isEditMode && !!location.state?.fromQuote;
 
-  const salesTypeOptions=[{value:'SO',label:'SO — Standard Sale Order'},{value:'MOA',label:'MOA — Material on Approval'},{value:'MOA_COLLECT',label:'MOA Collect — Material on Approval Collect'},{value:'FREE_DELIVERY',label:'Free Delivery'}];
-  const CUST_TO_SO_TERMS = {
-    'Due on Receipt':  'due_on_receipt',
-    'Net 7':           'net_7',
-    'Net 15':          'net_15',
-    'Net 30':          'net_30',
-    'Net 45':          'net_45',
-    'Net 60':          'net_60',
-    'Net 90':          'net_90',
-    '50% Advance':     'prepaid',
-    '100% Advance':    'prepaid',
+  // Sales Type + Payment Terms — both org-configurable modules (Finance/Sales settings),
+  // fetched below. Value = the record's name, same convention as Item Groups/UOM.
+  const [salesTypeList, setSalesTypeList]     = useState([]);
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [quickCreate, setQuickCreate]         = useState(null); // 'salesType' | 'paymentTerm' | null
+
+  const salesTypeOptions = salesTypeList.map(t => ({ value: t.name, label: t.name, sub: t.description || undefined }));
+  const paymentTermsOptions = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+
+  const fetchSalesTypes = useCallback(() => {
+    return axiosInstance.get('/api/sales-types/?status=active')
+      .then(r => setSalesTypeList(r.data?.data?.salesTypes || []))
+      .catch(() => {});
+  }, []);
+  const fetchPaymentTermList = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(r => setPaymentTermList(r.data?.data?.paymentTerms || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchSalesTypes(); fetchPaymentTermList(); }, [fetchSalesTypes, fetchPaymentTermList]);
+
+  const handleCreateSalesType = async (form) => {
+    const res = await axiosInstance.post('/api/sales-types/', { name: form.name, description: form.description });
+    await fetchSalesTypes();
+    if (res.data?.data?.name) setSalesType(res.data.data.name);
   };
-  const paymentTermsOptions=[
-    {value:'due_on_receipt',   label:'Due on Receipt'},
-    {value:'prepaid',          label:'Prepaid / Advance'},
-    {value:'cod',              label:'Cash on Delivery (COD)'},
-    {value:'net_7',            label:'Net 7'},
-    {value:'net_10',           label:'Net 10'},
-    {value:'net_15',           label:'Net 15'},
-    {value:'net_30',           label:'Net 30'},
-    {value:'net_45',           label:'Net 45'},
-    {value:'net_60',           label:'Net 60'},
-    {value:'net_90',           label:'Net 90'},
-    {value:'2_10_net_30',      label:'2/10 Net 30'},
-    {value:'eom',              label:'End of Month (EOM)'},
-    {value:'15_eom',           label:'15 Days after End of Month'},
-    {value:'30_eom',           label:'30 Days after End of Month'},
-    {value:'letter_of_credit', label:'Letter of Credit (LC)'},
-    {value:'bank_transfer',    label:'Bank Transfer on Delivery'},
-  ];
+  const handleCreatePaymentTerm = async (form) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: form.name, days: Number(form.days) || 0 });
+    await fetchPaymentTermList();
+    if (res.data?.data?.name) setPaymentTerms(res.data.data.name);
+  };
 
   // Calculate final line amount after discount
   const calcAmt=(q,r,d=0,dt='percentage')=>{
@@ -667,7 +682,7 @@ const Newsalesorders = () => {
         // Resolve the customer object so the credit-status banner works
         if(o.customerId && customersData){
           const found=customersData.find(c=>c._id===o.customerId||c.id===o.customerId);
-          if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+          if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');loadPriceListForCustomer(found);}
         }
       })
       .catch(()=>{ import('react-hot-toast').then(m=>m.toast.error('Failed to load order')); });
@@ -695,13 +710,13 @@ const Newsalesorders = () => {
     if(!fq||isEditMode||!customersData||!inventoryData)return;
     if(quotePrefillDone.current)return;
     quotePrefillDone.current=true;
-    if(fq.paymentTerms){const pt=fq.paymentTerms.toLowerCase().replace(' ','_');setPaymentTerms(pt);}
+    if(fq.paymentTerms){setPaymentTerms(fq.paymentTerms);}
     if(fq.salesperson){setSalesperson(fq.salesperson);}
     // Build notes deterministically so a re-run can't duplicate the Ref Quote line.
     {const parts=[];if(fq.notes)parts.push(fq.notes);if(fq.quoteNumber)parts.push('Ref Quote: '+fq.quoteNumber);if(parts.length)setCustomerNotes(parts.join('\n'));}
     if(fq.customerId){
       const found=customersData.find(c=>c._id===fq.customerId);
-      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');loadPriceListForCustomer(found);}
       else if(fq.customerName){setCustomerSearch(fq.customerName);}
     } else if(fq.customerName){
       setCustomerSearch(fq.customerName);
@@ -734,7 +749,7 @@ const Newsalesorders = () => {
     {const parts=[];if(fe.notes)parts.push(fe.notes);if(fe.enquiryNumber)parts.push('Ref Enquiry: '+fe.enquiryNumber);if(parts.length)setCustomerNotes(parts.join('\n'));}
     if(fe.customerId){
       const found=customersData.find(c=>c._id===fe.customerId);
-      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');loadPriceListForCustomer(found);}
     } else if(fe.customerName){
       setCustomerSearch(fe.customerName);
     }
@@ -797,15 +812,29 @@ const Newsalesorders = () => {
   },[showCustomerDropdown]);
 
 
+  // Customer's assigned Price List (if any) — resolved per line item on selection below.
+  // A sales order has no currency field of its own (always the org's base currency),
+  // so the FX leg here is just "price list currency → base."
+  const [activePriceList,setActivePriceList]=useState(null);
+  const [priceListFxRate,setPriceListFxRate]=useState(1);
+  const loadPriceListForCustomer=(c)=>{
+    if(c?.price_list_id){
+      axiosInstance.get(`/api/price-lists/${c.price_list_id}`).then(r=>{
+        const pl=r.data?.data||null;
+        setActivePriceList(pl);
+        if(pl?.currency)getRateToBase(pl.currency).then(setPriceListFxRate);else setPriceListFxRate(1);
+      }).catch(()=>{setActivePriceList(null);setPriceListFxRate(1);});
+    }else{
+      setActivePriceList(null);setPriceListFxRate(1);
+    }
+  };
   const handleCustomerSelect=c=>{
     setSelectedCustomer(c);
     setCustomerSearch(`${c.customerCode} - ${c.customerDisplayName}${c.companyName?` (${c.companyName})`:''}`);
     setShowCustomerDropdown(false);
     const custTerms = c.payment_terms || c.paymentTerms;
-    if (custTerms) {
-      const soTerms = CUST_TO_SO_TERMS[custTerms] || custTerms.toLowerCase().replace(/ /g,'_');
-      setPaymentTerms(soTerms);
-    }
+    if (custTerms) setPaymentTerms(custTerms);
+    loadPriceListForCustomer(c);
   };
 
   useEffect(()=>{
@@ -828,13 +857,40 @@ const Newsalesorders = () => {
     setItems(items.filter((_,i)=>i!==idx));if(showItemDropdown===idx)setShowItemDropdown(null);
   };
   const handleItemSelect=(idx,sel)=>{
-    const u=[...items],rate=sel.selling_price||sel.price||0,qty=1,itemId=sel._id||sel.itemId;
+    const u=[...items],rate=resolveItemPrice(sel,activePriceList,priceListFxRate),qty=1,itemId=sel._id||sel.itemId;
     u[idx]={...u[idx],itemId,details:sel.name||sel.itemName||'No name',sku:sel.sku||'No SKU',rate,unit:sel.unit||sel.Unit||'pcs',quantity:qty,amount:calcAmt(qty,rate,u[idx].discount,u[idx].discountType)};
     setItems(u);setShowItemDropdown(null);setSearchTerm('');
     fetchStockAvailability(itemId);
   };
+
+  // Item groups + UOM, for the line-item "+ Create new item" shortcut's fields.
+  const [groupOptions,setGroupOptions]=useState([]);
+  const [groupMap,setGroupMap]=useState({});
+  const fetchGroupOptions=useCallback(()=>{
+    return axiosInstance.get('/api/item-groups/?status=active')
+      .then(r=>{
+        const list=r.data?.data?.groups||[];
+        setGroupOptions(list.map(g=>({value:g._id,label:g.name})));
+        const map={};list.forEach(g=>{map[g._id]={prefix:g.prefix||''};});setGroupMap(map);
+      }).catch(()=>{});
+  },[]);
+  const [uomOptions,setUomOptions]=useState([]);
+  const fetchUomOptions=useCallback(()=>{
+    return axiosInstance.get('/api/uoms/?status=active')
+      .then(r=>setUomOptions((r.data?.data?.uoms||[]).map(u=>({value:u._id,label:u.symbol?`${u.name} (${u.symbol})`:u.name}))))
+      .catch(()=>{});
+  },[]);
+  useEffect(()=>{fetchGroupOptions();fetchUomOptions();},[fetchGroupOptions,fetchUomOptions]);
+
+  const [quickAddItem,setQuickAddItem]=useState(null); // null | { idx }
+  const openQuickAddItem=(idx)=>setQuickAddItem({idx});
+  const handleItemCreated=(newItem)=>{
+    if(quickAddItem)handleItemSelect(quickAddItem.idx,newItem);
+    setQuickAddItem(null);
+    handleGetItem(); // refresh the inventory cache so future searches find it too
+  };
   const handleQuantityChange=(idx,val)=>{const u=[...items],qty=parseFloat(val)||1;u[idx].quantity=qty;if(u[idx].rate)u[idx].amount=calcAmt(qty,u[idx].rate,u[idx].discount,u[idx].discountType);setItems(u);};
-  const handleRateChange=(idx,val)=>{const u=[...items],rate=parseFloat(val)||0;u[idx].rate=rate;if(u[idx].quantity)u[idx].amount=calcAmt(u[idx].quantity,rate,u[idx].discount,u[idx].discountType);setItems(u);};
+  const handleRateChange=(idx,val)=>{const u=[...items];u[idx].rate=val;if(u[idx].quantity)u[idx].amount=calcAmt(u[idx].quantity,val,u[idx].discount,u[idx].discountType);setItems(u);};
   const handleDiscountChange=(idx,val)=>{const u=[...items];u[idx].discount=val;if(u[idx].quantity&&u[idx].rate)u[idx].amount=calcAmt(u[idx].quantity,u[idx].rate,val,u[idx].discountType);setItems(u);};
   const handleDiscountTypeChange=(idx,type)=>{const u=[...items];u[idx].discountType=type;if(u[idx].quantity&&u[idx].rate&&u[idx].discount)u[idx].amount=calcAmt(u[idx].quantity,u[idx].rate,u[idx].discount,type);setItems(u);};
   const handleFileUpload=async e=>{
@@ -865,7 +921,7 @@ const Newsalesorders = () => {
 
   const prepareSalesOrderData=(status,opts={})=>{
     const sub=calcSub(),vat=calcVAT(),ship=parseFloat(shippingCharges)||0,adj=parseFloat(adjustment)||0,total=sub+vat+ship+adj;
-    const apiItems=items.filter(i=>i.details&&i.quantity>0).map(i=>{
+    const apiItems=items.filter(i=>i.details&&i.itemId&&i.quantity>0).map(i=>{
       const qty=parseFloat(i.quantity)||0;
       const rate=parseFloat(i.rate)||0;
       const discVal=parseFloat(i.discount)||0;
@@ -917,7 +973,7 @@ const Newsalesorders = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const isMobile = useIsMobile();
-  const hasItemsAdded=items.some(i=>i.details&&i.quantity>0);
+  const hasItemsAdded=items.some(i=>i.details&&i.itemId&&i.quantity>0);
   // A credit-limit "block" stops normal users at submit. Approvers (admin/owner) aren't
   // blocked — their order self-clears on the backend, so let them submit straight through.
   const isCreditHardBlocked=!!(creditStatus?.exceeded&&creditStatus?.creditLimitAction==='block')&&!isAdminOrOwner;
@@ -1030,6 +1086,11 @@ const Newsalesorders = () => {
                         if(r) setCustDropPos({top:r.bottom+4,left:r.left,width:Math.max(r.width,360)});
                         setShowCustomerDropdown(true);
                       }}
+                      onClick={fromQuoteLock?undefined:()=>{
+                        const r=customerDropdownRef.current?.getBoundingClientRect();
+                        if(r) setCustDropPos({top:r.bottom+4,left:r.left,width:Math.max(r.width,360)});
+                        setShowCustomerDropdown(true);
+                      }}
                       className="nso-inp"
                       placeholder="Search by name, company, email…"
                       style={{paddingLeft:36,paddingRight:40,
@@ -1125,7 +1186,7 @@ const Newsalesorders = () => {
 
                           {/* Add new footer */}
                           <div
-                            onClick={()=>{navigate('/sales/customers/newcustomers');setShowCustomerDropdown(false);}}
+                            onClick={()=>{navigate('/sales/customers/newcustomers',{state:{returnTo:location.pathname+location.search}});setShowCustomerDropdown(false);}}
                             style={{padding:'11px 14px',cursor:'pointer',borderTop:`1.5px solid ${T.border}`,display:'flex',alignItems:'center',gap:10,background:T.surface2,transition:'background .15s',flexShrink:0}}
                             onMouseEnter={e=>e.currentTarget.style.background=isDark?'rgba(59,130,246,0.1)':'#eff6ff'}
                             onMouseLeave={e=>e.currentTarget.style.background=T.surface2}>
@@ -1192,11 +1253,11 @@ const Newsalesorders = () => {
             </Field>
           </div>
           <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:18,marginBottom:18}}>
-            <Field label="Sales Type" req><Sel value={salesType} onChange={e=>setSalesType(e.target.value)} required options={salesTypeOptions} placeholder="Select sales type…" icon="📦"/></Field>
+            <Field label="Sales Type" req><Sel value={salesType} onChange={e=>setSalesType(e.target.value)} required options={salesTypeOptions} placeholder="Select sales type…" icon="📦" onCreateNew={()=>setQuickCreate('salesType')} createLabel="Create new sales type"/></Field>
             <ModernDatePicker value={orderDate} onChange={setOrderDate} label="Sales Order Date" required placeholder="Select order date"/>
           </div>
           <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:18}}>
-            <Field label="Payment Terms" req><Sel value={paymentTerms} onChange={e=>setPaymentTerms(e.target.value)} required options={paymentTermsOptions} placeholder="Select payment terms…" icon="💳"/></Field>
+            <Field label="Payment Terms" req><Sel value={paymentTerms} onChange={e=>setPaymentTerms(e.target.value)} required options={paymentTermsOptions} placeholder="Select payment terms…" icon="💳" onCreateNew={()=>setQuickCreate('paymentTerm')} createLabel="Create new payment term"/></Field>
             <Field label="Salesperson" req><Sel value={salesperson} onChange={e=>setSalesperson(e.target.value)} options={salespersonOptions} placeholder={salespersonOptions.length?'Select salesperson…':'No sales reps yet'} icon="🧑‍💼"/></Field>
           </div>
         </Section>
@@ -1247,7 +1308,7 @@ const Newsalesorders = () => {
               <div className="nso-stitle" style={{margin:0}}>
                 <div className="nso-sicon" style={{background:'#10b98118',color:'#10b981'}}>🛒</div>
                 Line Items
-                <span style={{fontSize:11,fontWeight:700,color:'#10b981',background:'#d1fae5',padding:'2px 9px',borderRadius:99,marginLeft:4}}>{items.filter(i=>i.details).length} added</span>
+                <span style={{fontSize:11,fontWeight:700,color:'#10b981',background:'#d1fae5',padding:'2px 9px',borderRadius:99,marginLeft:4}}>{items.filter(i=>i.details&&i.itemId).length} added</span>
               </div>
               <button onClick={addNewRow} className="nso-addrow"><FaPlus style={{fontSize:11}}/> Add Item Row</button>
             </div>
@@ -1269,9 +1330,11 @@ const Newsalesorders = () => {
                     <tr key={item.id}>
                       <td>
                         <div style={{position:'relative'}} ref={el=>itemInputRefs.current[index]=el}>
-                          <input className="nso-tinp" placeholder="Search or type item name…" value={item.details}
+                          <input className="nso-tinp" placeholder="Search item…" value={item.details}
                             onChange={e=>{const u=[...items];u[index].details=e.target.value;setItems(u);debouncedSearch(e.target.value);setShowItemDropdown(index);}}
                             onFocus={()=>{setShowItemDropdown(index);if(!item.details)setSearchTerm('');handleGetItem();}}
+                            onClick={()=>{setShowItemDropdown(index);if(!item.details)setSearchTerm('');}}
+                            onBlur={()=>{if(!item.itemId&&item.details){const u=[...items];u[index]={...u[index],details:''};setItems(u);}}}
                           />
                           {item.sku&&<div style={{marginTop:5,display:'flex',alignItems:'center',gap:6,fontSize:10,color:T.textSec}}><FaBarcode style={{fontSize:9}}/><span style={{fontFamily:"'DM Mono',monospace"}}>{item.sku}</span>{item.unit&&<span>· {item.unit}</span>}</div>}
                         </div>
@@ -1361,11 +1424,11 @@ const Newsalesorders = () => {
               <div className="item-dropdown-container nso-idd nso-dd">
                 {inventoryLoading?(
                   <div style={{padding:20,textAlign:'center',color:T.textSec,fontSize:13}}><div style={{width:16,height:16,border:`2px solid ${T.border}`,borderTopColor:'#3b82f6',borderRadius:'50%',animation:'nsoSpin .7s linear infinite',margin:'0 auto 8px'}}/>Loading items…</div>
-                ):filteredItems.length===0?(
-                  <div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>{searchTerm?'No items match your search':'Start typing to search items'}</div>
                 ):(
                   <>
-                    <div style={{padding:'8px 14px',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',color:T.textSec,borderBottom:'1.5px solid #f1f5f9',display:'flex',justifyContent:'space-between'}}><span>{filteredItems.length} item{filteredItems.length!==1?'s':''}</span><span>Click to select</span></div>
+                    {filteredItems.length===0
+                      ?<div style={{padding:'16px 14px',textAlign:'center',color:T.textSec,fontSize:13}}>{searchTerm?`No items match "${searchTerm}"`:'Start typing to search items'}</div>
+                      :<div style={{padding:'8px 14px',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',color:T.textSec,borderBottom:'1.5px solid #f1f5f9',display:'flex',justifyContent:'space-between'}}><span>{filteredItems.length} item{filteredItems.length!==1?'s':''}</span><span>Click to select</span></div>}
                     {filteredItems.map(inv=>(
                       <div key={inv._id||inv.itemId} className="nso-irow" onMouseDown={e=>{e.preventDefault();e.nativeEvent?.stopImmediatePropagation();handleItemSelect(showItemDropdown,inv)}}>
                         <div style={{width:38,height:38,borderRadius:10,background:isDark?'rgba(59,130,246,0.15)':'linear-gradient(135deg,#eff6ff,#dbeafe)',color:T.blue,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:16}}><FaBox/></div>
@@ -1389,6 +1452,12 @@ const Newsalesorders = () => {
                         </div>
                       </div>
                     ))}
+                    <div className="nso-irow"
+                      onMouseDown={e=>{e.preventDefault();e.nativeEvent?.stopImmediatePropagation();openQuickAddItem(showItemDropdown);}}
+                      style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',borderTop:`1.5px solid ${T.border}`,cursor:'pointer'}}>
+                      <div style={{width:28,height:28,borderRadius:8,background:'#3b82f6',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,flexShrink:0}}>+</div>
+                      <div style={{fontSize:13,fontWeight:700,color:'#2563eb'}}>Create new item</div>
+                    </div>
                   </>
                 )}
               </div>
@@ -1504,6 +1573,29 @@ const Newsalesorders = () => {
         </div>
 
       </div>
+
+      {quickAddItem && (
+        <QuickAddItemModal T={T} isDark={isDark}
+          uomOptions={uomOptions} fetchUomOptions={fetchUomOptions}
+          groupOptions={groupOptions} groupMap={groupMap} fetchGroupOptions={fetchGroupOptions}
+          onClose={() => setQuickAddItem(null)} onCreated={handleItemCreated} />
+      )}
+      {quickCreate === 'salesType' && (
+        <QuickCreateModal title="New Sales Type" T={T}
+          fields={[
+            { name: 'name', label: 'Name', placeholder: 'e.g. Standard Sale Order', required: true, autoFocus: true },
+            { name: 'description', label: 'Description', placeholder: 'Optional (shown under the name)' },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateSalesType} />
+      )}
+      {quickCreate === 'paymentTerm' && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
+      )}
     </div>
   );
 };

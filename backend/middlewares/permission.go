@@ -31,6 +31,11 @@ const (
 var salesRepEditModules = map[string]bool{"enquiries": true, "quotes": true, "sales_orders": true}
 
 func defaultModuleCaps(role, module string) []string {
+	// Backups read/restore the ENTIRE org, across every module — no free default for
+	// anyone; must be explicitly granted per role.
+	if module == "backups" {
+		return nil
+	}
 	switch role {
 	case "sales_rep":
 		if salesRepEditModules[module] {

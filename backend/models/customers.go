@@ -33,6 +33,7 @@ type Customer struct {
 	CreditLimitAction string  `json:"credit_limit_action,omitempty" bson:"credit_limit_action,omitempty"` // "warn" (default) | "block"
 	CreditUsed        float64 `json:"credit_used,omitempty"         bson:"credit_used,omitempty"`
 	NoOfDays          float64 `json:"no_of_days,omitempty"          bson:"no_of_days,omitempty"`
+	PriceListID       string  `json:"price_list_id,omitempty"       bson:"price_list_id,omitempty"` // assigned Price List, overrides item selling_price on quotes/orders/invoices
 
 	// Computed server-side, never sent by the form
 	OutstandingBalance float64 `json:"outstanding_balance,omitempty" bson:"outstanding_balance,omitempty"`

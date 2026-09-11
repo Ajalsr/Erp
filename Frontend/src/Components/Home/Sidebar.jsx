@@ -13,73 +13,76 @@ import { usePermissions } from '../../helper/permissions'
 
 const MENU = [
   { icon: IoHome,            label: 'Home',      route: '/Home', tourKey: 'nav-home' },
-  { icon: FaBoxOpen,         label: 'Items',      mods: ['items','item_groups','price_lists'], tourKey: 'nav-items', subItems: [
+  { icon: FaBoxOpen,         label: 'Items',      mods: ['items','item_groups','price_lists','uom'], tourKey: 'nav-items', subItems: [
     { name: 'Items',         route: '/Items/Items',        mod: 'items' },
     { name: 'Item Groups',   route: '/Items/item-groups',  mod: 'item_groups' },
+    { name: 'Units of Measure', route: '/Items/uom',       mod: 'uom' },
     { name: 'Price Lists',   route: '/Items/price-lists',  mod: 'price_lists' },
   ]},
-  { icon: MdInventory2,      label: 'Inventory',  mods: ['items','warehouses','adjustments'], tourKey: 'nav-inventory', subItems: [
+  { icon: MdInventory2,      label: 'Inventory',  mods: ['items','warehouses','adjustments','reorder_alerts','batch_expiry'], tourKey: 'nav-inventory', subItems: [
     { name: 'Stock Summary',  route: '/Inventory/stock-summary',  mod: 'items' },
-    { name: 'Reorder Alerts', route: '/Inventory/reorder-alerts', mod: 'items' },
-    { name: 'Batch & Expiry', route: '/Inventory/batch-expiry',   mod: 'items' },
+    { name: 'Reorder Alerts', route: '/Inventory/reorder-alerts', mod: 'reorder_alerts' },
+    { name: 'Batch & Expiry', route: '/Inventory/batch-expiry',   mod: 'batch_expiry' },
     { name: 'Warehouses',     route: '/Inventory/warehouses',     mod: 'warehouses' },
     { name: 'Adjustments',    route: '/Inventory/adjustments',    mod: 'adjustments' },
   ]},
-  { icon: HiShoppingCart,    label: 'Sales',      mods: ['customers','enquiries','quotes','sales_orders','delivery_notes','invoices','credit_notes','payments','advance_payments'], tourKey: 'nav-sales', subItems: [
+  { icon: HiShoppingCart,    label: 'Sales',      mods: ['customers','enquiries','quotes','sales_orders','sales_types','delivery_notes','invoices','recurring_invoices','credit_notes','payments','advance_payments','letters'], tourKey: 'nav-sales', subItems: [
     { name: 'Customers',          route: '/Sales/Customers',        mod: 'customers' },
     { name: 'Enquiries',          route: '/Sales/Enquiries',        mod: 'enquiries' },
     { name: 'Quotes',             route: '/Sales/Quotes',           mod: 'quotes' },
     { name: 'Sales Orders',       route: '/Sales/Salesorders',      mod: 'sales_orders' },
+    { name: 'Sales Types',        route: '/Sales/sales-types',      mod: 'sales_types' },
     { name: 'Outbound',           route: '/Sales/Outbound',         mod: 'delivery_notes' },
     { name: 'Delivery Notes',     route: '/Sales/Deliverynote',     mod: 'delivery_notes' },
     { name: 'Invoices',           route: '/Sales/Invoices',         mod: 'invoices' },
-    { name: 'Recurring Invoices', route: '/Sales/RecurringInvoices', mod: 'invoices' },
+    { name: 'Recurring Invoices', route: '/Sales/RecurringInvoices', mod: 'recurring_invoices' },
     { name: 'Credit Notes',       route: '/Sales/CreditNotes',      mod: 'credit_notes' },
     { name: 'Payments Received',  route: '/Sales/PaymentsReceived', mod: 'payments' },
     { name: 'Customer Advances',  route: '/Sales/AdvancePayments',  mod: 'advance_payments' },
     { name: 'Letters',            route: '/Letters',                mod: 'letters' },
   ]},
-  { icon: FaCartArrowDown,   label: 'Purchases',  mods: ['vendors','purchase_orders','grns','bills','vendor_credits','vendor_payments'], tourKey: 'nav-purchases', subItems: [
+  { icon: FaCartArrowDown,   label: 'Purchases',  mods: ['vendors','purchase_orders','grns','bills','expenses','vendor_credits','vendor_payments'], tourKey: 'nav-purchases', subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors',       mod: 'vendors' },
     { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders',mod: 'purchase_orders' },
     { name: 'Inbound',          route: '/Purchase/Inbound',       mod: 'grns' },
     { name: 'GRN',              route: '/Purchase/GRN',           mod: 'grns' },
     { name: 'Bills',            route: '/Purchase/Bills',         mod: 'bills' },
-    { name: 'Expenses',         route: '/Purchase/Expenses',      mod: 'bills' },
+    { name: 'Expenses',         route: '/Purchase/Expenses',      mod: 'expenses' },
     { name: 'Vendor Credits',   route: '/Purchase/VendorCredits', mod: 'vendor_credits' },
     { name: 'Payments Made',    route: '/Purchase/PaymentsMade',  mod: 'vendor_payments' },
   ]},
-  { icon: TbReportAnalytics, label: 'Reports',    mods: ['reports'], tourKey: 'nav-reports', subItems: [
-    { name: 'Sales Report',          route: '/Reports/sales',                mod: 'reports' },
-    { name: 'Sales by Emirate',      route: '/Reports/sales-by-emirate',     mod: 'reports' },
-    { name: 'Purchase Report',       route: '/Reports/purchases',            mod: 'reports' },
-    { name: 'Inventory Report',      route: '/Reports/inventory',            mod: 'reports' },
-    { name: 'AR Aging',              route: '/Reports/aging',                mod: 'reports' },
-    { name: 'Customer Statement',    route: '/Reports/customer-statement',   mod: 'reports' },
-    { name: 'VAT Report',            route: '/Reports/vat',                  mod: 'reports' },
-    { name: 'Vendor Aging',          route: '/Reports/vendor-aging',         mod: 'reports' },
-    { name: 'Export Transactions',   route: '/Reports/export-transactions',  mod: 'reports' },
+  { icon: TbReportAnalytics, label: 'Reports',    mods: ['sales_orders','delivery_notes','purchase_orders','items','ar_aging_report','customer_statement_report','vat_report','vendor_aging_report','export_transactions'], tourKey: 'nav-reports', subItems: [
+    { name: 'Sales Report',          route: '/Reports/sales',                mod: 'sales_orders' },
+    { name: 'Sales by Emirate',      route: '/Reports/sales-by-emirate',     mod: 'sales_by_emirate_report' },
+    { name: 'Purchase Report',       route: '/Reports/purchases',            mod: 'purchase_orders' },
+    { name: 'Inventory Report',      route: '/Reports/inventory',            mod: 'items' },
+    { name: 'AR Aging',              route: '/Reports/aging',                mod: 'ar_aging_report' },
+    { name: 'Customer Statement',    route: '/Reports/customer-statement',   mod: 'customer_statement_report' },
+    { name: 'VAT Report',            route: '/Reports/vat',                  mod: 'vat_report' },
+    { name: 'Vendor Aging',          route: '/Reports/vendor-aging',         mod: 'vendor_aging_report' },
+    { name: 'Export Transactions',   route: '/Reports/export-transactions',  mod: 'export_transactions' },
   ]},
-  { icon: MdAccountBalance,   label: 'Finance',   mods: ['accounts','journal_entries','reports'], tourKey: 'nav-finance', subItems: [
+  { icon: MdAccountBalance,   label: 'Finance',   mods: ['accounts','journal_entries','payment_terms','bank_reconciliation','exchange_rates','trial_balance','profit_loss_report','balance_sheet_report','cash_flow_report'], tourKey: 'nav-finance', subItems: [
     { name: 'Chart of Accounts', route: '/Finance/Accounts',       mod: 'accounts' },
+    { name: 'Payment Terms',     route: '/Finance/PaymentTerms',   mod: 'payment_terms' },
     { name: 'Journal Entries',   route: '/Finance/JournalEntries', mod: 'journal_entries' },
-    { name: 'Bank Reconciliation', route: '/Finance/BankReconciliation', mod: 'accounts' },
-    { name: 'Exchange Rates',    route: '/Finance/ExchangeRates',   mod: 'accounts' },
-    { name: 'Trial Balance',     route: '/Reports/trial-balance',  mod: 'accounts' },
-    { name: 'Profit & Loss',     route: '/Reports/profit-loss',  mod: 'reports' },
-    { name: 'Balance Sheet',     route: '/Reports/balance-sheet',mod: 'reports' },
-    { name: 'Cash Flow',         route: '/Reports/cash-flow',    mod: 'reports' },
+    { name: 'Bank Reconciliation', route: '/Finance/BankReconciliation', mod: 'bank_reconciliation' },
+    { name: 'Exchange Rates',    route: '/Finance/ExchangeRates',   mod: 'exchange_rates' },
+    { name: 'Trial Balance',     route: '/Reports/trial-balance',  mod: 'trial_balance' },
+    { name: 'Profit & Loss',     route: '/Reports/profit-loss',  mod: 'profit_loss_report' },
+    { name: 'Balance Sheet',     route: '/Reports/balance-sheet',mod: 'balance_sheet_report' },
+    { name: 'Cash Flow',         route: '/Reports/cash-flow',    mod: 'cash_flow_report' },
   ]},
-  { icon: FaUsers,            label: 'HR',        mods: ['employees','payroll','timeoff','letters'], tourKey: 'nav-hr', subItems: [
+  { icon: FaUsers,            label: 'HR',        mods: ['employees','org_chart','payroll','timeoff','letters'], tourKey: 'nav-hr', subItems: [
     { name: 'Employees',   route: '/HR/Employees',  mod: 'employees' },
-    { name: 'Org Chart',   route: '/HR/OrgChart',   mod: 'employees' },
+    { name: 'Org Chart',   route: '/HR/OrgChart',   mod: 'org_chart' },
     { name: 'Letters',     route: '/HR/Letters',    mod: 'employees' },
     { name: 'Payroll',     route: '/HR/Payroll',    mod: 'payroll' },
     { name: 'Time Off',    route: '/HR/TimeOff',    mod: 'timeoff' },
   ]},
-  { icon: FaProjectDiagram,   label: 'Projects',  route: '/Projects',  tourKey: 'nav-projects' },
+  { icon: FaProjectDiagram,   label: 'Projects',  route: '/Projects',  mods: ['projects'], tourKey: 'nav-projects' },
   { icon: FaClipboardCheck,   label: 'Approvals', route: '/Approvals', tourKey: 'nav-approvals' },
-  { icon: FaCloudUploadAlt,   label: 'Backups',   route: '/Backups',   ownerOnly: true, tourKey: 'nav-backups' },
+  { icon: FaCloudUploadAlt,   label: 'Backups',   route: '/Backups',   mods: ['backups'], tourKey: 'nav-backups' },
   { icon: IoSettingsOutline,  label: 'Settings',  settings: true,   tourKey: 'nav-settings' },
 ]
 
@@ -92,15 +95,13 @@ const Sidebar = ({ isCollapsed, isMobile = false, mobileOpen = false, onClose = 
   const isDark      = useThemeStore((s) => s.isDark)
   const activeOrg   = useAuthStore((s) => s.activeOrg)
   const orgId       = activeOrg?._id || user?.orgId || ''
-  const { canAny, canAnyOf, canSettings, role } = usePermissions()
+  const { canAny, canAnyOf, canSettings } = usePermissions()
   // Show a section only when it leads somewhere: for sections with sub-items, at least
   // one sub-item must be permitted (so granting a module with no page — e.g.
   // journal_entries — never shows an empty section). Sections without sub-items use
-  // their mods list; Settings only for owner / roles granted Settings access; Backups
-  // (whole-database, cross-org) only for owner/admin, mirroring the backend gate.
+  // their mods list; Settings only for owner / roles granted Settings access.
   const visibleMenu = MENU.filter(item =>
     item.settings ? canSettings()
-    : item.ownerOnly ? (role === 'owner' || role === 'admin')
     : item.subItems ? item.subItems.some(s => !s.mod || canAny(s.mod))
     : (!item.mods || canAnyOf(item.mods))
   )
