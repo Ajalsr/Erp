@@ -160,11 +160,12 @@ func createBillCore(ctx context.Context, orgIDStr, userIDStr string, b models.Bi
 
 // generatePayeeChargeBills reads the GRN's landed-cost charges and, for every charge
 // that names a separate payee (customs authority, clearing agent, freight forwarder),
-// creates its own bill addressed to that payee. These bills are created already PAID
-// (the duty/clearing is settled on clearance), so they carry status "paid", zero
-// balance, and post Cr Bank instead of Cr Accounts Payable — unlike the main vendor
-// bill, whose status follows its payment terms. Charges with no payee belong to the
-// main vendor and are billed on the main bill, so they are skipped here.
+// creates its own bill addressed to that payee. Each charge's BillStatus decides
+// whether that bill is created already paid (posts Cr Bank, zero balance) or open
+// (posts Cr Accounts Payable, full balance due) — chosen by the user when the charge
+// was added, defaulting to "paid" for legacy GRNs with no BillStatus set. Charges with
+// no payee belong to the main vendor and are billed on the main bill, so they are
+// skipped here.
 func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, grnObjID primitive.ObjectID, mainBill models.Bill) {
 	var g models.GRN
 	if err := grnCollection.FindOne(ctx, bson.M{"_id": grnObjID, "orgId": orgIDStr}).Decode(&g); err != nil {
@@ -181,6 +182,24 @@ func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, g
 		label := ch.Label
 		if label == "" {
 			label = "Other charge"
+		}
+
+		billStatus := ch.BillStatus
+		if billStatus == "" {
+			billStatus = "paid" // legacy default
+		}
+		isPaid := billStatus != "open"
+
+		amountPaid := 0.0
+		balanceDue := ch.Total
+		if isPaid {
+			amountPaid = ch.Total
+			balanceDue = 0
+		}
+
+		notePrefix := "open (unpaid)"
+		if isPaid {
+			notePrefix = "paid on clearance"
 		}
 
 		bill := models.Bill{
@@ -210,11 +229,10 @@ func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, g
 				TaxTotal:   ch.TaxAmount,
 				GrandTotal: ch.Total,
 			},
-			// Created already settled.
-			Status:     "paid",
-			AmountPaid: ch.Total,
-			BalanceDue: 0,
-			Notes:      fmt.Sprintf("Auto-generated from GRN %s — %s (paid on clearance)", g.GRNNumber, label),
+			Status:     billStatus,
+			AmountPaid: amountPaid,
+			BalanceDue: balanceDue,
+			Notes:      fmt.Sprintf("Auto-generated from GRN %s — %s (%s)", g.GRNNumber, label, notePrefix),
 			OrgID:      orgIDStr,
 			CreatedAt:  time.Now(),
 			UpdatedAt:  time.Now(),
@@ -226,21 +244,27 @@ func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, g
 		}
 
 		// GL: goods/duty leg (capitalise to Inventory or expense), recoverable VAT,
-		// credit Bank since the charge is paid immediately.
+		// credit Bank if settled immediately, else credit Accounts Payable.
 		goodsAccount := "5000"
 		if ch.Capitalise {
 			goodsAccount = "1200"
 		}
-		payAccount := ch.PaymentAccount
-		if payAccount == "" {
-			payAccount = "1002" // Bank
+		creditAccount := "2000" // Accounts Payable
+		jeLabel := "Charge bill (open) - " + bill.BillNumber
+		if isPaid {
+			payAccount := ch.PaymentAccount
+			if payAccount == "" {
+				payAccount = "1002" // Bank
+			}
+			creditAccount = payAccount
+			jeLabel = "Charge bill (paid) - " + bill.BillNumber
 		}
 		go autoJE(orgIDStr, "bill", bill.ID.Hex(), bill.BillNumber, bill.BillDate,
-			"Charge bill (paid) - "+bill.BillNumber,
+			jeLabel,
 			[]jeLineInput{
 				{AccountCode: goodsAccount, Debit: ch.Amount},
 				{AccountCode: "5500", Debit: ch.TaxAmount},
-				{AccountCode: payAccount, Credit: ch.Total},
+				{AccountCode: creditAccount, Credit: ch.Total},
 			})
 
 		// Stamp the charge with its bill id so re-billing the GRN can't duplicate it.
@@ -252,21 +276,26 @@ func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, g
 			}},
 		)
 
-		// Reflect the bill on the payee vendor's profile (history). It is already paid,
-		// so outstanding payable is left untouched.
+		// Reflect the bill on the payee vendor's profile (history). If unpaid, also
+		// bump outstanding payable, same as a normal vendor bill.
 		if vObjID, err := primitive.ObjectIDFromHex(ch.PayeeVendorID); err == nil {
-			vendorCollection.UpdateOne(ctx,
-				bson.M{"_id": vObjID, "orgId": orgIDStr},
-				bson.M{
-					"$push": bson.M{"history": bson.M{
-						"action":    "bill_created",
-						"timestamp": time.Now(),
-						"user":      userIDStr,
-						"details":   fmt.Sprintf("Charge bill %s (PAID) created from GRN %s for %s. Amount: AED %.2f", bill.BillNumber, g.GRNNumber, label, ch.Total),
-					}},
-					"$set": bson.M{"updatedAt": time.Now()},
-				},
-			)
+			statusLabel := "OPEN"
+			if isPaid {
+				statusLabel = "PAID"
+			}
+			update := bson.M{
+				"$push": bson.M{"history": bson.M{
+					"action":    "bill_created",
+					"timestamp": time.Now(),
+					"user":      userIDStr,
+					"details":   fmt.Sprintf("Charge bill %s (%s) created from GRN %s for %s. Amount: AED %.2f", bill.BillNumber, statusLabel, g.GRNNumber, label, ch.Total),
+				}},
+				"$set": bson.M{"updatedAt": time.Now()},
+			}
+			if !isPaid {
+				update["$inc"] = bson.M{"outstandingPayable": ch.Total}
+			}
+			vendorCollection.UpdateOne(ctx, bson.M{"_id": vObjID, "orgId": orgIDStr}, update)
 		}
 	}
 }

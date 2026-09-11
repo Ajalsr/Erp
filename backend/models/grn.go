@@ -33,7 +33,7 @@ type GRNItem struct {
 // freight, insurance, etc. Each carries its own optional tax and an optional payee.
 //   - PayeeVendorID empty  → charge belongs to the main vendor; folded into the main bill.
 //   - PayeeVendorID set     → charge is billed separately to that payee (e.g. customs
-//                             authority) as its own bill, created already-paid.
+//                             authority) as its own bill, with status per BillStatus.
 type GRNCharge struct {
 	ID              primitive.ObjectID `json:"_id,omitempty"          bson:"_id,omitempty"`
 	Type            string             `json:"type"                   bson:"type"`    // customs_duty | clearing | freight | insurance | other
@@ -47,8 +47,11 @@ type GRNCharge struct {
 	// Capitalise true → adds to landed cost of stock (Inventory 1200); false → expense.
 	Capitalise bool `json:"capitalise" bson:"capitalise"`
 	// PaymentAccount: cash/bank account code the separate payee bill is paid from
-	// (it's created already paid). Empty → defaults to Bank (1002).
+	// (used only when BillStatus is "paid"). Empty → defaults to Bank (1002).
 	PaymentAccount string `json:"paymentAccount,omitempty" bson:"paymentAccount,omitempty"`
+	// BillStatus: status to give the auto-generated payee bill — "paid" or "open".
+	// Empty → defaults to "paid" (legacy behaviour, for GRNs created before this field existed).
+	BillStatus string `json:"billStatus,omitempty" bson:"billStatus,omitempty"`
 	// BillID is set once this charge has been billed (separate payee bill).
 	BillID string `json:"billId,omitempty" bson:"billId,omitempty"`
 }
