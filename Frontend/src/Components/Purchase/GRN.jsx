@@ -576,6 +576,7 @@ export default function GRN() {
             payeeVendorName: ch.payeeVendorName || '',
             capitalise:      ch.capitalise !== false,
             paymentAccount:  ch.paymentAccount || '',
+            billStatus:      ch.billStatus || 'paid',
             billId:          ch.billId || '',
           })));
         }
@@ -721,7 +722,7 @@ export default function GRN() {
     { value: 'other',        label: 'Other' },
   ];
   const updateCharge = (idx, patch) => setCharges((prev) => prev.map((c, i) => i === idx ? { ...c, ...patch } : c));
-  const addCharge    = () => setCharges((prev) => [...prev, { type: 'customs_duty', label: '', amount: 0, taxRate: 0, payeeVendorId: '', payeeVendorName: '', capitalise: true, paymentAccount: '', billId: '' }]);
+  const addCharge    = () => setCharges((prev) => [...prev, { type: 'customs_duty', label: '', amount: 0, taxRate: 0, payeeVendorId: '', payeeVendorName: '', capitalise: true, paymentAccount: '', billStatus: 'paid', billId: '' }]);
   const removeCharge = (idx) => setCharges((prev) => prev.filter((_, i) => i !== idx));
   // Backend payload form — server recomputes tax/total.
   const chargesPayload = chargeRows.map((c) => ({
@@ -733,6 +734,7 @@ export default function GRN() {
     payeeVendorName: c.payeeVendorName || '',
     capitalise:      c.capitalise !== false,
     paymentAccount:  c.payeeVendorId ? (c.paymentAccount || '') : '',
+    billStatus:      c.payeeVendorId ? (c.billStatus || 'paid') : '',
   }));
 
   const isRejected = grnStatus === 'rejected'; // every received unit failed QC → no stock added
@@ -1412,6 +1414,18 @@ export default function GRN() {
                       </label>
                       {c.payeeVendorId && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <span style={{ fontSize: 11.5, color: '#f59e0b' }}>Bill status:</span>
+                          <div style={{ minWidth: 120 }}>
+                            <CustomSelect
+                              value={c.billStatus || 'paid'}
+                              onChange={(v) => updateCharge(idx, { billStatus: v })}
+                              options={[{ value: 'paid', label: 'Paid' }, { value: 'open', label: 'Unpaid (Open)' }]}
+                              T={T} isDark={isDark} disabled={!chargesEditable} />
+                          </div>
+                        </div>
+                      )}
+                      {c.payeeVendorId && (c.billStatus || 'paid') === 'paid' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                           <span style={{ fontSize: 11.5, color: '#f59e0b' }}>Paid from:</span>
                           <div style={{ minWidth: 200 }}>
                             <CustomSelect
@@ -1428,7 +1442,7 @@ export default function GRN() {
 
                   {chargeRows.some(c => c.payeeVendorId) && (
                     <p style={{ fontSize: 11, color: T.textSec, margin: '4px 0 0' }}>
-                      ⚡ Charges with a payee are billed separately to that party as a <b>paid</b> bill when you create the bill. The main vendor bill follows its payment terms.
+                      ⚡ Charges with a payee are billed separately to that party when you create the bill, using the bill status you choose above. The main vendor bill follows its own payment terms.
                     </p>
                   )}
                 </div>
