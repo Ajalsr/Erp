@@ -9,6 +9,8 @@ import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import { drawerWidth } from '../../helper/responsive';
 import axiosInstance from '../../helper/axiosInstance/';
+import cc from 'currency-codes';
+import QuickCreateModal from '../common/QuickCreateModal';
 
 /* ══════════════════════════════════════════════════════════════════════
    SHARED PRIMITIVES  (identical API to New.jsx so patterns stay consistent)
@@ -78,7 +80,7 @@ function Input({ prefix, suffix, mono, T, error, ...props }) {
 }
 
 /* ── CustomSelect — portal-based, searchable ───────────────────── */
-function CustomSelect({ value, onChange, options, placeholder = 'Select', name, T, isDark, error }) {
+function CustomSelect({ value, onChange, options, placeholder = 'Select', name, T, isDark, error, onCreateNew, createLabel }) {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
@@ -189,6 +191,18 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', name, 
             })
         }
       </div>
+      {onCreateNew && (
+        <div onClick={() => { onCreateNew(); setOpen(false); setReady(false); setQuery(''); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px',
+            borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#3b82f6' }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          {createLabel || 'Create new'}
+        </div>
+      )}
     </div>
   );
 
@@ -478,12 +492,11 @@ const COUNTRIES = [
   'Singapore','Malaysia','Australia','Canada','South Africa',
 ];
 
-const CURRENCIES = ['AED','USD','EUR','GBP','INR','SAR','QAR','KWD','BHD','OMR','EGP'];
-
-const PAYMENT_TERMS = [
-  'Due on Receipt','Net 15','Net 30','Net 45','Net 60','Net 90',
-  'End of Month','Cash on Delivery','Custom',
-];
+// All ISO 4217 currencies: { label: "UAE Dirham (AED)", value: "AED" }
+const CURRENCY_OPTIONS = cc.codes().map(code => {
+  const d = cc.code(code);
+  return d ? { label: `${d.currency} (${code})`, value: code } : null;
+}).filter(Boolean);
 
 const VENDOR_TYPES = ['Individual','Business / Company','Manufacturer','Distributor','Service Provider'];
 
@@ -514,6 +527,24 @@ export default function NewVendor() {
   const [activeSection,setActiveSection] = useState('sec-identity');
   const [errors,       setErrors]       = useState({});
   const [contacts,     setContacts]     = useState([{ id: Date.now(), name: '', email: '', phone: '', position: '', isPrimary: true }]);
+
+  const [paymentTerms, setPaymentTerms] = useState([]);
+  const [quickCreate,  setQuickCreate]  = useState(null); // 'paymentTerm' | null
+  const fetchPaymentTerms = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(res => setPaymentTerms(res.data?.data?.paymentTerms || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+  const paymentTermOptions = [
+    ...paymentTerms.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` })),
+    { value: 'Custom', label: 'Custom — specify No. of Days' },
+  ];
+  const handleCreatePaymentTerm = async (fields) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: fields.name, days: Number(fields.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setForm(p => ({ ...p, paymentTerms: res.data.data.name }));
+  };
 
   const [form, setForm] = useState({
     // Identity
@@ -749,6 +780,15 @@ export default function NewVendor() {
         />
       )}
 
+      {quickCreate === 'paymentTerm' && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
+      )}
+
       <div onInput={guard.markDirty} onChange={guard.markDirty} style={{
         minHeight: '100vh', background: T.bg, paddingBottom: isMobile ? 90 : 100,
         animation: 'nvFadeUp .3s ease both', overflowX: 'hidden',
@@ -975,7 +1015,7 @@ export default function NewVendor() {
               <div style={{ ...grid3, marginBottom: 16 }}>
                 <F label="Currency" T={T}>
                   <CustomSelect name="currency" value={form.currency} onChange={handleChange}
-                    options={CURRENCIES} placeholder="Select currency" T={T} isDark={isDark} />
+                    options={CURRENCY_OPTIONS} placeholder="Select currency" T={T} isDark={isDark} />
                 </F>
                 <F label="Payment Terms" T={T}>
                   <CustomSelect name="paymentTerms" value={form.paymentTerms}
@@ -983,7 +1023,8 @@ export default function NewVendor() {
                       handleChange(e);
                       if (e.target.value !== 'Custom') setForm(p => ({ ...p, noOfDays: '' }));
                     }}
-                    options={PAYMENT_TERMS} placeholder="Select terms" T={T} isDark={isDark} />
+                    options={paymentTermOptions} placeholder="Select terms" T={T} isDark={isDark}
+                    onCreateNew={() => setQuickCreate('paymentTerm')} createLabel="Create new payment term" />
                 </F>
                 {form.paymentTerms === 'Custom' && (
                   <F label="No. of Days" T={T}>

@@ -132,6 +132,9 @@ func deductInvoiceStock(ctx context.Context, inv models.Invoice) {
 		if stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": inv.OrgID}).Decode(&stock) != nil {
 			continue
 		}
+		if stock.Type == "service" {
+			continue // services carry no stock quantity to deduct
+		}
 		cur := 0.0
 		fmt.Sscanf(stock.Quantity, "%f", &cur)
 		newQty := cur - li.Qty
@@ -1282,6 +1285,9 @@ func CreateSalesReturn() gin.HandlerFunc {
 				var stock models.Stock
 				if err := stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgIDStr}).Decode(&stock); err != nil {
 					continue
+				}
+				if stock.Type == "service" {
+					continue // services were never deducted, so never restock them
 				}
 				currentQty, unitCost := 0.0, 0.0
 				fmt.Sscanf(stock.Quantity, "%f", &currentQty)

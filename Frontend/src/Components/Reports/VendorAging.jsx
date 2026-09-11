@@ -22,7 +22,7 @@ export default function VendorAging() {
   const isDark  = useThemeStore((s) => s.isDark);
   const T       = getTheme(isDark);
   const { can } = usePermissions();
-  const canExport = can('reports', 'export');
+  const canExport = can('vendor_aging_report', 'export');
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(false);
 

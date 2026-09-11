@@ -6,7 +6,7 @@
   "author": "Spifora",
   "type": "commonjs",
   "scripts": {
-    "predev": "kill-port 8080 || true",
+    "predev": "kill-port 8080 || exit 0",
     "dev": "tauri dev",
     "dev:web": "concurrently -n \"API,UI\" -c \"blue,green\" --kill-others-on-fail \"cd backend && backend.exe\" \"npm --prefix Frontend run dev\"",
     "build": "tauri build",

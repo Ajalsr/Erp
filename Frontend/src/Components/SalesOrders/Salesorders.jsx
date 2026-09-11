@@ -339,7 +339,7 @@ const Salesorders = () => {
 
   const submitCreatePO = async () => {
     const chosen = poLines.filter(l => l.check && l.qty > 0 && l.vendorId);
-    if (!chosen.length) { alert("Select at least one line, set a quantity, and pick a vendor."); return; }
+    if (!chosen.length) { await confirm({ title: "Missing selection", message: "Select at least one line, set a quantity, and pick a vendor.", hideCancel: true }); return; }
     // Group selected lines by vendor → one PO per vendor (multi-vendor split).
     const byVendor = {};
     chosen.forEach(l => { (byVendor[l.vendorId] ||= []).push(l); });
@@ -370,9 +370,9 @@ const Salesorders = () => {
       }
       setPoModalSO(null);
       await handleGetSalesorder();
-      alert(`Created ${results.length} purchase order(s): ${results.join(", ")}`);
+      await confirm({ title: "Purchase orders created", message: `Created ${results.length} purchase order(s): ${results.join(", ")}`, hideCancel: true });
     } catch (e) {
-      alert(e.response?.data?.message || "Failed to create purchase order.");
+      await confirm({ title: "Couldn't create purchase order", message: e.response?.data?.message || "Failed to create purchase order.", hideCancel: true });
     } finally {
       setPoSaving(false);
     }
@@ -387,7 +387,7 @@ const Salesorders = () => {
       await handleGetSalesorder();
       if (selected?.id === id) setSelected(prev => prev ? { ...prev, rawStatus: status, status: formatStatus(status), ...(extra.rejectionReason ? { rejectionReason: extra.rejectionReason } : {}) } : null);
     } catch (e) {
-      alert(e.response?.data?.message || "Failed to update status.");
+      await confirm({ title: "Couldn't update order", message: e.response?.data?.message || "Failed to update status.", hideCancel: true });
     } finally {
       approvingRef.current = null;
       setApprovingId(null);
@@ -443,31 +443,40 @@ const Salesorders = () => {
       await handleGetSalesorder();
       setSelectedRows(new Set());
     } catch (e) {
-      alert(e.response?.data?.message || `Failed to bulk ${status}`);
+      await confirm({ title: "Couldn't update orders", message: e.response?.data?.message || `Failed to bulk ${status}`, hideCancel: true });
+    }
+  };
+
+  // Bulk-cancel reason prompt (replaces window.prompt for admin/owner bulk cancel).
+  const [bulkCancelPrompt, setBulkCancelPrompt] = useState(false);
+  const [bulkCancelReason, setBulkCancelReason] = useState("");
+  const [bulkCancelBusy, setBulkCancelBusy]     = useState(false);
+  const confirmBulkCancel = async () => {
+    const ids = [...selectedRows];
+    setBulkCancelBusy(true);
+    try {
+      await Promise.all(
+        ids.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, {
+          status: "cancelled",
+          cancelReason: bulkCancelReason.trim(),
+        }))
+      );
+      await handleGetSalesorder();
+      setSelectedRows(new Set());
+      setBulkCancelPrompt(false);
+      setBulkCancelReason("");
+    } catch (e) {
+      await confirm({ title: "Couldn't cancel orders", message: e.response?.data?.message || "Failed to cancel orders.", hideCancel: true });
+    } finally {
+      setBulkCancelBusy(false);
     }
   };
 
   const handleBulkCancel = async () => {
     if (!selectedRows.size) return;
     if (isAdminOrOwner) {
-      const reason = window.prompt(
-        `Cancel ${selectedRows.size} order(s)?\n\nOptional reason (leave blank to skip):`,
-        ""
-      );
-      if (reason === null) return; // user hit Cancel on prompt
-      const ids = [...selectedRows];
-      try {
-        await Promise.all(
-          ids.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, {
-            status: "cancelled",
-            cancelReason: reason || "",
-          }))
-        );
-        await handleGetSalesorder();
-        setSelectedRows(new Set());
-      } catch (e) {
-        alert(e.response?.data?.message || "Failed to cancel orders.");
-      }
+      setBulkCancelReason("");
+      setBulkCancelPrompt(true);
     } else {
       if (!(await confirm({ title: "Submit cancellation request", message: `Submit cancellation request for ${selectedRows.size} order(s)?`, confirmLabel: "Submit" }))) return;
       const ids = [...selectedRows];
@@ -481,7 +490,7 @@ const Salesorders = () => {
         await handleGetSalesorder();
         setSelectedRows(new Set());
       } catch (e) {
-        alert(e.response?.data?.message || "Failed to submit cancel requests.");
+        await confirm({ title: "Couldn't submit cancellation", message: e.response?.data?.message || "Failed to submit cancel requests.", hideCancel: true });
       }
     }
   };
@@ -1567,6 +1576,31 @@ const Salesorders = () => {
               <button onClick={confirmRejectOrder} disabled={!rejectReason.trim() || approvingId !== null}
                 style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: (!rejectReason.trim() || approvingId !== null) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (!rejectReason.trim() || approvingId !== null) ? 0.5 : 1 }}>
                 <FaThumbsDown size={11} /> {approvingId === rejectOrder.id ? "Rejecting…" : "Reject"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {bulkCancelPrompt && createPortal(
+        <div onClick={() => !bulkCancelBusy && setBulkCancelPrompt(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100000, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 440, background: isDark ? C.surface : "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 22, fontFamily: "inherit" }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.textPri }}>Cancel {selectedRows.size} order(s)?</h3>
+            <p style={{ margin: "6px 0 14px", fontSize: 12.5, color: C.textSec }}>Optional reason (leave blank to skip):</p>
+            <textarea autoFocus value={bulkCancelReason} onChange={e => setBulkCancelReason(e.target.value)}
+              placeholder="Reason…" rows={3}
+              style={{ width: "100%", boxSizing: "border-box", resize: "vertical", padding: "10px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: isDark ? "rgba(255,255,255,0.04)" : "#f8fafc", color: C.textPri, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button onClick={() => setBulkCancelPrompt(false)} disabled={bulkCancelBusy}
+                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+              <button onClick={confirmBulkCancel} disabled={bulkCancelBusy}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: bulkCancelBusy ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: bulkCancelBusy ? 0.5 : 1 }}>
+                {bulkCancelBusy ? "Cancelling…" : "Cancel Orders"}
               </button>
             </div>
           </div>

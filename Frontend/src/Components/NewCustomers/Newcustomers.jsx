@@ -1,15 +1,17 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
 import useUpdateCustomer from '../../helper/useUpdateCustomer';
 import axiosInstance from '../../helper/axiosInstance';
 import toast from "../../helper/nexusToast";
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import { drawerWidth } from '../../helper/responsive';
-import PhoneInput from 'react-phone-number-input';
+import PhoneInput, { getCountries } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
+import countryNames from 'react-phone-number-input/locale/en.json';
 import CountrySelect from '../common/CountrySelect';
+import QuickCreateModal from '../common/QuickCreateModal';
 import { AiOutlineFileAdd, AiOutlineDelete } from "react-icons/ai";
 import {
   FaFilePdf, FaFileImage, FaFileWord, FaFileExcel, FaFile,
@@ -27,18 +29,17 @@ const CURRENCY_OPTIONS = cc.codes().map(code => {
   return d ? { label: `${d.currency} (${code})`, value: code } : null;
 }).filter(Boolean);
 
-const PAYMENT_TERMS_OPTIONS = [
-  { value: 'Due on Receipt', label: 'Due on Receipt' },
-  { value: 'Net 7',          label: 'Net 7 — due in 7 days' },
-  { value: 'Net 15',         label: 'Net 15 — due in 15 days' },
-  { value: 'Net 30',         label: 'Net 30 — due in 30 days' },
-  { value: 'Net 45',         label: 'Net 45 — due in 45 days' },
-  { value: 'Net 60',         label: 'Net 60 — due in 60 days' },
-  { value: 'Net 90',         label: 'Net 90 — due in 90 days' },
-  { value: '50% Advance',    label: '50% Advance — balance on delivery' },
-  { value: '100% Advance',   label: '100% Advance — full payment upfront' },
-  { value: 'Custom',         label: 'Custom — specify No. of Days' },
-];
+// Built-in sentinel — always available regardless of configured payment terms,
+// since the "No. of Days" field's enabled state is wired to this exact value.
+const CUSTOM_PAYMENT_TERM = { value: 'Custom', label: 'Custom — specify No. of Days' };
+
+// Full country list, sourced from react-phone-number-input's own ISO-3166 set
+// (avoids a second country-name dependency + keeps it in sync with the phone field).
+const COUNTRY_OPTIONS = getCountries()
+  .map(code => countryNames[code])
+  .filter(Boolean)
+  .sort((a, b) => a.localeCompare(b))
+  .map(name => ({ value: name, label: name }));
 
 // ── Dynamic CSS (theme-aware) ──────────────────────────────────────
 const makeStyles = (T, isDark) => `
@@ -156,7 +157,7 @@ const DOCUMENT_TYPES = [
 ];
 
 // ── Tab panel components ───────────────────────────────────────────
-const FinanceTab = ({ formData, handleChange, T, isDark, isMobile }) => (
+const FinanceTab = ({ formData, handleChange, T, isDark, isMobile, paymentTermOptions, onCreatePaymentTerm, priceListOptions }) => (
   <div>
     <SectionHeader icon={<FaWallet />} title="Finance Details" subtitle="Set credit limits and payment terms" T={T} isDark={isDark} />
     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
@@ -179,10 +180,12 @@ const FinanceTab = ({ formData, handleChange, T, isDark, isMobile }) => (
           name="paymentTerms"
           value={formData.paymentTerms || 'Due on Receipt'}
           onChange={handleChange}
-          options={PAYMENT_TERMS_OPTIONS}
+          options={paymentTermOptions}
           placeholder="Select payment terms"
           T={T}
           isDark={isDark}
+          onCreateNew={onCreatePaymentTerm}
+          createLabel="Create new payment term"
         />
       </div>
       <div>
@@ -201,6 +204,18 @@ const FinanceTab = ({ formData, handleChange, T, isDark, isMobile }) => (
             { value: 'block', label: 'Block — reject order when limit exceeded' },
           ]}
           placeholder="Select action"
+          T={T}
+          isDark={isDark}
+        />
+      </div>
+      <div>
+        <Label T={T}>Price List<span style={{ fontSize: 10, fontWeight: 400, marginLeft: 6, opacity: 0.7 }}>(optional — overrides item prices on quotes/orders/invoices)</span></Label>
+        <CustomSelect
+          name="price_list_id"
+          value={formData.price_list_id || ''}
+          onChange={handleChange}
+          options={[{ value: '', label: 'None — use standard item pricing' }, ...priceListOptions]}
+          placeholder="Select price list"
           T={T}
           isDark={isDark}
         />
@@ -230,7 +245,8 @@ const AddressTab = ({ formData, handleChange, T, isDark, isMobile }) => (
       </div>
       <div>
         <Label T={T}>Country</Label>
-        <input className="nc-input" name="country" value={formData.country} onChange={handleChange} placeholder="United Arab Emirates" />
+        <CustomSelect name="country" value={formData.country} onChange={handleChange}
+          options={COUNTRY_OPTIONS} placeholder="Select country" T={T} isDark={isDark} />
       </div>
     </div>
   </div>
@@ -419,7 +435,7 @@ function DiscardModal({ onConfirm, onCancel, T, isDark }) {
 }
 
 // ── Custom Select — portal-based dropdown ──────────────────────────
-const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select', name, T, isDark }) => {
+const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select', name, T, isDark, onCreateNew, createLabel }) => {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
@@ -539,6 +555,20 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
           );
         })}
       </div>
+      {onCreateNew && (
+        <div onClick={() => { onCreateNew(); setOpen(false); setReady(false); setQuery(''); }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px',
+            borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#3b82f6',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          {createLabel || 'Create new'}
+        </div>
+      )}
     </div>
   );
 
@@ -922,6 +952,11 @@ const Newcustomers = () => {
   const { id: editId }           = useParams();
   const isEditMode               = !!editId;
   const navigate    = useNavigate();
+  const location    = useLocation();
+  // When launched via a "+ Add new customer" shortcut from another form (e.g. Sales
+  // Order), that caller passes returnTo so Cancel/Discard/Save-and-close land back
+  // there instead of the generic Customers list.
+  const returnTo    = location.state?.returnTo || '/Sales/Customers';
   const isDark      = useThemeStore((s) => s.isDark);
   const T           = getTheme(isDark);
   const isMobile    = useIsMobile();
@@ -941,6 +976,39 @@ const Newcustomers = () => {
     }).catch(() => {});
   }, []);
 
+  const [paymentTerms, setPaymentTerms] = useState([]);
+  const [quickCreate, setQuickCreate]   = useState(null); // 'paymentTerm' | null
+
+  const fetchPaymentTerms = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(res => {
+        setPaymentTerms(res.data?.data?.paymentTerms || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+
+  const [priceLists, setPriceLists] = useState([]);
+  useEffect(() => {
+    axiosInstance.get('/api/price-lists/?status=active')
+      .then(res => setPriceLists(res.data?.data?.priceLists || res.data?.data || []))
+      .catch(() => {});
+  }, []);
+  const priceListOptions = priceLists.map(p => ({ value: p._id, label: p.name }));
+
+  const paymentTermOptions = [
+    ...paymentTerms.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` })),
+    CUSTOM_PAYMENT_TERM,
+  ];
+
+  const handleCreatePaymentTerm = useCallback(async (form) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: form.name, days: Number(form.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setFormData(prev => ({ ...prev, paymentTerms: res.data.data.name }));
+    toast.success('Payment term created');
+  }, [fetchPaymentTerms]);
+
   const [formData, setFormData] = useState({
     customerType: 'business', customerCode: '', salutation: '',
     firstName: '', lastName: '', companyName: '', customerDisplayName: '',
@@ -950,6 +1018,7 @@ const Newcustomers = () => {
     customFields: {}, reportingTags: [], remarks: '', documents: [],
     currency: 'AED', paymentTerms: 'Due on Receipt',
     credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
+    price_list_id: '',
   });
 
   // Load existing customer when editing
@@ -986,6 +1055,7 @@ const Newcustomers = () => {
           credit_limit:        c.credit_limit        != null ? String(c.credit_limit) : '',
           no_of_days:          c.no_of_days          != null ? String(c.no_of_days)   : '',
           credit_limit_action: c.credit_limit_action || 'warn',
+          price_list_id:       c.price_list_id       || '',
         });
         setContactPersons(c.contactPersons || []);
       })
@@ -1125,12 +1195,13 @@ const Newcustomers = () => {
           customFields: {}, reportingTags: [], remarks: '', documents: [],
           currency: 'AED', paymentTerms: 'Due on Receipt',
           credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
+          price_list_id: '',
         });
         setContactPersons([]);
         toast.success("Customer created successfully!");
       }
       guard.reset();
-      setTimeout(() => navigate("/Sales/Customers"), 1800);
+      setTimeout(() => navigate(returnTo), 1800);
     } catch {
       // toast already shown by helper
     } finally {
@@ -1165,9 +1236,18 @@ const Newcustomers = () => {
       {showDiscard && (
         <DiscardModal
           T={T} isDark={isDark}
-          onConfirm={() => { setShowDiscard(false); navigate('/Sales/Customers'); }}
+          onConfirm={() => { setShowDiscard(false); navigate(returnTo); }}
           onCancel={() => setShowDiscard(false)}
         />
+      )}
+
+      {quickCreate === 'paymentTerm' && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
       )}
 
       {/* Page header */}
@@ -1320,7 +1400,7 @@ const Newcustomers = () => {
                 ))}
               </div>
               <div style={{ padding: '24px' }}>
-                {activeTab === 'finance'         && <FinanceTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} />}
+                {activeTab === 'finance'         && <FinanceTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} paymentTermOptions={paymentTermOptions} onCreatePaymentTerm={() => setQuickCreate('paymentTerm')} priceListOptions={priceListOptions} />}
                 {activeTab === 'address'         && <AddressTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} />}
                 {activeTab === 'contact-persons' && <ContactPersonsTab contactPersons={contactPersons} setContactPersons={setContactPersons} T={T} isDark={isDark} isMobile={isMobile} />}
                 {activeTab === 'documents'       && <DocumentsTab documents={formData.documents} handleFileUpload={handleFileUpload} removeDocument={removeDocument} getFileIcon={getFileIcon} formatFileSize={formatFileSize} T={T} isDark={isDark} />}

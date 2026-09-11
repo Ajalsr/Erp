@@ -1,11 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
 import { FiPlus, FiRefreshCw } from "react-icons/fi";
+import cc from "currency-codes";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import api from "../../helper/axiosInstance";
 import nexusToast from "../../helper/nexusToast";
 import AppDatePicker from "../common/AppDatePicker";
+import PortalSelect from "../common/PortalSelect";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
+
+// All ISO 4217 currencies: { label: "UAE Dirham (AED)", value: "AED" }
+const CURRENCY_OPTIONS = cc.codes().map(code => {
+  const d = cc.code(code);
+  return d ? { label: `${d.currency} (${code})`, value: code } : null;
+}).filter(Boolean);
 
 export default function ExchangeRates() {
   const isDark = useThemeStore((s) => s.isDark);
@@ -84,8 +92,10 @@ export default function ExchangeRates() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
           <div>
             <label style={label}>From Currency</label>
-            <input style={{ ...input, textTransform: "uppercase" }} maxLength={3} placeholder="USD"
-              value={form.fromCurrency} onChange={(e) => setForm((f) => ({ ...f, fromCurrency: e.target.value.toUpperCase().slice(0, 3) }))} />
+            <PortalSelect T={T} isDark={isDark} name="fromCurrency" value={form.fromCurrency}
+              onChange={(e) => setForm((f) => ({ ...f, fromCurrency: e.target.value }))}
+              placeholder="Select currency…"
+              options={CURRENCY_OPTIONS.filter(o => o.value !== base)} />
           </div>
           <div>
             <label style={label}>1 unit = ? {base}</label>

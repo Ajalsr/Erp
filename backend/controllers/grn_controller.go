@@ -208,11 +208,15 @@ func confirmGRNStock(ctx context.Context, g models.GRN, orgIDStr string) {
 			continue
 		}
 		var stockDoc struct {
+			Type           string             `bson:"type"`
 			Quantity       string             `bson:"quantity"`
 			CostPrice      string             `bson:"cost_price"`
 			WarehouseStock map[string]float64 `bson:"warehouseStock"`
 		}
 		if fetchErr := stockCol.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgIDStr}).Decode(&stockDoc); fetchErr == nil {
+			if stockDoc.Type == "service" {
+				continue // services carry no receivable stock quantity
+			}
 			currentQty := 0.0
 			fmt.Sscanf(stockDoc.Quantity, "%f", &currentQty)
 			acceptedQty := item.ReceivedQty - item.RejectedQty

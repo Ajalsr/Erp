@@ -298,11 +298,15 @@ func CreateOrganization() gin.HandlerFunc {
 			bson.M{"$set": bson.M{"orgId": org.ID}},
 		)
 
-		// Auto-seed default chart of accounts for the new org
+		// Auto-seed default chart of accounts, payment terms, units of measure, and
+		// sales types for the new org — so dropdowns aren't empty on day one.
 		go func() {
 			seedCtx, seedCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer seedCancel()
 			seedDefaultAccountsForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultPaymentTermsForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultUOMsForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultSalesTypesForOrg(seedCtx, org.ID.Hex(), userIDStr)
 		}()
 
 		c.JSON(http.StatusCreated, gin.H{

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef, createContext, useContext } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
@@ -6,6 +6,9 @@ import axiosInstance from "../../helper/axiosInstance";
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore from "../../store/useThemeStore";
+import useAuthStore from "../../store/useAuthStore";
+import cc from "currency-codes";
+import { resolveItemPrice, getPriceListFxRate } from "../../helper/priceList";
 import useIsMobile from "../../helper/useIsMobile";
 import nexusToast from "../../helper/nexusToast";
 
@@ -108,6 +111,101 @@ const Sel = ({ style, children, ...r }) => {
   const base = { background: T.input, border: `1px solid ${T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", transition: "border-color .15s" };
   return <select style={{ ...base, cursor: "pointer", ...style }} {...r}>{children}</select>;
 };
+/* ─── CurrencySelect — searchable custom dropdown (currency list is long) ─── */
+const CurrencySelect = ({ value, onChange, options }) => {
+  const T = useT();
+  const isDark = useThemeStore((s) => s.isDark);
+  const [open, setOpen]   = useState(false);
+  const [query, setQuery] = useState("");
+  const [pos, setPos]     = useState(null);
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const searchRef  = useRef(null);
+
+  const filtered = query
+    ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()) || o.code.toLowerCase().includes(query.toLowerCase()))
+    : options;
+  const selected = options.find(o => o.code === value);
+
+  const measure = () => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4 + window.scrollY, left: r.left + window.scrollX, width: r.width });
+  };
+
+  // Synchronous, before paint — avoids any flash-of-wrong-position or race with the
+  // portal mounting, unlike a requestAnimationFrame/setTimeout chain.
+  useLayoutEffect(() => {
+    if (!open) return;
+    measure();
+    searchRef.current?.focus();
+  }, [open]);
+
+  const handleOpen = () => { setOpen(o => !o); setQuery(""); };
+
+  useEffect(() => {
+    if (!open) return;
+    const h = () => measure();
+    window.addEventListener("scroll", h, true);
+    window.addEventListener("resize", h);
+    return () => { window.removeEventListener("scroll", h, true); window.removeEventListener("resize", h); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => {
+      if (!triggerRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) {
+        setOpen(false); setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const select = (code) => { onChange({ target: { value: code } }); setOpen(false); setQuery(""); };
+  const hoverBg = isDark ? "rgba(255,255,255,.05)" : "#f1f5f9";
+
+  return (
+    <div>
+      <div ref={triggerRef} onClick={handleOpen}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: T.input, border: `1px solid ${open ? T.accent : T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", cursor: "pointer", boxSizing: "border-box" }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : "Select currency…"}</span>
+        <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+          style={{ flexShrink: 0, marginLeft: 8, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }}>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </div>
+      {open && pos && createPortal(
+        <div ref={dropRef} style={{
+          position: "absolute", top: pos.top, left: pos.left, width: Math.max(pos.width, 220), zIndex: 99999,
+          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10,
+          boxShadow: T.shadow, overflow: "hidden", fontFamily: "'DM Sans', sans-serif",
+        }}>
+          <div style={{ padding: "8px 8px 4px", borderBottom: `1px solid ${T.border}` }}>
+            <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onClick={e => e.stopPropagation()}
+              placeholder="Search currency…"
+              style={{ width: "100%", height: 32, padding: "0 10px", border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 12, background: T.surface2, color: T.text, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ maxHeight: 240, overflowY: "auto", padding: 5 }}>
+            {filtered.length === 0
+              ? <div style={{ padding: 14, textAlign: "center", fontSize: 12, color: T.muted }}>No results</div>
+              : filtered.map(o => {
+                  const isAct = o.code === value;
+                  return (
+                    <div key={o.code} onClick={() => select(o.code)}
+                      style={{ padding: "8px 10px", borderRadius: 7, cursor: "pointer", fontSize: 13, fontWeight: isAct ? 600 : 400, color: isAct ? T.accent : T.text, background: isAct ? hoverBg : "transparent" }}
+                      onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+                      onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+                      {o.label}
+                    </div>
+                  );
+                })}
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
 const Tex = ({ style, ...r }) => {
   const T = useT(); const f = useFF();
   const base = { background: T.input, border: `1px solid ${T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", transition: "border-color .15s" };
@@ -339,34 +437,53 @@ const LineItems = ({ items }) => {
 };
 
 /* ─── Product typeahead — search inventory or free-type a description ─────── */
-const ProductInput = ({ row, stockList, setItems }) => {
+// Portaled to document.body: this renders inside a horizontally-scrollable table
+// wrapper (overflowY: "hidden"), so a plain position:absolute dropdown gets clipped.
+const ProductInput = ({ row, stockList, setItems, priceList, priceListFxRate }) => {
   const T = useT();
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  const wrapRef = useRef(null);
+  const dropRef = useRef(null);
+
+  const measure = () => {
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4 + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 220) });
+  };
+  useLayoutEffect(() => { if (open) measure(); }, [open]);
   useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    if (!open) return;
+    const h = () => measure();
+    window.addEventListener("scroll", h, true);
+    window.addEventListener("resize", h);
+    return () => { window.removeEventListener("scroll", h, true); window.removeEventListener("resize", h); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (!wrapRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
-  }, []);
+  }, [open]);
+
   const q = (row.desc || "").toLowerCase();
   const matches = (q
     ? stockList.filter(s => (s.name || "").toLowerCase().includes(q) || (s.item_code || "").toLowerCase().includes(q))
     : stockList).slice(0, 8);
   const pick = (s) => {
     setItems(prev => prev.map(r => r.id === row.id
-      ? { ...r, desc: s.name || "", stockId: s._id, unitPrice: p(s.selling_price || s.sellingPrice || 0) || r.unitPrice, _stock: true }
+      ? { ...r, desc: s.name || "", stockId: s._id, unitPrice: resolveItemPrice(s, priceList, priceListFxRate) || r.unitPrice, _stock: true }
       : r));
     setOpen(false);
   };
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={wrapRef} style={{ position: "relative" }}>
       <input value={row.desc} placeholder="Search product or type description…"
         onChange={e => { const v = e.target.value; setItems(prev => prev.map(r => r.id === row.id ? { ...r, desc: v, _stock: false, stockId: "" } : r)); setOpen(true); }}
         onFocus={() => setOpen(true)}
         style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: 13, color: T.text, fontFamily: "inherit", padding: "4px 0" }} />
       {row._stock && <span style={{ fontSize: 10, color: T.accent2, display: "block" }}>↗ inventory</span>}
-      {open && matches.length > 0 && (
-        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 60, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.18)", maxHeight: 240, overflowY: "auto", marginTop: 4 }}>
+      {open && matches.length > 0 && pos && createPortal(
+        <div ref={dropRef} style={{ position: "absolute", top: pos.top, left: pos.left, width: pos.width, zIndex: 100000, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.18)", maxHeight: 240, overflowY: "auto" }}>
           {matches.map(s => (
             <button key={s._id} type="button" onClick={() => pick(s)}
               style={{ width: "100%", textAlign: "left", padding: "8px 12px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "inherit", display: "flex", justifyContent: "space-between", gap: 8, color: T.text }}>
@@ -374,14 +491,15 @@ const ProductInput = ({ row, stockList, setItems }) => {
               <span style={{ fontSize: 11, color: T.muted, fontFamily: "'DM Mono', monospace", whiteSpace: "nowrap" }}>{s.item_code || ""} · {p(s.quantity || 0)} in stock</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
 };
 
 /* ─── Editable line items — direct-invoice mode (add/search products) ────── */
-const EditableLineItems = ({ items, setItems, stockList }) => {
+const EditableLineItems = ({ items, setItems, stockList, priceList, priceListFxRate }) => {
   const T = useT();
   const isMobile = useIsMobile();
   const upd = (id, field, val) => setItems(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
@@ -407,7 +525,7 @@ const EditableLineItems = ({ items, setItems, stockList }) => {
               const { total } = calcLine(row);
               return (
                 <tr key={row.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                  <td style={{ padding: "8px", minWidth: 200 }}><ProductInput row={row} stockList={stockList} setItems={setItems} /></td>
+                  <td style={{ padding: "8px", minWidth: 200 }}><ProductInput row={row} stockList={stockList} setItems={setItems} priceList={priceList} priceListFxRate={priceListFxRate} /></td>
                   <td style={{ padding: "8px", width: "8%" }}><input type="number" min="0" value={row.qty} onChange={e => upd(row.id, "qty", e.target.value)} style={inp} /></td>
                   <td style={{ padding: "8px", width: "13%" }}><input type="number" min="0" value={row.unitPrice} onChange={e => upd(row.id, "unitPrice", e.target.value)} style={inp} /></td>
                   <td style={{ padding: "8px", width: "10%" }}><input type="number" min="0" value={row.discount} onChange={e => upd(row.id, "discount", e.target.value)} style={inp} /></td>
@@ -428,6 +546,12 @@ const EditableLineItems = ({ items, setItems, stockList }) => {
   );
 };
 
+// All ISO 4217 currencies: { code: "AED", label: "AED — UAE Dirham" }
+const CURRENCY_OPTIONS = cc.codes().map(code => {
+  const d = cc.code(code);
+  return d ? { code, label: `${code} — ${d.currency}` } : null;
+}).filter(Boolean);
+
 /* ─── Main Page ─────────────────────────────────────────────────────────── */
 const CreateInvoice = () => {
   const navigate  = useNavigate();
@@ -436,6 +560,7 @@ const CreateInvoice = () => {
   const T         = getT(isDark);
   const isMobile  = useIsMobile();
   const { handleGetCustomers, data: customersData } = useGetCustomers();
+  const activeOrg = useAuthStore((s) => s.activeOrg);
 
   useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
 
@@ -447,6 +572,17 @@ const CreateInvoice = () => {
   const [terms,         setTerms]         = useState("Net 30");
   const [customerId,    setCustomerId]    = useState("");
   const [custName,      setCustName]      = useState("");
+  // Customer's assigned Price List (if any) — resolved per line item in ProductInput.
+  const [activePriceList, setActivePriceList] = useState(null);
+  const [priceListFxRate, setPriceListFxRate] = useState(1);
+  // Recompute whenever the price list or the invoice's own currency changes — the
+  // list's currency may not match what this invoice is actually being billed in.
+  useEffect(() => {
+    if (!activePriceList?.currency) { setPriceListFxRate(1); return; }
+    let live = true;
+    getPriceListFxRate(activePriceList.currency, currency).then(r => { if (live) setPriceListFxRate(r); });
+    return () => { live = false; };
+  }, [activePriceList, currency]);
   const [custAddr,      setCustAddr]      = useState("");
   const [custTrn,       setCustTrn]       = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState(() => `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`);
@@ -479,6 +615,19 @@ const CreateInvoice = () => {
       setCurrency((c) => (c === 'AED' ? base : c));
     }).catch(() => {});
   }, []);
+
+  // Default "From (Your Company)" to the org's own profile — only fills blanks, never
+  // overwrites something already loaded/typed (e.g. a resumed draft).
+  useEffect(() => {
+    if (!activeOrg?._id) return;
+    axiosInstance.get(`/api/organizations/${activeOrg._id}`).then((r) => {
+      const org = r.data?.data;
+      if (!org) return;
+      setFromName((v) => v || org.name || '');
+      setFromAddr((v) => v || org.address || '');
+      setFromTrn((v) => v || org.trn || '');
+    }).catch(() => {});
+  }, [activeOrg?._id]);
 
   // Resolve the txn→base rate whenever currency or issue date changes.
   useEffect(() => {
@@ -649,6 +798,11 @@ const CreateInvoice = () => {
     setCustName(c.customerDisplayName || c.companyName || "");
     setCustAddr(fmtCustAddr(c));
     setCustTrn(c.custom_fields?.trlNumber || c.customFields?.trlNumber || "");
+    if (c.price_list_id) {
+      axiosInstance.get(`/api/price-lists/${c.price_list_id}`).then(r => setActivePriceList(r.data?.data || null)).catch(() => setActivePriceList(null));
+    } else {
+      setActivePriceList(null);
+    }
     if (skipTerms) return;
     const custTerms = c.payment_terms || c.paymentTerms;
     if (custTerms) {
@@ -872,9 +1026,7 @@ const CreateInvoice = () => {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <Field label="Currency">
-                  <Sel value={currency} onChange={e => setCurrency(e.target.value)}>
-                    {[["AED","AED — UAE Dirham"],["USD","USD — US Dollar"],["EUR","EUR — Euro"],["GBP","GBP — British Pound"],["SAR","SAR — Saudi Riyal"]].map(([code,label]) => <option key={code} value={code}>{label}</option>)}
-                  </Sel>
+                  <CurrencySelect value={currency} onChange={e => setCurrency(e.target.value)} options={CURRENCY_OPTIONS} />
                   {currency && currency !== baseCurrency && (
                     <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>
                       1 {currency} = {Number(exchangeRate).toLocaleString("en-AE", { maximumFractionDigits: 6 })} {baseCurrency} · books in {baseCurrency} ({baseCurrency} {Number(totals.grandTotal * exchangeRate).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
@@ -947,7 +1099,7 @@ const CreateInvoice = () => {
                   )
                 ) : (
                   // Direct invoice → add/search products and edit lines.
-                  <EditableLineItems items={items} setItems={setItems} stockList={stockList} />
+                  <EditableLineItems items={items} setItems={setItems} stockList={stockList} priceList={activePriceList} priceListFxRate={priceListFxRate} />
                 )
               )}
 

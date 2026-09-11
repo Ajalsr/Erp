@@ -101,7 +101,7 @@ type SalesOrder struct {
 	CustomerID           string             `json:"customerId" bson:"customerId" binding:"required"`
 	CustomerName         string             `json:"customerName" bson:"customerName"`
 	CustomerCode         string             `json:"customerCode" bson:"customerCode"`
-	SalesType            string             `json:"salesType" bson:"salesType" binding:"required,oneof=SO MOA MOA_COLLECT FREE_DELIVERY"`
+	SalesType            string             `json:"salesType" bson:"salesType" binding:"required"`
 	OrderDate            time.Time          `json:"orderDate" bson:"orderDate" binding:"required"`
 	LpoNumber            string             `json:"lpoNumber" bson:"lpoNumber"`
 	LpoDate              *time.Time         `json:"lpoDate,omitempty" bson:"lpoDate,omitempty"`
@@ -173,7 +173,7 @@ type Attachment struct {
 type CreateSalesOrderRequest struct {
 	OrderNumber          string           `json:"orderNumber" binding:"required"`
 	CustomerID           string           `json:"customerId" binding:"required"`
-	SalesType            string           `json:"salesType" binding:"required,oneof=SO MOA MOA_COLLECT FREE_DELIVERY"`
+	SalesType            string           `json:"salesType" binding:"required"`
 	OrderDate            time.Time        `json:"orderDate" binding:"required"`
 	LpoNumber            string           `json:"lpoNumber"`
 	LpoDate              *time.Time       `json:"lpoDate,omitempty"`

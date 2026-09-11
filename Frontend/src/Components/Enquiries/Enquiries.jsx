@@ -13,6 +13,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import CountrySelect from "../common/CountrySelect";
+import QuickAddItemModal from "../common/QuickAddItemModal";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
@@ -21,6 +22,7 @@ import nexusToast from "../../helper/nexusToast";
 import useGetCustomers from "../../helper/useGetCustomers";
 import { usePermissions } from "../../helper/permissions";
 import useIsMobile from "../../helper/useIsMobile";
+import useConfirm from "../common/useConfirm";
 
 const STATUSES = [
   { key: "all",       label: "All" },
@@ -81,7 +83,7 @@ const EMPTY_FORM = {
   followUpDate: "", notes: "", date: new Date().toISOString().slice(0, 10),
 };
 
-function ItemSearch({ value, onSelect, onType, allItems, T }) {
+function ItemSearch({ value, selectedId, onSelect, onType, allItems, T, onCreateNew }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos]   = useState({ top: 0, left: 0, width: 0 });
   const wrapRef = useRef(null);
@@ -112,31 +114,43 @@ function ItemSearch({ value, onSelect, onType, allItems, T }) {
     return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", measure); };
   }, [open]);
 
+  // Only an actual item from the catalog may be entered here — typing that never
+  // resolves to a selection (no click, so selectedId stays empty) is reverted on blur.
+  const handleBlur = () => {
+    if (!selectedId && value) onType("");
+  };
+
   return (
     <div ref={wrapRef}>
       <input
         value={value}
         onChange={e => { onType(e.target.value); setOpen(true); }}
         onFocus={() => { measure(); setOpen(true); }}
+        onBlur={handleBlur}
         placeholder="Search item…"
         style={{ width: "100%", padding: "7px 10px", border: `1.5px solid ${T.border}`,
           borderRadius: 7, fontSize: 12, background: T.surface, color: T.textPri,
           outline: "none", fontFamily: "inherit", boxSizing: "border-box",
-          borderColor: value ? T.blue : T.border }}
+          borderColor: selectedId ? T.blue : T.border }}
       />
-      {open && filtered.length > 0 && createPortal(
+      {open && createPortal(
         <div ref={dropRef} style={{
           position: "fixed", top: pos.top, left: pos.left, width: Math.max(pos.width, 220),
           zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`,
           borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.32)",
-          maxHeight: 220, overflowY: "auto",
+          maxHeight: 260, overflowY: "auto",
         }}>
+          {filtered.length === 0 && (
+            <div style={{ padding: "10px 13px", fontSize: 12, color: T.textSec }}>
+              No items match{value ? ` "${value}"` : ""}
+            </div>
+          )}
           {filtered.map((item, i) => (
             <div key={item._id || i}
               onMouseDown={e => e.preventDefault()}
               onClick={() => { onSelect(item); setOpen(false); }}
               style={{ padding: "9px 13px", cursor: "pointer", fontSize: 12,
-                borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : "none",
+                borderBottom: i < filtered.length - 1 || onCreateNew ? `1px solid ${T.border}` : "none",
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 transition: "background .1s" }}
               onMouseEnter={e => e.currentTarget.style.background = T.surface2}
@@ -150,6 +164,20 @@ function ItemSearch({ value, onSelect, onType, allItems, T }) {
               </span>
             </div>
           ))}
+          {onCreateNew && (
+            <div
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onCreateNew(onSelect); setOpen(false); }}
+              style={{ padding: "9px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, color: T.blue,
+                display: "flex", alignItems: "center", gap: 6 }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Create new item
+            </div>
+          )}
         </div>,
         document.body
       )}
@@ -549,6 +577,66 @@ function CustomerPicker({ value, valueLabel, onSelect, onClear, customers, T, bo
   );
 }
 
+// ── Follow-ups — a dated, commented log (multiple entries; past ones stay editable) ──
+// Append-only, like the app's other activity/history logs (e.g. customer history):
+// a saved entry is permanent — no editing a past follow-up, only adding a new one.
+function FollowUpsPanel({ enquiry, onAdd, T, border }) {
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "numeric", month: "short", year: "numeric" }) : "—";
+  const [adding, setAdding]       = useState(false);
+  const [date, setDate]           = useState("");
+  const [comment, setComment]     = useState("");
+  const [saving, setSaving]       = useState(false);
+
+  const entries = [...(enquiry.followUps || [])].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  const startAdd = () => { setAdding(true); setDate(new Date().toISOString().slice(0, 10)); setComment(""); };
+  const cancel = () => setAdding(false);
+
+  const save = async () => {
+    if (!date) { nexusToast.error("Follow-up date is required"); return; }
+    setSaving(true);
+    try {
+      await onAdd(date, comment);
+      cancel();
+    } finally { setSaving(false); }
+  };
+
+  const textareaStyle = { width: "100%", minHeight: 54, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${T.border}`, background: T.surface, color: T.textPri, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" };
+
+  return (
+    <div style={{ background: T.surface2, border: `1px solid ${border}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em" }}>Follow-ups</span>
+        {!adding && (
+          <button onClick={startAdd} style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", background: "none", border: "none", cursor: "pointer" }}>+ Add follow-up</button>
+        )}
+      </div>
+
+      {entries.length === 0 && !adding && (
+        <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>No follow-ups logged yet.</p>
+      )}
+
+      {entries.map(f => (
+        <div key={f.id} style={{ padding: "8px 0", borderBottom: `1px solid ${border}` }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: f.date && new Date(f.date) < new Date() ? T.red : T.textPri }}>{fmtDate(f.date)}</div>
+          {f.comment && <div style={{ fontSize: 12, color: T.textSec, marginTop: 2, wordBreak: "break-word", overflowWrap: "anywhere" }}>{f.comment}</div>}
+        </div>
+      ))}
+
+      {adding && (
+        <div style={{ padding: "10px 0" }}>
+          <EnqDatePicker value={date} onChange={setDate} T={T} placeholder="Select date" />
+          <textarea style={{ ...textareaStyle, marginTop: 8 }} placeholder="Comment (optional) — e.g. Called client, will decide next week" value={comment} onChange={e => setComment(e.target.value)} />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={save} disabled={saving} style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 7, border: "none", background: "#3b82f6", color: "#fff", cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "Saving…" : "Add"}</button>
+            <button onClick={cancel} disabled={saving} style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const LIMIT = 15;
 
 export default function Enquiries() {
@@ -587,6 +675,13 @@ export default function Enquiries() {
   const [modalOpen,    setModalOpen]    = useState(false);
   const [form,         setForm]         = useState(EMPTY_FORM);
   const [submitting,   setSubmitting]   = useState(false);
+  const { confirm, ConfirmModal } = useConfirm();
+  const closeCreateModal = async () => {
+    if (JSON.stringify(form) !== JSON.stringify(EMPTY_FORM)) {
+      if (!(await confirm({ title: "Discard enquiry?", message: "Unsaved changes will be lost.", confirmLabel: "Discard", danger: true }))) return;
+    }
+    setModalOpen(false);
+  };
 
   // Status update in drawer
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -602,6 +697,40 @@ export default function Enquiries() {
       .then(r => setAllItems(r.data?.data || []))
       .catch(() => {});
   }, []);
+
+  // Units of measure + item groups, for the "quick add item" shortcut's fields
+  const [uomOptions, setUomOptions] = useState([]);
+  const fetchUomOptions = useCallback(() => {
+    return axiosInstance.get("/api/uoms/?status=active")
+      .then(r => setUomOptions((r.data?.data?.uoms || []).map(u => ({ label: u.symbol ? `${u.name} (${u.symbol})` : u.name, value: u._id }))))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchUomOptions(); }, [fetchUomOptions]);
+
+  const [groupOptions, setGroupOptions] = useState([]);
+  const [groupMap, setGroupMap]         = useState({}); // id → { prefix }
+  const fetchGroupOptions = useCallback(() => {
+    return axiosInstance.get("/api/item-groups/?status=active")
+      .then(r => {
+        const list = r.data?.data?.groups || [];
+        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
+        const map = {};
+        list.forEach(g => { map[g._id] = { prefix: g.prefix || "" }; });
+        setGroupMap(map);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchGroupOptions(); }, [fetchGroupOptions]);
+
+  // Line-item "+ Create new item" shortcut — a single shared modal instance; opening it
+  // stores which line's onSelect callback should receive the newly created item.
+  const [quickAddItem, setQuickAddItem] = useState(null); // null | { onSelect: fn }
+  const openQuickAddItem = useCallback((onSelect) => setQuickAddItem({ onSelect }), []);
+  const handleItemCreated = useCallback(async (newItem) => {
+    setAllItems(prev => [newItem, ...prev]);
+    quickAddItem?.onSelect(newItem);
+    setQuickAddItem(null);
+  }, [quickAddItem]);
 
   // Sales reps in this org — populate the "Assigned To" dropdown.
   const activeOrgId = useAuthStore((s) => s.activeOrg?._id || s.user?.orgId || "");
@@ -742,7 +871,7 @@ export default function Enquiries() {
     if (form.contactPhone && !isValidPhoneNumber(form.contactPhone)) { nexusToast.error("Enter a valid contact phone number"); return; }
     setSubmitting(true);
     try {
-      const lineItems = (form.lineItems || []).filter(li => li.itemName.trim());
+      const lineItems = (form.lineItems || []).filter(li => li.itemId && li.itemName.trim());
       const estimatedValue = lineItems.reduce((s, li) =>
         s + lineTot(li), 0);
       await axiosInstance.post("/api/enquiries/", {
@@ -775,11 +904,33 @@ export default function Enquiries() {
     } finally { setUpdatingStatus(false); }
   };
 
+  // Refetch the enquiry after a follow-up add/edit rather than trust a locally-built
+  // merge — guarantees the list shown (and the IDs "Edit" targets) always match what's
+  // actually persisted, instead of a client-guessed shape.
+  const refreshSelectedEnquiry = async () => {
+    const res = await axiosInstance.get(`/api/enquiries/${selected._id}`);
+    const fresh = res.data?.data;
+    if (!fresh) return;
+    setSelected(fresh);
+    setEnquiries(prev => prev.map(e => e._id === fresh._id ? fresh : e));
+  };
+
+  const handleAddFollowUp = async (date, comment) => {
+    try {
+      await axiosInstance.post(`/api/enquiries/${selected._id}/followups`, { date, comment });
+      await refreshSelectedEnquiry();
+      nexusToast.success("Follow-up added");
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Failed to add follow-up");
+      throw e;
+    }
+  };
+
   const handleSaveEdit = async () => {
     if (editForm.contactPhone && !isValidPhoneNumber(editForm.contactPhone)) { nexusToast.error("Enter a valid contact phone number"); return; }
     setSaving(true);
     try {
-      const lineItems = (editForm.lineItems || []).filter(li => li.itemName?.trim());
+      const lineItems = (editForm.lineItems || []).filter(li => li.itemId && li.itemName?.trim());
       const estimatedValue = lineItems.reduce((s, li) =>
         s + lineTot(li), 0);
       await axiosInstance.put(`/api/enquiries/${selected._id}`, {
@@ -1111,6 +1262,8 @@ export default function Enquiries() {
                     ))}
                   </div>
 
+                  <FollowUpsPanel enquiry={selected} onAdd={handleAddFollowUp} T={T} border={border} />
+
                   {/* Description */}
                   {selected.description && (
                     <div style={{ background: T.surface2, border: `1px solid ${border}`, borderRadius: 12, padding: 16 }}>
@@ -1295,7 +1448,6 @@ export default function Enquiries() {
                     { key: "contactPhone",  label: "Contact Phone" },
                     { key: "subject",       label: "Subject *" },
                     { key: "assignedTo",    label: "Assigned To" },
-                    { key: "followUpDate",  label: "Follow Up Date", type: "date" },
                   ].map(({ key, label, type }) => (
                     <div key={key}>
                       <label style={labelStyle}>{label}</label>
@@ -1309,9 +1461,6 @@ export default function Enquiries() {
                         <EnqSelect T={T} value={editForm.assignedTo || ""} options={assigneeOptions}
                           onChange={v => setEditForm(f => ({ ...f, assignedTo: v }))}
                           placeholder={assigneeOptions.length ? "Select sales rep…" : "No sales reps yet"} />
-                      ) : key === "followUpDate" ? (
-                        <EnqDatePicker value={editForm.followUpDate} T={T} placeholder="Select date"
-                          onChange={v => setEditForm(f => ({ ...f, followUpDate: v }))} />
                       ) : (
                         <input type={type || "text"} value={editForm[key] || ""} className="enq-input"
                           onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
@@ -1347,8 +1496,10 @@ export default function Enquiries() {
                             gap: 0, padding: "5px 8px", borderTop: `1px solid ${T.border}`, alignItems: "center" }}>
                             <ItemSearch
                               value={li.itemName || ""}
+                              selectedId={li.itemId}
                               allItems={allItems}
                               T={T}
+                              onCreateNew={openQuickAddItem}
                               onType={v => setEditForm(f => {
                                 const items = [...(f.lineItems || [])];
                                 items[idx] = { ...items[idx], itemName: v, itemId: "" };
@@ -1580,7 +1731,7 @@ export default function Enquiries() {
       {/* ── Create Modal ───────────────────────────────────────────────── */}
       {modalOpen && (
         <>
-          <div onClick={() => setModalOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, animation: "enqOverlay .2s ease" }}/>
+          <div onClick={closeCreateModal} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, animation: "enqOverlay .2s ease" }}/>
           <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
             width: 560, maxWidth: "95vw", maxHeight: "90vh", background: T.surface,
             border: `1px solid ${border}`, borderRadius: 16, zIndex: 51,
@@ -1592,7 +1743,7 @@ export default function Enquiries() {
                 <div style={{ fontSize: 16, fontWeight: 800, color: T.textPri }}>New Enquiry</div>
                 <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>Add a new customer enquiry or lead</div>
               </div>
-              <button onClick={() => setModalOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec }}>
+              <button onClick={closeCreateModal} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec }}>
                 <FaTimes size={16}/>
               </button>
             </div>
@@ -1693,8 +1844,10 @@ export default function Enquiries() {
                           gap: 0, padding: "6px 10px", borderTop: `1px solid ${T.border}`, alignItems: "center" }}>
                           <ItemSearch
                             value={li.itemName}
+                            selectedId={li.itemId}
                             allItems={allItems}
                             T={T}
+                            onCreateNew={openQuickAddItem}
                             onType={v => setForm(f => {
                               const items = [...f.lineItems];
                               items[idx] = { ...items[idx], itemName: v, itemId: "" };
@@ -1810,7 +1963,7 @@ export default function Enquiries() {
                   cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.6 : 1, fontFamily: "inherit" }}>
                 {submitting ? "Creating…" : "Create Enquiry"}
               </button>
-              <button onClick={() => setModalOpen(false)}
+              <button onClick={closeCreateModal}
                 style={{ padding: "11px 18px", background: T.surface2, color: T.textSec,
                   border: `1.5px solid ${border}`, borderRadius: 10, fontSize: 13,
                   fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
@@ -1819,6 +1972,16 @@ export default function Enquiries() {
             </div>
           </div>
         </>
+      )}
+
+      {ConfirmModal}
+
+      {quickAddItem && (
+        <QuickAddItemModal T={T} isDark={isDark}
+          uomOptions={uomOptions} fetchUomOptions={fetchUomOptions}
+          groupOptions={groupOptions} groupMap={groupMap} fetchGroupOptions={fetchGroupOptions}
+          onClose={() => setQuickAddItem(null)}
+          onCreated={handleItemCreated} />
       )}
     </>
   );

@@ -7,12 +7,11 @@ import (
 )
 
 // ExportRoutes — GET /api/export/types, GET /api/export/preview-count,
-// POST /api/export/transactions. Gated on the "reports" module, same permission
-// that already governs the Reports pages — this is a reporting/export function,
-// not a system-admin one.
+// POST /api/export/transactions. Independently grantable via its own
+// "export_transactions" module.
 func ExportRoutes(router *gin.Engine) {
 	exportRoutes := router.Group("/api/export")
-	exportRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("reports"), middlewares.RequireModule("reports"))
+	exportRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("export_transactions"), middlewares.RequireModule("export_transactions"))
 	{
 		exportRoutes.GET("/types", controllers.GetExportTypes())
 		exportRoutes.GET("/preview-count", controllers.PreviewExportCount())
