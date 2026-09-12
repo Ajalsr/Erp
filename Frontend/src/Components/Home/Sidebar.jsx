@@ -43,6 +43,7 @@ const MENU = [
   ]},
   { icon: FaCartArrowDown,   label: 'Purchases',  mods: ['vendors','purchase_orders','grns','bills','expenses','vendor_credits','vendor_payments'], tourKey: 'nav-purchases', subItems: [
     { name: 'Vendors',          route: '/Purchase/Vendors',       mod: 'vendors' },
+    { name: 'Vendor Types',     route: '/Purchase/vendor-types',  mod: 'vendors' },
     { name: 'Purchase Orders',  route: '/Purchase/Purchaseorders',mod: 'purchase_orders' },
     { name: 'Inbound',          route: '/Purchase/Inbound',       mod: 'grns' },
     { name: 'GRN',              route: '/Purchase/GRN',           mod: 'grns' },

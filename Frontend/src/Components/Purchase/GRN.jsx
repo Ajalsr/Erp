@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -14,16 +14,17 @@ import { usePermissions } from '../../helper/permissions';
 import useConfirm from '../common/useConfirm';
 import useAuthStore from '../../store/useAuthStore';
 import api from '../../helper/axiosInstance';
+import QuickCreateModal from '../common/QuickCreateModal';
 
 // ── Custom dropdown ────────────────────────────────────────────────
-function CustomSelect({ value, onChange, options, T, isDark, disabled }) {
+function CustomSelect({ value, onChange, options, T, isDark, disabled, plain, searchable, onCreateNew, createLabel, placeholder }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const [coords, setCoords] = useState(null);
   const ref = useRef(null);     // trigger wrapper
   const menuRef = useRef(null); // portalled menu
+  const searchRef = useRef(null);
 
-  // Position the portalled menu under the trigger (fixed, so it escapes any
-  // overflow:auto/hidden ancestor — e.g. the horizontally scrollable table).
   const place = () => {
     if (!ref.current) return;
     const r = ref.current.getBoundingClientRect();
@@ -33,12 +34,13 @@ function CustomSelect({ value, onChange, options, T, isDark, disabled }) {
   useLayoutEffect(() => {
     if (!open) return;
     place();
+    if (searchable) searchRef.current?.focus();
     const close = (e) => {
       if (ref.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
       setOpen(false);
     };
-    // Menu is position:fixed, so it won't track scroll — close it instead.
-    const onScrollResize = () => setOpen(false);
+    // Reposition on scroll so the menu stays glued to the trigger.
+    const onScrollResize = () => place();
     document.addEventListener('mousedown', close);
     window.addEventListener('resize', onScrollResize);
     window.addEventListener('scroll', onScrollResize, true);
@@ -47,30 +49,55 @@ function CustomSelect({ value, onChange, options, T, isDark, disabled }) {
       window.removeEventListener('resize', onScrollResize);
       window.removeEventListener('scroll', onScrollResize, true);
     };
-  }, [open]);
+  }, [open, searchable]);
 
   const opts   = options.map(o => typeof o === 'string' ? { value: o, label: o } : o);
   const sel    = opts.find(o => o.value === value);
-  const selColor = value === 'pass' ? '#10b981' : value === 'fail' ? '#ef4444' : '#f59e0b';
+  const filtered = query ? opts.filter(o => String(o.label).toLowerCase().includes(query.toLowerCase())) : opts;
+
+  // "plain" = input-matching neutral style (used for type/payee/warehouse etc.).
+  // Default = the colored QC-status pill (pass/fail/pending).
+  const statusColor = value === 'pass' ? '#10b981' : value === 'fail' ? '#ef4444' : '#f59e0b';
+  const accent = isDark ? '#60a5fa' : '#2563eb';
+
+  const triggerStyle = plain
+    ? { padding: '8px 11px', borderRadius: 8, border: `1.5px solid ${open ? accent : T.border}`, background: T.bg, color: sel ? T.textPri : T.textSec, fontFamily: 'inherit', fontSize: 12.5, fontWeight: 400, cursor: disabled ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, width: '100%', justifyContent: 'space-between', boxSizing: 'border-box' }
+    : { padding: '4px 10px', borderRadius: 8, border: `1.5px solid ${open ? statusColor : (isDark ? 'rgba(255,255,255,.1)' : '#e2e8f0')}`, background: `${statusColor}18`, color: statusColor, fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: disabled ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, width: '100%', justifyContent: 'space-between' };
+
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block', minWidth: 110 }}>
-      <button type="button" onClick={() => !disabled && setOpen(v => !v)} disabled={disabled}
-        style={{ padding: '4px 10px', borderRadius: 8, border: `1.5px solid ${open ? selColor : (isDark ? 'rgba(255,255,255,.1)' : '#e2e8f0')}`, background: `${selColor}18`, color: selColor, fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: disabled ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, transition: 'border-color .15s', width: '100%', justifyContent: 'space-between' }}>
-        <span>{sel?.label || value}</span>
-        {!disabled && <FaChevronDown size={8} style={{ flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
+    <div ref={ref} style={{ position: 'relative', display: plain ? 'block' : 'inline-block', minWidth: plain ? 0 : 110 }}>
+      <button type="button" onClick={() => !disabled && setOpen(v => { if (!v) setQuery(''); return !v; })} disabled={disabled} style={triggerStyle}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sel?.label || placeholder || value}</span>
+        {!disabled && <FaChevronDown size={plain ? 10 : 8} style={{ flexShrink: 0, color: plain ? T.textSec : undefined, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
       </button>
       {open && coords && createPortal(
-        <div ref={menuRef} style={{ position: 'fixed', top: coords.top, left: coords.left, zIndex: 9999, minWidth: Math.max(coords.width, 130), background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden' }}>
-          {opts.map(o => {
-            const c = o.value === 'pass' ? '#10b981' : o.value === 'fail' ? '#ef4444' : '#f59e0b';
-            return (
-              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
-                style={{ width: '100%', padding: '8px 14px', fontSize: 12, fontWeight: 700, background: o.value === value ? `${c}18` : 'transparent', color: c, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background .1s' }}>
-                {o.label}
-                {o.value === value && <span style={{ fontSize: 9 }}>✓</span>}
-              </button>
-            );
-          })}
+        <div ref={menuRef} style={{ position: 'fixed', top: coords.top, left: coords.left, zIndex: 9999, minWidth: Math.max(coords.width, 150), width: plain ? Math.max(coords.width, 180) : undefined, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden' }}>
+          {searchable && (
+            <div style={{ padding: 6, borderBottom: `1px solid ${T.border}` }}>
+              <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search…"
+                style={{ width: '100%', height: 30, padding: '0 9px', border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 12, background: T.bg, color: T.textPri, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            </div>
+          )}
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: '10px 14px', fontSize: 12, color: T.textSec, textAlign: 'center' }}>No matches</div>
+            ) : filtered.map(o => {
+              const c = plain ? (o.value === value ? accent : T.textPri) : (o.value === 'pass' ? '#10b981' : o.value === 'fail' ? '#ef4444' : '#f59e0b');
+              return (
+                <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                  style={{ width: '100%', padding: '8px 14px', fontSize: 12.5, fontWeight: (!plain || o.value === value) ? 700 : 400, background: o.value === value ? (plain ? `${accent}14` : `${c}18`) : 'transparent', color: c, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background .1s' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+                  {o.value === value && <span style={{ fontSize: 9 }}>✓</span>}
+                </button>
+              );
+            })}
+          </div>
+          {onCreateNew && (
+            <div onMouseDown={() => { setOpen(false); onCreateNew(); }}
+              style={{ padding: '10px 14px', borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: accent, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || 'Create new'}
+            </div>
+          )}
         </div>,
         document.body
       )}
@@ -502,10 +529,17 @@ export default function GRN() {
   };
 
   // Vendors for the "payee" picker on each other-charge row (customs authority, agent…)
+  const fetchVendors = useCallback(() => api.get('/api/vendors/?limit=200')
+    .then(r => setVendors(r.data?.data?.vendors || [])).catch(() => {}), []);
+  const [quickCreateVendor, setQuickCreateVendor] = useState(false);
+  const [vendorTypeList, setVendorTypeList] = useState([]);
+  useEffect(() => { api.get('/api/vendor-types/?status=active').then(r => setVendorTypeList(r.data?.data?.vendorTypes || [])).catch(() => {}); }, []);
+  const handleCreateVendor = async (f) => {
+    await api.post('/api/vendors/', { displayName: f.displayName, companyName: f.companyName || f.displayName, email: f.email || '', phone: f.phone || '', vendorType: f.vendorType || '' });
+    await fetchVendors();
+  };
   useEffect(() => {
-    api.get('/api/vendors/?limit=200')
-      .then(r => setVendors(r.data?.data?.vendors || []))
-      .catch(() => {});
+    fetchVendors();
     api.get('/api/accounts/?limit=500&status=active')
       .then(r => setBankAccounts((r.data?.data?.accounts || []).filter(a => a.isBankAccount)))
       .catch(() => {});
@@ -631,15 +665,19 @@ export default function GRN() {
   }, [id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load warehouses for the receiving-warehouse picker; preselect the default.
-  useEffect(() => {
-    api.get('/api/warehouses/')
-      .then(r => {
-        const list = r.data?.data?.warehouses || r.data?.data || [];
-        setWarehouses(list);
-        setWarehouseId(prev => prev || (list.find(w => w.isDefault)?._id) || list[0]?._id || '');
-      })
-      .catch(() => {});
-  }, []);
+  const [quickCreateWarehouse, setQuickCreateWarehouse] = useState(false);
+  const fetchWarehouses = useCallback((selectId) => api.get('/api/warehouses/')
+    .then(r => {
+      const list = r.data?.data?.warehouses || r.data?.data || [];
+      setWarehouses(list);
+      setWarehouseId(prev => selectId || prev || (list.find(w => w.isDefault)?._id) || list[0]?._id || '');
+    }).catch(() => {}), []);
+  useEffect(() => { fetchWarehouses(); }, [fetchWarehouses]);
+  const handleCreateWarehouse = async (f) => {
+    const res = await api.post('/api/warehouses/', { name: f.name, code: f.code || '', location: f.location || '', capacity: 0, isDefault: false });
+    const newId = res.data?.data?._id || res.data?.data?.id;
+    await fetchWarehouses(newId);
+  };
 
   if (loading) return (
     <div style={{ minHeight: 'calc(100vh - 56px)', background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1192,11 +1230,13 @@ export default function GRN() {
                       <>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, paddingTop: 4 }}>
                           <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500, flexShrink: 0 }}>Receive into</span>
-                          <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}
-                            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface2, color: T.textPri, outline: 'none', width: 168 }}>
-                            {warehouses.length === 0 && <option value="">No warehouses</option>}
-                            {warehouses.map(w => <option key={w._id} value={w._id}>{w.name}{w.isDefault ? ' (default)' : ''}</option>)}
-                          </select>
+                          <div style={{ width: 160 }}>
+                            <CustomSelect value={warehouseId} onChange={(v) => setWarehouseId(v)}
+                              options={warehouses.map(w => ({ value: w._id, label: `${w.name}${w.isDefault ? ' (default)' : ''}` }))}
+                              placeholder={warehouses.length === 0 ? 'No warehouses' : 'Select warehouse'}
+                              T={T} isDark={isDark} plain searchable
+                              onCreateNew={() => setQuickCreateWarehouse(true)} createLabel="Create warehouse" />
+                          </div>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontSize: 11.5, color: T.textSec, fontWeight: 500, flexShrink: 0 }}>Delivery Note #</span>
@@ -1379,7 +1419,7 @@ export default function GRN() {
                     <div key={idx} style={{ marginBottom: 12 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 110px 90px 1fr 34px', gap: 9, alignItems: 'center' }}>
                       <CustomSelect value={c.type} onChange={(v) => updateCharge(idx, { type: v })}
-                        options={CHARGE_TYPES} T={T} isDark={isDark} disabled={!chargesEditable} />
+                        options={CHARGE_TYPES} T={T} isDark={isDark} disabled={!chargesEditable} plain />
                       <input type="text" placeholder="Label (e.g. Import duty 5%)" value={c.label}
                         disabled={!chargesEditable}
                         onChange={(e) => updateCharge(idx, { label: e.target.value })}
@@ -1396,7 +1436,8 @@ export default function GRN() {
                         value={c.payeeVendorId}
                         onChange={(v) => updateCharge(idx, { payeeVendorId: v, payeeVendorName: vendors.find(x => (x._id || x.id) === v)?.displayName || vendors.find(x => (x._id || x.id) === v)?.name || vendors.find(x => (x._id || x.id) === v)?.companyName || '' })}
                         options={[{ value: '', label: 'Payee: Main vendor (on main bill)' }, ...vendors.map(v => ({ value: v._id || v.id, label: v.displayName || v.name || v.companyName || 'Vendor' }))]}
-                        T={T} isDark={isDark} disabled={!chargesEditable} />
+                        T={T} isDark={isDark} disabled={!chargesEditable} plain searchable
+                        onCreateNew={() => setQuickCreateVendor(true)} createLabel="Create new vendor" />
                       {chargesEditable ? (
                         <button className="grn-btn" onClick={() => removeCharge(idx)}
                           style={{ width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 8, color: '#ef4444', fontSize: 15 }}>
@@ -1420,7 +1461,7 @@ export default function GRN() {
                               value={c.billStatus || 'paid'}
                               onChange={(v) => updateCharge(idx, { billStatus: v })}
                               options={[{ value: 'paid', label: 'Paid' }, { value: 'open', label: 'Unpaid (Open)' }]}
-                              T={T} isDark={isDark} disabled={!chargesEditable} />
+                              T={T} isDark={isDark} disabled={!chargesEditable} plain />
                           </div>
                         </div>
                       )}
@@ -1432,7 +1473,7 @@ export default function GRN() {
                               value={c.paymentAccount}
                               onChange={(v) => updateCharge(idx, { paymentAccount: v })}
                               options={[{ value: '', label: 'Bank Account (default)' }, ...bankAccounts.map(a => ({ value: a.accountCode, label: `${a.accountCode} · ${a.accountName}` }))]}
-                              T={T} isDark={isDark} disabled={!chargesEditable} />
+                              T={T} isDark={isDark} disabled={!chargesEditable} plain searchable />
                           </div>
                         </div>
                       )}
@@ -1565,6 +1606,26 @@ export default function GRN() {
         )}
       </div>
       {ConfirmModal}
+      {quickCreateVendor && (
+        <QuickCreateModal title="New Vendor" T={T}
+          fields={[
+            { name: 'displayName', label: 'Display Name', placeholder: 'e.g. Acme Trading LLC', required: true, autoFocus: true },
+            { name: 'companyName', label: 'Company Name', placeholder: 'Optional' },
+            { name: 'vendorType', label: 'Vendor Type', type: 'select', placeholder: 'Select type…', options: vendorTypeList.map(t => ({ value: t.name, label: t.name })) },
+            { name: 'email', label: 'Email', placeholder: 'vendor@example.com', type: 'email' },
+            { name: 'phone', label: 'Phone', placeholder: 'Optional' },
+          ]}
+          onClose={() => setQuickCreateVendor(false)} onSubmit={handleCreateVendor} />
+      )}
+      {quickCreateWarehouse && (
+        <QuickCreateModal title="New Warehouse" T={T}
+          fields={[
+            { name: 'name', label: 'Warehouse Name', placeholder: 'e.g. Main Store', required: true, autoFocus: true },
+            { name: 'code', label: 'Code', placeholder: 'Optional' },
+            { name: 'location', label: 'Location', placeholder: 'Optional' },
+          ]}
+          onClose={() => setQuickCreateWarehouse(false)} onSubmit={handleCreateWarehouse} />
+      )}
     </>
   );
 }

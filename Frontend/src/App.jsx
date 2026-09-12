@@ -78,6 +78,7 @@ const ItemGroups = lazy(() => import("./Components/ItemGroups/ItemGroups"))
 const UOM = lazy(() => import("./Components/UOM/UOM"))
 const PaymentTerms = lazy(() => import("./Components/PaymentTerms/PaymentTerms"))
 const SalesTypes = lazy(() => import("./Components/SalesTypes/SalesTypes"))
+const VendorTypes = lazy(() => import("./Components/VendorTypes/VendorTypes"))
 const PriceLists = lazy(() => import("./Components/PriceLists/PriceLists"))
 const NewPriceList = lazy(() => import("./Components/NewPriceList/NewPriceList"))
 const StockSummary = lazy(() => import("./Components/Inventory/StockSummary"))
@@ -207,6 +208,7 @@ function App() {
               <Route path="/Sales/Enquiries" element={<Enquiries />} />
               <Route path="/Sales/Salesorders" element={<Salesorders />} />
               <Route path="/Sales/sales-types" element={<SalesTypes />} />
+              <Route path="/Purchase/vendor-types" element={<VendorTypes />} />
               <Route path="/Sales/Outbound" element={<Outbound />} />
               <Route path="/Sales/Deliverynote" element={<DeliveryNoteList />} />
               <Route path="/Sales/Deliverynote/:id" element={<DeliveryNote />} />

@@ -10,6 +10,9 @@ import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import { debounce } from 'lodash';
+import cc from 'currency-codes';
+import QuickCreateModal from '../common/QuickCreateModal';
+import QuickAddItemModal from '../common/QuickAddItemModal';
 import RDatePicker from 'react-datepicker';
 import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -128,7 +131,14 @@ const SHIP_PREFS = [
   { value: 'within_30_days', label: 'Within 30 Days'  },
   { value: 'as_scheduled',   label: 'As Scheduled'    },
 ];
-const CURRENCY_OPTS = ['AED', 'USD', 'EUR', 'GBP', 'SAR'];
+// Full ISO currency list (searchable dropdown). AED/USD/EUR/GBP/SAR floated to top.
+const _TOP_CUR = ['AED', 'USD', 'EUR', 'GBP', 'SAR'];
+const CURRENCY_OPTS = (() => {
+  const all = cc.codes().map(code => { const d = cc.code(code); return d ? { value: code, label: `${code} — ${d.currency}` } : null; }).filter(Boolean);
+  const top = _TOP_CUR.map(c => all.find(o => o.value === c)).filter(Boolean);
+  const rest = all.filter(o => !_TOP_CUR.includes(o.value));
+  return [...top, ...rest];
+})();
 const AVATAR_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4'];
 
 const calcLineBase = (qty, rate, discount, discountType) => {
@@ -147,7 +157,7 @@ const Field = ({ label, req, children }) => (
 );
 
 /* ─── VendorSelect ────────────────────────────────────────────────── */
-function VendorSelect({ value, onChange, vendors, loading, T, isDark }) {
+function VendorSelect({ value, onChange, vendors, loading, T, isDark, onCreateNew }) {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
@@ -283,6 +293,14 @@ function VendorSelect({ value, onChange, vendors, loading, T, isDark }) {
           );
         })}
       </div>
+      {onCreateNew && (
+        <div onClick={() => { setOpen(false); setReady(false); onCreateNew(); }}
+          style={{ padding: '11px 14px', borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: activeColor, display: 'flex', alignItems: 'center', gap: 7 }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> Create new vendor
+        </div>
+      )}
     </div>
   );
 
@@ -311,18 +329,20 @@ function VendorSelect({ value, onChange, vendors, loading, T, isDark }) {
 }
 
 /* ─── CustomSelect ────────────────────────────────────────────────── */
-function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isDark }) {
+function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isDark, searchable, onCreateNew, createLabel }) {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
+  const [query,   setQuery]   = useState('');
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
   const triggerRef = useRef(null);
   const dropRef    = useRef(null);
+  const searchRef  = useRef(null);
   const rafRef     = useRef(null);
 
   const measurePos = useCallback(() => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    const dropH = Math.min(options.length * 40 + 12, 280);
+    const dropH = Math.min(options.length * 40 + 60, 320);
     const spaceBelow = window.innerHeight - r.bottom;
     const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
     setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width });
@@ -331,9 +351,9 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isD
 
   const handleOpen = () => {
     if (open) { setOpen(false); setReady(false); return; }
-    setReady(false); setOpen(true);
+    setReady(false); setQuery(''); setOpen(true);
     rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = requestAnimationFrame(() => measurePos());
+      rafRef.current = requestAnimationFrame(() => { measurePos(); if (searchable) searchRef.current?.focus(); });
     });
   };
 
@@ -358,6 +378,7 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isD
   const select = opt => { onChange(opt.value ?? opt); setOpen(false); setReady(false); };
   const selected = options.find(o => (o.value ?? o) === value);
   const display  = selected ? (selected.label ?? selected) : null;
+  const filtered = query ? options.filter(o => String(o.label ?? o).toLowerCase().includes(query.toLowerCase())) : options;
 
   const activeColor = isDark ? '#60a5fa' : '#2563eb';
   const activeBg    = isDark ? 'rgba(59,130,246,.15)' : '#eff6ff';
@@ -365,8 +386,17 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isD
 
   const dropdown = (
     <div ref={dropRef} style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12, fontFamily: "'DM Sans',sans-serif", boxShadow: isDark ? '0 16px 48px rgba(0,0,0,.5)' : '0 16px 48px rgba(0,0,0,.12)', overflow: 'hidden', visibility: ready ? 'visible' : 'hidden', opacity: ready ? 1 : 0, transition: 'opacity .12s ease' }}>
-      <div style={{ maxHeight: 268, overflowY: 'auto', padding: 6 }}>
-        {options.map((opt, i) => {
+      {searchable && (
+        <div style={{ padding: 6, borderBottom: `1px solid ${T.border}` }}>
+          <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onClick={e => e.stopPropagation()}
+            placeholder="Search…"
+            style={{ width: '100%', height: 32, padding: '0 10px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5, background: T.surface2, color: T.textPri, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+        </div>
+      )}
+      <div style={{ maxHeight: 240, overflowY: 'auto', padding: 6 }}>
+        {filtered.length === 0 ? (
+          <div style={{ padding: '12px', textAlign: 'center', fontSize: 12.5, color: T.textSec }}>No matches</div>
+        ) : filtered.map((opt, i) => {
           const val = opt.value ?? opt; const lbl = opt.label ?? opt; const isAct = val === value;
           return (
             <div key={i} onClick={() => select(opt)}
@@ -383,6 +413,14 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isD
           );
         })}
       </div>
+      {onCreateNew && (
+        <div onClick={() => { setOpen(false); setReady(false); onCreateNew(); }}
+          style={{ padding: '10px 14px', borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: activeColor, display: 'flex', alignItems: 'center', gap: 7 }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || 'Create new'}
+        </div>
+      )}
     </div>
   );
 
@@ -601,6 +639,76 @@ export default function Newpurchaseorders() {
   const [shipping,       setShipping]       = useState('0');
   const [adjustment,     setAdjustment]     = useState('0');
   const [saving,         setSaving]         = useState(false);
+
+  /* ── Org-configurable dropdowns (Payment Terms + Delivery Terms modules) ── */
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [deliveryTermList, setDeliveryTermList] = useState([]);
+  const [vendorTypeList, setVendorTypeList] = useState([]);
+  const [quickCreate, setQuickCreate] = useState(null); // 'paymentTerm' | 'deliveryTerm' | 'vendor' | 'item' | null
+  const fetchPaymentTermList = useCallback(() => axiosInstance.get('/api/payment-terms/?status=active')
+    .then(r => setPaymentTermList(r.data?.data?.paymentTerms || [])).catch(() => {}), []);
+  const fetchDeliveryTermList = useCallback(() => axiosInstance.get('/api/delivery-terms/?status=active')
+    .then(r => setDeliveryTermList(r.data?.data?.deliveryTerms || [])).catch(() => {}), []);
+  const fetchVendorTypeList = useCallback(() => axiosInstance.get('/api/vendor-types/?status=active')
+    .then(r => setVendorTypeList(r.data?.data?.vendorTypes || [])).catch(() => {}), []);
+  useEffect(() => { fetchPaymentTermList(); fetchDeliveryTermList(); fetchVendorTypeList(); }, [fetchPaymentTermList, fetchDeliveryTermList, fetchVendorTypeList]);
+
+  const paymentTermsOptions = (() => {
+    const opts = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+    if (opts.length === 0) PAYMENT_TERMS_OPTS.forEach(n => opts.push({ value: n, label: n }));
+    if (paymentTerms && !opts.some(o => o.value === paymentTerms)) opts.unshift({ value: paymentTerms, label: paymentTerms });
+    return opts;
+  })();
+  const deliveryTermsOptions = (() => {
+    const opts = deliveryTermList.map(t => ({ value: t.name, label: t.name }));
+    if (opts.length === 0) SHIP_PREFS.forEach(o => opts.push({ value: o.value, label: o.label }));
+    if (shipPref && !opts.some(o => o.value === shipPref)) {
+      const legacy = SHIP_PREFS.find(o => o.value === shipPref);
+      opts.unshift({ value: shipPref, label: legacy ? legacy.label : shipPref });
+    }
+    return opts;
+  })();
+  const handleCreatePaymentTerm = async (f) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: f.name, days: Number(f.days) || 0 });
+    await fetchPaymentTermList();
+    if (res.data?.data?.name) setPaymentTerms(res.data.data.name);
+  };
+  const handleCreateDeliveryTerm = async (f) => {
+    const res = await axiosInstance.post('/api/delivery-terms/', { name: f.name, description: f.description || '' });
+    await fetchDeliveryTermList();
+    if (res.data?.data?.name) setShipPref(res.data.data.name);
+  };
+  const handleCreateVendor = async (f) => {
+    const res = await axiosInstance.post('/api/vendors/', {
+      displayName: f.displayName, companyName: f.companyName || f.displayName,
+      email: f.email || '', phone: f.phone || '', vendorType: f.vendorType || '',
+    });
+    const created = res.data?.data;
+    const listRes = await axiosInstance.get('/api/vendors/?limit=200');
+    const list = listRes.data?.data?.vendors || [];
+    setVendors(list);
+    const picked = list.find(v => v._id === (created?._id || created?.id)) || list.find(v => v.displayName === f.displayName);
+    if (picked) setSelectedVendor(picked);
+  };
+  const [itemCreateRow, setItemCreateRow] = useState(null); // row index that opened "create item"
+  // Category groups + units of measure feed the rich QuickAddItemModal.
+  const [groupOptions, setGroupOptions] = useState([]);
+  const [groupMap, setGroupMap] = useState({});
+  const fetchGroupOptions = useCallback(() => axiosInstance.get('/api/item-groups/?status=active')
+    .then(r => {
+      const list = r.data?.data?.groups || [];
+      setGroupOptions(list.map(g => ({ value: g._id, label: g.name })));
+      const map = {}; list.forEach(g => { map[g._id] = { prefix: g.prefix || '' }; }); setGroupMap(map);
+    }).catch(() => {}), []);
+  const [uomOptions, setUomOptions] = useState([]);
+  const fetchUomOptions = useCallback(() => axiosInstance.get('/api/uoms/?status=active')
+    .then(r => setUomOptions((r.data?.data?.uoms || []).map(u => ({ value: u._id, label: u.symbol ? `${u.name} (${u.symbol})` : u.name })))).catch(() => {}), []);
+  useEffect(() => { fetchGroupOptions(); fetchUomOptions(); }, [fetchGroupOptions, fetchUomOptions]);
+  const handleItemCreated = (newItem) => {
+    if (itemCreateRow != null) handleItemSelect(itemCreateRow, newItem);
+    setQuickCreate(null); setItemCreateRow(null);
+    handleGetItem(); // refresh inventory cache so future searches find it too
+  };
 
   /* ── Org profile (address + TRN, for delivery-address prefill & the TRN row) ── */
   useEffect(() => {
@@ -836,10 +944,18 @@ export default function Newpurchaseorders() {
   const [itemDropPos, setItemDropPos] = useState({ top: 0, left: 0, width: 0 });
   useEffect(() => {
     if (showItemDropdown === null) return;
-    const el = itemInputRefs.current[showItemDropdown];
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setItemDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: Math.max(r.width, 480) });
+    const measure = () => {
+      const el = itemInputRefs.current[showItemDropdown];
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setItemDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: Math.max(r.width, 480) });
+    };
+    measure();
+    // Reposition on scroll/resize so the dropdown stays glued to its input
+    // (fixes the panel detaching from the row while the page scrolls).
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => { window.removeEventListener('scroll', measure, true); window.removeEventListener('resize', measure); };
   }, [showItemDropdown]);
 
   /* ─────────────────────────── RENDER ──────────────────────────── */
@@ -893,7 +1009,7 @@ export default function Newpurchaseorders() {
                     if (v?.paymentTerms) setPaymentTerms(v.paymentTerms);
                     setVendorEmail(v?.email || '');
                     setVendorPhone(v?.phone || v?.mobile || '');
-                  }} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} />
+                  }} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} onCreateNew={() => setQuickCreate('vendor')} />
                 </Field>
                 {selectedVendor && (
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -959,13 +1075,15 @@ export default function Newpurchaseorders() {
                 <DatePicker value={expectedDate} onChange={setExpectedDate} placeholder="Select expected date" />
               </Field>
               <Field label="Payment Terms">
-                <CustomSelect value={paymentTerms} onChange={setPaymentTerms} options={PAYMENT_TERMS_OPTS} placeholder="Select terms" T={T} isDark={isDark} />
+                <CustomSelect value={paymentTerms} onChange={setPaymentTerms} options={paymentTermsOptions} placeholder="Select terms" T={T} isDark={isDark}
+                  searchable onCreateNew={() => setQuickCreate('paymentTerm')} createLabel="Create payment term" />
               </Field>
               <Field label="Delivery Terms">
-                <CustomSelect value={shipPref} onChange={setShipPref} options={SHIP_PREFS} placeholder="Choose delivery terms" T={T} isDark={isDark} />
+                <CustomSelect value={shipPref} onChange={setShipPref} options={deliveryTermsOptions} placeholder="Choose delivery terms" T={T} isDark={isDark}
+                  searchable onCreateNew={() => setQuickCreate('deliveryTerm')} createLabel="Create delivery term" />
               </Field>
               <Field label="Currency">
-                <CustomSelect value={currency} onChange={setCurrency} options={CURRENCY_OPTS} placeholder="Select currency" T={T} isDark={isDark} />
+                <CustomSelect value={currency} onChange={setCurrency} options={CURRENCY_OPTS} placeholder="Select currency" T={T} isDark={isDark} searchable />
               </Field>
               <Field label="Project">
                 <input className="npo-inp" value={project} onChange={e => setProject(e.target.value)} placeholder="e.g. Marina Tower Fit-out" />
@@ -1157,6 +1275,12 @@ export default function Newpurchaseorders() {
                     ))}
                   </>
                 )}
+                <div onClick={() => { const row = showItemDropdown; setShowItemDropdown(null); setItemCreateRow(row); setQuickCreate('item'); }}
+                  style={{ padding: '11px 14px', borderTop: `1.5px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: T.blue, display: 'flex', alignItems: 'center', gap: 7 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,.05)' : '#f8fafc'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                  <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> Create new item
+                </div>
               </div>,
               document.body
             )}
@@ -1251,6 +1375,41 @@ export default function Newpurchaseorders() {
         </div>
 
       </div>
+
+      {quickCreate === 'paymentTerm' && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
+      )}
+      {quickCreate === 'deliveryTerm' && (
+        <QuickCreateModal title="New Delivery Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Within 10 Days', required: true, autoFocus: true },
+            { name: 'description', label: 'Description', placeholder: 'Optional' },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateDeliveryTerm} />
+      )}
+      {quickCreate === 'vendor' && (
+        <QuickCreateModal title="New Vendor" T={T}
+          fields={[
+            { name: 'displayName', label: 'Display Name', placeholder: 'e.g. Acme Trading LLC', required: true, autoFocus: true },
+            { name: 'companyName', label: 'Company Name', placeholder: 'Optional' },
+            { name: 'vendorType', label: 'Vendor Type', type: 'select', placeholder: 'Select type…',
+              options: vendorTypeList.map(t => ({ value: t.name, label: t.name })) },
+            { name: 'email', label: 'Email', placeholder: 'vendor@example.com', type: 'email' },
+            { name: 'phone', label: 'Phone', placeholder: 'Optional' },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateVendor} />
+      )}
+      {quickCreate === 'item' && (
+        <QuickAddItemModal T={T} isDark={isDark}
+          uomOptions={uomOptions} fetchUomOptions={fetchUomOptions}
+          groupOptions={groupOptions} groupMap={groupMap} fetchGroupOptions={fetchGroupOptions}
+          onClose={() => { setQuickCreate(null); setItemCreateRow(null); }} onCreated={handleItemCreated} />
+      )}
     </div>
   );
 }

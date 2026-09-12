@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { FaChevronLeft, FaPlus, FaTrash, FaCheckCircle, FaSpinner, FaChevronDown } from 'react-icons/fa';
+import cc from 'currency-codes';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import axiosInstance from '../../helper/axiosInstance';
+import QuickCreateModal from '../common/QuickCreateModal';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import nexusToast from '../../helper/nexusToast';
 import AppDatePicker from '../common/AppDatePicker';
@@ -23,32 +25,52 @@ const rcmForOrigin = (o) => {
 };
 
 // ── Custom dropdown — replaces native <select> ───────────────────────────────
-function CustomSelect({ value, onChange, options, placeholder = 'Select…', T, isDark, style = {} }) {
+function CustomSelect({ value, onChange, options, placeholder = 'Select…', T, isDark, style = {}, searchable, onCreateNew, createLabel }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const ref = useRef(null);
+  const searchRef = useRef(null);
   useEffect(() => {
+    if (open && searchable) searchRef.current?.focus();
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, []);
+  }, [open, searchable]);
   const opts = options.map(o => typeof o === 'string' ? { value: o, label: o } : o);
   const selected = opts.find(o => o.value === value);
+  const filtered = query ? opts.filter(o => String(o.label).toLowerCase().includes(query.toLowerCase())) : opts;
   return (
     <div ref={ref} style={{ position: 'relative', ...style }}>
-      <button type="button" onClick={() => setOpen(v => !v)}
+      <button type="button" onClick={() => setOpen(v => { if (!v) setQuery(''); return !v; })}
         style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${open ? '#3b82f6' : T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: selected ? T.textPri : T.textSec, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, textAlign: 'left', boxShadow: open ? '0 0 0 3px rgba(59,130,246,.12)' : 'none', transition: 'border-color .15s, box-shadow .15s' }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected?.label || placeholder}</span>
         <FaChevronDown size={10} style={{ flexShrink: 0, color: T.textSec, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden', maxHeight: 220, overflowY: 'auto' }}>
-          {opts.map(o => (
-            <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
-              style={{ width: '100%', padding: '9px 14px', fontSize: 13, background: o.value === value ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : 'transparent', color: o.value === value ? '#3b82f6' : T.textPri, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', fontWeight: o.value === value ? 700 : 400, display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background .1s' }}>
-              {o.label}
-              {o.value === value && <span style={{ fontSize: 10, color: '#3b82f6' }}>✓</span>}
-            </button>
-          ))}
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden' }}>
+          {searchable && (
+            <div style={{ padding: 6, borderBottom: `1px solid ${T.border}` }}>
+              <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search…"
+                style={{ width: '100%', height: 32, padding: '0 10px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5, background: T.bg, color: T.textPri, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            </div>
+          )}
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {filtered.length === 0
+              ? <div style={{ padding: '10px 14px', fontSize: 12.5, color: T.textSec, textAlign: 'center' }}>No matches</div>
+              : filtered.map(o => (
+                <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                  style={{ width: '100%', padding: '9px 14px', fontSize: 13, background: o.value === value ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : 'transparent', color: o.value === value ? '#3b82f6' : T.textPri, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', fontWeight: o.value === value ? 700 : 400, display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background .1s' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+                  {o.value === value && <span style={{ fontSize: 10, color: '#3b82f6' }}>✓</span>}
+                </button>
+              ))}
+          </div>
+          {onCreateNew && (
+            <div onMouseDown={() => { setOpen(false); onCreateNew(); }}
+              style={{ padding: '10px 14px', borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || 'Create new'}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -58,6 +80,15 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…', T, 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 const PAYMENT_TERMS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 90', 'End of Month', 'Cash on Delivery', 'Custom'];
+
+// Full ISO currency list (searchable). AED/USD/EUR/GBP/SAR floated to top.
+const _TOP_CUR = ['AED', 'USD', 'EUR', 'GBP', 'SAR'];
+const CURRENCY_OPTS = (() => {
+  const all = cc.codes().map(code => { const d = cc.code(code); return d ? { value: code, label: `${code} — ${d.currency}` } : null; }).filter(Boolean);
+  const top = _TOP_CUR.map(c => all.find(o => o.value === c)).filter(Boolean);
+  const rest = all.filter(o => !_TOP_CUR.includes(o.value));
+  return [...top, ...rest];
+})();
 const UAE_EMIRATES  = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'];
 const RCM_TYPES     = [
   { value: 'import',          label: 'Import (Overseas Vendor)' },
@@ -107,6 +138,23 @@ export default function NewBill() {
   const [accountingDate, setAccountingDate] = useState(today);
   const [dueDate,        setDueDate]        = useState('');
   const [payTerms,       setPayTerms]       = useState('Net 30');
+  // Payment Terms from the org's Payment Terms module (+ create shortcut).
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [quickCreateTerm, setQuickCreateTerm] = useState(false);
+  const fetchPaymentTerms = useCallback(() => axiosInstance.get('/api/payment-terms/?status=active')
+    .then(r => setPaymentTermList(r.data?.data?.paymentTerms || [])).catch(() => {}), []);
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+  const handleCreatePaymentTerm = async (f) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: f.name, days: Number(f.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setPayTerms(res.data.data.name);
+  };
+  const paymentTermsOptions = (() => {
+    const opts = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+    if (opts.length === 0) PAYMENT_TERMS.forEach(n => opts.push({ value: n, label: n }));
+    if (payTerms && !opts.some(o => o.value === payTerms)) opts.unshift({ value: payTerms, label: payTerms });
+    return opts;
+  })();
   const [placeOfSupply,  setPlaceOfSupply]  = useState('Dubai');
   const [rcmApplicable,  setRcmApplicable]  = useState(pre.rcmApplicable || false);
   const [rcmType,        setRcmType]        = useState(pre.rcmType || '');
@@ -417,7 +465,8 @@ export default function NewBill() {
             </div>
             <div>
               <label style={lbl}>Payment Terms</label>
-              <CustomSelect value={payTerms} onChange={setPayTerms} options={PAYMENT_TERMS} T={T} isDark={isDark} />
+              <CustomSelect value={payTerms} onChange={setPayTerms} options={paymentTermsOptions} T={T} isDark={isDark}
+                searchable onCreateNew={() => setQuickCreateTerm(true)} createLabel="Create payment term" />
             </div>
             <div>
               <label style={lbl}>Bill Date</label>
@@ -433,13 +482,8 @@ export default function NewBill() {
             </div>
             <div>
               <label style={lbl}>Currency</label>
-              <input
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
-                maxLength={3}
-                placeholder={baseCurrency}
-                style={{ ...inp, textTransform: 'uppercase' }}
-              />
+              <CustomSelect value={currency} onChange={(v) => setCurrency(v)} options={CURRENCY_OPTS}
+                placeholder={baseCurrency} T={T} isDark={isDark} searchable />
               {currency && currency !== baseCurrency && (
                 <span style={{ display: 'block', fontSize: 11, color: T.textSec, marginTop: 4 }}>
                   1 {currency} = {Number(exchangeRate).toLocaleString('en-AE', { maximumFractionDigits: 6 })} {baseCurrency} · books in {baseCurrency}
@@ -669,6 +713,15 @@ export default function NewBill() {
             style={{ ...inp, resize: 'vertical' }} />
         </div>
       </div>
+
+      {quickCreateTerm && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreateTerm(false)} onSubmit={handleCreatePaymentTerm} />
+      )}
     </div>
   );
 }

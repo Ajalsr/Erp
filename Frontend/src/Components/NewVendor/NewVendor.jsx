@@ -529,13 +529,30 @@ export default function NewVendor() {
   const [contacts,     setContacts]     = useState([{ id: Date.now(), name: '', email: '', phone: '', position: '', isPrimary: true }]);
 
   const [paymentTerms, setPaymentTerms] = useState([]);
-  const [quickCreate,  setQuickCreate]  = useState(null); // 'paymentTerm' | null
+  const [quickCreate,  setQuickCreate]  = useState(null); // 'paymentTerm' | 'vendorType' | null
   const fetchPaymentTerms = useCallback(() => {
     return axiosInstance.get('/api/payment-terms/?status=active')
       .then(res => setPaymentTerms(res.data?.data?.paymentTerms || []))
       .catch(() => {});
   }, []);
   useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+
+  // Vendor types are org-configurable (Vendor Types module). Load them; the
+  // backend seeds the classic defaults (Individual, Manufacturer, …) on org
+  // creation, so this is never empty. Fall back to the built-in list if the
+  // fetch fails, so the dropdown still works offline.
+  const [vendorTypes, setVendorTypes] = useState([]);
+  const fetchVendorTypes = useCallback(() => {
+    return axiosInstance.get('/api/vendor-types/?status=active')
+      .then(res => setVendorTypes(res.data?.data?.vendorTypes || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchVendorTypes(); }, [fetchVendorTypes]);
+  const handleCreateVendorType = async (fields) => {
+    const res = await axiosInstance.post('/api/vendor-types/', { name: fields.name, description: fields.description || '' });
+    await fetchVendorTypes();
+    if (res.data?.data?.name) setForm(p => ({ ...p, vendorType: res.data.data.name }));
+  };
   const paymentTermOptions = [
     ...paymentTerms.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` })),
     { value: 'Custom', label: 'Custom — specify No. of Days' },
@@ -562,6 +579,15 @@ export default function NewVendor() {
     // Notes
     notes: '', remarks: '', tags: '',
   });
+
+  // Vendor-type dropdown options: module values (or the built-in fallback), and
+  // keep the current value visible even if it's no longer a configured type.
+  const vendorTypeOptions = (() => {
+    const base = vendorTypes.length ? vendorTypes.map(t => t.name) : VENDOR_TYPES;
+    const opts = base.map(n => ({ value: n, label: n }));
+    if (form.vendorType && !opts.some(o => o.value === form.vendorType)) opts.unshift({ value: form.vendorType, label: form.vendorType });
+    return opts;
+  })();
 
   /* ── Pre-fill on edit ── */
   useEffect(() => {
@@ -789,6 +815,15 @@ export default function NewVendor() {
           onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
       )}
 
+      {quickCreate === 'vendorType' && (
+        <QuickCreateModal title="New Vendor Type" T={T}
+          fields={[
+            { name: 'name', label: 'Type Name', placeholder: 'e.g. Freelancer', required: true, autoFocus: true },
+            { name: 'description', label: 'Description', placeholder: 'Optional' },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateVendorType} />
+      )}
+
       <div onInput={guard.markDirty} onChange={guard.markDirty} style={{
         minHeight: '100vh', background: T.bg, paddingBottom: isMobile ? 90 : 100,
         animation: 'nvFadeUp .3s ease both', overflowX: 'hidden',
@@ -911,8 +946,9 @@ export default function NewVendor() {
               <div style={{ ...grid2, marginBottom: 16 }}>
                 <F label="Vendor Type" req T={T}>
                   <CustomSelect name="vendorType" value={form.vendorType} onChange={handleChange}
-                    options={VENDOR_TYPES} placeholder="Select type"
-                    T={T} isDark={isDark} error={errors.vendorType} />
+                    options={vendorTypeOptions} placeholder="Select type"
+                    T={T} isDark={isDark} error={errors.vendorType}
+                    onCreateNew={() => setQuickCreate('vendorType')} createLabel="Create new vendor type" />
                 </F>
                 <F label="Origin" T={T}>
                   <CustomSelect name="origin" value={form.origin} onChange={handleChange}

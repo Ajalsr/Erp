@@ -307,6 +307,8 @@ func CreateOrganization() gin.HandlerFunc {
 			seedDefaultPaymentTermsForOrg(seedCtx, org.ID.Hex(), userIDStr)
 			seedDefaultUOMsForOrg(seedCtx, org.ID.Hex(), userIDStr)
 			seedDefaultSalesTypesForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultVendorTypesForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultDeliveryTermsForOrg(seedCtx, org.ID.Hex(), userIDStr)
 		}()
 
 		c.JSON(http.StatusCreated, gin.H{
