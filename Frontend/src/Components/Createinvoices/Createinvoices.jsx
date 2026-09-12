@@ -11,6 +11,7 @@ import cc from "currency-codes";
 import { resolveItemPrice, getPriceListFxRate } from "../../helper/priceList";
 import useIsMobile from "../../helper/useIsMobile";
 import nexusToast from "../../helper/nexusToast";
+import QuickCreateModal from "../common/QuickCreateModal";
 
 /* ─── Theme ─────────────────────────────────────────────────────────────── */
 const getT = (isDark) => isDark ? {
@@ -199,6 +200,81 @@ const CurrencySelect = ({ value, onChange, options }) => {
                   );
                 })}
           </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+/* ─── TermSelect — custom dropdown (no search) matching CurrencySelect's look
+   and size, used for the short Payment Terms list. ─── */
+const TermSelect = ({ value, onChange, options, disabled, onCreateNew, createLabel }) => {
+  const T = useT();
+  const isDark = useThemeStore((s) => s.isDark);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos]   = useState(null);
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+
+  const opts = options.map(o => (typeof o === "string" ? { value: o, label: o } : o));
+  const selected = opts.find(o => o.value === value);
+
+  const measure = () => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4 + window.scrollY, left: r.left + window.scrollX, width: r.width });
+  };
+  useLayoutEffect(() => { if (open) measure(); }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = () => measure();
+    window.addEventListener("scroll", h, true);
+    window.addEventListener("resize", h);
+    return () => { window.removeEventListener("scroll", h, true); window.removeEventListener("resize", h); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (!triggerRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const select = (v) => { onChange({ target: { value: v } }); setOpen(false); };
+  const hoverBg = isDark ? "rgba(255,255,255,.05)" : "#f1f5f9";
+
+  return (
+    <div>
+      <div ref={triggerRef} onClick={() => { if (disabled) return; setOpen(o => !o); }}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: T.input, border: `1px solid ${open ? T.accent : T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.7 : 1, boxSizing: "border-box" }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : "Select…"}</span>
+        <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+          style={{ flexShrink: 0, marginLeft: 8, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }}>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </div>
+      {open && pos && createPortal(
+        <div ref={dropRef} style={{ position: "absolute", top: pos.top, left: pos.left, width: Math.max(pos.width, 220), zIndex: 99999, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, boxShadow: T.shadow, overflow: "hidden", fontFamily: "'DM Sans', sans-serif" }}>
+          <div style={{ maxHeight: 260, overflowY: "auto", padding: 5 }}>
+            {opts.map(o => {
+              const isAct = o.value === value;
+              return (
+                <div key={o.value} onClick={() => select(o.value)}
+                  style={{ padding: "8px 10px", borderRadius: 7, cursor: "pointer", fontSize: 13, fontWeight: isAct ? 600 : 400, color: isAct ? T.accent : T.text, background: isAct ? hoverBg : "transparent" }}
+                  onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+                  onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+                  {o.label}
+                </div>
+              );
+            })}
+          </div>
+          {onCreateNew && (
+            <div onClick={() => { onCreateNew(); setOpen(false); }}
+              style={{ padding: "10px 12px", borderTop: `1px solid ${T.border}`, cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: T.accent, display: "flex", alignItems: "center", gap: 7 }}
+              onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || "Create new"}
+            </div>
+          )}
         </div>,
         document.body
       )}
@@ -570,6 +646,28 @@ const CreateInvoice = () => {
   const [baseCurrency,  setBaseCurrency]  = useState("AED");
   const [exchangeRate,  setExchangeRate]  = useState(1);
   const [terms,         setTerms]         = useState("Net 30");
+  // Payment Terms are org-configurable (Payment Terms module) — load them so the
+  // dropdown mirrors what's set there, plus a shortcut to create a new one.
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [quickCreateTerm, setQuickCreateTerm] = useState(false);
+  const fetchPaymentTerms = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(r => setPaymentTermList(r.data?.data?.paymentTerms || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+  const handleCreatePaymentTerm = async (form) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: form.name, days: Number(form.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setTerms(res.data.data.name);
+  };
+  // Options from the module; keep the current value visible even if it isn't a
+  // configured term (older invoices / customer defaults may use a free string).
+  const paymentTermsOptions = useMemo(() => {
+    const opts = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+    if (terms && !opts.some(o => o.value === terms)) opts.unshift({ value: terms, label: terms });
+    return opts;
+  }, [paymentTermList, terms]);
   const [customerId,    setCustomerId]    = useState("");
   const [custName,      setCustName]      = useState("");
   // Customer's assigned Price List (if any) — resolved per line item in ProductInput.
@@ -1034,9 +1132,9 @@ const CreateInvoice = () => {
                   )}
                 </Field>
                 <Field label="Payment Terms">
-                  <Sel value={terms} onChange={e => { if (!isFromDN) setTerms(e.target.value); }} disabled={isFromDN} style={isFromDN ? { opacity: 0.7, cursor: "not-allowed" } : {}}>
-                    {["Due on Receipt","Net 7","Net 15","Net 30","Net 45","Net 60","Net 90","50% Advance","100% Advance","Custom"].map(t => <option key={t}>{t}</option>)}
-                  </Sel>
+                  <TermSelect value={terms} onChange={e => { if (!isFromDN) setTerms(e.target.value); }} disabled={isFromDN}
+                    options={paymentTermsOptions}
+                    onCreateNew={isFromDN ? undefined : () => setQuickCreateTerm(true)} createLabel="Create payment term" />
                 </Field>
               </div>
             </Section>
@@ -1256,6 +1354,15 @@ const CreateInvoice = () => {
           </div>
         </div>
       </div>
+
+      {quickCreateTerm && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreateTerm(false)} onSubmit={handleCreatePaymentTerm} />
+      )}
     </ThemeCtx.Provider>
   );
 };

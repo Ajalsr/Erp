@@ -419,6 +419,35 @@ func SalesTypeRoutes(router *gin.Engine) {
 	}
 }
 
+// VendorTypeRoutes — org-configurable vendor classifications. Gated on auth +
+// org only (no separate license/permission module), so any org member managing
+// vendors can read them and use the create-new shortcut.
+func VendorTypeRoutes(router *gin.Engine) {
+	vtRoutes := router.Group("/api/vendor-types")
+	vtRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		vtRoutes.POST("/", controllers.CreateVendorType())
+		vtRoutes.GET("/", controllers.GetAllVendorTypes())
+		vtRoutes.GET("/:id", controllers.GetVendorTypeByID())
+		vtRoutes.PUT("/:id", controllers.UpdateVendorType())
+		vtRoutes.DELETE("/:id", controllers.DeleteVendorType())
+	}
+}
+
+// DeliveryTermRoutes — org-configurable delivery/shipment terms for POs. Gated
+// on auth + org only (no separate license/permission module).
+func DeliveryTermRoutes(router *gin.Engine) {
+	dtRoutes := router.Group("/api/delivery-terms")
+	dtRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg)
+	{
+		dtRoutes.POST("/", controllers.CreateDeliveryTerm())
+		dtRoutes.GET("/", controllers.GetAllDeliveryTerms())
+		dtRoutes.GET("/:id", controllers.GetDeliveryTermByID())
+		dtRoutes.PUT("/:id", controllers.UpdateDeliveryTerm())
+		dtRoutes.DELETE("/:id", controllers.DeleteDeliveryTerm())
+	}
+}
+
 func PriceListRoutes(router *gin.Engine) {
 	plRoutes := router.Group("/api/price-lists")
 	plRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("price_lists"), middlewares.RequireModule("price_lists"))

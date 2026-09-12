@@ -10,6 +10,7 @@ import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import useThemeStore from "../../store/useThemeStore";
 import useIsMobile from "../../helper/useIsMobile";
 import nexusToast from "../../helper/nexusToast";
+import QuickCreateModal from "../common/QuickCreateModal";
 
 /* ─── Theme ─────────────────────────────────────────────────────────────── */
 const getT = (isDark) => isDark ? {
@@ -65,7 +66,7 @@ const Inp = ({ style, ...r }) => {
   return <input style={{ background: T.input, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", transition: "border-color .15s", ...style }} {...f} {...r} />;
 };
 /* ─── Custom dropdown (themed, portal — never clipped) ───────────────────── */
-const CustomSelect = ({ value, onChange, options, placeholder = "Select", style, disabled }) => {
+const CustomSelect = ({ value, onChange, options, placeholder = "Select", style, disabled, onCreateNew, createLabel }) => {
   const T = useT();
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState(null);
@@ -101,6 +102,14 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", style,
               {o.label}
             </div>
           ))}
+          {onCreateNew && (
+            <div onMouseDown={() => { onCreateNew(); setOpen(false); }}
+              style={{ marginTop: 4, padding: "8px 10px", borderTop: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12.5, fontWeight: 700, color: T.accent, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.surface2; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || "Create new"}
+            </div>
+          )}
         </div>, document.body)}
     </>
   );
@@ -401,7 +410,7 @@ const ItemCombo = ({ value, stockId, onChange, priceList, priceListFxRate }) => 
 const LineRow = ({ item, onChange, onRemove, isOnly, priceList, priceListFxRate }) => {
   const T = useT();
   const set = (k, v) => onChange({ ...item, [k]: v });
-  const { subtotal, discAmt, taxAmt, total } = calcLine(item);
+  const { total } = calcLine(item);
 
   const handleItemPick = ({ desc, unitPrice, stockId }) => {
     onChange({
@@ -685,6 +694,25 @@ export default function CreateQuote() {
   const [validUntil,    setValidUntil]    = useState(net30());
   const [currency,      setCurrency]      = useState(prefill?.currency || "AED");
   const [paymentTerms,  setPaymentTerms]  = useState(prefill?.paymentTerms || "Net 30");
+  // Payment Terms from the org's Payment Terms module (with a create shortcut).
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [quickCreateTerm, setQuickCreateTerm] = useState(false);
+  const fetchPaymentTerms = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(r => setPaymentTermList(r.data?.data?.paymentTerms || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+  const handleCreatePaymentTerm = async (form) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: form.name, days: Number(form.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setPaymentTerms(res.data.data.name);
+  };
+  const paymentTermsOptions = (() => {
+    const opts = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+    if (paymentTerms && !opts.some(o => o.value === paymentTerms)) opts.unshift({ value: paymentTerms, label: paymentTerms });
+    return opts;
+  })();
   const [lineItems,     setLineItems]     = useState(
     prefill?.lineItems?.length
       ? prefill.lineItems.map(li => ({ ...li, _uid: uid(), discountType: li.discountType || "percentage" }))
@@ -1067,7 +1095,8 @@ export default function CreateQuote() {
               </Field>
               <Field label="Payment Terms">
                 <CustomSelect value={paymentTerms} onChange={setPaymentTerms}
-                  options={["Due on Receipt","Net 15","Net 30","Net 60","End of Month","30 Days PDC"].map(t => ({ value: t, label: t }))} />
+                  options={paymentTermsOptions}
+                  onCreateNew={() => setQuickCreateTerm(true)} createLabel="Create payment term" />
               </Field>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
@@ -1137,7 +1166,7 @@ export default function CreateQuote() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lineItems.map((li, i) => (
+                  {lineItems.map((li) => (
                     <LineRow key={li._uid} item={li}
                       onChange={updated => updateItem(li._uid, updated)}
                       onRemove={() => removeItem(li._uid)}
@@ -1298,6 +1327,14 @@ export default function CreateQuote() {
         )}
       </div>
     </StockCtx.Provider>
+      {quickCreateTerm && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreateTerm(false)} onSubmit={handleCreatePaymentTerm} />
+      )}
     </ThemeCtx.Provider>
   );
 }

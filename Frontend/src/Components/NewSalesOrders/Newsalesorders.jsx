@@ -170,7 +170,7 @@ const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null, 
   return (
     <div style={{position:'relative'}}>
       {/* Trigger */}
-      <button type="button" ref={triggerRef} onClick={()=>setOpen(!open)}
+      <button type="button" ref={triggerRef} onClick={()=>{ if(!open) updatePos(); setOpen(o=>!o); }}
         style={{
           width:'100%',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,
           border:`1.5px solid ${open?'#3b82f6':selected?'#3b82f6':T.border}`,
@@ -461,7 +461,7 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
   return (
     <div>
       <label className="nso-lbl">{label}{required&&<span className="nso-req">*</span>}</label>
-      <button type="button" ref={triggerRef} onClick={()=>setOpen(!open)} style={{
+      <button type="button" ref={triggerRef} onClick={()=>{ if(!open) updatePos(); setOpen(o=>!o); }} style={{
         width:'100%',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',
         border:`1.5px solid ${open?'#3b82f6':sel?'#3b82f6':T.border}`,
         borderRadius:10,background:sel?(isDark?'rgba(59,130,246,0.08)':'#eff6ff'):T.surface,cursor:'pointer',fontSize:13,transition:'all .15s',

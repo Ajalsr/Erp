@@ -108,6 +108,8 @@ func main() {
 		controllers.EnsureDefaultPaymentTerms(ctx)
 		controllers.EnsureDefaultUOMs(ctx)
 		controllers.EnsureDefaultSalesTypes(ctx)
+		controllers.EnsureDefaultVendorTypes(ctx)
+		controllers.EnsureDefaultDeliveryTerms(ctx)
 	}()
 
 	router := gin.Default()
@@ -147,6 +149,8 @@ func main() {
 	routes.UOMRoutes(router)
 	routes.PaymentTermRoutes(router)
 	routes.SalesTypeRoutes(router)
+	routes.VendorTypeRoutes(router)
+	routes.DeliveryTermRoutes(router)
 	routes.PriceListRoutes(router)
 	routes.EnquiryRoutes(router)
 	routes.QuoteRoutes(router)
