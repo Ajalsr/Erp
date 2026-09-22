@@ -128,22 +128,37 @@ func AddCustomers() gin.HandlerFunc {
 			}
 		}
 
-		// ── Auto-generate customer code ───────────────────────────────────
+		// ── Customer code: manual (if supplied by a permitted role) or auto ──
 		orgIDVal, _ := c.Get("orgId")
-		customerCode, err := generateCustomerCodeContinuous(ctx, fmt.Sprintf("%v", orgIDVal))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  http.StatusInternalServerError,
-				"message": "Failed to generate customer code",
-				"error":   err.Error(),
-			})
-			return
+		orgIDStr := fmt.Sprintf("%v", orgIDVal)
+		role := fmt.Sprintf("%v", func() interface{} { v, _ := c.Get("orgRole"); return v }())
+		manualCode := strings.TrimSpace(item.CustomerCode)
+		// Only honor a supplied code when the caller's role is allowed to edit it.
+		if manualCode != "" && !canEditCustomerCode(ctx, orgIDStr, role) {
+			manualCode = ""
+		}
+		if manualCode != "" {
+			if customerCodeTaken(ctx, orgIDStr, manualCode, "") {
+				c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "Customer code \"" + manualCode + "\" already exists"})
+				return
+			}
+			item.CustomerCode = manualCode
+		} else {
+			customerCode, err := generateCustomerCodeContinuous(ctx, orgIDStr)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"status":  http.StatusInternalServerError,
+					"message": "Failed to generate customer code",
+					"error":   err.Error(),
+				})
+				return
+			}
+			item.CustomerCode = customerCode
 		}
 
 		// ── Assign all server-side fields ─────────────────────────────────
 		now := time.Now()
 		item.ID = primitive.NewObjectID()
-		item.CustomerCode = customerCode
 		item.CreatedAt = now
 		item.UpdatedAt = now // ← was missing
 
@@ -186,7 +201,7 @@ func AddCustomers() gin.HandlerFunc {
 			}
 		}
 
-		_, err = customersCollection.InsertOne(ctx, item)
+		_, err := customersCollection.InsertOne(ctx, item)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":  http.StatusInternalServerError,
@@ -208,6 +223,66 @@ func AddCustomers() gin.HandlerFunc {
 
 func generateCustomerCodeContinuous(ctx context.Context, orgID string) (string, error) {
 	return nextNumber(ctx, orgID, "customer", customersCollection, "customerCode"), nil
+}
+
+// canEditCustomerCode reports whether a caller of the given role may set/change
+// the customer code manually. The owner always can. Other roles only if the org
+// added them to the "customerCodeEditRoles" setting (default: owner only).
+func canEditCustomerCode(ctx context.Context, orgID, role string) bool {
+	if role == "owner" {
+		return true
+	}
+	var s bson.M
+	if err := orgSettingsCollection.FindOne(ctx, bson.M{"orgId": orgID}).Decode(&s); err != nil {
+		return false
+	}
+	roles, ok := s["customerCodeEditRoles"].(bson.A)
+	if !ok {
+		return false
+	}
+	for _, r := range roles {
+		if fmt.Sprintf("%v", r) == role {
+			return true
+		}
+	}
+	return false
+}
+
+// customerCodeTaken reports whether another customer in the org already uses the
+// given code (case-insensitive). excludeID skips the customer being edited.
+func customerCodeTaken(ctx context.Context, orgID, code, excludeID string) bool {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return false
+	}
+	filter := bson.M{
+		"orgId":        orgID,
+		"customerCode": bson.M{"$regex": "^" + regexp.QuoteMeta(code) + "$", "$options": "i"},
+	}
+	if excludeID != "" {
+		if oid, err := primitive.ObjectIDFromHex(excludeID); err == nil {
+			filter["_id"] = bson.M{"$ne": oid}
+		}
+	}
+	n, _ := customersCollection.CountDocuments(ctx, filter)
+	return n > 0
+}
+
+// CheckCustomerCode — GET /api/customers/code-available?code=&excludeId=
+// Live uniqueness check for the editable customer-code field.
+func CheckCustomerCode() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		orgID := fmt.Sprintf("%v", func() interface{} { v, _ := c.Get("orgId"); return v }())
+		code := strings.TrimSpace(c.Query("code"))
+		if code == "" {
+			c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "available": true})
+			return
+		}
+		taken := customerCodeTaken(ctx, orgID, code, c.Query("excludeId"))
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "available": !taken})
+	}
 }
 
 func GetCustomerSuggestions() gin.HandlerFunc {
@@ -513,6 +588,19 @@ func UpdateCustomer() gin.HandlerFunc {
 				}
 			}
 			update["contactPersons"] = updateData.ContactPersons
+		}
+
+		// ── Customer code: a permitted role may change it (unique per org) ──
+		if newCode := strings.TrimSpace(updateData.CustomerCode); newCode != "" && !strings.EqualFold(newCode, existingCustomer.CustomerCode) {
+			role := fmt.Sprintf("%v", func() interface{} { v, _ := c.Get("orgRole"); return v }())
+			orgIDStr := fmt.Sprintf("%v", orgID)
+			if canEditCustomerCode(ctx, orgIDStr, role) {
+				if customerCodeTaken(ctx, orgIDStr, newCode, id) {
+					c.JSON(http.StatusConflict, gin.H{"status": http.StatusConflict, "message": "Customer code \"" + newCode + "\" already exists"})
+					return
+				}
+				update["customerCode"] = newCode
+			}
 		}
 
 		result, err := customersCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": update})

@@ -20,6 +20,7 @@ import {
   FaPlus, FaTimes, FaCheckCircle
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useAuthStore from '../../store/useAuthStore';
 import useIsMobile from '../../helper/useIsMobile';
 import cc from 'currency-codes';
 
@@ -968,11 +969,21 @@ const Newcustomers = () => {
 
   const [salutations, setSalutations] = useState(['Mr.', 'Mrs.', 'Ms.', 'Miss', 'Dr.']);
 
-  // Load org-configured salutations if available
+  // Who may edit the customer code — owner always; other roles only if the org
+  // added them under Settings (default: owner only).
+  const role = useAuthStore(s => s.activeOrg?.role) || '';
+  const [codeEditRoles, setCodeEditRoles] = useState(['owner']);
+  const canEditCode = role === 'owner' || codeEditRoles.includes(role);
+  const [origCode, setOrigCode] = useState('');           // the code the customer had on load (edit)
+  const [codeStatus, setCodeStatus] = useState(null);     // null | 'checking' | 'available' | 'taken'
+
+  // Load org-configured salutations + customer-code edit roles if available
   useEffect(() => {
     axiosInstance.get('/api/org/settings').then(res => {
       const s = res.data?.data?.salutations;
       if (Array.isArray(s) && s.length > 0) setSalutations(s);
+      const roles = res.data?.data?.customerCodeEditRoles;
+      if (Array.isArray(roles)) setCodeEditRoles(roles);
     }).catch(() => {});
   }, []);
 
@@ -1027,6 +1038,7 @@ const Newcustomers = () => {
     axiosInstance.get(`/api/customers/${editId}`)
       .then(res => {
         const c = res.data?.data || res.data;
+        setOrigCode(c.customerCode || '');
         setFormData({
           customerType:        c.customerType        || 'business',
           customerCode:        c.customerCode        || '',
@@ -1061,6 +1073,20 @@ const Newcustomers = () => {
       })
       .catch(() => toast.error('Failed to load customer'));
   }, [isEditMode, editId]);
+
+  // Live "is this customer code already taken?" check (debounced). Skips the
+  // check when the code is blank or unchanged from what the customer already had.
+  useEffect(() => {
+    const code = (formData.customerCode || '').trim();
+    if (!canEditCode || !code || code.toLowerCase() === origCode.toLowerCase()) { setCodeStatus(null); return; }
+    setCodeStatus('checking');
+    const t = setTimeout(() => {
+      axiosInstance.get('/api/customers/code-available', { params: { code, excludeId: editId || '' } })
+        .then(r => setCodeStatus(r.data?.available ? 'available' : 'taken'))
+        .catch(() => setCodeStatus(null));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formData.customerCode, origCode, canEditCode, editId]);
 
   const handleChange = useCallback((e) => {
     const { name, value, type, checked } = e.target;
@@ -1173,6 +1199,7 @@ const Newcustomers = () => {
     e.preventDefault();
     if (!formData.customerDisplayName.trim()) { toast.error("Customer display name is required"); return; }
     if (!formData.trnNumber.trim()) { toast.error("TRN Number is required"); return; }
+    if (canEditCode && codeStatus === 'taken') { toast.error("That customer code already exists — choose another"); return; }
     // Custom Fields are mandatory for business customers.
     if (formData.customerType === 'business') {
       const cf = formData.customFields || {};
@@ -1326,6 +1353,19 @@ const Newcustomers = () => {
                     <input className="nc-input" name="companyName" value={formData.companyName} onChange={handleChange} placeholder="ACME Corp" />
                   </div>
                 )}
+
+                <div style={{ marginBottom: '14px' }}>
+                  <Label T={T}>Customer Code{canEditCode ? '' : ' (auto)'}</Label>
+                  <input className="nc-input" name="customerCode" value={formData.customerCode}
+                    onChange={handleChange} readOnly={!canEditCode}
+                    placeholder={isEditMode ? '' : 'Leave blank to auto-generate'}
+                    style={!canEditCode ? { background: T.surface2, color: T.textSec, cursor: 'not-allowed' }
+                      : (codeStatus === 'taken' ? { borderColor: '#ef4444' } : {})} />
+                  {canEditCode && codeStatus === 'checking' && <span style={{ display: 'block', fontSize: 11, color: T.textSec, marginTop: 4 }}>Checking availability…</span>}
+                  {canEditCode && codeStatus === 'available' && <span style={{ display: 'block', fontSize: 11, color: '#10b981', marginTop: 4 }}>✓ Code available</span>}
+                  {canEditCode && codeStatus === 'taken' && <span style={{ display: 'block', fontSize: 11, color: '#ef4444', marginTop: 4 }}>This customer code already exists</span>}
+                  {!canEditCode && <span style={{ display: 'block', fontSize: 11, color: T.textSec, marginTop: 4 }}>Auto-generated. Editing is owner-only (configure roles in Settings).</span>}
+                </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
                   <div>
