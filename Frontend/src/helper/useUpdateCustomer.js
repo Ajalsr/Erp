@@ -34,6 +34,7 @@ const useUpdateCustomer = () => {
 
       const payload = {
         customerType:        inputs.customerType        || 'business',
+        customerCode:        (inputs.customerCode || '').trim(), // manual code (permitted roles only)
         salutation:          inputs.salutation          || '',
         firstName:           inputs.firstName           || '',
         lastName:            inputs.lastName            || '',

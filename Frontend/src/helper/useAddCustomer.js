@@ -52,6 +52,7 @@ const useAddCustomer = () => {
       const payload = {
         // ── Identity
         customerType:        inputs.customerType        || 'business',
+        customerCode:        (inputs.customerCode || '').trim(), // manual code (permitted roles); blank = auto
         salutation:          inputs.salutation          || '',
         firstName:           inputs.firstName           || '',
         lastName:            inputs.lastName            || '',

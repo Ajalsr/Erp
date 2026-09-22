@@ -69,6 +69,7 @@ func CustomerRoutes(router *gin.Engine) {
 	custRoutes.POST("/import", controllers.ImportCustomers())
 	custRoutes.GET("/getcustomers", controllers.GetAllCustomers())
 	custRoutes.GET("/search", controllers.SearchCustomers())
+	custRoutes.GET("/code-available", controllers.CheckCustomerCode())
 	custRoutes.GET("/suggestions", controllers.GetCustomerSuggestions())
 	custRoutes.GET("/stats", controllers.GetCustomerStats())
 	custRoutes.GET("/export/csv", controllers.ExportCustomersCSV())

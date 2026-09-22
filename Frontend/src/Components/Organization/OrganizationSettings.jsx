@@ -295,11 +295,21 @@ const OrganizationSettings = () => {
   const [yearlyTarget, setYearlyTarget]   = useState('')
   const [savingTarget, setSavingTarget]   = useState(false)
 
+  // Which roles may edit the customer code (owner always can). Default: owner only.
+  const [codeEditRoles, setCodeEditRoles] = useState(['owner'])
+  const saveCodeEditRoles = async (roles) => {
+    const next = Array.from(new Set(['owner', ...roles]))
+    setCodeEditRoles(next)
+    try { await axiosInstance.put('/api/org/settings', { customerCodeEditRoles: next }); nexusToast.success('Customer-code permissions saved') }
+    catch { nexusToast.error('Failed to save') }
+  }
+
   useEffect(() => {
     axiosInstance.get('/api/org/settings')
       .then(res => {
         const s = res.data?.data?.salutations; if (Array.isArray(s) && s.length) setSalutations(s);
         const t = res.data?.data?.yearlySalesTarget; if (t != null) setYearlyTarget(String(t));
+        const cr = res.data?.data?.customerCodeEditRoles; if (Array.isArray(cr)) setCodeEditRoles(Array.from(new Set(['owner', ...cr])));
       })
       .catch(() => {})
   }, [])
@@ -1460,6 +1470,31 @@ const OrganizationSettings = () => {
                   <button onClick={saveTarget} disabled={savingTarget} style={{ ...btnStyle('primary'), opacity: savingTarget ? 0.6 : 1, whiteSpace: 'nowrap' }}>
                     {savingTarget ? 'Saving…' : 'Save'}
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* Customer code editing — which roles may set/change customer codes */}
+            {myRole === 'owner' && (
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 6px', fontFamily: 'inherit' }}>
+                  Customer Code Editing
+                </h3>
+                <p style={{ color: textSec, fontSize: '12px', margin: '0 0 14px' }}>
+                  Choose which roles can manually set or change a customer's code (instead of it being auto-generated). The owner always can.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {['owner', 'admin', ...customRoles].map(r => {
+                    const on = r === 'owner' || codeEditRoles.includes(r)
+                    const locked = r === 'owner'
+                    return (
+                      <label key={r} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: locked ? 'default' : 'pointer', opacity: locked ? 0.7 : 1 }}>
+                        <input type="checkbox" checked={on} disabled={locked}
+                          onChange={e => { if (locked) return; saveCodeEditRoles(e.target.checked ? [...codeEditRoles, r] : codeEditRoles.filter(x => x !== r)) }} />
+                        <span style={{ color: textPri, fontSize: '13px', textTransform: 'capitalize' }}>{roleLabel(r)}{locked && <span style={{ color: textSec, fontSize: '11px' }}> · always</span>}</span>
+                      </label>
+                    )
+                  })}
                 </div>
               </div>
             )}
