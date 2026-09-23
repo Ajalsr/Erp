@@ -526,13 +526,13 @@ const Newsalesorders = () => {
   const activeOrg=useAuthStore(s=>s.activeOrg);
   const isAdminOrOwner=['owner','admin'].includes((activeOrg?.role||'').toLowerCase());
 
-  // Salesperson dropdown — org members (active, non owner/admin), same as the enquiry list.
+  // Salesperson dropdown — active org members (sales reps + owner; admins excluded).
   const [salesReps,setSalesReps]=useState([]);
   useEffect(()=>{
     const orgId=activeOrg?._id;
     if(!orgId)return;
     axiosInstance.get(`/api/organizations/${orgId}/members`)
-      .then(r=>setSalesReps((r.data?.data||[]).filter(m=>m.status==='active'&&m.role!=='owner'&&m.role!=='admin').map(m=>m.userId)))
+      .then(r=>setSalesReps((r.data?.data||[]).filter(m=>m.status==='active'&&m.role!=='admin').map(m=>m.userId)))
       .catch(()=>setSalesReps([]));
   },[activeOrg]);
   // Include the saved salesperson (e.g. an old free-text name) so it still shows when editing.
