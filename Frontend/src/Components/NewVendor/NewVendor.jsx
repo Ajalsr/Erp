@@ -9,6 +9,7 @@ import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import { drawerWidth } from '../../helper/responsive';
 import axiosInstance from '../../helper/axiosInstance/';
+import { usePermissions } from '../../helper/permissions';
 import cc from 'currency-codes';
 import QuickCreateModal from '../common/QuickCreateModal';
 
@@ -513,6 +514,7 @@ const normaliseOrigin = (o) => {
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════ */
 export default function NewVendor() {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const guard     = useUnsavedGuard({ hasDraft: false });
   const navigate  = useNavigate();
   const { id }    = useParams();
@@ -1060,7 +1062,7 @@ export default function NewVendor() {
                       if (e.target.value !== 'Custom') setForm(p => ({ ...p, noOfDays: '' }));
                     }}
                     options={paymentTermOptions} placeholder="Select terms" T={T} isDark={isDark}
-                    onCreateNew={() => setQuickCreate('paymentTerm')} createLabel="Create new payment term" />
+                    onCreateNew={canPerm('payment_terms', 'add') ? () => setQuickCreate('paymentTerm') : undefined} createLabel="Create new payment term" />
                 </F>
                 {form.paymentTerms === 'Custom' && (
                   <F label="No. of Days" T={T}>

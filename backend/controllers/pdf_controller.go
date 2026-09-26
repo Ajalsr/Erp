@@ -2878,6 +2878,37 @@ func loadCustomerInfo(ctx context.Context, customerID string) (code, address, ph
 
 type poExtras struct{ vendorCode, vendorAddress, vendorPhone, vendorTRN, vendorEmail string }
 
+// loadItemCodes maps each line's itemId to its item-master code (article code) in one query.
+func loadItemCodes(ctx context.Context, orgID string, items []models.PurchaseOrderItem) map[string]string {
+	out := map[string]string{}
+	var ids []primitive.ObjectID
+	for _, it := range items {
+		if oid, err := primitive.ObjectIDFromHex(it.ItemID); err == nil {
+			ids = append(ids, oid)
+		}
+	}
+	if len(ids) == 0 {
+		return out
+	}
+	cur, err := stockCollection.Find(ctx,
+		bson.M{"_id": bson.M{"$in": ids}, "orgId": orgID},
+		options.Find().SetProjection(bson.M{"item_code": 1}))
+	if err != nil {
+		return out
+	}
+	defer cur.Close(ctx)
+	for cur.Next(ctx) {
+		var st struct {
+			ID       primitive.ObjectID `bson:"_id"`
+			ItemCode string             `bson:"item_code"`
+		}
+		if cur.Decode(&st) == nil && st.ItemCode != "" {
+			out[st.ID.Hex()] = st.ItemCode
+		}
+	}
+	return out
+}
+
 // shipPrefLabel maps the New Purchase Order form's stored option value
 // ("as_scheduled") to its display label ("As Scheduled") for the PDF —
 // falls back to a generic underscore-to-space title-case for anything unmapped.
@@ -2941,9 +2972,11 @@ func buildPurchaseOrderPDF(po models.PurchaseOrder, ex poExtras) *gofpdf.Fpdf {
 	if senderName == "" {
 		senderName = "Company"
 	}
-	lpoNo := po.LPONumber
-	if lpoNo == "" {
-		lpoNo = po.OrderNumber
+	// The LPO the vendor receives carries our own PO number (same number before and
+	// after approval), suffixed with the revision once the PO has been amended.
+	lpoNo := po.OrderNumber
+	if po.Revision > 0 {
+		lpoNo = fmt.Sprintf("%s Rev %d", po.OrderNumber, po.Revision)
 	}
 	orderDate := po.OrderDate.Format("02/01/2006")
 	cur := po.Currency
@@ -3101,12 +3134,13 @@ func buildPurchaseOrderPDF(po models.PurchaseOrder, ex poExtras) *gofpdf.Fpdf {
 		w     float64
 		align string
 	}{
-		{"Sr No", 10, "C"}, {"Material Description", 54, "L"}, {"Qty", 12, "C"},
-		{"UOM", 12, "C"}, {"Unit Price", 24, "R"}, {"Total Price", 24, "R"},
+		{"Sr No", 10, "C"}, {"Article Code", 22, "C"}, {"Material Description", 38, "L"}, {"Qty", 12, "C"},
+		{"UOM", 12, "C"}, {"Unit Price", 21, "R"}, {"Total Price", 21, "R"},
 		{"VAT 5%", 18, "R"}, {"Total Price Incl. VAT", 26, "R"},
 	}
-	descX := x0 + cols[0].w
-	afterDescX := descX + cols[1].w
+	codeX := x0 + cols[0].w
+	descX := codeX + cols[1].w
+	afterDescX := descX + cols[2].w
 
 	colX := []float64{x0}
 	for _, c := range cols {
@@ -3145,9 +3179,16 @@ func buildPurchaseOrderPDF(po models.PurchaseOrder, ex poExtras) *gofpdf.Fpdf {
 	drawRow := func(it *models.PurchaseOrderItem, idx int) {
 		desc := tr(it.Details)
 		pdf.SetFont("Helvetica", "", 8)
-		nLines := len(pdf.SplitText(desc, cols[1].w))
+		nLines := len(pdf.SplitText(desc, cols[2].w))
 		if nLines < 1 {
 			nLines = 1
+		}
+		code := tr(orDash(it.ItemCode))
+		pdf.SetFont("Helvetica", "", 7.5)
+		codeLines := len(pdf.SplitText(code, cols[1].w-1))
+		pdf.SetFont("Helvetica", "", 8)
+		if codeLines > nLines {
+			nLines = codeLines
 		}
 		rowH := float64(nLines) * 4.6
 		if rowH < 7 {
@@ -3165,7 +3206,11 @@ func buildPurchaseOrderPDF(po models.PurchaseOrder, ex poExtras) *gofpdf.Fpdf {
 		}
 		pdf.SetXY(descX, descTop)
 		dark()
-		pdf.MultiCell(cols[1].w, 4.6, desc, "", "L", false)
+		pdf.MultiCell(cols[2].w, 4.6, desc, "", "L", false)
+		pdf.SetFont("Helvetica", "", 7.5)
+		pdf.SetXY(codeX, yy+(rowH-float64(codeLines)*4.6)/2)
+		pdf.MultiCell(cols[1].w, 4.6, code, "", "C", false)
+		pdf.SetFont("Helvetica", "", 8)
 
 		vatIncl := it.BaseAmount + it.TaxAmount
 		pdf.SetXY(x0, yy)
@@ -3174,12 +3219,12 @@ func buildPurchaseOrderPDF(po models.PurchaseOrder, ex poExtras) *gofpdf.Fpdf {
 		pdf.CellFormat(cols[0].w, rowH, fmt.Sprintf("%d", idx+1), "", 0, "C", false, 0, "")
 		pdf.SetX(afterDescX)
 		dark()
-		pdf.CellFormat(cols[2].w, rowH, fmt.Sprintf("%g", it.Quantity), "", 0, "C", false, 0, "")
-		pdf.CellFormat(cols[3].w, rowH, tr(it.Unit), "", 0, "C", false, 0, "")
-		pdf.CellFormat(cols[4].w, rowH, fmtMoney(it.Rate), "", 0, "R", false, 0, "")
-		pdf.CellFormat(cols[5].w, rowH, fmtMoney(it.BaseAmount), "", 0, "R", false, 0, "")
-		pdf.CellFormat(cols[6].w, rowH, fmtMoney(it.TaxAmount), "", 0, "R", false, 0, "")
-		pdf.CellFormat(cols[7].w, rowH, fmtMoney(vatIncl), "", 0, "R", false, 0, "")
+		pdf.CellFormat(cols[3].w, rowH, fmt.Sprintf("%g", it.Quantity), "", 0, "C", false, 0, "")
+		pdf.CellFormat(cols[4].w, rowH, tr(it.Unit), "", 0, "C", false, 0, "")
+		pdf.CellFormat(cols[5].w, rowH, fmtMoney(it.Rate), "", 0, "R", false, 0, "")
+		pdf.CellFormat(cols[6].w, rowH, fmtMoney(it.BaseAmount), "", 0, "R", false, 0, "")
+		pdf.CellFormat(cols[7].w, rowH, fmtMoney(it.TaxAmount), "", 0, "R", false, 0, "")
+		pdf.CellFormat(cols[8].w, rowH, fmtMoney(vatIncl), "", 0, "R", false, 0, "")
 
 		by := yy + rowH
 		hLine(by)
@@ -3314,6 +3359,7 @@ func writePurchaseOrderPDF(c *gin.Context, inline bool) {
 	if po.VendorID != "" {
 		ex.vendorCode, ex.vendorAddress, ex.vendorPhone, ex.vendorTRN, ex.vendorEmail = loadVendorInfo(ctx, po.VendorID)
 	}
+	stampItemCodes(ctx, fmt.Sprintf("%v", orgID), po.Items)
 	pdf := buildPurchaseOrderPDF(po, ex)
 	pdfWatermark(pdf, watermarkFor(po.Status))
 	disposition := "attachment"

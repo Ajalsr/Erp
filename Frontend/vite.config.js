@@ -13,6 +13,9 @@ export default defineConfig({
   base: process.env.TAURI_ENV_PLATFORM ? './' : '/',
   server: {
     port: 5175,
+    // Fail loudly instead of silently moving to 5176 — the Tauri/Electron window
+    // always loads localhost:5175, so a moved dev server means a blank window.
+    strictPort: true,
   },
   plugins: [
     react(),

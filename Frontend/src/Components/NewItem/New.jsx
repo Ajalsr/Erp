@@ -4,6 +4,7 @@ import { IoMdClose } from "react-icons/io";
 import { useNavigate, useParams } from 'react-router-dom';
 import useAdditem from '../../helper/useAddItem';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { usePermissions } from '../../helper/permissions';
 import nexusToast from '../../helper/nexusToast';
 import axiosInstance from '../../helper/axiosInstance';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
@@ -377,7 +378,7 @@ const NAV_SECTIONS = [
 /* ══════════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════ */
-const New = () => {
+const NewItemForm = () => {
   const { handleAdditem } = useAdditem();
   const navigate = useNavigate();
   const { id: editId } = useParams();
@@ -389,6 +390,7 @@ const New = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
   const isMobile = useIsMobile();
+  const { can } = usePermissions();
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
@@ -820,14 +822,14 @@ const New = () => {
                   <PortalSelect T={T} isDark={isDark} name="category" value={formData.category} onChange={handleChange}
                     placeholder={groupOptions.length ? 'Select group…' : 'No groups yet…'}
                     options={groupOptions}
-                    onCreateNew={() => setQuickCreate('group')} createLabel="Create new group" />
+                    onCreateNew={can('item_groups', 'add') ? () => setQuickCreate('group') : undefined} createLabel="Create new group" />
                 </F>
                 {formData.type !== 'service' && (
                   <F label="Unit of Measure" req T={T}>
                     <PortalSelect T={T} isDark={isDark} name="unit" value={formData.unit} onChange={handleChange}
                       placeholder={uomOptions.length ? 'Select unit…' : 'No units yet…'} error={errors.unit}
                       options={uomOptions}
-                      onCreateNew={() => setQuickCreate('unit')} createLabel="Create new unit" />
+                      onCreateNew={can('uom', 'add') ? () => setQuickCreate('unit') : undefined} createLabel="Create new unit" />
                   </F>
                 )}
                 <F label="Brand" T={T}>
@@ -1193,6 +1195,28 @@ const New = () => {
       </div>
     </div>
   );
+};
+
+// Route guard: creating needs items → add, editing needs items → edit. Opening the URL
+// directly without it shows a notice instead of a form whose save would 403 anyway.
+const New = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { can, ready } = usePermissions();
+  const isDark = useThemeStore((s) => s.isDark);
+  const T = getTheme(isDark);
+  if (ready && !can('items', id ? 'edit' : 'add')) {
+    return (
+      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ textAlign: 'center', maxWidth: 360 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: T.textPri }}>You don't have permission to {id ? 'edit' : 'add'} items</div>
+          <p style={{ fontSize: 12.5, color: T.textSec, margin: '8px 0 16px' }}>Ask an admin to grant it under Settings → Roles & Permissions.</p>
+          <button onClick={() => navigate('/Items/Items')} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.textPri, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Back to items</button>
+        </div>
+      </div>
+    );
+  }
+  return <NewItemForm />;
 };
 
 export default New;

@@ -733,7 +733,7 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
   // Load item catalog when modal opens
   useEffect(() => {
     if (!modalOpen || allItems.length > 0) return;
-    axiosInstance.get("/api/stocks/getitem")
+    axiosInstance.get("/api/stocks/lookup")
       .then(r => setAllItems(r.data?.data || []))
       .catch(() => {});
   }, [modalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -857,8 +857,9 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
   const cnAction = async (id, endpoint, successMsg, errorMsg, body = null) => {
     setActioning(true);
     try {
-      await axiosInstance.patch(`/api/credit-notes/${id}/${endpoint}`, body || undefined);
-      nexusToast.success(successMsg);
+      const res = await axiosInstance.patch(`/api/credit-notes/${id}/${endpoint}`, body || undefined);
+      // Submit's outcome depends on the org's approval settings — show what actually happened.
+      nexusToast.success(endpoint === "submit" && res.data?.message ? res.data.message : successMsg);
       setDrawerOpen(false); setSelected(null);
       setApplyInvoiceId(""); setApplyInvoices([]);
       load();
@@ -1488,7 +1489,7 @@ export default function CreditNotes({ prefill: inlinePrefill = null, onClose: on
                 {cn.status === "draft" && (
                   <button className="cn-btn" disabled={actioning} onClick={() => handleSubmitCN(cn._id)}
                     style={{ flex: 1, padding: 10, background: T.blue, color: "white", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: actioning ? "not-allowed" : "pointer", opacity: actioning ? 0.6 : 1, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                    <FaCheck size={11} /> {actioning ? "Submitting…" : "Submit for Approval"}
+                    <FaCheck size={11} /> {actioning ? "Submitting…" : "Submit"}
                   </button>
                 )}
                 {cn.status === "pending_approval" && (

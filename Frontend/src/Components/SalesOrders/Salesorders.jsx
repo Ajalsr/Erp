@@ -345,7 +345,7 @@ const Salesorders = () => {
     chosen.forEach(l => { (byVendor[l.vendorId] ||= []).push(l); });
     setPoSaving(true);
     try {
-      const results = [];
+      const results = [], held = [];
       for (const [vendorId, lines] of Object.entries(byVendor)) {
         const v = poVendors.find(x => (x._id || x.id) === vendorId);
         const res = await axiosInstance.post(`/api/sales-orders/${poModalSO.id}/create-po`, {
@@ -366,11 +366,16 @@ const Salesorders = () => {
             freightTaxRate: Number(l.freightTaxRate) || 0,
           })),
         });
-        results.push(res.data?.data?.orderNumber || "PO");
+        // 202 = held by the Purchase Orders approval policy; it's created once approved.
+        if (res.__pendingApproval) held.push(v?.displayName || v?.name || v?.companyName || "vendor");
+        else results.push(res.data?.data?.orderNumber || "PO");
       }
       setPoModalSO(null);
       await handleGetSalesorder();
-      await confirm({ title: "Purchase orders created", message: `Created ${results.length} purchase order(s): ${results.join(", ")}`, hideCancel: true });
+      const parts = [];
+      if (results.length) parts.push(`Created ${results.length} purchase order(s): ${results.join(", ")}`);
+      if (held.length) parts.push(`Sent ${held.length} for approval (${held.join(", ")}) — created once approved`);
+      await confirm({ title: held.length && !results.length ? "Sent for approval" : "Purchase orders created", message: parts.join(". "), hideCancel: true });
     } catch (e) {
       await confirm({ title: "Couldn't create purchase order", message: e.response?.data?.message || "Failed to create purchase order.", hideCancel: true });
     } finally {

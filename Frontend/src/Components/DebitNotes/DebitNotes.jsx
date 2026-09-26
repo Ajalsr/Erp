@@ -196,8 +196,9 @@ export default function DebitNotes() {
   const dnAction = async (id, endpoint, successMsg, errorMsg) => {
     setActioning(true);
     try {
-      await axiosInstance.patch(`/api/debit-notes/${id}/${endpoint}`);
-      nexusToast.success(successMsg);
+      const res = await axiosInstance.patch(`/api/debit-notes/${id}/${endpoint}`);
+      // Submit's outcome depends on the org's approval settings — show what actually happened.
+      nexusToast.success(endpoint === "submit" && res.data?.message ? res.data.message : successMsg);
       setDrawerOpen(false); setSelected(null);
       load();
     } catch (e) { nexusToast.error(e.response?.data?.message || errorMsg); }
@@ -559,7 +560,7 @@ export default function DebitNotes() {
                 {dn.status === "draft" && (
                   <button className="dn-btn" disabled={actioning} onClick={() => handleSubmitDN(dn._id)}
                     style={{ flex: 1, padding: 10, background: T.blue, color: "white", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: actioning ? "not-allowed" : "pointer", opacity: actioning ? 0.6 : 1, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                    <FaCheck size={11} /> {actioning ? "Submitting…" : "Submit for Approval"}
+                    <FaCheck size={11} /> {actioning ? "Submitting…" : "Submit"}
                   </button>
                 )}
                 {dn.status === "pending_approval" && (

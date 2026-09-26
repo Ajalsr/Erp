@@ -375,6 +375,8 @@ export default function Purchaseorders() {
                   <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
                     <p style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color:T.blue, margin:0 }}>{selected.orderNumber||'PO-DRAFT'}</p>
                     <Badge status={selected.status||'draft'} T={T}/>
+                    {selected.revision > 0 && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:999, background:T.blueDim, color:T.blue }}>Rev {selected.revision}</span>}
+                    {selected.amendmentStatus === 'pending_approval' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:999, background:'rgba(245,158,11,.12)', color:'#d97706' }}>Amendment pending</span>}
                   </div>
                   <p style={{ fontFamily:"'Sora',sans-serif", fontSize:16, fontWeight:800, color:T.textPri, margin:0 }}>{selected.vendorName||'Unknown Vendor'}</p>
                   <p style={{ fontSize:11, color:T.textSec, margin:'3px 0 0' }}>{fmtDate(selected.orderDate)}</p>
@@ -460,7 +462,7 @@ export default function Purchaseorders() {
                     </div>
                   )}
 
-                  <DRow label="Order Number"  value={selected.orderNumber} T={T}/>
+                  <DRow label="Order Number"  value={selected.revision > 0 ? `${selected.orderNumber} (Rev ${selected.revision})` : selected.orderNumber} T={T}/>
                   <DRow label="Order Date"    value={fmtDate(selected.orderDate)} T={T}/>
                   <DRow label="Expected By"   value={fmtDate(selected.expectedDeliveryDate||selected.expectedDate)} T={T}/>
                   <DRow label="Payment Terms" value={selected.paymentTerms} T={T}/>
@@ -494,6 +496,7 @@ export default function Purchaseorders() {
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                             <div>
                               <p style={{ margin:0, fontSize:13, fontWeight:700, color:T.textPri }}>{item.details||item.itemName||item.name||'—'}</p>
+                              {item.itemCode && <p style={{ margin:'2px 0 0', fontSize:11, color:T.blue, fontFamily:"'DM Mono',monospace" }}>Article Code: {item.itemCode}</p>}
                               <p style={{ margin:'2px 0 0', fontSize:11, color:T.textSec, fontFamily:"'DM Mono',monospace" }}>base {fmtAmt(item.baseAmount)} + VAT {fmtAmt(item.taxAmount)}</p>
                             </div>
                             <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color:T.textPri }}>{fmtAmt(item.amount)}</span>
@@ -628,8 +631,35 @@ export default function Purchaseorders() {
                 }
                 events.sort((a,b) => new Date(a.ts) - new Date(b.ts));
 
+                const revs = [...(selected.revisions||[])].reverse();
+                const revColor = { approved:'#10b981', pending_approval:'#f59e0b', rejected:'#ef4444' };
+                const revLabel = { approved:'Approved', pending_approval:'Pending approval', rejected:'Rejected' };
                 return (
                   <div>
+                    {revs.length > 0 && (
+                      <div style={{ marginBottom:22 }}>
+                        <p style={{ fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, color:T.textPri, margin:'0 0 10px' }}>Revision History</p>
+                        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                          {revs.map(r => (
+                            <div key={r._id} style={{ background:T.surface2, border:`1.5px solid ${T.border}`, borderLeft:`3px solid ${revColor[r.status]||T.border}`, borderRadius:12, padding:'11px 14px' }}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                                <span style={{ fontSize:12, fontWeight:700, color:T.textPri }}>{r.status === 'approved' ? `Rev ${r.revision}` : 'Amendment request'}</span>
+                                <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:999, background:`${revColor[r.status]||'#64748b'}18`, color:revColor[r.status]||'#64748b' }}>{revLabel[r.status]||r.status}</span>
+                              </div>
+                              <p style={{ margin:'4px 0 0', fontSize:11.5, color:T.textSec }}>{fmtAmt(r.previousTotal)} → {fmtAmt(r.newTotal)}{r.reason ? ` · ${r.reason}` : ''}</p>
+                              <ul style={{ margin:'6px 0 0', paddingLeft:16, fontSize:11.5, color:T.textPri, lineHeight:1.6 }}>
+                                {(r.changes||[]).map((c,i) => <li key={i}>{c}</li>)}
+                              </ul>
+                              {r.rejectReason && <p style={{ margin:'4px 0 0', fontSize:11.5, color:'#ef4444' }}>Rejected: {r.rejectReason}</p>}
+                              <p style={{ margin:'6px 0 0', fontSize:10, color:T.textMuted, fontFamily:"'DM Mono',monospace" }}>
+                                Requested {fmtTs(r.requestedAt)}{r.requestedBy ? ` by ${r.requestedBy}` : ''}
+                                {r.reviewedAt ? ` · ${r.status === 'rejected' ? 'rejected' : 'approved'} ${fmtTs(r.reviewedAt)}` : ''}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {/* Header */}
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
                       <div>
@@ -729,6 +759,35 @@ export default function Purchaseorders() {
                     </div>
                   )}
                 </>
+              )}
+
+              {/* ── AMENDMENT: pending review, or start a new one ───────────────── */}
+              {selected.amendmentStatus === 'pending_approval' && (() => {
+                const pend = [...(selected.revisions||[])].reverse().find(r => r.status === 'pending_approval');
+                if (!pend) return null;
+                return (
+                  <div style={{ padding:'12px 14px', background:isDark?'rgba(245,158,11,.08)':'#fffbeb', border:`1px solid ${isDark?'rgba(245,158,11,.25)':'#fde68a'}`, borderRadius:11 }}>
+                    <p style={{ margin:0, fontSize:12, fontWeight:700, color:'#d97706' }}>Amendment awaiting approval · {fmtAmt(pend.previousTotal)} → {fmtAmt(pend.newTotal)}</p>
+                    {pend.reason && <p style={{ margin:'4px 0 0', fontSize:11.5, color:T.textSec }}>Reason: {pend.reason}</p>}
+                    <ul style={{ margin:'6px 0 0', paddingLeft:16, fontSize:11.5, color:T.textPri, lineHeight:1.6, maxHeight:120, overflowY:'auto' }}>
+                      {(pend.changes||[]).map((c,i) => <li key={i}>{c}</li>)}
+                    </ul>
+                    {pend.approvalRequestId ? (
+                      <button onClick={() => { closeDrawer(); navigate(`/Approvals?id=${pend.approvalRequestId}`); }}
+                        style={{ marginTop:10, width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'9px 12px', background:'transparent', color:'#d97706', border:'1px solid rgba(245,158,11,.4)', borderRadius:10, fontSize:12.5, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                        <FaClock size={10}/> In approval workflow — open in Approvals
+                      </button>
+                    ) : (
+                      <p style={{ margin:'8px 0 0', fontSize:11.5, color:'#d97706', display:'flex', alignItems:'center', gap:6 }}><FaClock size={10}/> The current version stays in force until it's approved.</p>
+                    )}
+                  </div>
+                );
+              })()}
+              {['issued','partial'].includes(selected.status) && selected.amendmentStatus !== 'pending_approval' && (
+                <button onClick={() => { closeDrawer(); navigate(`/Purchase/Purchaseorders/Newpurchaseorders/${selected._id}?amend=1`); }}
+                  style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:T.surface2, color:T.blue, border:`1.5px solid ${border}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                  <FaEdit size={11}/> Amend PO
+                </button>
               )}
 
               {/* ── GOODS PO FLOW ─────────────────────────────────────────────── */}

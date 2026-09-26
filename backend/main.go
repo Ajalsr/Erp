@@ -122,6 +122,7 @@ func main() {
 
 	routes.StockRoutes(router)
 	routes.ReorderAlertRoutes(router)
+	routes.ItemPickerRoutes(router)
 	routes.AuthRoutes(router)
 	routes.CustomerRoutes(router)
 	routes.SaleOrderRoutes(router)

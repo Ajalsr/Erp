@@ -4,6 +4,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
 import useUpdateCustomer from '../../helper/useUpdateCustomer';
 import axiosInstance from '../../helper/axiosInstance';
+import { usePermissions } from '../../helper/permissions';
 import toast from "../../helper/nexusToast";
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import { drawerWidth } from '../../helper/responsive';
@@ -947,6 +948,7 @@ function SalutationInput({ value, onChange, name, T, isDark }) {
 
 // ── Main Component ─────────────────────────────────────────────────
 const Newcustomers = () => {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const guard = useUnsavedGuard({ hasDraft: false });
   const { handleAddcustomer }    = useAddCustomer();
   const { handleUpdateCustomer } = useUpdateCustomer();
@@ -1440,7 +1442,7 @@ const Newcustomers = () => {
                 ))}
               </div>
               <div style={{ padding: '24px' }}>
-                {activeTab === 'finance'         && <FinanceTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} paymentTermOptions={paymentTermOptions} onCreatePaymentTerm={() => setQuickCreate('paymentTerm')} priceListOptions={priceListOptions} />}
+                {activeTab === 'finance'         && <FinanceTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} paymentTermOptions={paymentTermOptions} onCreatePaymentTerm={canPerm('payment_terms', 'add') ? () => setQuickCreate('paymentTerm') : undefined} priceListOptions={priceListOptions} />}
                 {activeTab === 'address'         && <AddressTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} />}
                 {activeTab === 'contact-persons' && <ContactPersonsTab contactPersons={contactPersons} setContactPersons={setContactPersons} T={T} isDark={isDark} isMobile={isMobile} />}
                 {activeTab === 'documents'       && <DocumentsTab documents={formData.documents} handleFileUpload={handleFileUpload} removeDocument={removeDocument} getFileIcon={getFileIcon} formatFileSize={formatFileSize} T={T} isDark={isDark} />}

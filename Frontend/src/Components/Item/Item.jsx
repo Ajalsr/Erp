@@ -14,6 +14,7 @@ import useRealtime from "../../helper/useRealtime";
 import { drawerWidth, BREAKPOINT_TABLET } from "../../helper/responsive";
 import useIsMobile from "../../helper/useIsMobile";
 import CsvImportModal from "../common/CsvImportModal";
+import { usePermissions } from "../../helper/permissions";
 
 const ITEM_IMPORT_FIELDS = [
   { key: "name",          label: "Name",          aliases: ["item name", "product", "product name"], required: true },
@@ -60,9 +61,12 @@ const thumbGrad = (name) => {
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════════ */
 export default function Item() {
-  const { handleGetItem, data, loading, error } = useGetItem();
+  const { handleGetItem, data, loading, error } = useGetItem({ full: true });
   const [showImport, setShowImport] = useState(false);
   const navigate  = useNavigate();
+  const { can } = usePermissions();
+  const canAddItem  = can("items", "add");
+  const canEditItem = can("items", "edit");
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getTheme(isDark);
   const isMobile  = useIsMobile();
@@ -295,13 +299,13 @@ export default function Item() {
           <button className="inv-btn" style={{display:"flex",alignItems:"center",gap:6,height:32,padding:isMobile?"0 10px":"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
             <FaDownload size={11}/> {!isMobile&&"Export"}
           </button>
-          <button className="inv-btn" onClick={()=>setShowImport(true)} style={{display:"flex",alignItems:"center",gap:6,height:32,padding:isMobile?"0 10px":"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
+          {canAddItem && <button className="inv-btn" onClick={()=>setShowImport(true)} style={{display:"flex",alignItems:"center",gap:6,height:32,padding:isMobile?"0 10px":"0 12px",borderRadius:8,background:surface2,border:`1px solid ${border}`,color:muted,fontSize:12.5,fontWeight:500,fontFamily:"inherit"}}>
             <FaFileImport size={11}/> {!isMobile&&"Import"}
-          </button>
-          <button className="inv-btn" onClick={()=>navigate("/Items/Items/New")}
+          </button>}
+          {canAddItem && <button className="inv-btn" onClick={()=>navigate("/Items/Items/New")}
             style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,height:32,padding:isMobile?"0 14px":"0 14px",flex:isMobile?1:"initial",marginLeft:isMobile?"auto":0,borderRadius:8,background:T.blue,border:"none",color:"#fff",fontSize:12.5,fontWeight:600,fontFamily:"inherit",boxShadow:`0 4px 14px ${isDark?"rgba(59,130,246,.35)":"rgba(37,99,235,.25)"}`}}>
             <FaPlus size={10}/> New item
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -461,7 +465,7 @@ export default function Item() {
               availability={availability}
               onClose={closePanel}
               onAdjust={(item)=>{setAdjustItem(item);setAdjustQty(String(item.quantity??0));}}
-              onEdit={(item)=>navigate(`/Items/Items/Edit/${item._id||item.id}`)}
+              onEdit={canEditItem ? (item)=>navigate(`/Items/Items/Edit/${item._id||item.id}`) : undefined}
             />
           ) : (
             <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",opacity:.4}}>
@@ -557,9 +561,9 @@ function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, bor
               </button>
               <span style={{fontSize:11,fontWeight:600,color:muted,textTransform:"uppercase",letterSpacing:".04em"}}>Item detail</span>
               <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-                <button className="inv-btn" onClick={()=>onEdit(item)} style={{width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:7,background:surface2,border:`1px solid ${border}`,color:text}}>
+                {onEdit && <button className="inv-btn" onClick={()=>onEdit(item)} style={{width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:7,background:surface2,border:`1px solid ${border}`,color:text}}>
                   <FaEdit size={12}/>
-                </button>
+                </button>}
                 <button className="inv-btn" style={{width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:7,background:surface2,border:`1px solid ${border}`,color:text}} onClick={()=>{}}>
                   <FaCopy size={12}/>
                 </button>
@@ -605,9 +609,9 @@ function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, bor
             <button className="inv-btn" style={{display:"flex",alignItems:"center",gap:5,height:30,padding:"0 10px",borderRadius:7,background:surface2,border:`1px solid ${border}`,color:text,fontSize:12,fontWeight:500,fontFamily:"inherit"}} onClick={()=>{}}>
               <FaCopy size={11}/> More
             </button>
-            <button className="inv-btn" onClick={()=>onEdit(item)} style={{display:"flex",alignItems:"center",gap:5,height:30,padding:"0 11px",borderRadius:7,background:surface2,border:`1px solid ${border}`,color:text,fontSize:12,fontWeight:500,fontFamily:"inherit"}}>
+            {onEdit && <button className="inv-btn" onClick={()=>onEdit(item)} style={{display:"flex",alignItems:"center",gap:5,height:30,padding:"0 11px",borderRadius:7,background:surface2,border:`1px solid ${border}`,color:text,fontSize:12,fontWeight:500,fontFamily:"inherit"}}>
               <FaEdit size={11}/> Edit
-            </button>
+            </button>}
             <button className="inv-btn" style={{display:"flex",alignItems:"center",gap:5,height:30,padding:"0 11px",borderRadius:7,background:T.blue,border:"none",color:"#fff",fontSize:12,fontWeight:600,fontFamily:"inherit",boxShadow:`0 4px 10px -4px ${T.blue}`}} onClick={()=>{}}>
               Open record
             </button>

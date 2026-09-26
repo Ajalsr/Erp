@@ -9,6 +9,7 @@ import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
 import PortalSelect from './PortalSelect';
 import QuickCreateModal from './QuickCreateModal';
+import { usePermissions } from '../../helper/permissions';
 
 const QUICK_ITEM_GROUP_FIELDS = [
   { name: 'name',   label: 'Group Name',       placeholder: 'e.g. Electronics',      required: true, autoFocus: true },
@@ -27,6 +28,10 @@ export default function QuickAddItemModal({ T, isDark, uomOptions, fetchUomOptio
   const [unit, setUnit]           = useState('');
   const [saving, setSaving]       = useState(false);
   const [nestedCreate, setNestedCreate] = useState(null); // null | 'group' | 'unit'
+  // The nested "create group / unit" shortcuts follow their own modules' add permission.
+  const { can } = usePermissions();
+  const canAddGroup = can('item_groups', 'add');
+  const canAddUnit = can('uom', 'add');
 
   const groupPrefix = groupId && groupMap[groupId]?.prefix ? groupMap[groupId].prefix + '-' : '';
 
@@ -125,7 +130,7 @@ export default function QuickAddItemModal({ T, isDark, uomOptions, fetchUomOptio
               <PortalSelect T={T} isDark={isDark} name="category" value={groupId} onChange={handleGroupChange}
                 placeholder={groupOptions.length ? 'Select group…' : 'No groups yet…'}
                 options={groupOptions}
-                onCreateNew={() => setNestedCreate('group')} createLabel="Create new group" />
+                onCreateNew={canAddGroup ? () => setNestedCreate('group') : undefined} createLabel="Create new group" />
             </div>
             <div style={{ marginBottom: 12 }}>
               <label style={labelStyle}>Item Code<span style={{ color: '#ef4444' }}> *</span></label>
@@ -148,7 +153,7 @@ export default function QuickAddItemModal({ T, isDark, uomOptions, fetchUomOptio
                 <PortalSelect T={T} isDark={isDark} name="unit" value={unit} onChange={e => setUnit(e.target.value)}
                   placeholder={uomOptions.length ? 'Select unit…' : 'No units yet…'}
                   options={uomOptions}
-                  onCreateNew={() => setNestedCreate('unit')} createLabel="Create new unit" />
+                  onCreateNew={canAddUnit ? () => setNestedCreate('unit') : undefined} createLabel="Create new unit" />
               </div>
             )}
             <button onClick={handleSave} disabled={saving}
