@@ -1541,7 +1541,7 @@ const Invoices = () => {
                               setReturnPaymentId("");
                               setReturnNotes("");
                               setStocksList([]);
-                              axiosInstance.get("/api/stocks/getitem")
+                              axiosInstance.get("/api/stocks/lookup")
                                 .then(r => setStocksList(r.data?.data || []))
                                 .catch(() => {});
                               setReturnModal(true);

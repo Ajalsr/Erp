@@ -49,24 +49,7 @@ func calculateItemAmount(quantity, rate, discount float64, discountType string) 
 // owner/admin always, plus any roles configured in the "sales_orders" approval policy
 // chain (Settings → Approvals). Falls back to owner/admin when nothing is configured.
 func salesOrderApproverRoles(ctx context.Context, orgID primitive.ObjectID) map[string]bool {
-	roles := map[string]bool{"owner": true, "admin": true}
-	var org models.Organization
-	if orgCollection.FindOne(ctx, bson.M{"_id": orgID},
-		options.FindOne().SetProjection(bson.M{"approvalPolicies": 1})).Decode(&org) == nil {
-		if p, ok := org.ApprovalPolicies["sales_orders"]; ok {
-			for _, s := range p.Steps {
-				for _, r := range s.Roles {
-					if r != "" {
-						roles[r] = true
-					}
-				}
-				if s.Delegate != "" {
-					roles[s.Delegate] = true
-				}
-			}
-		}
-	}
-	return roles
+	return policyApproverRoles(ctx, orgID, "sales_orders")
 }
 
 func CreateSalesOrder() gin.HandlerFunc {
@@ -196,123 +179,27 @@ func CreateSalesOrder() gin.HandlerFunc {
 		total := math.Round((subTotal+vat+shipping+adjustment)*100) / 100
 
 		orgIDStr := fmt.Sprintf("%v", orgID)
-		// ── Risk checks → route to approval instead of hard-blocking ──────────
-		// Credit-limit "block", an expired trade license, or any overdue invoice no
-		// longer reject the order — they force it into pending_approval and the reasons
-		// are surfaced so the UI can show a popup.
+		// ── Approval ──────────────────────────────────────────────────────────
+		// Risk checks (credit limit, expired license, overdue invoices) + the org's
+		// Sales Orders policy decide whether this order is held — see soApprovalDecision.
+		// Drafts are never evaluated: nothing has been submitted yet.
 		var creditWarning gin.H
-		needsApproval := false
-		autoApproved := false // creator is an approver → reasons fired but no hold needed
+		needsApproval, autoApproved := false, false
 		var approvalReasons []string
-		invCol := config.GetCollection(config.DB, "invoices")
-
-		if customer.CreditLimit > 0 {
-			soCol := config.GetCollection(config.DB, "sales_orders")
-
-			invPipeline := []bson.M{
-				{"$match": bson.M{
-					"orgId":      orgID,
-					"customerId": req.CustomerID,
-					"status":     bson.M{"$in": []string{"unpaid", "partially_paid", "overdue"}},
-				}},
-				{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$balanceDue"}}},
+		risk := soRiskChecks(ctx, orgIDStr, req.CustomerID, customer, total)
+		creditWarning = risk.creditWarning
+		if req.Status != "draft" {
+			d := soApprovalDecision(ctx, orgIDStr, fmt.Sprintf("%v", userID), total, customer.CustomerDisplayName, risk)
+			if d.blockMsg != "" {
+				c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": d.blockMsg, "creditWarning": creditWarning})
+				return
 			}
-			var invRes []struct{ Total float64 `bson:"total"` }
-			if cur, err2 := invCol.Aggregate(ctx, invPipeline); err2 == nil {
-				_ = cur.All(ctx, &invRes)
-			}
-			var unpaidInv float64
-			if len(invRes) > 0 {
-				unpaidInv = invRes[0].Total
-			}
-
-			soPipeline := []bson.M{
-				{"$match": bson.M{
-					"orgId":      orgID,
-					"customerId": req.CustomerID,
-					"status":     bson.M{"$in": []string{"open", "confirmed", "processing"}},
-				}},
-				{"$group": bson.M{"_id": nil, "total": bson.M{"$sum": "$total"}}},
-			}
-			var soRes []struct{ Total float64 `bson:"total"` }
-			if cur, err2 := soCol.Aggregate(ctx, soPipeline); err2 == nil {
-				_ = cur.All(ctx, &soRes)
-			}
-			var openOrd float64
-			if len(soRes) > 0 {
-				openOrd = soRes[0].Total
-			}
-
-			currentUsed := unpaidInv + openOrd
-			projectedUsed := currentUsed + total
-			if projectedUsed > customer.CreditLimit {
-				info := gin.H{
-					"creditLimit":   customer.CreditLimit,
-					"currentUsed":   math.Round(currentUsed*100) / 100,
-					"thisOrder":     total,
-					"projectedUsed": math.Round(projectedUsed*100) / 100,
-					"exceeded":      true,
-				}
-				action := customer.CreditLimitAction
-				if action == "" {
-					action = "warn"
-				}
-				if action == "block" {
-					needsApproval = true
-					approvalReasons = append(approvalReasons,
-						fmt.Sprintf("Credit limit exceeded (limit AED %.2f, this order would reach AED %.2f)", customer.CreditLimit, projectedUsed))
-				}
-				creditWarning = info
-			}
-		}
-
-		// Expired trade license (customer custom field "licenseExpiryDate", YYYY-MM-DD).
-		if customer.CustomFields != nil {
-			if exp, ok := customer.CustomFields["licenseExpiryDate"].(string); ok && exp != "" {
-				if exp < time.Now().Format("2006-01-02") {
-					needsApproval = true
-					approvalReasons = append(approvalReasons, "Customer's trade license expired on "+exp)
-				}
-			}
-		}
-
-		// Any overdue invoice for this customer.
-		if overdueCount, _ := invCol.CountDocuments(ctx, bson.M{
-			"orgId":      orgID,
-			"customerId": req.CustomerID,
-			"status":     "overdue",
-		}); overdueCount > 0 {
-			needsApproval = true
-			approvalReasons = append(approvalReasons, fmt.Sprintf("%d overdue invoice(s) on this customer", overdueCount))
+			needsApproval, autoApproved, approvalReasons = d.hold, d.autoApproved, d.reasons
 		}
 
 		// Always assign from the org's configured numbering format — the client only sends
 		// a placeholder for display, never the authoritative number.
 		req.OrderNumber = generateOrderNumber(ctx, fmt.Sprintf("%v", orgID))
-
-		// Client-requested review: a non-approver explicitly clicked "Submit for
-		// Approval". This signal was previously dropped entirely — only the risk
-		// checks above could force a hold, so a clean order always went straight to
-		// "open" even when the requester asked for approval. Now either one holds it.
-		if req.Status == "pending_approval" {
-			needsApproval = true
-			if len(approvalReasons) == 0 {
-				approvalReasons = append(approvalReasons, "Submitted for approval by requester")
-			}
-		}
-
-		// Self-clearance: if the creator is themselves an approver (owner/admin or a
-		// configured SO approver), holding the order for approval is pointless — they could
-		// just approve it. Skip the hold and let it go straight to open. A draft never
-		// enters the approval flow — nothing has been submitted yet.
-		if needsApproval && req.Status != "draft" {
-			if orgObjID, e := primitive.ObjectIDFromHex(orgIDStr); e == nil {
-				if role, ok := getMemberRole(ctx, orgObjID, fmt.Sprintf("%v", userID)); ok && salesOrderApproverRoles(ctx, orgObjID)[role] {
-					needsApproval = false
-					autoApproved = true // keep the reasons — surfaced as a warning, not a hold
-				}
-			}
-		}
 
 		// Status: a draft stays a draft regardless of risk flags (not submitted yet);
 		// a held order (risk-triggered or explicitly requested) goes pending_approval;
@@ -382,34 +269,9 @@ func CreateSalesOrder() gin.HandlerFunc {
 			ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "create", OrgID: orgIDStr})
 		}
 
-		// Notify admins/owners when a non-privileged user submits for approval
+		// Notify everyone who can approve sales orders (owner/admin + configured approver roles).
 		if soStatus == "pending_approval" {
-			go func() {
-				nCtx, nCancel := context.WithTimeout(context.Background(), 8*time.Second)
-				defer nCancel()
-				orgObjID, _ := primitive.ObjectIDFromHex(orgIDStr)
-				cur, err2 := orgMemberCollection.Find(nCtx, bson.M{
-					"orgId":  orgObjID,
-					"status": "active",
-					"role":   bson.M{"$in": []string{"owner", "admin"}},
-				})
-				if err2 == nil {
-					var admins []models.OrgMember
-					cur.All(nCtx, &admins)
-					cur.Close(nCtx)
-					title := "Sales Order Needs Approval"
-					msg := fmt.Sprintf("Order %s for %s (AED %.2f) submitted by %s — awaiting your approval.",
-						salesOrder.OrderNumber, salesOrder.CustomerName, salesOrder.Total, fmt.Sprintf("%v", userID))
-					meta := map[string]string{
-						"orderId":     salesOrder.ID.Hex(),
-						"orderNumber": salesOrder.OrderNumber,
-						"submittedBy": fmt.Sprintf("%v", userID),
-					}
-					for _, m := range admins {
-						pushNotificationWithMeta(m.UserID, "approval_request", title, msg, orgIDStr, "", meta)
-					}
-				}
-			}()
+			go notifySOApprovers(orgIDStr, salesOrder, fmt.Sprintf("%v", userID))
 		}
 
 		resp := gin.H{
@@ -1136,6 +998,53 @@ func UpdateSalesOrder() gin.HandlerFunc {
 			setFields["total"] = math.Round((subTotal+vat+newShipping+newAdjustment)*100) / 100
 		}
 
+		// ── Status changes through an edit ────────────────────────────────────
+		// Submitting a draft (or resubmitting a rejected order) runs the same approval
+		// decision as create — the server picks open vs pending_approval, not the client.
+		// Approval outcomes (approved/rejected/confirmed) are only for approvers.
+		var submitDecision *soDecision
+		var submitRisk soRisk
+		editUserID := fmt.Sprintf("%v", c.MustGet("userId"))
+		orgIDStrEdit := fmt.Sprintf("%v", orgID)
+		if req.Status != nil {
+			target := *req.Status
+			switch {
+			case (target == "open" || target == "pending_approval") && (existingOrder.Status == "draft" || existingOrder.Status == "rejected"):
+				finalTotal := existingOrder.Total
+				if t, ok := setFields["total"].(float64); ok {
+					finalTotal = t
+				}
+				custID := existingOrder.CustomerID
+				if req.CustomerID != nil {
+					custID = *req.CustomerID
+				}
+				var cust models.Customer
+				if oid, e := primitive.ObjectIDFromHex(custID); e == nil {
+					customersCollection.FindOne(ctx, bson.M{"_id": oid}).Decode(&cust)
+				}
+				submitRisk = soRiskChecks(ctx, orgIDStrEdit, custID, cust, finalTotal)
+				d := soApprovalDecision(ctx, orgIDStrEdit, editUserID, finalTotal, cust.CustomerDisplayName, submitRisk)
+				if d.blockMsg != "" {
+					c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": d.blockMsg, "creditWarning": submitRisk.creditWarning})
+					return
+				}
+				submitDecision = &d
+				if d.hold {
+					setFields["status"] = "pending_approval"
+				} else {
+					setFields["status"] = "open"
+				}
+			case target == "approved" || target == "rejected" || target == "confirmed":
+				if target != existingOrder.Status {
+					orgObjIDEdit, _ := primitive.ObjectIDFromHex(orgIDStrEdit)
+					if role, ok := getMemberRole(ctx, orgObjIDEdit, editUserID); !ok || !salesOrderApproverRoles(ctx, orgObjIDEdit)[role] {
+						c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "Only an approver can set a sales order to " + target + "."})
+						return
+					}
+				}
+			}
+		}
+
 		result, err := salesOrdersCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, bson.M{"$set": setFields})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to update sales order", "error": err.Error()})
@@ -1151,8 +1060,12 @@ func UpdateSalesOrder() gin.HandlerFunc {
 		salesOrdersCollection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&updatedOrder)
 
 		ws.GlobalHub.Broadcast(ws.Event{Type: "sales_orders_updated", Action: "update", ID: id})
+		if submitDecision != nil && submitDecision.hold {
+			ws.GlobalHub.Broadcast(ws.Event{Type: "approvals_updated", Action: "update", OrgID: orgIDStrEdit})
+			go notifySOApprovers(orgIDStrEdit, updatedOrder, editUserID)
+		}
 
-		c.JSON(http.StatusOK, gin.H{
+		resp := gin.H{
 			"status":  http.StatusOK,
 			"message": "Sales order updated successfully",
 			"data": gin.H{
@@ -1171,7 +1084,21 @@ func UpdateSalesOrder() gin.HandlerFunc {
 				"matchedCount":       result.MatchedCount,
 				"modifiedCount":      result.ModifiedCount,
 			},
-		})
+		}
+		// Same approval signals as create, so the form can show the held / warning popup.
+		if submitDecision != nil {
+			if submitRisk.creditWarning != nil {
+				resp["creditWarning"] = submitRisk.creditWarning
+			}
+			if submitDecision.hold {
+				resp["sentToApproval"] = true
+				resp["approvalReasons"] = submitDecision.reasons
+			} else if submitDecision.autoApproved && len(submitDecision.reasons) > 0 {
+				resp["autoApproved"] = true
+				resp["approvalReasons"] = submitDecision.reasons
+			}
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 

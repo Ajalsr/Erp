@@ -197,7 +197,7 @@ function BillDropdown({ value, onChange, vendorId, T, isDark, dropup, onlyOpen }
 // ── Item selector for line items ──────────────────────────────────────────────
 function ItemSelector({ value, onSelect, onClear, T, isDark }) {
   const fetchItems = useCallback(async (q) => {
-    const res = await axiosInstance.get(`/api/stocks/getitem?search=${encodeURIComponent(q)}&limit=30`);
+    const res = await axiosInstance.get(`/api/stocks/lookup?search=${encodeURIComponent(q)}&limit=30`);
     return res.data?.data || res.data || [];
   }, []);
 

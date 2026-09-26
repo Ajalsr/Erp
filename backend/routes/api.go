@@ -45,13 +45,29 @@ func StockRoutes(router *gin.Engine) {
 		stockRoutes.GET("/getitem", controllers.GetAllStocks())
 		stockRoutes.POST("/additem", controllers.AddItem())
 		stockRoutes.POST("/import", controllers.ImportItems())
-		stockRoutes.GET("/:id/availability", controllers.GetItemStockAvailability())
 		stockRoutes.GET("/:id", controllers.GetItemByID())
 		stockRoutes.PUT("/:id", controllers.UpdateItem())
 		stockRoutes.PATCH("/:id/reduce", controllers.ReduceStock())
 		stockRoutes.PATCH("/:id/increase", controllers.IncreaseStock())
 		stockRoutes.POST("/backfill-warehouse", controllers.BackfillWarehouseStock())
 	}
+}
+
+// itemPickerModules — every module whose documents pick items from a dropdown. Viewing any
+// of them grants the read-only item picker below, so a role can choose items on (say) a
+// purchase order without any access to the Items module itself. Items still needs its own
+// grant for the Items page and for creating/editing items.
+var itemPickerModules = []string{
+	"items", "purchase_orders", "sales_orders", "quotes", "enquiries", "invoices",
+	"recurring_invoices", "credit_notes", "bills", "expenses", "debit_notes",
+	"vendor_credits", "grns", "delivery_notes", "price_lists", "adjustments",
+}
+
+// ItemPickerRoutes — read-only item list + stock availability for line-item dropdowns.
+func ItemPickerRoutes(router *gin.Engine) {
+	picker := []gin.HandlerFunc{middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireAnyModule(itemPickerModules...)}
+	router.GET("/api/stocks/lookup", append(picker, controllers.GetAllStocks())...)
+	router.GET("/api/stocks/:id/availability", append(picker, controllers.GetItemStockAvailability())...)
 }
 
 // ReorderAlertRoutes — same underlying item list as StockRoutes.GetAllStocks, exposed
@@ -236,6 +252,7 @@ func PurchaseOrderRoutes(router *gin.Engine) {
 		poRoutes.PATCH("/:id/status", controllers.UpdatePurchaseOrderStatus())
 		poRoutes.PATCH("/:id/approve", controllers.ApprovePurchaseOrder())
 		poRoutes.PATCH("/:id/cancel", controllers.CancelPurchaseOrder())
+		poRoutes.PUT("/:id/amend", controllers.AmendPurchaseOrder()) // PUT → "edit" permission
 		poRoutes.POST("/:id/convert-to-bill", controllers.ConvertPOToBill())
 		poRoutes.GET("/:id/pdf", controllers.DownloadPurchaseOrderPDF())
 		poRoutes.GET("/:id/preview", controllers.PreviewPurchaseOrderPDF())
@@ -372,9 +389,12 @@ func AdjustmentRoutes(router *gin.Engine) {
 	}
 }
 
+// Reference-list routes below (item groups, units, payment terms, sales types, price
+// lists) use OnWrite: reads are open to any org member so document dropdowns work for
+// every role; creating/editing/deleting still needs the module's licence + permission.
 func ItemGroupRoutes(router *gin.Engine) {
 	igRoutes := router.Group("/api/item-groups")
-	igRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("item_groups"), middlewares.RequireModule("item_groups"))
+	igRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.OnWrite(middlewares.RequireLicenseModule("item_groups")), middlewares.OnWrite(middlewares.RequireModule("item_groups")))
 	{
 		igRoutes.POST("/", controllers.CreateItemGroup())
 		igRoutes.GET("/", controllers.GetAllItemGroups())
@@ -386,7 +406,7 @@ func ItemGroupRoutes(router *gin.Engine) {
 
 func UOMRoutes(router *gin.Engine) {
 	uomRoutes := router.Group("/api/uoms")
-	uomRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("uom"), middlewares.RequireModule("uom"))
+	uomRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.OnWrite(middlewares.RequireLicenseModule("uom")), middlewares.OnWrite(middlewares.RequireModule("uom")))
 	{
 		uomRoutes.POST("/", controllers.CreateUOM())
 		uomRoutes.GET("/", controllers.GetAllUOMs())
@@ -398,7 +418,7 @@ func UOMRoutes(router *gin.Engine) {
 
 func PaymentTermRoutes(router *gin.Engine) {
 	ptRoutes := router.Group("/api/payment-terms")
-	ptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("payment_terms"), middlewares.RequireModule("payment_terms"))
+	ptRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.OnWrite(middlewares.RequireLicenseModule("payment_terms")), middlewares.OnWrite(middlewares.RequireModule("payment_terms")))
 	{
 		ptRoutes.POST("/", controllers.CreatePaymentTerm())
 		ptRoutes.GET("/", controllers.GetAllPaymentTerms())
@@ -410,7 +430,7 @@ func PaymentTermRoutes(router *gin.Engine) {
 
 func SalesTypeRoutes(router *gin.Engine) {
 	stRoutes := router.Group("/api/sales-types")
-	stRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("sales_types"), middlewares.RequireModule("sales_types"))
+	stRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.OnWrite(middlewares.RequireLicenseModule("sales_types")), middlewares.OnWrite(middlewares.RequireModule("sales_types")))
 	{
 		stRoutes.POST("/", controllers.CreateSalesType())
 		stRoutes.GET("/", controllers.GetAllSalesTypes())
@@ -451,7 +471,7 @@ func DeliveryTermRoutes(router *gin.Engine) {
 
 func PriceListRoutes(router *gin.Engine) {
 	plRoutes := router.Group("/api/price-lists")
-	plRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.RequireLicenseModule("price_lists"), middlewares.RequireModule("price_lists"))
+	plRoutes.Use(middlewares.Authenticate, middlewares.RequireOrg, middlewares.OnWrite(middlewares.RequireLicenseModule("price_lists")), middlewares.OnWrite(middlewares.RequireModule("price_lists")))
 	{
 		plRoutes.POST("/", controllers.CreatePriceList())
 		plRoutes.GET("/", controllers.GetAllPriceLists())

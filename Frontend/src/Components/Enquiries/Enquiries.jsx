@@ -693,7 +693,7 @@ export default function Enquiries() {
   // Stock items for line item picker
   const [allItems, setAllItems] = useState([]);
   useEffect(() => {
-    axiosInstance.get("/api/stocks/getitem")
+    axiosInstance.get("/api/stocks/lookup")
       .then(r => setAllItems(r.data?.data || []))
       .catch(() => {});
   }, []);
@@ -1499,7 +1499,7 @@ export default function Enquiries() {
                               selectedId={li.itemId}
                               allItems={allItems}
                               T={T}
-                              onCreateNew={openQuickAddItem}
+                              onCreateNew={can('items', 'add') ? openQuickAddItem : undefined}
                               onType={v => setEditForm(f => {
                                 const items = [...(f.lineItems || [])];
                                 items[idx] = { ...items[idx], itemName: v, itemId: "" };
@@ -1847,7 +1847,7 @@ export default function Enquiries() {
                             selectedId={li.itemId}
                             allItems={allItems}
                             T={T}
-                            onCreateNew={openQuickAddItem}
+                            onCreateNew={can('items', 'add') ? openQuickAddItem : undefined}
                             onType={v => setForm(f => {
                               const items = [...f.lineItems];
                               items[idx] = { ...items[idx], itemName: v, itemId: "" };

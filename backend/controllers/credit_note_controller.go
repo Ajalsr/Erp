@@ -303,9 +303,46 @@ func GetCreditNoteByID() gin.HandlerFunc {
 	}
 }
 
-// PATCH /api/credit-notes/:id/submit — draft → pending_approval
+// PATCH /api/credit-notes/:id/submit — draft → approved (posted) or pending_approval.
+// Approval only when the org's Credit Notes policy (Settings → Approvals) requires it for
+// this note and user; otherwise it's approved and posted straight away.
 func SubmitCreditNote() gin.HandlerFunc {
-	return cnTransition("draft", "pending_approval", "only draft credit notes can be submitted")
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgIDStr := fmt.Sprintf("%v", c.MustGet("orgId"))
+		userID := fmt.Sprintf("%v", c.MustGet("userId"))
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid id"})
+			return
+		}
+		var cn bson.M
+		if err := creditNoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr, "status": "draft"}).Decode(&cn); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"message": "only draft credit notes can be submitted"})
+			return
+		}
+		total, _ := nestedNum(cn, "totals", "grandTotal")
+		customerName, _ := cn["customerName"].(string)
+		next := "approved"
+		if policyNeedsApproval(ctx, orgIDStr, userID, "credit_notes", bson.M{"total": total, "customerName": customerName}) {
+			next = "pending_approval"
+		}
+		res, err := creditNoteCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgIDStr, "status": "draft"},
+			bson.M{"$set": bson.M{"status": next, "updatedAt": time.Now()}})
+		if err != nil || res.MatchedCount == 0 {
+			c.JSON(http.StatusConflict, gin.H{"message": "only draft credit notes can be submitted"})
+			return
+		}
+		if next == "approved" {
+			go postCreditNoteGL(context.Background(), orgIDStr, objectID.Hex())
+			c.JSON(http.StatusOK, gin.H{"message": "Credit note approved", "status": next})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Credit note submitted for approval", "status": next})
+	}
 }
 
 // PATCH /api/credit-notes/:id/approve — pending_approval → approved.
@@ -320,6 +357,10 @@ func ApproveCreditNote() gin.HandlerFunc {
 		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid id"})
+			return
+		}
+		if !canApproveModule(ctx, orgIDStr, fmt.Sprintf("%v", c.MustGet("userId")), "credit_notes") {
+			c.JSON(http.StatusForbidden, gin.H{"message": "You're not an approver for credit notes."})
 			return
 		}
 		res, err := creditNoteCollection.UpdateOne(ctx,

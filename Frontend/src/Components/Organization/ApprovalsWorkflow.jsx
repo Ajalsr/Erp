@@ -7,44 +7,54 @@ import nexusToast from '../../helper/nexusToast'
 /* Modules that actually enforce approval today (their create is gated). */
 const APPROVAL_MODULES = [
   { key: 'purchase_orders', label: 'Purchase Orders', group: 'Purchases' },
+  { key: 'po_amendments',   label: 'PO Amendments',   group: 'Purchases', noun: 'issued purchase order' },
   { key: 'bills',           label: 'Bills',            group: 'Purchases' },
+  { key: 'debit_notes',     label: 'Debit Notes',      group: 'Purchases' },
   { key: 'vendor_payments', label: 'Payments Made',    group: 'Finance' },
   { key: 'payments',        label: 'Payments Received', group: 'Finance' },
   { key: 'quotes',          label: 'Quotes',           group: 'Sales' },
   { key: 'sales_orders',    label: 'Sales Orders',     group: 'Sales' },
   { key: 'invoices',        label: 'Invoices',         group: 'Sales' },
+  { key: 'credit_notes',    label: 'Credit Notes',     group: 'Sales' },
   { key: 'customers',       label: 'Customers',        group: 'Contacts' },
   { key: 'vendors',         label: 'Vendors',          group: 'Contacts' },
   { key: 'projects',        label: 'Projects',         group: 'Projects' },
 ]
 const modLabel = (k) => (APPROVAL_MODULES.find(m => m.key === k) || {}).label || k
 const modGroup = (k) => (APPROVAL_MODULES.find(m => m.key === k) || {}).group || ''
+const modNoun = (k) => (APPROVAL_MODULES.find(m => m.key === k) || {}).noun || modLabel(k).replace(/s$/, '').toLowerCase()
 
 /* Actions each module's gate is wired for in the backend. Only these can be toggled. */
 const MODULE_ACTIONS = {
   purchase_orders: ['create', 'update'],
+  po_amendments:   ['amend'],
   bills:           ['create', 'update', 'delete'],
   vendor_payments: ['create'],
   payments:        ['create'],
   quotes:          ['create', 'update'],
-  sales_orders:    ['create', 'update'],
+  sales_orders:    ['create'],
+  credit_notes:    ['create'],
+  debit_notes:     ['create'],
   invoices:        ['create', 'update'],
   customers:       ['create', 'update'],
   vendors:         ['create', 'update'],
   projects:        ['create'],
 }
 const actionsFor = (k) => MODULE_ACTIONS[k] || ['create']
-const ACTION_LABEL = { create: 'Create', update: 'Edit', delete: 'Delete' }
-const ACTION_VERB  = { create: 'created', update: 'edited', delete: 'deleted' }
+const ACTION_LABEL = { create: 'Create', update: 'Edit', delete: 'Delete', amend: 'Amend' }
+const ACTION_VERB  = { create: 'created', update: 'edited', delete: 'deleted', amend: 'amended' }
 
 /* Field catalog — mirrors backend approvalFieldCatalog. */
 const APPROVAL_FIELDS = {
   purchase_orders: [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'vendor', label: 'Vendor', type: 'text' }],
+  po_amendments:   [{ key: 'amountChange', label: 'Change in total', type: 'money' }, { key: 'amount', label: 'New total', type: 'money' }, { key: 'vendor', label: 'Vendor', type: 'text' }],
   bills:           [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'vendor', label: 'Vendor', type: 'text' }],
   vendor_payments: [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'vendor', label: 'Vendor', type: 'text' }],
   payments:        [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
   quotes:          [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
   sales_orders:    [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
+  credit_notes:    [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
+  debit_notes:     [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'vendor', label: 'Vendor', type: 'text' }],
   invoices:        [{ key: 'amount', label: 'Amount', type: 'money' }, { key: 'customer', label: 'Customer', type: 'text' }],
   customers:       [{ key: 'name', label: 'Name', type: 'text' }],
   vendors:         [{ key: 'name', label: 'Name', type: 'text' }],
@@ -213,6 +223,7 @@ function PolicyEditor({ T, modKey, policy, available, canManage, onChange, sel }
           <p style={{ margin: '5px 0 0', fontSize: 12, color: T.textSec, maxWidth: 440 }}>
             {policy.enabled ? `Held for approval ${trig.mode === 'always' ? 'on every record' : 'when conditions match'} before posting.` : 'Approval off — records post immediately.'}
           </p>
+          <p style={{ margin: '4px 0 0', fontSize: 11.5, color: T.textSec }}>Owners and admins never need approval.</p>
         </div>
         <button onClick={() => !disabled && setEnabled(!policy.enabled)} disabled={disabled} style={{ width: 44, height: 24, borderRadius: 999, border: 'none', position: 'relative', flexShrink: 0, cursor: disabled ? 'default' : 'pointer', background: policy.enabled ? T.blue : T.border }}>
           <span style={{ position: 'absolute', top: 2, left: policy.enabled ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
@@ -293,7 +304,7 @@ function PolicyEditor({ T, modKey, policy, available, canManage, onChange, sel }
             <p style={{ margin: '0 0 12px', fontSize: 11.5, color: T.textSec }}>Steps run top to bottom. Each clears before the next begins.</p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 10, border: `1px dashed ${T.border}`, background: T.bg, fontSize: 12, color: T.textSec }}>
-              A {modLabel(modKey).replace(/s$/, '').toLowerCase()} is {selActions.map(a => ACTION_VERB[a]).join(' or ')}
+              A {modNoun(modKey)} is {selActions.map(a => ACTION_VERB[a]).join(' or ')}
             </div>
 
             {(steps.length ? steps : []).map((s, i) => (

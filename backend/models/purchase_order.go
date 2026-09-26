@@ -17,6 +17,7 @@ type TaxGroup struct {
 type PurchaseOrderItem struct {
 	ID           primitive.ObjectID `json:"_id,omitempty"    bson:"_id,omitempty"`
 	ItemID       string             `json:"itemId"           bson:"itemId"`
+	ItemCode     string             `json:"itemCode,omitempty" bson:"itemCode,omitempty"` // article code, snapshotted from the item master on save
 	Details      string             `json:"details"          bson:"details"`
 	Quantity     float64            `json:"quantity"         bson:"quantity"`
 	ReceivedQty  float64            `json:"receivedQty"      bson:"receivedQty"` // cumulative accepted qty from confirmed GRNs
@@ -92,9 +93,65 @@ type PurchaseOrder struct {
 	ApprovedBy     string     `json:"approvedBy,omitempty"     bson:"approvedBy,omitempty"`
 	ApprovedAt     *time.Time `json:"approvedAt,omitempty"     bson:"approvedAt,omitempty"`
 
+	// ── Amendments ────────────────────────────────────────────────────────
+	// Revision counts approved amendments (0 = original). AmendmentStatus is
+	// "pending_approval" while a proposed revision waits for an approver — the
+	// current version stays in force until then. Revisions is the full log.
+	Revision        int          `json:"revision"                  bson:"revision"`
+	AmendmentStatus string       `json:"amendmentStatus,omitempty" bson:"amendmentStatus,omitempty"`
+	Revisions       []PORevision `json:"revisions,omitempty"       bson:"revisions,omitempty"`
+
 	OrgID string `json:"orgId,omitempty" bson:"orgId,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt" bson:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt" bson:"updatedAt"`
 	CreatedBy string    `json:"createdBy" bson:"createdBy"`
+}
+
+// POVersion is the amendable part of a purchase order — everything except the
+// vendor, PO type and identity/workflow fields, which an amendment never changes.
+type POVersion struct {
+	OrderDate            time.Time           `json:"orderDate"                     bson:"orderDate"`
+	ExpectedDeliveryDate *time.Time          `json:"expectedDeliveryDate"          bson:"expectedDeliveryDate"`
+	PaymentTerms         string              `json:"paymentTerms"                  bson:"paymentTerms"`
+	DeliveryAddressLine  string              `json:"deliveryAddressLine,omitempty" bson:"deliveryAddressLine,omitempty"`
+	DeliveryPOBox        string              `json:"deliveryPoBox,omitempty"       bson:"deliveryPoBox,omitempty"`
+	ShipmentPreference   string              `json:"shipmentPreference"            bson:"shipmentPreference"`
+	ReferenceNo          string              `json:"referenceNo"                   bson:"referenceNo"`
+	Project              string              `json:"project,omitempty"             bson:"project,omitempty"`
+	Currency             string              `json:"currency,omitempty"            bson:"currency,omitempty"`
+	VendorEmail          string              `json:"vendorEmail,omitempty"         bson:"vendorEmail,omitempty"`
+	VendorPhone          string              `json:"vendorPhone,omitempty"         bson:"vendorPhone,omitempty"`
+	AttentionTo          string              `json:"attentionTo,omitempty"         bson:"attentionTo,omitempty"`
+	VendorPOBox          string              `json:"vendorPoBox,omitempty"         bson:"vendorPoBox,omitempty"`
+	Items                []PurchaseOrderItem `json:"items"                         bson:"items"`
+	SubTotal             float64             `json:"subTotal"                      bson:"subTotal"`
+	TaxGroups            []TaxGroup          `json:"taxGroups"                     bson:"taxGroups"`
+	TotalTax             float64             `json:"totalTax"                      bson:"totalTax"`
+	ShippingCharges      float64             `json:"shippingCharges"               bson:"shippingCharges"`
+	Adjustment           float64             `json:"adjustment"                    bson:"adjustment"`
+	Total                float64             `json:"total"                         bson:"total"`
+	CustomerNotes        string              `json:"customerNotes"                 bson:"customerNotes"`
+	TermsAndConditions   string              `json:"termsAndConditions"            bson:"termsAndConditions"`
+}
+
+// PORevision is one amendment request in a PO's revision log.
+type PORevision struct {
+	ID            primitive.ObjectID `json:"_id"                    bson:"_id"`
+	Revision      int                `json:"revision"               bson:"revision"` // number it produces once approved; 0 while pending / if rejected
+	Status        string             `json:"status"                 bson:"status"`   // pending_approval | approved | rejected
+	Reason        string             `json:"reason"                 bson:"reason"`
+	Changes       []string           `json:"changes"                bson:"changes"` // human-readable diff summary
+	PreviousTotal float64            `json:"previousTotal"          bson:"previousTotal"`
+	NewTotal      float64            `json:"newTotal"               bson:"newTotal"`
+	RequestedBy   string             `json:"requestedBy"            bson:"requestedBy"`
+	RequestedAt   time.Time          `json:"requestedAt"            bson:"requestedAt"`
+	ReviewedBy    string             `json:"reviewedBy,omitempty"   bson:"reviewedBy,omitempty"`
+	ReviewedAt    *time.Time         `json:"reviewedAt,omitempty"   bson:"reviewedAt,omitempty"`
+	RejectReason  string             `json:"rejectReason,omitempty" bson:"rejectReason,omitempty"`
+	// Set when the org's approval workflow (Purchase Orders → Amend) holds this
+	// amendment; it's then approved/rejected from the Approvals inbox, not the PO.
+	ApprovalRequestID string `json:"approvalRequestId,omitempty" bson:"approvalRequestId,omitempty"`
+	Previous      POVersion          `json:"previous"               bson:"previous"` // version in force when the amendment was requested
+	Proposed      POVersion          `json:"proposed"               bson:"proposed"` // the amended version
 }

@@ -295,7 +295,7 @@ export default function NewPriceList() {
   });
 
   useEffect(() => {
-    axiosInstance.get('/api/stocks/getitem')
+    axiosInstance.get('/api/stocks/lookup')
       .then(res => setAllItems(res.data?.data || res.data || []))
       .catch(() => {});
   }, []);

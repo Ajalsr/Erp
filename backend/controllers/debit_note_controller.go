@@ -180,9 +180,46 @@ func GetDebitNoteByID() gin.HandlerFunc {
 	}
 }
 
-// PATCH /api/debit-notes/:id/submit — draft → pending_approval
+// PATCH /api/debit-notes/:id/submit — draft → approved (posted) or pending_approval.
+// Approval only when the org's Debit Notes policy (Settings → Approvals) requires it for
+// this note and user; otherwise it's approved and posted straight away.
 func SubmitDebitNote() gin.HandlerFunc {
-	return dnTransition("draft", "pending_approval", "only draft debit notes can be submitted")
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgIDStr := fmt.Sprintf("%v", c.MustGet("orgId"))
+		userID := fmt.Sprintf("%v", c.MustGet("userId"))
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid id"})
+			return
+		}
+		var dn bson.M
+		if err := debitNoteCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr, "status": "draft"}).Decode(&dn); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"message": "only draft debit notes can be submitted"})
+			return
+		}
+		total, _ := nestedNum(dn, "totals", "grandTotal")
+		vendorName, _ := dn["vendorName"].(string)
+		next := "approved"
+		if policyNeedsApproval(ctx, orgIDStr, userID, "debit_notes", bson.M{"total": total, "vendorName": vendorName}) {
+			next = "pending_approval"
+		}
+		res, err := debitNoteCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgIDStr, "status": "draft"},
+			bson.M{"$set": bson.M{"status": next, "updatedAt": time.Now()}})
+		if err != nil || res.MatchedCount == 0 {
+			c.JSON(http.StatusConflict, gin.H{"message": "only draft debit notes can be submitted"})
+			return
+		}
+		if next == "approved" {
+			go postDebitNoteGL(context.Background(), orgIDStr, objectID.Hex())
+			c.JSON(http.StatusOK, gin.H{"message": "Debit note approved", "status": next})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Debit note submitted for approval", "status": next})
+	}
 }
 
 // PATCH /api/debit-notes/:id/approve — pending_approval → approved.
@@ -197,6 +234,10 @@ func ApproveDebitNote() gin.HandlerFunc {
 		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "invalid id"})
+			return
+		}
+		if !canApproveModule(ctx, orgIDStr, fmt.Sprintf("%v", c.MustGet("userId")), "debit_notes") {
+			c.JSON(http.StatusForbidden, gin.H{"message": "You're not an approver for debit notes."})
 			return
 		}
 		res, err := debitNoteCollection.UpdateOne(ctx,

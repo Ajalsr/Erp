@@ -11,7 +11,7 @@ const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-AE', { day: '2-dig
 
 // camelCase / snake_case → "Title Case"
 const humanize = (k) => k.replace(/([A-Z])/g, ' $1').replace(/[_-]+/g, ' ').replace(/^\w/, c => c.toUpperCase()).trim()
-const HIDE_KEYS = new Set(['_id', 'id', 'orgId', 'orgID', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'created_at', 'updated_at', 'publicToken', 'stockDeducted', 'customerId', 'vendorId', 'customerCode', 'vendorCode'])
+const HIDE_KEYS = new Set(['_id', 'id', 'orgId', 'orgID', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'created_at', 'updated_at', 'publicToken', 'stockDeducted', 'customerId', 'vendorId', 'customerCode', 'vendorCode', 'revisionId'])
 // Top-level scalar fields worth showing in the detail summary.
 const scalarEntries = (obj) => Object.entries(obj || {})
   .filter(([k, v]) => v != null && typeof v !== 'object' && v !== '' && !HIDE_KEYS.has(k))
@@ -20,6 +20,7 @@ const lineItemsOf = (p) => (Array.isArray(p?.lineItems) && p.lineItems) || (Arra
 
 const DOC_LABEL = {
   po:             { label: 'Purchase Order',   color: '#8b5cf6' },
+  po_from_so:     { label: 'Purchase Order',   color: '#8b5cf6' },
   purchase_order: { label: 'Purchase Order',   color: '#8b5cf6' },
   bill:           { label: 'Bill',             color: '#f59e0b' },
   vendor_payment: { label: 'Vendor Payment',   color: '#ef4444' },
@@ -189,7 +190,7 @@ export default function Approvals() {
                   </td>
                   <td style={{ padding: '12px 16px', fontWeight: 600 }}>
                     {req.action && req.action !== 'create' && (
-                      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', marginRight: 7, padding: '1px 6px', borderRadius: 5, color: req.action === 'delete' ? '#ef4444' : '#f59e0b', background: req.action === 'delete' ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)' }}>{req.action === 'delete' ? 'Void' : req.action === 'finalize' ? 'Finalize' : 'Edit'}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', marginRight: 7, padding: '1px 6px', borderRadius: 5, color: req.action === 'delete' ? '#ef4444' : '#f59e0b', background: req.action === 'delete' ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)' }}>{req.action === 'delete' ? 'Void' : req.action === 'finalize' ? 'Finalize' : req.action === 'amend' ? 'Amend' : req.action === 'submit' ? 'Submit' : 'Edit'}</span>
                     )}
                     {req.title || '—'}{req.resultDocNumber && <span style={{ color: T.textSec, fontWeight: 400, marginLeft: 6, fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{req.resultDocNumber}</span>}
                   </td>
@@ -237,7 +238,7 @@ export default function Approvals() {
           ['Amount', fmtAED(req.amount)],
           ['Requested by', req.requestedByName || req.requestedBy || '—'],
           ['Requested', fmtDate(req.requestedAt)],
-          ['Action', req.action === 'delete' ? 'Void' : req.action === 'update' ? 'Edit' : 'Create'],
+          ['Action', req.action === 'delete' ? 'Void' : req.action === 'update' ? 'Edit' : req.action === 'amend' ? 'Amend' : req.action === 'submit' ? 'Submit' : 'Create'],
         ]
         const lab = { fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: 'uppercase', letterSpacing: '.05em' }
         return (
@@ -282,6 +283,16 @@ export default function Approvals() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Amendment: what changes versus the version in force */}
+                {req.action === 'amend' && Array.isArray(p.changes) && p.changes.length > 0 && (
+                  <div>
+                    <div style={{ ...lab, marginBottom: 8 }}>Changes · {fmtAED(p.previousTotal)} → {fmtAED(p.total)}</div>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+                      {p.changes.map((c, i) => <li key={i}>{c}</li>)}
+                    </ul>
                   </div>
                 )}
 

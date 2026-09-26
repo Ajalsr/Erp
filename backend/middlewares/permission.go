@@ -275,3 +275,17 @@ func memberRole(ctx context.Context, orgID primitive.ObjectID, userID string) (s
 	}
 	return m.Role, true
 }
+
+// OnWrite runs the given middleware only for requests that change data. Reads (GET/HEAD)
+// pass straight through. Used for org reference lists — payment terms, sales types,
+// units, item groups, price lists — that every document form needs in its dropdowns:
+// any member may read them, but creating/editing/deleting still needs the module.
+func OnWrite(mw gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
+			c.Next()
+			return
+		}
+		mw(c)
+	}
+}

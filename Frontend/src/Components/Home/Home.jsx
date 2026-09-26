@@ -96,6 +96,7 @@ export default function Dashboard() {
 
 function FullDashboard() {
   const navigate = useNavigate();
+  const { can } = usePermissions(); // quick actions only for modules the role can add to
   const user   = useAuthStore((s) => s.user);
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
@@ -500,14 +501,14 @@ function FullDashboard() {
         <p className="sec-label">Quick Actions</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
           {[
-            { label: "New Sale",        icon: <FaShoppingCart />, c: T.blue,   dim: T.blueDim,   path: "/Sales/Salesorders/Newsalesorders" },
-            { label: "New Invoice",     icon: <FaFileInvoice />,  c: T.amber,  dim: T.amberDim,  path: "/Sales/Createinvoices" },
-            { label: "Receive Payment", icon: <FaMoneyBillWave/>, c: T.green,  dim: T.greenDim,  path: "/Sales/PaymentsReceived" },
-            { label: "Add Item",        icon: <FaBox />,          c: T.purple, dim: T.purpleDim, path: "/Items/Items/New" },
-            { label: "New Customer",    icon: <FaUser />,         c: T.cyan,   dim: T.cyanDim,   path: "/Sales/Customers/Newcustomers" },
-            { label: "New Bill",        icon: <FaReceipt />,      c: T.red,    dim: T.redDim,    path: "/Purchase/Bills/New" },
-            { label: "New PO",          icon: <FaTruck />,        c: T.blue,   dim: T.blueDim,   path: "/Purchase/Purchaseorders/New" },
-          ].map((a, i) => (
+            { label: "New Sale",        icon: <FaShoppingCart />, c: T.blue,   dim: T.blueDim,   path: "/Sales/Salesorders/Newsalesorders", perm: "sales_orders" },
+            { label: "New Invoice",     icon: <FaFileInvoice />,  c: T.amber,  dim: T.amberDim,  path: "/Sales/Createinvoices",           perm: "invoices" },
+            { label: "Receive Payment", icon: <FaMoneyBillWave/>, c: T.green,  dim: T.greenDim,  path: "/Sales/PaymentsReceived",         perm: "payments" },
+            { label: "Add Item",        icon: <FaBox />,          c: T.purple, dim: T.purpleDim, path: "/Items/Items/New",                perm: "items" },
+            { label: "New Customer",    icon: <FaUser />,         c: T.cyan,   dim: T.cyanDim,   path: "/Sales/Customers/Newcustomers",   perm: "customers" },
+            { label: "New Bill",        icon: <FaReceipt />,      c: T.red,    dim: T.redDim,    path: "/Purchase/Bills/New",             perm: "bills" },
+            { label: "New PO",          icon: <FaTruck />,        c: T.blue,   dim: T.blueDim,   path: "/Purchase/Purchaseorders/New",    perm: "purchase_orders" },
+          ].filter(a => can(a.perm, "add")).map((a, i) => (
             <div key={i} className="qa" onClick={() => navigate(a.path)}
               style={{ ...card({ padding: "12px 10px" }), display: "flex", flexDirection: "column", alignItems: "center", gap: 7, textAlign: "center" }}>
               <div style={{ width: 36, height: 36, borderRadius: 10, background: a.dim, color: a.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{a.icon}</div>

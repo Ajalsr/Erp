@@ -4,6 +4,7 @@ import { FaChevronLeft, FaPlus, FaTrash, FaCheckCircle, FaSpinner, FaChevronDown
 import cc from 'currency-codes';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import axiosInstance from '../../helper/axiosInstance';
+import { usePermissions } from '../../helper/permissions';
 import QuickCreateModal from '../common/QuickCreateModal';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import nexusToast from '../../helper/nexusToast';
@@ -116,6 +117,7 @@ function calcLine(line) {
 }
 
 export default function NewBill() {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const navigate = useNavigate();
   const location = useLocation();
   const { id }   = useParams();
@@ -466,7 +468,7 @@ export default function NewBill() {
             <div>
               <label style={lbl}>Payment Terms</label>
               <CustomSelect value={payTerms} onChange={setPayTerms} options={paymentTermsOptions} T={T} isDark={isDark}
-                searchable onCreateNew={() => setQuickCreateTerm(true)} createLabel="Create payment term" />
+                searchable onCreateNew={canPerm('payment_terms', 'add') ? () => setQuickCreateTerm(true) : undefined} createLabel="Create payment term" />
             </div>
             <div>
               <label style={lbl}>Bill Date</label>

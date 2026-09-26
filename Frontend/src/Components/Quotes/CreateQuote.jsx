@@ -6,6 +6,7 @@ import { resolveItemPrice, getPriceListFxRate } from "../../helper/priceList";
 import useGetCustomers from "../../helper/useGetCustomers";
 import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
+import { usePermissions } from '../../helper/permissions';
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import useThemeStore from "../../store/useThemeStore";
 import useIsMobile from "../../helper/useIsMobile";
@@ -661,6 +662,7 @@ const EMPTY_ITEM = () => ({ _uid: uid(), partNumber: "", desc: "", qty: 1, unit:
 const UNIT_OPTIONS = ["Nos", "Pcs", "Set", "Kg", "Ltr", "Mtr", "Sqm", "Box", "Roll", "Lot", "Job", "Month", "Hr"];
 
 export default function CreateQuote() {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const navigate  = useNavigate();
   const location  = useLocation();
   const isDark    = useThemeStore(s => s.isDark);
@@ -733,7 +735,7 @@ export default function CreateQuote() {
   // Stock catalog — always loaded (used in item picker + price delta panel)
   const [catalogItems, setCatalogItems] = useState([]);
   useEffect(() => {
-    axiosInstance.get("/api/stocks/getitem")
+    axiosInstance.get("/api/stocks/lookup")
       .then(r => setCatalogItems(r.data?.data || []))
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1096,7 +1098,7 @@ export default function CreateQuote() {
               <Field label="Payment Terms">
                 <CustomSelect value={paymentTerms} onChange={setPaymentTerms}
                   options={paymentTermsOptions}
-                  onCreateNew={() => setQuickCreateTerm(true)} createLabel="Create payment term" />
+                  onCreateNew={canPerm('payment_terms', 'add') ? () => setQuickCreateTerm(true) : undefined} createLabel="Create payment term" />
               </Field>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>

@@ -142,7 +142,7 @@ function AdjustmentForm({ T, isDark, onClose, onSaved }) {
   });
 
   useEffect(() => {
-    axiosInstance.get('/api/stocks/getitem').then(res => setAllItems(res.data?.data || [])).catch(() => {});
+    axiosInstance.get('/api/stocks/lookup').then(res => setAllItems(res.data?.data || [])).catch(() => {});
   }, []);
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));

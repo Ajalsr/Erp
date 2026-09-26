@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import useAuthStore from '../../store/useAuthStore';
 import useIsMobile from '../../helper/useIsMobile';
@@ -9,6 +9,7 @@ import useOrganization from '../../helper/useOrganization';
 import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
+import { usePermissions } from '../../helper/permissions';
 import { debounce } from 'lodash';
 import cc from 'currency-codes';
 import QuickCreateModal from '../common/QuickCreateModal';
@@ -19,7 +20,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import {
   FaPlus, FaTrash, FaChevronLeft, FaChevronRight, FaCheck,
   FaBox, FaPercent, FaMoneyBillWave, FaTag,
-  FaCheckCircle, FaFileInvoiceDollar, FaBarcode,
+  FaCheckCircle, FaFileInvoiceDollar,
   FaWarehouse, FaMoneyBill, FaBuilding,
 } from 'react-icons/fa';
 
@@ -600,11 +601,18 @@ export default function Newpurchaseorders() {
   const navigate = useNavigate();
   const { id: editId } = useParams();
   const isEdit = !!editId;
+  // Amend mode (?amend=1): changes an issued PO as a new revision instead of editing a draft.
+  const [searchParams] = useSearchParams();
+  const isAmend = isEdit && searchParams.get('amend') === '1';
+  const [amendReason, setAmendReason] = useState('');
+  const [poMeta, setPoMeta] = useState(null); // { orderNumber, revision }
   const isDark   = useThemeStore(s => s.isDark);
   const T        = getTheme(isDark);
   const isMobile = useIsMobile();
   const activeOrg = useAuthStore(s => s.activeOrg);
   const { getOrganization } = useOrganization();
+  const { can } = usePermissions();
+  const canAddItem = can('items', 'add'); // gates the dropdown's "Create new item"
 
   /* ── Item state ── */
   const [items, setItems] = useState([{
@@ -765,12 +773,14 @@ export default function Newpurchaseorders() {
       setShipping(String(po.shippingCharges ?? 0));
       setAdjustment(String(po.adjustment ?? 0));
       if (po.items?.length) setItems(po.items.map((it, i) => ({
-        id: i + 1, itemId: it.itemId || '', details: it.details || '', sku: '', quantity: it.quantity || 1,
+        id: i + 1, itemId: it.itemId || '', details: it.details || '', sku: it.itemCode || '', quantity: it.quantity || 1,
         rate: it.rate ?? '', discount: it.discount ?? '', discountType: it.discountType || 'percentage',
         amount: String(it.amount ?? ''), unit: it.unit || '',
         freight: it.freight ?? '', freightTaxRate: it.freightTaxRate ?? '',
+        receivedQty: it.receivedQty || 0, sourceSoItemId: it.sourceSoItemId || '',
       })));
       setLoadedVendorId(po.vendorId || '');
+      setPoMeta({ orderNumber: po.orderNumber, revision: po.revision || 0 });
     }).catch(() => nexusToast.error('Failed to load purchase order'));
   }, [editId]);
   // Resolve the vendor object once both the PO and the vendor list are loaded.
@@ -868,7 +878,7 @@ export default function Newpurchaseorders() {
     const qty  = parseFloat(u[idx].quantity) || 1;
     const disc = parseFloat(u[idx].discount) || 0;
     const base = calcLineBase(qty, rate, disc, u[idx].discountType);
-    u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.sku || sel.item_code || '', rate, unit: sel.unit || sel.Unit || 'pcs', quantity: qty, amount: String(round2(base + base * effectiveTaxRate)) };
+    u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.item_code || sel.sku || '', rate, unit: sel.unit || sel.Unit || 'pcs', quantity: qty, amount: String(round2(base + base * effectiveTaxRate)) };
     setItems(u); setShowItemDropdown(null); setSearchTerm('');
   };
 
@@ -902,6 +912,11 @@ export default function Newpurchaseorders() {
   const handleSubmit = async (status = 'draft') => {
     if (!selectedVendor) { nexusToast.error('Vendor is required'); return; }
     if (!hasItemsAdded)  { nexusToast.error('Add at least one item'); return; }
+    if (isAmend && !amendReason.trim()) { nexusToast.error('Enter a reason for the amendment'); return; }
+    if (isAmend) {
+      const short = items.find(i => i.details && (parseFloat(i.quantity) || 0) < (i.receivedQty || 0));
+      if (short) { nexusToast.error(`${short.details}: quantity can't be less than the ${short.receivedQty} already received`); return; }
+    }
     setSaving(true);
     try {
       const payload = {
@@ -914,28 +929,33 @@ export default function Newpurchaseorders() {
         deliveryAddressLine,
         shipmentPreference: shipPref, referenceNo, project, currency,
         items: computedItems.filter(i => i.details && i.quantity > 0).map(i => ({
-          itemId: i.itemId, details: i.details, quantity: parseFloat(i.quantity),
+          itemId: i.itemId, itemCode: (i.sku || '').trim(), details: i.details, quantity: parseFloat(i.quantity),
           rate: parseFloat(i.rate)||0, discount: parseFloat(i.discount)||0, discountType: i.discountType, unit: i.unit,
           freight: parseFloat(i.freight)||0, freightTaxRate: (parseFloat(i.freight)||0) > 0 ? (parseFloat(i.freightTaxRate)||0) : 0,
+          sourceSoItemId: i.sourceSoItemId || undefined,
         })),
         shippingCharges: shipAmt, adjustment: adjAmt, customerNotes, termsAndConditions: terms, status,
       };
-      if (isEdit) {
+      if (isAmend) {
+        const res = await axiosInstance.put(`/api/purchase-orders/${editId}/amend`, { ...payload, amendmentReason: amendReason.trim() });
+        // A held amendment (202) already gets the shared "Submitted for approval" toast.
+        if (!res.__pendingApproval) nexusToast.success(res.data?.message || 'Purchase order amended');
+      } else if (isEdit) {
         const res = await axiosInstance.put(`/api/purchase-orders/${editId}`, payload);
         if (status === 'draft') {
           nexusToast.success('Draft updated');
         } else {
-          nexusToast.success(res.data?.data?.status === 'pending_approval'
-            ? 'Purchase order submitted for approval' : 'Purchase order submitted successfully');
+          // A held submit (202) already gets the shared "Submitted for approval" toast.
+          if (!res.__pendingApproval) nexusToast.success('Purchase order issued');
         }
       } else {
-        await axiosInstance.post('/api/purchase-orders/', payload);
-        nexusToast.success(status === 'draft' ? 'Purchase order saved as draft' : 'Purchase order created successfully!');
+        const res = await axiosInstance.post('/api/purchase-orders/', payload);
+        if (!res.__pendingApproval) nexusToast.success(status === 'draft' ? 'Purchase order saved as draft' : 'Purchase order created successfully!');
       }
       guard.reset();
       setTimeout(() => navigate('/Purchase/Purchaseorders'), 1500);
     } catch (err) {
-      const msg = err?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} purchase order`;
+      const msg = err?.response?.data?.message || `Failed to ${isAmend ? 'amend' : isEdit ? 'update' : 'create'} purchase order`;
       nexusToast.error(msg);
     } finally { setSaving(false); }
   };
@@ -975,7 +995,7 @@ export default function Newpurchaseorders() {
               </button>
               {!isMobile && <div style={{ width: 1, height: 24, background: T.border }} />}
               <div style={{ minWidth: 0 }}>
-                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 15 : 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}</h1>
+                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 15 : 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isAmend ? `Amend ${poMeta?.orderNumber || 'Purchase Order'} → Rev ${(poMeta?.revision || 0) + 1}` : isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}</h1>
                 {!isMobile && <p style={{ fontSize: 11, color: T.textSec, margin: '2px 0 0' }}>Purchase → Purchase Orders</p>}
               </div>
               {isMobile && !isEdit && <span style={{ padding: '4px 10px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 10, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>● DRAFT</span>}
@@ -983,15 +1003,32 @@ export default function Newpurchaseorders() {
             <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
               {!isMobile && !isEdit && <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>}
               <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg" style={isMobile ? { flex: 1 } : undefined}>Cancel</button>
-              <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700, ...(isMobile ? { flex: 1 } : {}) }}>{saving ? 'Saving…' : (isEdit ? 'Update Draft' : 'Save Draft')}</button>
-              <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded} style={isMobile ? { flex: 1, justifyContent: 'center' } : undefined}>
+              {!isAmend && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700, ...(isMobile ? { flex: 1 } : {}) }}>{saving ? 'Saving…' : (isEdit ? 'Update Draft' : 'Save Draft')}</button>}
+              <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded || (isAmend && !amendReason.trim())} style={isMobile ? { flex: 1, justifyContent: 'center' } : undefined}>
                 {saving
                   ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
-                  : <><FaCheckCircle size={12} />Save & Submit</>}
+                  : <><FaCheckCircle size={12} />{isAmend ? 'Submit Amendment' : 'Save & Submit'}</>}
               </button>
             </div>
           </div>
         </div>
+
+        {/* ── Amendment reason ── */}
+        {isAmend && (
+          <div className="npo-section npo-card">
+            <div className="npo-sbar" style={{ background: 'linear-gradient(90deg,#f59e0b,transparent 80%)' }} />
+            <div className="npo-sin">
+              <div className="npo-stitle"><div className="npo-sicon" style={{ background: '#f59e0b18', color: '#f59e0b' }}>✎</div>Amendment</div>
+              <p style={{ fontSize: 12, color: T.textSec, margin: '0 0 12px', lineHeight: 1.6 }}>
+                This PO has already been issued. Your changes are saved as a new revision with the previous version kept in its history.
+                Vendor and PO type can't be changed, and a line can't go below the quantity already received. Depending on your organization's approval settings, the amendment may need approval before it takes effect.
+              </p>
+              <Field label="Reason for amendment" req>
+                <textarea value={amendReason} onChange={e => setAmendReason(e.target.value)} className="npo-inp" placeholder="e.g. Vendor can only supply 80 units; price revised per quotation Q-114" style={{ resize: 'none', height: 72, lineHeight: 1.6 }} />
+              </Field>
+            </div>
+          </div>
+        )}
 
         {/* ── Order Info ── */}
         <div className="npo-section npo-card">
@@ -1002,14 +1039,14 @@ export default function Newpurchaseorders() {
               Order Details
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 18 }}>
-              <div style={{ gridColumn: '1/-1' }}>
+              <div style={{ gridColumn: '1/-1', ...(isAmend ? { pointerEvents: 'none', opacity: 0.6 } : {}) }}>
                 <Field label="Vendor" req>
                   <VendorSelect value={selectedVendor} onChange={v => {
                     setSelectedVendor(v);
                     if (v?.paymentTerms) setPaymentTerms(v.paymentTerms);
                     setVendorEmail(v?.email || '');
                     setVendorPhone(v?.phone || v?.mobile || '');
-                  }} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} onCreateNew={() => setQuickCreate('vendor')} />
+                  }} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} onCreateNew={can('vendors', 'add') ? () => setQuickCreate('vendor') : undefined} />
                 </Field>
                 {selectedVendor && (
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1058,7 +1095,7 @@ export default function Newpurchaseorders() {
                 <input className="npo-inp" value={referenceNo} onChange={e => setReferenceNo(e.target.value)} placeholder="Supplier quotation reference" style={{ fontFamily: "'DM Mono',monospace" }} />
               </Field>
               <Field label="PO Type">
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, ...(isAmend ? { pointerEvents: 'none', opacity: 0.6 } : {}) }}>
                   {[{ v: 'goods', label: 'Goods', hint: 'Requires GRN' }, { v: 'service', label: 'Service', hint: 'Bill directly' }].map(({ v, label, hint }) => (
                     <button key={v} type="button" onClick={() => setPoType(v)}
                       style={{ flex: 1, padding: '9px 0', borderRadius: 10, border: `1.5px solid ${poType === v ? '#3b82f6' : T.border}`, background: poType === v ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : T.surface2, color: poType === v ? '#3b82f6' : T.textSec, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s' }}>
@@ -1076,7 +1113,7 @@ export default function Newpurchaseorders() {
               </Field>
               <Field label="Payment Terms">
                 <CustomSelect value={paymentTerms} onChange={setPaymentTerms} options={paymentTermsOptions} placeholder="Select terms" T={T} isDark={isDark}
-                  searchable onCreateNew={() => setQuickCreate('paymentTerm')} createLabel="Create payment term" />
+                  searchable onCreateNew={can('payment_terms', 'add') ? () => setQuickCreate('paymentTerm') : undefined} createLabel="Create payment term" />
               </Field>
               <Field label="Delivery Terms">
                 <CustomSelect value={shipPref} onChange={setShipPref} options={deliveryTermsOptions} placeholder="Choose delivery terms" T={T} isDark={isDark}
@@ -1116,7 +1153,8 @@ export default function Newpurchaseorders() {
             <div style={{ borderRadius: 12, overflowX: 'auto', overflowY: 'hidden', border: `1.5px solid ${T.border}` }}>
               <table className="npo-table" style={{ minWidth: isMobile ? 760 : 'auto' }}>
                 <thead><tr>
-                  <th style={{ width: '35%' }}>Item Details</th>
+                  <th style={{ width: '32%' }}>Item Details</th>
+                  <th>Article Code</th>
                   <th>Quantity</th>
                   <th>Rate (AED)</th>
                   <th>Discount</th>
@@ -1142,14 +1180,23 @@ export default function Newpurchaseorders() {
                               onFocus={() => { setShowItemDropdown(index); if (!item.details) setSearchTerm(''); }}
                             />
                             <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: T.textSec, height: 14 }}>
-                              {item.sku && <><FaBarcode style={{ fontSize: 9, flexShrink: 0 }} /><span style={{ fontFamily: "'DM Mono',monospace" }}>{item.sku}</span>{item.unit && <span>· {item.unit}</span>}</>}
+                              {item.unit && <span>{item.unit}</span>}
                               {!showFreight && (
                                 <button type="button" onClick={() => { setF('showFreight', true); if (item.freightTaxRate == null) setF('freightTaxRate', 5); }}
-                                  style={{ marginLeft: item.sku ? 8 : 0, background: 'none', border: 'none', cursor: 'pointer', color: '#f59e0b', fontSize: 10, fontWeight: 700, padding: 0 }}>
+                                  style={{ marginLeft: item.unit ? 8 : 0, background: 'none', border: 'none', cursor: 'pointer', color: '#f59e0b', fontSize: 10, fontWeight: 700, padding: 0 }}>
                                   + freight
                                 </button>
                               )}
                             </div>
+                          </div>
+                        </td>
+                        {/* Article code — defaults to the item's code on pick; editable per line
+                            (a supplier's own article number often differs from ours). */}
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: 52 }}>
+                            <input className="npo-tinp" value={item.sku || ''} placeholder="Article code"
+                              onChange={e => { const u = [...items]; u[index] = { ...u[index], sku: e.target.value }; setItems(u); }}
+                              style={{ fontFamily: "'DM Mono',monospace", width: 120 }} />
                           </div>
                         </td>
                         {/* Quantity — wrapped to vertically center within taller cell */}
@@ -1160,6 +1207,9 @@ export default function Newpurchaseorders() {
                               <input type="number" className="npo-qnum" value={item.quantity} onChange={e => handleQuantityChange(index, e.target.value)} min="1" />
                               <button className="npo-qbtn" onClick={() => handleQuantityChange(index, (parseFloat(item.quantity)||1) + 1)}>+</button>
                             </div>
+                            {item.receivedQty > 0 && (
+                              <div style={{ fontSize: 10, marginTop: 3, color: (parseFloat(item.quantity) || 0) < item.receivedQty ? '#ef4444' : T.textSec }}>Received: {item.receivedQty}</div>
+                            )}
                           </div>
                         </td>
                         <td>
@@ -1198,7 +1248,7 @@ export default function Newpurchaseorders() {
                       </tr>
                       {showFreight && (
                         <tr style={{ background: isDark ? 'rgba(245,158,11,.05)' : '#fffdf7' }}>
-                          <td colSpan={6} style={{ padding: '8px 12px 12px' }}>
+                          <td colSpan={7} style={{ padding: '8px 12px 12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>🚚 Freight for this item</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, fontFamily: "'DM Mono',monospace" }}>AED</span>
@@ -1216,7 +1266,7 @@ export default function Newpurchaseorders() {
                     );
                   })}
                   {!hasItemsAdded && (
-                    <tr><td colSpan={6} style={{ padding: 32, textAlign: 'center' }}>
+                    <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, color: T.textSec }}>
                         <div style={{ width: 44, height: 44, borderRadius: 14, background: T.surface2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📦</div>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>No items added yet</div>
@@ -1275,12 +1325,12 @@ export default function Newpurchaseorders() {
                     ))}
                   </>
                 )}
-                <div onClick={() => { const row = showItemDropdown; setShowItemDropdown(null); setItemCreateRow(row); setQuickCreate('item'); }}
+                {canAddItem && <div onClick={() => { const row = showItemDropdown; setShowItemDropdown(null); setItemCreateRow(row); setQuickCreate('item'); }}
                   style={{ padding: '11px 14px', borderTop: `1.5px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: T.blue, display: 'flex', alignItems: 'center', gap: 7 }}
                   onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,.05)' : '#f8fafc'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
                   <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> Create new item
-                </div>
+                </div>}
               </div>,
               document.body
             )}
@@ -1365,11 +1415,11 @@ export default function Newpurchaseorders() {
           </div>
           <div style={{ display: 'flex', gap: isMobile ? 6 : 10, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
             <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg">Cancel</button>
-            <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : (isEdit ? 'Update Draft' : 'Save as Draft')}</button>
-            <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
+            {!isAmend && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : (isEdit ? 'Update Draft' : 'Save as Draft')}</button>}
+            <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded || (isAmend && !amendReason.trim())}>
               {saving
                 ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
-                : <><FaCheckCircle size={12} />Save & Submit</>}
+                : <><FaCheckCircle size={12} />{isAmend ? 'Submit Amendment' : 'Save & Submit'}</>}
             </button>
           </div>
         </div>

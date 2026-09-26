@@ -2,7 +2,10 @@ import { useState, useCallback } from 'react'
 import api from './axiosInstance'
 import { toast } from 'react-toastify';
 
-const useGetItem = () => {
+// Default: the read-only item picker (/api/stocks/lookup) — open to any role that works on
+// a document with item lines, even without Items access. Pass { full: true } on the Items
+// pages themselves, which stay gated by the Items → View permission.
+const useGetItem = ({ full = false } = {}) => {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -11,7 +14,7 @@ const useGetItem = () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await api.get('/api/stocks/getitem')
+      const response = await api.get(full ? '/api/stocks/getitem' : '/api/stocks/lookup')
       const stocksData = response.data.data
       setData(stocksData)
       return stocksData
@@ -31,7 +34,7 @@ const useGetItem = () => {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [full])
 
   return { handleGetItem, data, loading, error }
 }

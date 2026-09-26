@@ -31,10 +31,14 @@ export default function Layout() {
   const { getMyOrganizations } = useOrganization()
 
   useEffect(() => {
-    fetchNotifications()
     // Always fetch orgs on mount to handle page refreshes
     getMyOrganizations().catch(() => {}).finally(() => setOrgLoading(false))
   }, [])
+
+  // Notifications are per-org — (re)load once the active org is known and on every switch.
+  useEffect(() => {
+    fetchNotifications()
+  }, [activeOrg?._id, fetchNotifications])
 
   const onEvent = useCallback((event) => {
     // Real-time pushes arrive over one socket regardless of which org is

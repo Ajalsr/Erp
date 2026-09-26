@@ -172,6 +172,7 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			processedItems = append(processedItems, models.PurchaseOrderItem{
 				ID:               primitive.NewObjectID(),
 				ItemID:           item.ItemID,
+				ItemCode:         strings.TrimSpace(item.ItemCode),
 				Details:          item.Details,
 				Quantity:         item.Quantity,
 				Rate:             item.Rate,
@@ -246,12 +247,12 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 		orgID, _ := c.Get("orgId")
 		orgIDStr := fmt.Sprintf("%v", orgID)
 
-		// ── Determine approval status based on user role ──────────────────
-		role := getUserRole(ctx, createdBy, orgIDStr)
-		isAdmin := role == "owner" || role == "admin"
-
-		poStatus := "pending_approval"
-		approvalStatus := "pending"
+		// ── Status ────────────────────────────────────────────────────────
+		// Approval is decided only by the org's Purchase Orders policy (Settings →
+		// Approvals), via the gate above: a PO that reaches here either needed no
+		// approval or is the approved replay — so it's issued straight away.
+		poStatus := "issued"
+		approvalStatus := "approved"
 		lpoNumber := ""
 		if isDraft {
 			poStatus = "draft"
@@ -267,12 +268,8 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 					return
 				}
 			}
-			if isAdmin {
-				poStatus = "issued"
-				approvalStatus = "approved"
-				if lpoNumber == "" {
-					lpoNumber = generateLPONumber(ctx, orgIDStr)
-				}
+			if lpoNumber == "" {
+				lpoNumber = generateLPONumber(ctx, orgIDStr)
 			}
 		}
 
@@ -319,12 +316,13 @@ func CreatePurchaseOrder() gin.HandlerFunc {
 			UpdatedAt:            time.Now(),
 			CreatedBy:            createdBy,
 		}
-		if !isDraft && isAdmin {
+		if !isDraft {
 			now := time.Now()
 			po.ApprovedBy = createdBy
 			po.ApprovedAt = &now
 		}
 
+		stampItemCodes(ctx, orgIDStr, po.Items)
 		_, err := purchaseOrderCollection.InsertOne(ctx, po)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -503,7 +501,7 @@ func UpdatePurchaseOrder() gin.HandlerFunc {
 			freightTax := round2(freight * item.FreightTaxRate / 100)
 			amount := round2(base + tax + freight + freightTax)
 			processedItems = append(processedItems, models.PurchaseOrderItem{
-				ID: primitive.NewObjectID(), ItemID: item.ItemID, Details: item.Details,
+				ID: primitive.NewObjectID(), ItemID: item.ItemID, ItemCode: strings.TrimSpace(item.ItemCode), Details: item.Details,
 				Quantity: item.Quantity, Rate: item.Rate, Discount: item.Discount, DiscountType: item.DiscountType,
 				BaseAmount: base, TaxRate: appliedTaxRate * 100, TaxAmount: tax, Amount: amount, Unit: item.Unit,
 				Freight: freight, FreightTaxRate: item.FreightTaxRate, FreightTaxAmount: freightTax,
@@ -521,10 +519,13 @@ func UpdatePurchaseOrder() gin.HandlerFunc {
 		adjustment := round2(req.Adjustment)
 		total := round2(subTotal + totalTax + shipping + adjustment)
 
-		// Approval gate — hold the edit for an approver when the org requires it.
-		// Compute totals first so the held snapshot shows the real amount + line totals
-		// (otherwise the approval modal reads the uncomputed payload → AED 0.00).
-		if !c.GetBool("approvalReplay") {
+		// Only drafts reach here (see the guard above). Saving a draft again needs no
+		// approval; submitting one is the moment the PO is really raised, so it's gated
+		// like a create by the Purchase Orders policy ("submit" gates as "create").
+		// Totals are computed first so the held snapshot shows the real amount.
+		isDraft := strings.ToLower(strings.TrimSpace(req.Status)) == "draft"
+		submitting := existing.Status == "draft" && !isDraft
+		if submitting && !c.GetBool("approvalReplay") {
 			userIDVal, _ := c.Get("userId")
 			userName := ""
 			title := req.VendorName
@@ -539,7 +540,7 @@ func UpdatePurchaseOrder() gin.HandlerFunc {
 			snapshot.ShippingCharges = shipping
 			snapshot.Adjustment = adjustment
 			snapshot.Total = total
-			if holdActionForApproval(c, ctx, orgIDStr, fmt.Sprintf("%v", userIDVal), userName, "po", "update", "purchase_orders", title, total, objectID.Hex(), snapshot) {
+			if holdActionForApproval(c, ctx, orgIDStr, fmt.Sprintf("%v", userIDVal), userName, "po", "submit", "purchase_orders", title, total, objectID.Hex(), snapshot) {
 				return
 			}
 		}
@@ -548,6 +549,7 @@ func UpdatePurchaseOrder() gin.HandlerFunc {
 		if poType == "" {
 			poType = existing.POType
 		}
+		stampItemCodes(ctx, orgIDStr, processedItems)
 
 		set := bson.M{
 			"vendorId": req.VendorID, "vendorName": req.VendorName, "vendorOrigin": vendorOrigin,
@@ -561,28 +563,19 @@ func UpdatePurchaseOrder() gin.HandlerFunc {
 			"customerNotes": req.CustomerNotes, "termsAndConditions": req.TermsAndConditions, "updatedAt": time.Now(),
 		}
 
-		// A draft being edited can leave draft state here — "Save Changes" on a draft
-		// submits it, same role-based issue/pending_approval + LPO rule as create.
-		// Once a PO has left draft, this handler never touches status again — approval
-		// re-holds for already-submitted edits are handled by holdActionForApproval above.
+		// Submitting a draft issues it — the approval gate above already held it if the
+		// org's policy required sign-off, so reaching here means it's cleared to go.
 		newStatus := existing.Status
-		isDraft := strings.ToLower(strings.TrimSpace(req.Status)) == "draft"
-		if existing.Status == "draft" && !isDraft {
+		if submitting {
 			createdBy := ""
 			if uid, exists := c.Get("userId"); exists {
 				createdBy = fmt.Sprintf("%v", uid)
 			}
-			role := getUserRole(ctx, createdBy, orgIDStr)
-			if role == "owner" || role == "admin" {
-				newStatus = "issued"
-				set["approvalStatus"] = "approved"
-				set["lpoNumber"] = generateLPONumber(ctx, orgIDStr)
-				set["approvedBy"] = createdBy
-				set["approvedAt"] = time.Now()
-			} else {
-				newStatus = "pending_approval"
-				set["approvalStatus"] = "pending"
-			}
+			newStatus = "issued"
+			set["approvalStatus"] = "approved"
+			set["lpoNumber"] = generateLPONumber(ctx, orgIDStr)
+			set["approvedBy"] = createdBy
+			set["approvedAt"] = time.Now()
 			set["status"] = newStatus
 		}
 
@@ -698,7 +691,30 @@ func GetPurchaseOrderByID() gin.HandlerFunc {
 			return
 		}
 
+		stampItemCodes(ctx, orgIDStr, po.Items)
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Purchase order retrieved", "data": po})
+	}
+}
+
+// stampItemCodes fills each line's ItemCode (article code) from the item master where
+// it's blank. The code is editable per line (a supplier's own article number often
+// differs from ours), so a typed value always wins; the item's code is only the default.
+func stampItemCodes(ctx context.Context, orgID string, items []models.PurchaseOrderItem) {
+	missing := false
+	for _, it := range items {
+		if it.ItemCode == "" && it.ItemID != "" {
+			missing = true
+			break
+		}
+	}
+	if !missing {
+		return
+	}
+	codes := loadItemCodes(ctx, orgID, items)
+	for i := range items {
+		if items[i].ItemCode == "" {
+			items[i].ItemCode = codes[items[i].ItemID]
+		}
 	}
 }
 
@@ -756,6 +772,19 @@ func GetAllPurchaseOrders() gin.HandlerFunc {
 
 		var orders []models.PurchaseOrder
 		cursor.All(ctx, &orders)
+		var allItems []models.PurchaseOrderItem
+		for _, o := range orders {
+			allItems = append(allItems, o.Items...)
+		}
+		if codes := loadItemCodes(ctx, orgIDStr, allItems); len(codes) > 0 {
+			for oi := range orders {
+				for ii := range orders[oi].Items {
+					if it := &orders[oi].Items[ii]; it.ItemCode == "" {
+						it.ItemCode = codes[it.ItemID]
+					}
+				}
+			}
+		}
 		if orders == nil {
 			orders = []models.PurchaseOrder{}
 		}
@@ -789,13 +818,17 @@ func CancelPurchaseOrder() gin.HandlerFunc {
 			return
 		}
 
+		var before models.PurchaseOrder
+		_ = purchaseOrderCollection.FindOne(ctx, bson.M{"_id": objID, "orgId": orgIDStr}).Decode(&before)
+
 		result, err := purchaseOrderCollection.UpdateOne(ctx,
 			bson.M{
 				"_id":    objID,
 				"orgId":  orgIDStr,
 				"status": bson.M{"$in": []string{"draft", "pending_approval", "issued"}},
 			},
-			bson.M{"$set": bson.M{"status": "cancelled", "updatedAt": time.Now()}},
+			// A pending amendment dies with the PO.
+			bson.M{"$set": bson.M{"status": "cancelled", "amendmentStatus": "", "updatedAt": time.Now()}},
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to cancel purchase order"})
@@ -804,6 +837,11 @@ func CancelPurchaseOrder() gin.HandlerFunc {
 		if result.MatchedCount == 0 {
 			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Purchase order not found or cannot be cancelled"})
 			return
+		}
+
+		// Close a pending amendment (and its Approvals-inbox request, if any).
+		if pendingRevisionIndex(before) >= 0 {
+			withdrawAmendmentApproval(ctx, orgIDStr, before, c.GetString("userId"))
 		}
 
 		// Cancel any DRAFT GRNs raised against this PO — they can't be received now.
@@ -984,14 +1022,29 @@ func ConvertSOToPO() gin.HandlerFunc {
 		adjustment := round2(body.Adjustment)
 		total := round2(subTotal + totalTax + shipping + adjustment)
 
-		// Admin/owner auto-issues with an LPO; others go pending_approval.
-		role := getUserRole(ctx, createdBy, orgIDStr)
-		isAdmin := role == "owner" || role == "admin"
-		poStatus, approvalStatus, lpoNumber := "pending_approval", "pending", ""
-		if isAdmin {
-			poStatus, approvalStatus = "issued", "approved"
-			lpoNumber = generateLPONumber(ctx, orgIDStr)
+		// Approval gate — the org's Purchase Orders policy decides, same as a direct create.
+		// Held requests replay through this handler (docType po_from_so) so the SO link and
+		// procurement side-effects below still happen once it's approved.
+		if !c.GetBool("approvalReplay") {
+			items := make([]bson.M, 0, len(body.Items))
+			for _, it := range body.Items {
+				items = append(items, bson.M{
+					"sourceSoItemId": it.SourceSOItemID, "itemId": it.ItemID, "details": it.Details,
+					"quantity": it.Quantity, "rate": it.Rate, "unit": it.Unit, "discount": it.Discount,
+					"discountType": it.DiscountType, "freight": it.Freight, "freightTaxRate": it.FreightTaxRate,
+				})
+			}
+			payload := bson.M{
+				"vendorId": body.VendorID, "vendorName": body.VendorName,
+				"shippingCharges": body.ShippingCharges, "adjustment": body.Adjustment, "items": items,
+				"total": total, "sourceSoNumber": so.OrderNumber, "forCustomerName": so.CustomerName,
+			}
+			title := fmt.Sprintf("%s (for SO %s)", body.VendorName, so.OrderNumber)
+			if holdActionForApproval(c, ctx, orgIDStr, createdBy, "", "po_from_so", "create", "purchase_orders", title, total, soObjID.Hex(), payload) {
+				return
+			}
 		}
+		poStatus, approvalStatus, lpoNumber := "issued", "approved", generateLPONumber(ctx, orgIDStr)
 
 		po := models.PurchaseOrder{
 			ID:                 primitive.NewObjectID(),
@@ -1021,12 +1074,11 @@ func ConvertSOToPO() gin.HandlerFunc {
 			UpdatedAt:          time.Now(),
 			CreatedBy:          createdBy,
 		}
-		if isAdmin {
-			now := time.Now()
-			po.ApprovedBy = createdBy
-			po.ApprovedAt = &now
-		}
+		now := time.Now()
+		po.ApprovedBy = createdBy
+		po.ApprovedAt = &now
 
+		stampItemCodes(ctx, orgIDStr, po.Items)
 		if _, err := purchaseOrderCollection.InsertOne(ctx, po); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create purchase order", "error": err.Error()})
 			return

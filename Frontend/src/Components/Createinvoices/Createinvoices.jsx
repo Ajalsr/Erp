@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
 import axiosInstance from "../../helper/axiosInstance";
+import { usePermissions } from '../../helper/permissions';
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore from "../../store/useThemeStore";
@@ -630,6 +631,7 @@ const CURRENCY_OPTIONS = cc.codes().map(code => {
 
 /* ─── Main Page ─────────────────────────────────────────────────────────── */
 const CreateInvoice = () => {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const navigate  = useNavigate();
   const location  = useLocation();
   const isDark    = useThemeStore((s) => s.isDark);
@@ -700,7 +702,7 @@ const CreateInvoice = () => {
 
   // Load inventory items for the direct-invoice product picker
   useEffect(() => {
-    axiosInstance.get('/api/stocks/getitem')
+    axiosInstance.get('/api/stocks/lookup')
       .then(res => setStockList(res.data?.data || []))
       .catch(() => {});
   }, []);
@@ -1134,7 +1136,7 @@ const CreateInvoice = () => {
                 <Field label="Payment Terms">
                   <TermSelect value={terms} onChange={e => { if (!isFromDN) setTerms(e.target.value); }} disabled={isFromDN}
                     options={paymentTermsOptions}
-                    onCreateNew={isFromDN ? undefined : () => setQuickCreateTerm(true)} createLabel="Create payment term" />
+                    onCreateNew={isFromDN || !canPerm('payment_terms', 'add') ? undefined : () => setQuickCreateTerm(true)} createLabel="Create payment term" />
                 </Field>
               </div>
             </Section>
