@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Sidebar    from './Home/Sidebar'
 import Navbar     from './Home/Navbar'
 import UnsavedModal from './common/UnsavedModal'
+import UpdateBanner from './common/UpdateBanner'
 // import TourGuide  from './Tour/TourGuide'
 import useThemeStore from '../store/useThemeStore'
 import useWebSocket from '../helper/useWebSocket'
@@ -30,16 +31,23 @@ export default function Layout() {
   const { getMyOrganizations } = useOrganization()
 
   useEffect(() => {
-    fetchNotifications()
     // Always fetch orgs on mount to handle page refreshes
     getMyOrganizations().catch(() => {}).finally(() => setOrgLoading(false))
   }, [])
 
+  // Notifications are per-org — (re)load once the active org is known and on every switch.
+  useEffect(() => {
+    fetchNotifications()
+  }, [activeOrg?._id, fetchNotifications])
+
   const onEvent = useCallback((event) => {
-    if (event.type === 'notification' && event.payload) {
+    // Real-time pushes arrive over one socket regardless of which org is
+    // active — without this check, an event for an org the user isn't
+    // currently viewing would still land in the open one's notification list.
+    if (event.type === 'notification' && event.payload && event.payload.orgId === activeOrg?._id) {
       addNotification(event.payload)
     }
-  }, [addNotification])
+  }, [addNotification, activeOrg])
 
   useWebSocket(onEvent)
 
@@ -90,24 +98,24 @@ export default function Layout() {
           <h1 style={{ color: '#f1f5f9', fontSize: '22px', fontWeight: '700', marginBottom: '8px' }}>
             No Organization Yet
           </h1>
-          <p style={{ color: '#64748b', fontSize: '13px', lineHeight: '1.6', marginBottom: '32px' }}>
-            You're not part of any organization. Create your own or wait for an admin to invite you.
+          <p style={{ color: '#64748b', fontSize: '13px', lineHeight: '1.6', marginBottom: '24px' }}>
+            You're not part of any organization yet. If a teammate invited you, open that invitation link to join theirs — you don't need anything below.
           </p>
 
           <button
             onClick={() => navigate('/organizations/create')}
             style={{
               width: '100%', padding: '12px', borderRadius: '12px',
-              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-              border: 'none', color: '#fff', fontSize: '14px', fontWeight: '600',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', fontSize: '13px', fontWeight: '600',
               cursor: 'pointer', marginBottom: '10px',
             }}
           >
-            Create an Organization
+            Set up a new organization
           </button>
 
           <p style={{ color: '#475569', fontSize: '12px', marginTop: '16px' }}>
-            Have an invitation link? Open it to join an existing organization.
+            Requires a license key — <a href="https://spifora.com/spifora.html#modules" target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>get one at spifora.com</a> if you don't have one yet.
           </p>
         </div>
       </div>
@@ -124,10 +132,18 @@ export default function Layout() {
         onClose={() => setMobileOpen(false)}
       />
 
-      {/* Mobile drawer backdrop */}
-      {isMobile && mobileOpen && (
+      {/* Mobile drawer backdrop — always mounted while on mobile (not just
+          while open) so opacity can transition instead of hard mount/unmount;
+          pointerEvents off when hidden so it doesn't eat clicks underneath.
+          0.3s matches the drawer's own slide transition in Sidebar.jsx. */}
+      {isMobile && (
         <div onClick={() => setMobileOpen(false)}
-          style={{ position: 'fixed', inset: 0, zIndex: 19, background: 'rgba(0,0,0,0.5)' }} />
+          style={{
+            position: 'fixed', inset: 0, zIndex: 299, background: 'rgba(0,0,0,0.5)',
+            opacity: mobileOpen ? 1 : 0,
+            pointerEvents: mobileOpen ? 'auto' : 'none',
+            transition: 'opacity 0.3s ease',
+          }} />
       )}
 
       <div style={{
@@ -138,6 +154,7 @@ export default function Layout() {
         minWidth:      0,
         transition:    'margin-left 0.3s ease',
       }}>
+        <UpdateBanner />
         <Navbar onToggleSidebar={onToggleSidebar} />
 
         <main style={{

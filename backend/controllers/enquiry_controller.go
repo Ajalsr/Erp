@@ -53,6 +53,14 @@ func CreateEnquiry() gin.HandlerFunc {
 		if enq.Date == "" {
 			enq.Date = time.Now().Format("2006-01-02")
 		}
+		// A follow-up date supplied at creation becomes the first entry in the list,
+		// so the new Follow-ups UI has something to show/edit right away.
+		if enq.FollowUpDate != "" && len(enq.FollowUps) == 0 {
+			enq.FollowUps = []models.FollowUpEntry{{
+				ID: primitive.NewObjectID(), Date: enq.FollowUpDate,
+				CreatedBy: enq.CreatedBy, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			}}
+		}
 		enq.CreatedAt = time.Now()
 		enq.UpdatedAt = time.Now()
 
@@ -321,3 +329,82 @@ func UpdateEnquiry() gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"message": "Enquiry updated"})
 	}
 }
+
+// nextFollowUpDate derives the single scalar FollowUpDate from a FollowUps list: the
+// nearest upcoming date (>= today), or — if every entry is in the past — the most
+// recent overdue one, so a fully-lapsed enquiry still surfaces instead of disappearing
+// from the today/overdue filters and the scheduler. Empty list → "".
+func nextFollowUpDate(entries []models.FollowUpEntry) string {
+	today := time.Now().Format("2006-01-02")
+	upcoming, overdue := "", ""
+	for _, e := range entries {
+		if e.Date == "" {
+			continue
+		}
+		if e.Date >= today {
+			if upcoming == "" || e.Date < upcoming {
+				upcoming = e.Date
+			}
+		} else if e.Date > overdue {
+			overdue = e.Date
+		}
+	}
+	if upcoming != "" {
+		return upcoming
+	}
+	return overdue
+}
+
+// AddEnquiryFollowUp appends a new dated follow-up entry and recomputes FollowUpDate.
+func AddEnquiryFollowUp() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		orgIDStr := fmt.Sprintf("%v", orgID)
+		userID, _ := c.Get("userId")
+		id := c.Param("id")
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid enquiry ID"})
+			return
+		}
+
+		var body struct {
+			Date    string `json:"date"`
+			Comment string `json:"comment"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || body.Date == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "A follow-up date is required"})
+			return
+		}
+
+		var enq models.Enquiry
+		if err := enquiryCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgIDStr}).Decode(&enq); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Enquiry not found"})
+			return
+		}
+
+		createdBy := ""
+		if userID != nil {
+			createdBy = userID.(string)
+		}
+		entry := models.FollowUpEntry{
+			ID: primitive.NewObjectID(), Date: body.Date, Comment: body.Comment,
+			CreatedBy: createdBy, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		}
+		followUps := append(enq.FollowUps, entry)
+
+		_, err = enquiryCollection.UpdateOne(ctx,
+			bson.M{"_id": objectID, "orgId": orgIDStr},
+			bson.M{"$set": bson.M{"followUps": followUps, "followUpDate": nextFollowUpDate(followUps), "updatedAt": time.Now()}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to add follow-up", "error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{"message": "Follow-up added", "data": entry})
+	}
+}
+

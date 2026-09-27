@@ -4,11 +4,20 @@ import useLogin from '../../helper/useLogin'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 
+// "Keep me logged in" also remembers the User ID field (not the password —
+// that would mean storing it in plain, readable local storage) so returning
+// to the login screen after a session expiry or sign-out doesn't require
+// retyping it, matching what the checkbox implies even though it's a
+// separate mechanism from the actual session-persistence it also controls.
+const REMEMBERED_USERID_KEY = 'nx_remembered_userid'
+
 const Login = () => {
   const { handleSignin, verifyOtp } = useLogin()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [inputs, setInputs] = useState({ userId: '', password: '' })
+  const rememberedUserId = localStorage.getItem(REMEMBERED_USERID_KEY) || ''
+  const [inputs, setInputs] = useState({ userId: rememberedUserId, password: '' })
+  const [rememberMe, setRememberMe] = useState(!!rememberedUserId)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [otpStep, setOtpStep] = useState(null) // { userId, email } when a new device needs OTP
@@ -25,14 +34,16 @@ const Login = () => {
       toast.error('Please fill in all fields')
       return
     }
+    if (rememberMe) localStorage.setItem(REMEMBERED_USERID_KEY, inputs.userId.trim())
+    else localStorage.removeItem(REMEMBERED_USERID_KEY)
     setLoading(true)
     try {
-      const res = await handleSignin(inputs)
+      const res = await handleSignin({ ...inputs, rememberMe })
       if (res?.otpRequired) {
         setOtpStep({ userId: res.userId, email: res.email })
         return
       }
-      setInputs({ userId: '', password: '' })
+      setInputs({ userId: rememberMe ? inputs.userId : '', password: '' })
       goAfterLogin()
     } catch (error) {
       toast.error(error?.error || 'Sign in failed')
@@ -50,7 +61,7 @@ const Login = () => {
   const handleResend = async () => {
     if (resendIn > 0) return
     try {
-      const res = await handleSignin(inputs)
+      const res = await handleSignin({ ...inputs, rememberMe })
       if (res?.otpRequired) { setResendIn(30); toast.success('Code resent to your email') }
     } catch (error) {
       toast.error(error?.error || 'Could not resend code')
@@ -61,8 +72,8 @@ const Login = () => {
     if (!otp.trim()) { toast.error('Enter the code from your email'); return }
     setLoading(true)
     try {
-      await verifyOtp(otpStep.userId, otp.trim())
-      setInputs({ userId: '', password: '' }); setOtp(''); setOtpStep(null)
+      await verifyOtp(otpStep.userId, otp.trim(), rememberMe)
+      setInputs({ userId: rememberMe ? inputs.userId : '', password: '' }); setOtp(''); setOtpStep(null)
       goAfterLogin()
     } catch (error) {
       toast.error(error?.error || 'Verification failed')
@@ -155,18 +166,9 @@ const Login = () => {
 
             <div className="relative z-10">
               <div className="flex items-center gap-3 mb-2">
-                <svg width="38" height="38" viewBox="0 0 120 120">
-                  <rect width="120" height="120" rx="24" fill="#1a1a1a"/>
-                  <line x1="28" y1="28" x2="92" y2="92" stroke="#f43f5e" strokeWidth="9" strokeLinecap="round"/>
-                  <line x1="92" y1="28" x2="28" y2="92" stroke="#3b82f6" strokeWidth="9" strokeLinecap="round"/>
-                  <circle cx="28" cy="28" r="9" fill="#f43f5e"/>
-                  <circle cx="92" cy="92" r="9" fill="#f43f5e"/>
-                  <circle cx="92" cy="28" r="9" fill="#3b82f6"/>
-                  <circle cx="28" cy="92" r="9" fill="#3b82f6"/>
-                  <circle cx="60" cy="60" r="13" fill="#f59e0b"/>
-                </svg>
-                <div>
-                  <span className="login-heading text-white font-bold text-xl tracking-widest block">NEXUS</span>
+                <img src="/spifora-icon.png" alt="Spifora" style={{ height: 44, width: 44, objectFit: 'contain' }} />
+                <div style={{ marginTop: 6 }}>
+                  <span className="login-heading text-white font-bold text-xl tracking-widest block" style={{ lineHeight: 1.1 }}>SPIFORA</span>
                   <span style={{ fontSize: '10px', letterSpacing: '0.15em', color: '#94a3b8', fontWeight: 500 }}>ALL-IN-ONE</span>
                 </div>
               </div>
@@ -184,10 +186,10 @@ const Login = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Modules', value: '12+' },
+                  { label: 'Modules', value: '7' },
                   { label: 'Real-time', value: 'Sync' },
-                  { label: 'Reports', value: '50+' },
-                  { label: 'Uptime', value: '99.9%' },
+                  { label: 'Reports', value: '12+' },
+                  { label: 'Access Control', value: 'RBAC' },
                 ].map(({ label, value }) => (
                   <div key={label} className="stat-chip rounded-xl p-3">
                     <p className="text-blue-400 font-bold text-lg login-heading">{value}</p>
@@ -198,7 +200,7 @@ const Login = () => {
             </div>
 
             <div className="relative z-10">
-              <p className="text-slate-600 text-xs">© 2026 Nexus. All rights reserved.</p>
+              <p className="text-slate-600 text-xs">© 2026 Spifora. All rights reserved.</p>
             </div>
           </div>
 
@@ -208,17 +210,8 @@ const Login = () => {
 
               {/* Mobile logo */}
               <div className="flex items-center gap-3 mb-8 md:hidden">
-                <svg width="30" height="30" viewBox="0 0 120 120">
-                  <rect width="120" height="120" rx="24" fill="#1a1a1a"/>
-                  <line x1="28" y1="28" x2="92" y2="92" stroke="#f43f5e" strokeWidth="9" strokeLinecap="round"/>
-                  <line x1="92" y1="28" x2="28" y2="92" stroke="#3b82f6" strokeWidth="9" strokeLinecap="round"/>
-                  <circle cx="28" cy="28" r="9" fill="#f43f5e"/>
-                  <circle cx="92" cy="92" r="9" fill="#f43f5e"/>
-                  <circle cx="92" cy="28" r="9" fill="#3b82f6"/>
-                  <circle cx="28" cy="92" r="9" fill="#3b82f6"/>
-                  <circle cx="60" cy="60" r="13" fill="#f59e0b"/>
-                </svg>
-                <span className="login-heading text-white font-bold tracking-widest">NEXUS</span>
+                <img src="/spifora-icon.png" alt="Spifora" style={{ height: 34, width: 34, objectFit: 'contain' }} />
+                <span className="login-heading text-white font-bold tracking-widest">SPIFORA</span>
               </div>
 
               <div className="fade-up fade-up-1">
@@ -306,8 +299,17 @@ const Login = () => {
                   </div>
                 </div>
 
-                <div className="fade-up fade-up-4 flex justify-end">
-                  <button className="text-blue-400 text-xs hover:text-blue-300 transition-colors">
+                <div className="fade-up fade-up-4 flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-slate-400 text-xs cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer"
+                    />
+                    Keep me logged in
+                  </label>
+                  <button type="button" onClick={() => navigate('/forgot-password')} className="text-blue-400 text-xs hover:text-blue-300 transition-colors">
                     Forgot password?
                   </button>
                 </div>

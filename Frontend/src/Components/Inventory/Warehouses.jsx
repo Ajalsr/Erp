@@ -4,6 +4,7 @@ import { IoClose } from 'react-icons/io5';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { drawerWidth } from '../../helper/responsive';
 
 export default function Warehouses() {
   const isDark = useThemeStore((s) => s.isDark);
@@ -165,7 +166,7 @@ function WarehouseDrawer({ warehouse, T, isDark, onClose, onSaved, onDelete, del
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
-      <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: 400, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
+      <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: drawerWidth(400), height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri, margin: 0 }}>{isEdit ? 'Edit Warehouse' : 'New Warehouse'}</h2>
           <button onClick={onClose} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}><IoClose size={14} /></button>

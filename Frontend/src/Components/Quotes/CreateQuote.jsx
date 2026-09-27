@@ -2,12 +2,16 @@ import { useState, useCallback, useEffect, useRef, createContext, useContext } f
 import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { matchItem } from "../../helper/itemSearch";
+import { resolveItemPrice, getPriceListFxRate } from "../../helper/priceList";
 import useGetCustomers from "../../helper/useGetCustomers";
 import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
+import { usePermissions } from '../../helper/permissions';
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import useThemeStore from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import nexusToast from "../../helper/nexusToast";
+import QuickCreateModal from "../common/QuickCreateModal";
 
 /* ─── Theme ─────────────────────────────────────────────────────────────── */
 const getT = (isDark) => isDark ? {
@@ -46,7 +50,7 @@ const fmtMoney = (n) =>
 
 const fmtCustAddr = (c) => {
   const l1 = c.streetAddress || "";
-  const l2 = [c.city, c.postalCode, c.country].filter(Boolean).join(", ");
+  const l2 = [c.city, c.country].filter(Boolean).join(", ");
   return [l1, l2].filter(Boolean).join("\n");
 };
 
@@ -63,7 +67,7 @@ const Inp = ({ style, ...r }) => {
   return <input style={{ background: T.input, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", transition: "border-color .15s", ...style }} {...f} {...r} />;
 };
 /* ─── Custom dropdown (themed, portal — never clipped) ───────────────────── */
-const CustomSelect = ({ value, onChange, options, placeholder = "Select", style, disabled }) => {
+const CustomSelect = ({ value, onChange, options, placeholder = "Select", style, disabled, onCreateNew, createLabel }) => {
   const T = useT();
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState(null);
@@ -99,6 +103,14 @@ const CustomSelect = ({ value, onChange, options, placeholder = "Select", style,
               {o.label}
             </div>
           ))}
+          {onCreateNew && (
+            <div onMouseDown={() => { onCreateNew(); setOpen(false); }}
+              style={{ marginTop: 4, padding: "8px 10px", borderTop: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12.5, fontWeight: 700, color: T.accent, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.surface2; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || "Create new"}
+            </div>
+          )}
         </div>, document.body)}
     </>
   );
@@ -295,7 +307,7 @@ const CustomerSelect = ({ value, onChange, options, name, disabled }) => {
 };
 
 /* ─── Item Combo (desc + stock picker) ─────────────────────────────────── */
-const ItemCombo = ({ value, stockId, onChange }) => {
+const ItemCombo = ({ value, stockId, onChange, priceList, priceListFxRate }) => {
   const T      = useT();
   const stocks = useStock();
   const [q, setQ]           = useState(value || "");
@@ -323,7 +335,7 @@ const ItemCombo = ({ value, stockId, onChange }) => {
     setOpen(true);
   };
   const pick = (s) => {
-    const price = parseFloat(s.selling_price || s.price || 0);
+    const price = resolveItemPrice(s, priceList, priceListFxRate);
     setQ(s.name || "");
     setOpen(false);
     onChange({ desc: s.name || "", unitPrice: price, stockId: s._id });
@@ -396,10 +408,10 @@ const ItemCombo = ({ value, stockId, onChange }) => {
 };
 
 /* ─── Line Item Row ─────────────────────────────────────────────────────── */
-const LineRow = ({ item, onChange, onRemove, isOnly }) => {
+const LineRow = ({ item, onChange, onRemove, isOnly, priceList, priceListFxRate }) => {
   const T = useT();
   const set = (k, v) => onChange({ ...item, [k]: v });
-  const { subtotal, discAmt, taxAmt, total } = calcLine(item);
+  const { total } = calcLine(item);
 
   const handleItemPick = ({ desc, unitPrice, stockId }) => {
     onChange({
@@ -416,7 +428,7 @@ const LineRow = ({ item, onChange, onRemove, isOnly }) => {
         <Inp value={item.partNumber} onChange={e => set("partNumber", e.target.value)} placeholder="Part No." />
       </td>
       <td style={{ padding: "6px 4px" }}>
-        <ItemCombo value={item.desc} stockId={item.stockId} onChange={handleItemPick} />
+        <ItemCombo value={item.desc} stockId={item.stockId} onChange={handleItemPick} priceList={priceList} priceListFxRate={priceListFxRate} />
       </td>
       <td style={{ padding: "6px 4px", width: 62 }}>
         <Inp type="number" min="0.01" step="0.01" value={item.qty} onChange={e => set("qty", e.target.value)} style={{ textAlign: "right" }} />
@@ -650,10 +662,12 @@ const EMPTY_ITEM = () => ({ _uid: uid(), partNumber: "", desc: "", qty: 1, unit:
 const UNIT_OPTIONS = ["Nos", "Pcs", "Set", "Kg", "Ltr", "Mtr", "Sqm", "Box", "Roll", "Lot", "Job", "Month", "Hr"];
 
 export default function CreateQuote() {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const navigate  = useNavigate();
   const location  = useLocation();
   const isDark    = useThemeStore(s => s.isDark);
   const T         = getT(isDark);
+  const isMobile  = useIsMobile();
 
   const { handleGetCustomers, data: rawCustomers } = useGetCustomers();
   useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
@@ -671,15 +685,36 @@ export default function CreateQuote() {
   const [customerId,    setCustomerId]    = useState(prefill?.customerId || fromEnquiry?.customerId || "");
   const [customerName,  setCustomerName]  = useState(prefill?.customerName || fromEnquiry?.customerName || "");
   const [customerEmail, setCustomerEmail] = useState(prefill?.customerEmail || fromEnquiry?.email || "");
-  const [billTo,        setBillTo]        = useState(prefill?.billTo || {
+  const [billTo,        setBillTo]        = useState({
     name: fromEnquiry?.customerName || "",
     address: fromEnquiry?.company ? `${fromEnquiry.company}` : "",
     trn: "",
+    poBox: "",
+    ...(prefill?.billTo || {}), // older saved quotes may predate poBox — falls back to ""
   });
   const [quoteDate,     setQuoteDate]     = useState(today());
   const [validUntil,    setValidUntil]    = useState(net30());
   const [currency,      setCurrency]      = useState(prefill?.currency || "AED");
   const [paymentTerms,  setPaymentTerms]  = useState(prefill?.paymentTerms || "Net 30");
+  // Payment Terms from the org's Payment Terms module (with a create shortcut).
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [quickCreateTerm, setQuickCreateTerm] = useState(false);
+  const fetchPaymentTerms = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(r => setPaymentTermList(r.data?.data?.paymentTerms || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+  const handleCreatePaymentTerm = async (form) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: form.name, days: Number(form.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setPaymentTerms(res.data.data.name);
+  };
+  const paymentTermsOptions = (() => {
+    const opts = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+    if (paymentTerms && !opts.some(o => o.value === paymentTerms)) opts.unshift({ value: paymentTerms, label: paymentTerms });
+    return opts;
+  })();
   const [lineItems,     setLineItems]     = useState(
     prefill?.lineItems?.length
       ? prefill.lineItems.map(li => ({ ...li, _uid: uid(), discountType: li.discountType || "percentage" }))
@@ -700,7 +735,7 @@ export default function CreateQuote() {
   // Stock catalog — always loaded (used in item picker + price delta panel)
   const [catalogItems, setCatalogItems] = useState([]);
   useEffect(() => {
-    axiosInstance.get("/api/stocks/getitem")
+    axiosInstance.get("/api/stocks/lookup")
       .then(r => setCatalogItems(r.data?.data || []))
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -713,12 +748,14 @@ export default function CreateQuote() {
 
   // Reference / document fields
   const [attentionTo,  setAttentionTo]  = useState(prefill?.attentionTo  || fromEnquiry?.contactPerson || "");
+  const [salutation,   setSalutation]   = useState(prefill?.salutation  || "");
   const [subject,      setSubject]      = useState(prefill?.subject      || fromEnquiry?.subject || "");
   const [projectName,  setProjectName]  = useState(prefill?.projectName  || fromEnquiry?.projectName || "");
   const [introText,    setIntroText]    = useState(prefill?.introText    || "");
   // Salesperson — selectable; drives the quote number (initials) when the org enables
   // salesperson numbering, and carries to a converted Sales Order.
   const [salesperson, setSalesperson] = useState(prefill?.salesperson || fromEnquiry?.assignedTo || "");
+  const activeOrg   = useAuthStore((s) => s.activeOrg);
   const activeOrgId = useAuthStore((s) => s.activeOrg?._id || s.user?.orgId || "");
   const [salesReps, setSalesReps] = useState([]);
   useEffect(() => {
@@ -735,12 +772,36 @@ export default function CreateQuote() {
   });
   const [signatory, setSignatory] = useState(prefill?.signatory || { name: "", title: "" });
 
+  // Company Name defaults to the active org's own name — a brand-new quote has
+  // no reason to make the user retype what's already on their account.
+  useEffect(() => {
+    if (prefill || !activeOrg?.name) return;
+    setCompany(c => c.name ? c : { ...c, name: activeOrg.name });
+  }, [prefill, activeOrg]);
+
+  // "Your Company" only needs to be complete once a quote is actually going
+  // out (Create & Send) — a draft can be saved half-filled. TRN and Website
+  // stay optional even when sending, since not every org has them. Checked
+  // both here (so the send modal doesn't even open on incomplete info) and
+  // again inside submit() as the final gate.
+  const companySendError = () => {
+    if (!company.name.trim())    return "Your Company: Company Name is required to send";
+    if (!company.address.trim()) return "Your Company: Address is required to send";
+    if (!company.phone.trim())   return "Your Company: Phone is required to send";
+    if (!company.email.trim())   return "Your Company: Email is required to send";
+    if (!signatory.name.trim())  return "Your Company: Signatory Name is required to send";
+    if (!signatory.title.trim()) return "Your Company: Signatory Title is required to send";
+    return "";
+  };
+
   // "Create & Send" — pick one or more email recipients before sending.
   const [sendOpen,    setSendOpen]    = useState(false);
   const [recipients,  setRecipients]  = useState([""]);
   const [sendMessage, setSendMessage] = useState("");
   const openSendModal = () => {
     if (!customerId) { nexusToast.error("Please select a customer"); return; }
+    const err = companySendError();
+    if (err) { nexusToast.error(err); return; }
     setRecipients(customerEmail ? [customerEmail] : [""]);
     setSendMessage("");
     setSendOpen(true);
@@ -776,14 +837,46 @@ export default function CreateQuote() {
   const taxSum       = computed.reduce((s, c) => s + c.taxAmt,   0);
   const grandTotal   = computed.reduce((s, c) => s + c.total,    0);
 
+  // Customer's assigned Price List (if any) — resolved per line item via ItemCombo/LineRow.
+  const [activePriceList, setActivePriceList] = useState(null);
+  const [priceListFxRate, setPriceListFxRate] = useState(1);
+  // Recompute whenever the price list or the quote's own currency changes — the list's
+  // currency may not match what this quote is actually being billed in.
+  useEffect(() => {
+    if (!activePriceList?.currency) { setPriceListFxRate(1); return; }
+    let live = true;
+    getPriceListFxRate(activePriceList.currency, currency).then(r => { if (live) setPriceListFxRate(r); });
+    return () => { live = false; };
+  }, [activePriceList, currency]);
   const handleCustomer = (e) => {
     const cust = e.customer;
     setCustomerId(e.target.value);
     if (!cust) return;
     setCustomerName(cust.customerDisplayName || cust.companyName || `${cust.firstName} ${cust.lastName}`.trim());
     setCustomerEmail(cust.customerEmail || "");
-    setBillTo({ name: cust.customerDisplayName || cust.companyName || "", address: fmtCustAddr(cust), trn: cust.trn || "" });
+    setBillTo({ name: cust.customerDisplayName || cust.companyName || "", address: fmtCustAddr(cust), trn: cust.trn || "", poBox: cust.postalCode || "" });
+    if (cust.price_list_id) {
+      axiosInstance.get(`/api/price-lists/${cust.price_list_id}`).then(r => setActivePriceList(r.data?.data || null)).catch(() => setActivePriceList(null));
+    } else {
+      setActivePriceList(null);
+    }
   };
+
+  // Converting from an Enquiry locks the customer picker (its onChange, and
+  // therefore the auto-fill above, never fires) — the enquiry itself only
+  // carries a loose name/company string, not the customer's real TRN/address.
+  // Look the linked customer up once the list loads and fill Bill To from it.
+  useEffect(() => {
+    if (!fromEnquiry?.customerId || prefill) return;
+    const cust = (rawCustomers || []).find(c => c._id === fromEnquiry.customerId);
+    if (!cust) return;
+    setCustomerName(cust.customerDisplayName || cust.companyName || `${cust.firstName} ${cust.lastName}`.trim());
+    setCustomerEmail(prev => prev || cust.customerEmail || "");
+    setBillTo({ name: cust.customerDisplayName || cust.companyName || "", address: fmtCustAddr(cust), trn: cust.trn || "", poBox: cust.postalCode || "" });
+    if (cust.price_list_id) {
+      axiosInstance.get(`/api/price-lists/${cust.price_list_id}`).then(r => setActivePriceList(r.data?.data || null)).catch(() => setActivePriceList(null));
+    }
+  }, [fromEnquiry, prefill, rawCustomers]);
 
   const updateItem = (uid, updated) => setLineItems(prev => prev.map(li => li._uid === uid ? { ...li, ...updated } : li));
   const removeItem = (uid) => setLineItems(prev => prev.filter(li => li._uid !== uid));
@@ -807,6 +900,12 @@ export default function CreateQuote() {
 
   async function submit(status, recipients) {
     if (!customerId) { nexusToast.error("Please select a customer"); return; }
+    // Final gate — openSendModal already checks this before the recipient
+    // modal opens, this just guards any other path that could reach "sent".
+    if (status === "sent") {
+      const err = companySendError();
+      if (err) { nexusToast.error(err); return; }
+    }
     setSaving(true);
     try {
       const payload = {
@@ -814,7 +913,7 @@ export default function CreateQuote() {
         customerId, customerName, customerEmail,
         billTo,
         quoteDate, validUntil, currency, paymentTerms,
-        attentionTo, subject, projectName, introText, salesperson,
+        attentionTo, salutation, subject, projectName, introText, salesperson,
         company, signatory,
         termsAndConditions: terms,
         lineItems: lineItems.map((li, i) => {
@@ -890,24 +989,24 @@ export default function CreateQuote() {
         <style>{css}</style>
 
         {/* Top bar */}
-        <div style={{ background: T.topbar, borderBottom: `1px solid ${T.border}`, padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => navigate("/Sales/Quotes")} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 0 }}>←</button>
-            <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.text }}>
+        <div style={{ background: T.topbar, borderBottom: `1px solid ${T.border}`, padding: isMobile ? "12px 14px" : "14px 28px", display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", alignItems: "center", justifyContent: "space-between", gap: isMobile ? 10 : 0, position: "sticky", top: 0, zIndex: 50 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <button onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 0, flexShrink: 0 }}>←</button>
+            <span style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 14 : 16, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {isEdit ? "Edit Quote" : "New Quote"}
             </span>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn v="ghost" onClick={() => navigate("/Sales/Quotes")} disabled={saving}>Cancel</Btn>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: isMobile ? "100%" : "auto" }}>
+            <Btn v="ghost" onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} disabled={saving}>Cancel</Btn>
             {isEdit && prefill?._id && (
-              <Btn v="outline" onClick={() => navigate(`/Sales/Quotes/${prefill._id}/print`)} disabled={saving}>🖨 Preview &amp; Print</Btn>
+              <Btn v="outline" onClick={() => navigate(`/Sales/Quotes/${prefill._id}/print`)} disabled={saving}>🖨 {isMobile ? "Print" : "Preview & Print"}</Btn>
             )}
             <Btn v="outline" onClick={() => submit("draft")} disabled={saving}>{saving ? "Saving…" : "Save Draft"}</Btn>
-            <Btn v="primary" onClick={openSendModal} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
+            <Btn v="primary" onClick={openSendModal} disabled={saving}>{saving ? "Saving…" : (isMobile ? "Create" : "Create & Send")}</Btn>
           </div>
         </div>
 
-        <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 24px" }}>
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: isMobile ? "16px 14px" : "28px 24px" }}>
 
           {/* From-Enquiry banner */}
           {fromEnquiry && (
@@ -945,8 +1044,9 @@ export default function CreateQuote() {
                       letterSpacing: "0.06em", color: isDark ? "#f59e0b" : "#b45309", marginBottom: 8 }}>
                       ⚠ Price Differences (Enquiry vs Catalogue)
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "4px 16px",
-                      fontSize: 12, color: T.text }}>
+                    <div style={{ overflowX: isMobile ? "auto" : "visible" }}>
+                     <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "4px 16px",
+                      fontSize: 12, color: T.text, minWidth: isMobile ? 360 : "auto" }}>
                       <span style={{ fontWeight: 700, color: T.muted }}>Item</span>
                       <span style={{ fontWeight: 700, color: T.muted, textAlign: "right" }}>Offered</span>
                       <span style={{ fontWeight: 700, color: T.muted, textAlign: "right" }}>Catalogue</span>
@@ -966,6 +1066,7 @@ export default function CreateQuote() {
                           </span>
                         </>
                       ))}
+                     </div>
                     </div>
                   </div>
                 );
@@ -975,7 +1076,7 @@ export default function CreateQuote() {
 
           {/* Customer + Dates */}
           <Section title="Quote Details">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Customer *">
                 <CustomerSelect value={customerId} onChange={handleCustomer} options={customerOpts} name="customerId" disabled={!!fromEnquiry} />
               </Field>
@@ -983,7 +1084,7 @@ export default function CreateQuote() {
                 <Inp value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" type="email" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap: 16, marginBottom: 16 }}>
               <Field label="Quote Date">
                 <CustomDate value={quoteDate} onChange={setQuoteDate} />
               </Field>
@@ -996,12 +1097,16 @@ export default function CreateQuote() {
               </Field>
               <Field label="Payment Terms">
                 <CustomSelect value={paymentTerms} onChange={setPaymentTerms}
-                  options={["Due on Receipt","Net 15","Net 30","Net 60","End of Month","30 Days PDC"].map(t => ({ value: t, label: t }))} />
+                  options={paymentTermsOptions}
+                  onCreateNew={canPerm('payment_terms', 'add') ? () => setQuickCreateTerm(true) : undefined} createLabel="Create payment term" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Attention To (Contact Person)">
                 <Inp value={attentionTo} onChange={e => setAttentionTo(e.target.value)} placeholder="e.g. Mr. John Smith - Procurement" />
+              </Field>
+              <Field label="Salutation">
+                <Inp value={salutation} onChange={e => setSalutation(e.target.value)} placeholder="e.g. Madam," />
               </Field>
               <Field label="Subject">
                 <Inp value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Offer for supply of…" />
@@ -1010,7 +1115,7 @@ export default function CreateQuote() {
                 <Inp value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="e.g. Nashama School" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
               <Field label="Salesperson">
                 <CustomSelect value={salesperson} onChange={setSalesperson}
                   options={salespersonOptions}
@@ -1033,15 +1138,20 @@ export default function CreateQuote() {
 
           {/* Bill To */}
           <Section title="Bill To (Customer Address)">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
               <Field label="Name / Company">
                 <Inp value={billTo.name} onChange={e => setBillTo(b => ({ ...b, name: e.target.value }))} placeholder="Company / Contact name" />
               </Field>
               <Field label="TRN">
                 <Inp value={billTo.trn} onChange={e => setBillTo(b => ({ ...b, trn: e.target.value }))} placeholder="Tax Registration Number" />
               </Field>
-              <Field label="Address (Street, City, P.O. Box, Country)">
-                <Tex value={billTo.address} onChange={e => setBillTo(b => ({ ...b, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} placeholder={"e.g.\nP.O. Box: 37579\nDubai, U.A.E"} />
+              <Field label="P.O. Box">
+                <Inp value={billTo.poBox} onChange={e => setBillTo(b => ({ ...b, poBox: e.target.value }))} placeholder="e.g. 37579" />
+              </Field>
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <Field label="Address (Street, City, Country)">
+                <Tex value={billTo.address} onChange={e => setBillTo(b => ({ ...b, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} placeholder={"e.g.\nDubai, United Arab Emirates"} />
               </Field>
             </div>
           </Section>
@@ -1049,7 +1159,7 @@ export default function CreateQuote() {
           {/* Line Items */}
           <Section title="Line Items">
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     {["Part No.", "Description", "Qty", "Unit", "Unit Price", "Discount", "Tax %", "Total", ""].map((h, i) => (
@@ -1058,11 +1168,13 @@ export default function CreateQuote() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lineItems.map((li, i) => (
+                  {lineItems.map((li) => (
                     <LineRow key={li._uid} item={li}
                       onChange={updated => updateItem(li._uid, updated)}
                       onRemove={() => removeItem(li._uid)}
                       isOnly={lineItems.length === 1}
+                      priceList={activePriceList}
+                      priceListFxRate={priceListFxRate}
                     />
                   ))}
                 </tbody>
@@ -1082,7 +1194,7 @@ export default function CreateQuote() {
 
             {/* Totals */}
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
-              <div style={{ width: 280 }}>
+              <div style={{ width: isMobile ? "100%" : 280 }}>
                 {[
                   ["Subtotal",    subtotalSum],
                   ["Discount",   -discountSum],
@@ -1103,7 +1215,7 @@ export default function CreateQuote() {
 
           {/* Notes */}
           <Section title="Notes">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
               <Field label="Notes (visible on PDF — each line becomes a bullet point)">
                 <Tex value={custNote} onChange={e => setCustNote(e.target.value)} placeholder={"e.g.\nAll prices are exclusive of additional taxes.\nPrices valid subject to prior sales."} />
               </Field>
@@ -1140,9 +1252,9 @@ export default function CreateQuote() {
 
           {/* Your Company Details */}
           <Section title="Your Company (PDF Header &amp; Footer)">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Company Name">
-                <Inp value={company.name} onChange={e => setCompany(c => ({ ...c, name: e.target.value }))} placeholder="Allied Building Materials L.L.C" />
+                <Inp value={company.name} onChange={e => setCompany(c => ({ ...c, name: e.target.value }))} />
               </Field>
               <Field label="TRN">
                 <Inp value={company.trn} onChange={e => setCompany(c => ({ ...c, trn: e.target.value }))} placeholder="Tax Registration Number" />
@@ -1151,7 +1263,7 @@ export default function CreateQuote() {
                 <Tex value={company.address} onChange={e => setCompany(c => ({ ...c, address: e.target.value }))} rows={2} style={{ minHeight: 0 }} placeholder="P.O. Box 8261, Abu Dhabi, UAE" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Phone">
                 <Inp value={company.phone} onChange={e => setCompany(c => ({ ...c, phone: e.target.value }))} placeholder="+971 54 4920990" />
               </Field>
@@ -1162,7 +1274,7 @@ export default function CreateQuote() {
                 <Inp value={company.website} onChange={e => setCompany(c => ({ ...c, website: e.target.value }))} placeholder="www.company.com" />
               </Field>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
               <Field label="Signatory Name">
                 <Inp value={signatory.name} onChange={e => setSignatory(s => ({ ...s, name: e.target.value }))} placeholder="e.g. MANU" />
               </Field>
@@ -1174,7 +1286,7 @@ export default function CreateQuote() {
 
           {/* Bottom actions */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 8 }}>
-            <Btn v="ghost" onClick={() => navigate("/Sales/Quotes")} disabled={saving}>Cancel</Btn>
+            <Btn v="ghost" onClick={() => guard.leave(() => navigate("/Sales/Quotes"))} disabled={saving}>Cancel</Btn>
             <Btn v="outline" onClick={() => submit("draft")} disabled={saving}>{saving ? "Saving…" : "Save Draft"}</Btn>
             <Btn v="primary" onClick={openSendModal} disabled={saving}>{saving ? "Saving…" : "Create & Send"}</Btn>
           </div>
@@ -1217,6 +1329,14 @@ export default function CreateQuote() {
         )}
       </div>
     </StockCtx.Provider>
+      {quickCreateTerm && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreateTerm(false)} onSubmit={handleCreatePaymentTerm} />
+      )}
     </ThemeCtx.Provider>
   );
 }

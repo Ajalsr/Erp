@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { FaArrowLeft, FaPrint, FaDownload, FaEnvelope, FaEdit, FaTimes } from 'react-icons/fa';
 import DOMPurify from 'dompurify';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
@@ -8,14 +8,18 @@ import useOrganization from '../../helper/useOrganization';
 import nexusToast from '../../helper/nexusToast';
 import { getLetter, sendLetterEmail } from '../../helper/letterApi';
 import { A4_W, A4_H, SIDE_PX, SIDE_MM, A4_W_MM, A4_H_MM, padsPx, buildLetterPdf, reflowPageBreaks, waitForLetterFonts } from './letterShared';
+import useIsMobile from '../../helper/useIsMobile';
 
 const CONTENT_W = A4_W - 2 * SIDE_PX;
 
 export default function LetterPrint() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const location = useLocation();
+  const base = location.pathname.startsWith('/HR') ? '/HR/Letters' : '/Letters';
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const activeOrg = useAuthStore((s) => s.activeOrg);
   const { getOrganization } = useOrganization();
 
@@ -46,7 +50,7 @@ export default function LetterPrint() {
         if (!alive) return;
         if (org) setLh({ image: org.letterheadImage || '', topPad: org.letterheadTopPad || 13, bottomPad: org.letterheadBottomPad || 8 });
         setLetter(l);
-        setEmailTo(l?.customerEmail || '');
+        setEmailTo(l?.customerEmail || l?.employeeEmail || '');
       } finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
@@ -154,25 +158,26 @@ export default function LetterPrint() {
       `}</style>
 
       {/* Toolbar */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 30, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <button onClick={() => navigate('/Letters')} style={{ ...btn, background: T.surface2, color: T.textPri, border: `1px solid ${T.border}` }}><FaArrowLeft size={11} /> Back</button>
-        <div style={{ fontSize: 15, fontWeight: 800 }}>{letter?.letterNumber || 'Letter'}</div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={() => navigate(`/Letters/${id}/edit`)} style={{ ...btn, background: T.surface2, color: T.textPri, border: `1px solid ${T.border}` }}><FaEdit size={11} /> Edit</button>
-          <button onClick={printLetter} disabled={!letter} style={{ ...btn, background: '#fff', color: '#1e3a5f' }}><FaPrint size={11} /> Print</button>
-          <button onClick={download} disabled={!letter} style={{ ...btn, background: '#f59e0b', color: '#0a0e1a' }}><FaDownload size={11} /> Download</button>
-          <button onClick={() => setEmailOpen(true)} disabled={!letter} style={{ ...btn, background: '#3b82f6', color: '#fff' }}><FaEnvelope size={11} /> Email</button>
+      <div style={{ position: 'sticky', top: 0, zIndex: 30, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: isMobile ? '10px 12px' : '12px 20px', display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap' }}>
+        <button onClick={() => navigate(base)} style={{ ...btn, background: T.surface2, color: T.textPri, border: `1px solid ${T.border}` }}><FaArrowLeft size={11} /> {!isMobile && 'Back'}</button>
+        <div style={{ fontSize: isMobile ? 13 : 15, fontWeight: 800 }}>{letter?.letterNumber || 'Letter'}</div>
+        <div style={{ marginLeft: isMobile ? 0 : 'auto', width: isMobile ? '100%' : 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => navigate(`${base}/${id}/edit`)} style={{ ...btn, background: T.surface2, color: T.textPri, border: `1px solid ${T.border}`, flex: isMobile ? 1 : 'initial', justifyContent: 'center' }}><FaEdit size={11} /> Edit</button>
+          <button onClick={printLetter} disabled={!letter} style={{ ...btn, background: '#fff', color: '#1e3a5f', flex: isMobile ? 1 : 'initial', justifyContent: 'center' }}><FaPrint size={11} /> Print</button>
+          <button onClick={download} disabled={!letter} style={{ ...btn, background: '#f59e0b', color: '#0a0e1a', flex: isMobile ? 1 : 'initial', justifyContent: 'center' }}><FaDownload size={11} /> Download</button>
+          <button onClick={() => setEmailOpen(true)} disabled={!letter} style={{ ...btn, background: '#3b82f6', color: '#fff', flex: isMobile ? 1 : 'initial', justifyContent: 'center' }}><FaEnvelope size={11} /> Email</button>
         </div>
       </div>
 
       {/* Screen preview — tiled letterhead + continuous content */}
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '28px 16px 60px' }}>
+      <div style={{ overflowX: 'auto', padding: isMobile ? '16px 0 40px' : 0 }}>
+      <div style={{ display: 'flex', justifyContent: isMobile ? 'flex-start' : 'center', padding: isMobile ? '0 16px' : '28px 16px 60px' }}>
         {loading ? (
           <div style={{ padding: 60, color: T.textSec }}>Loading…</div>
         ) : !letter ? (
           <div style={{ padding: 60, color: T.textSec }}>Letter not found.</div>
         ) : (
-          <div ref={pageRef} style={{ width: A4_W, minHeight: A4_H, position: 'relative', background: '#fff', boxShadow: '0 8px 40px rgba(0,0,0,.25)' }}>
+          <div ref={pageRef} style={{ width: A4_W, minHeight: A4_H, flexShrink: 0, position: 'relative', background: '#fff', boxShadow: '0 8px 40px rgba(0,0,0,.25)' }}>
             {Array.from({ length: pageCount }, (_, k) => (
               lh.image
                 ? <img key={k} src={lh.image} alt="" style={{ position: 'absolute', top: k * A4_H, left: 0, width: A4_W, height: A4_H, objectFit: 'cover', pointerEvents: 'none' }} />
@@ -187,6 +192,7 @@ export default function LetterPrint() {
             <div ref={screenBodyRef} className="ltp-body" style={{ position: 'relative', zIndex: 1, padding: `${topPx}px ${SIDE_PX}px ${botPx}px` }} />
           </div>
         )}
+      </div>
       </div>
 
       {/* Offscreen capture node (usable content width, for PDF rasterization) */}

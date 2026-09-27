@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/backend/models"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // GET /api/reports/vat?from=2024-01-01&to=2024-03-31
@@ -37,9 +39,9 @@ func GetVATReport() gin.HandlerFunc {
 			}},
 			{"$group": bson.M{
 				"_id":          nil,
-				"taxableAmt":   bson.M{"$sum": "$subTotal"},
-				"outputVAT":    bson.M{"$sum": "$taxTotal"},
-				"grandTotal":   bson.M{"$sum": "$grandTotal"},
+				"taxableAmt":   bson.M{"$sum": "$totals.subtotal"},
+				"outputVAT":    bson.M{"$sum": "$totals.taxTotal"},
+				"grandTotal":   bson.M{"$sum": "$totals.grandTotal"},
 				"invoiceCount": bson.M{"$sum": 1},
 			}},
 		}
@@ -70,8 +72,8 @@ func GetVATReport() gin.HandlerFunc {
 			}},
 			{"$group": bson.M{
 				"_id":       nil,
-				"cnTaxable": bson.M{"$sum": "$subTotal"},
-				"cnVAT":     bson.M{"$sum": "$taxTotal"},
+				"cnTaxable": bson.M{"$sum": "$totals.subtotal"},
+				"cnVAT":     bson.M{"$sum": "$totals.vatTotal"},
 			}},
 		}
 		cnCursor, _ := creditNoteCollection.Aggregate(ctx, cnPipeline)
@@ -205,6 +207,142 @@ func GetVATReport() gin.HandlerFunc {
 				},
 				"netVATPayable": netVATPayable,
 				"rateBreakdown": rateBreakdown,
+			},
+		})
+	}
+}
+
+// vatLine is one row of the FTA-style VAT report (Sales or Purchases sheet).
+type vatLine struct {
+	Kind        string  `json:"kind"`        // "sale" | "purchase"
+	Number      string  `json:"number"`      // tax invoice / bill number
+	Date        string  `json:"date"`        // YYYY-MM-DD
+	Amount      float64 `json:"amount"`      // taxable amount, before VAT
+	VAT         float64 `json:"vat"`         // VAT amount
+	Party       string  `json:"party"`       // customer (sale) / supplier (purchase)
+	TRN         string  `json:"trn"`         // party TRN
+	Description string  `json:"description"` // clear description
+	Imported    bool    `json:"imported"`    // RCM only: goods imported into UAE (appears on FTA portal)
+}
+
+// GetVATReportLines — GET /api/reports/vat/lines?from=YYYY-MM-DD&to=YYYY-MM-DD[&type=sales|purchases|combined]
+// Returns the per-transaction rows behind the VAT return: Sales (output VAT from
+// invoices) and Purchases (input VAT from bills), matching the FTA template's
+// Sales/Purchases sheets. type filters which side is returned (default combined).
+func GetVATReportLines() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		from := c.Query("from")
+		to := c.Query("to")
+		kind := c.Query("type") // "sales" | "purchases" | "" (combined)
+		if from == "" || to == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "from and to query params required (YYYY-MM-DD)"})
+			return
+		}
+		dateFilter := bson.M{"$gte": from, "$lte": to}
+
+		sales := []vatLine{}
+		purchases := []vatLine{}
+		rcm := []vatLine{}
+		var salesTaxable, salesVAT, purchaseTaxable, purchaseVAT, rcmTaxable, rcmVAT float64
+
+		// ── Sales (output VAT) from invoices ──────────────────────────────
+		if kind != "purchases" {
+			cur, err := invoiceCollection.Find(ctx, bson.M{
+				"orgId":     orgID,
+				"issueDate": dateFilter,
+				"status":    bson.M{"$nin": []string{"void", "draft"}},
+				"type":      bson.M{"$ne": "proforma"},
+			}, options.Find().SetSort(bson.D{{Key: "issueDate", Value: 1}}))
+			if err == nil {
+				var invs []models.Invoice
+				cur.All(ctx, &invs)
+				for _, inv := range invs {
+					sales = append(sales, vatLine{
+						Kind: "sale", Number: inv.InvoiceNumber, Date: inv.IssueDate,
+						Amount: inv.Totals.Subtotal, VAT: inv.Totals.TaxTotal,
+						Party: inv.BillTo.Name, TRN: inv.BillTo.TRN, Description: inv.Notes.Customer,
+					})
+					salesTaxable += inv.Totals.Subtotal
+					salesVAT += inv.Totals.TaxTotal
+				}
+			}
+		}
+
+		// ── Purchases (input VAT) from bills ──────────────────────────────
+		if kind != "sales" {
+			cur, err := billCollection.Find(ctx, bson.M{
+				"orgId":    orgID,
+				"billDate": dateFilter,
+				"status":   bson.M{"$nin": []string{"void", "draft"}},
+			}, options.Find().SetSort(bson.D{{Key: "billDate", Value: 1}}))
+			if err == nil {
+				var bills []models.Bill
+				cur.All(ctx, &bills)
+				for _, b := range bills {
+					number := b.BillNumber
+					if b.VendorRef != "" {
+						number = b.VendorRef // vendor's own tax-invoice number, per FTA
+					}
+					purchases = append(purchases, vatLine{
+						Kind: "purchase", Number: number, Date: b.BillDate,
+						Amount: b.Totals.Subtotal, VAT: b.Totals.TaxTotal,
+						Party: b.VendorName, TRN: b.VendorTRN, Description: b.PONumber,
+					})
+					purchaseTaxable += b.Totals.Subtotal
+					purchaseVAT += b.Totals.TaxTotal
+				}
+			}
+		}
+
+		// ── RCM (reverse charge) from bills where rcmApplicable=true ───────
+		// Matches template sheet 5: supplies under RCM, split by whether they're
+		// goods imported into the UAE (appear on the FTA portal) or not.
+		{
+			cur, err := billCollection.Find(ctx, bson.M{
+				"orgId":         orgID,
+				"billDate":      dateFilter,
+				"status":        bson.M{"$nin": []string{"void", "draft"}},
+				"rcmApplicable": true,
+			}, options.Find().SetSort(bson.D{{Key: "billDate", Value: 1}}))
+			if err == nil {
+				var bills []models.Bill
+				cur.All(ctx, &bills)
+				for _, b := range bills {
+					number := b.BillNumber
+					if b.VendorRef != "" {
+						number = b.VendorRef
+					}
+					rcm = append(rcm, vatLine{
+						Kind: "rcm", Number: number, Date: b.BillDate,
+						Amount: b.Totals.Subtotal, VAT: b.RCMOutputVAT,
+						Party: b.VendorName, TRN: b.VendorTRN, Description: b.RCMType,
+						Imported: b.RCMType == "import",
+					})
+					rcmTaxable += b.Totals.Subtotal
+					rcmVAT += b.RCMOutputVAT
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data": gin.H{
+				"period":    gin.H{"from": from, "to": to},
+				"sales":     sales,
+				"purchases": purchases,
+				"rcm":       rcm,
+				"totals": gin.H{
+					"salesTaxable":    salesTaxable,
+					"salesVAT":        salesVAT,
+					"purchaseTaxable": purchaseTaxable,
+					"purchaseVAT":     purchaseVAT,
+					"rcmTaxable":      rcmTaxable,
+					"rcmVAT":          rcmVAT,
+					"netVATPayable":   salesVAT - purchaseVAT,
+				},
 			},
 		})
 	}

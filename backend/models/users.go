@@ -29,10 +29,18 @@ type Users struct {
 	LoginOtp       string          `json:"-" bson:"loginOtp,omitempty"`
 	LoginOtpExp    *time.Time      `json:"-" bson:"loginOtpExp,omitempty"`
 	LoginOtpDevice string          `json:"-" bson:"loginOtpDevice,omitempty"`
-	Created_at    time.Time          `json:"created_at"`
-	Updated_at    time.Time          `json:"updated_at"`
+	// Password-reset OTP — same hash-and-expire shape as the login OTP above,
+	// separate fields so an in-flight login OTP and an in-flight password
+	// reset never clobber each other.
+	ResetOtp    string     `json:"-" bson:"resetOtp,omitempty"`
+	ResetOtpExp *time.Time `json:"-" bson:"resetOtpExp,omitempty"`
+	Created_at  time.Time  `json:"created_at"`
+	Updated_at  time.Time  `json:"updated_at"`
 	// DeviceID is request-only (sent by the client at login) — never stored.
 	DeviceID string `json:"deviceId,omitempty" bson:"-"`
+	// RememberMe is request-only ("Keep me logged in" on the Login page) — only
+	// affects the issued JWT's expiry, never stored on the user document.
+	RememberMe bool `json:"rememberMe,omitempty" bson:"-"`
 	// InviteToken is request-only (signup-from-invite) — used to enforce per-org email
 	// uniqueness against the inviting org. Never stored.
 	InviteToken string `json:"inviteToken,omitempty" bson:"-"`

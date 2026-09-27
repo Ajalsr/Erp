@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import ReactDOM from "react-dom";
 import DatePicker from "react-datepicker";
 import { format, addDays, addMonths, isSameDay } from "date-fns";
 import useThemeStore from "../../store/useThemeStore";
+import useIsMobile from "../../helper/useIsMobile";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
+import { drawerWidth } from "../../helper/responsive";
 import "react-datepicker/dist/react-datepicker.css";
 
 const buildTheme = (isDark) => ({
@@ -148,7 +150,7 @@ const PaymentDatePicker = ({ value, onChange, T }) => {
     }
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]);
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]);
 
   useEffect(() => {
     const h = e => {
@@ -413,8 +415,101 @@ const ModeSelect = ({ value, onChange, T }) => {
   );
 };
 
+/* ── AccountSelect — styled dropdown matching ModeSelect pattern ── */
+const AccountSelect = ({ value, onChange, accounts, T }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const options = accounts.length === 0
+    ? [{ _id: "", label: "Cash on Hand (default)" }]
+    : accounts.map(a => ({ _id: a._id, label: `[${a.accountCode}] ${a.accountName}` }));
+  const sel = options.find(o => o._id === value);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${open ? T.accent : sel ? T.accent : T.inputBdr}`,
+        borderRadius: 9, background: sel ? "rgba(245,158,11,.08)" : T.input,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? "0 0 0 3px rgba(245,158,11,.12)" : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <div style={{
+            width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+            background: sel ? "rgba(245,158,11,.18)" : T.surface2,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13,
+          }}>🏦</div>
+          <span style={{ color: sel ? T.text : T.muted, fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {sel ? sel.label : "Select account…"}
+          </span>
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? T.accent : T.muted }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
+          background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12,
+          boxShadow: "0 20px 48px rgba(0,0,0,.22)", overflow: "hidden",
+        }}>
+          <div style={{ padding: "8px 13px", borderBottom: `1px solid ${T.border}`, background: T.surface2 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: T.muted }}>
+              {options.length} account{options.length !== 1 ? "s" : ""}
+            </div>
+          </div>
+          <div style={{ maxHeight: 260, overflowY: "auto" }}>
+          {options.map(o => {
+            const active = value === o._id;
+            return (
+              <div key={o._id} onClick={() => { onChange(o._id); setOpen(false); }}
+                style={{
+                  padding: "11px 14px", cursor: "pointer",
+                  borderBottom: `1px solid ${T.border}`,
+                  background: active ? "rgba(245,158,11,.12)" : "transparent",
+                  display: "flex", alignItems: "center", gap: 11,
+                  transition: "background .1s",
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface2; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                  background: active ? "rgba(245,158,11,.2)" : T.surface2,
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15,
+                  border: `1.5px solid ${active ? T.accent : T.border}`,
+                }}>🏦</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</div>
+                </div>
+                {active && (
+                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6L9 17l-5-5"/>
+                  </svg>
+                )}
+              </div>
+            );
+          })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── Add Payment Modal ─────────────────────────────────────────── */
 const AddPaymentModal = ({ T, onClose, onSaved }) => {
+  const isMobile = useIsMobile();
   const [customers,    setCustomers]    = useState([]);
   const [invoices,     setInvoices]     = useState([]);
   const [invLoading,   setInvLoading]   = useState(false);
@@ -599,7 +694,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
     }} onClick={e => e.target === e.currentTarget && onClose()}>
 
       <div style={{
-        background: T.surface, borderRadius: 18, width: 560, maxHeight: "92vh",
+        background: T.surface, borderRadius: 18, width: drawerWidth(560), maxHeight: "92vh",
         overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.35)",
         border: `1.5px solid ${T.border}`, animation: "pmtIn .2s ease both",
       }}>
@@ -611,15 +706,15 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
         `}</style>
 
         {/* ── Header ── */}
-        <div style={{ padding: "22px 26px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: isMobile ? "16px 16px 14px" : "22px 26px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 17, fontWeight: 700, color: T.text }}>Record Payment</div>
-            <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>Apply a received payment to a customer or invoice</div>
+            {!isMobile && <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>Apply a received payment to a customer or invoice</div>}
           </div>
-          <button onClick={onClose} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14, color: T.muted, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+          <button onClick={onClose} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14, color: T.muted, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
         </div>
 
-        <div style={{ padding: "22px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ padding: isMobile ? "16px" : "22px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
 
           {/* ── Customer dropdown ── */}
           <div style={{ position: "relative" }}>
@@ -844,7 +939,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
           )}
 
           {/* ── Date + Mode row ── */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
             <div>
               <label style={lbl}>Payment Date <span style={{ color: "#ef4444" }}>*</span></label>
               <PaymentDatePicker
@@ -867,22 +962,19 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
           {/* ── Deposit To — which cash/bank GL account the money lands in ── */}
           <div>
             <label style={lbl}>Deposit To (Cash / Bank Account)</label>
-            <select
+            <AccountSelect
+              T={T}
               value={form.depositAccount}
-              onChange={e => setForm(f => ({ ...f, depositAccount: e.target.value }))}
-              style={{ ...inp, cursor: "pointer" }}>
-              {accounts.length === 0 && <option value="">Cash on Hand (default)</option>}
-              {accounts.map(a => (
-                <option key={a._id} value={a._id}>[{a.accountCode}] {a.accountName}</option>
-              ))}
-            </select>
+              accounts={accounts}
+              onChange={id => setForm(f => ({ ...f, depositAccount: id }))}
+            />
           </div>
 
           {/* Mode-specific fields */}
           {(MODE_FIELDS[form.paymentMode] || []).length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "14px 16px", background: T.surface2, borderRadius: 10, border: `1px solid ${T.inputBdr}` }}>
               <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.muted, margin: 0 }}>{form.paymentMode} Details</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 {(MODE_FIELDS[form.paymentMode] || []).map(f => (
                   <div key={f.key}>
                     <label style={{ ...lbl, marginBottom: 4 }}>{f.label}{f.required && <span style={{ color: "#ef4444" }}> *</span>}</label>
@@ -954,6 +1046,7 @@ const AddPaymentModal = ({ T, onClose, onSaved }) => {
 const PaymentsReceived = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = buildTheme(isDark);
+  const isMobile = useIsMobile();
 
   const [payments,   setPayments]  = useState([]);
   const [stats,      setStats]     = useState({ totalReceived: 0, count: 0, thisMonth: 0 });
@@ -1050,7 +1143,7 @@ const PaymentsReceived = () => {
       <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif" }}>
 
         {/* Stat Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, padding: "24px 28px 0" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 16, padding: isMobile ? "14px 14px 0" : "24px 28px 0" }}>
           <StatCard T={T} label="Total Received"  value={fmt(stats.totalReceived)} sub={`${stats.count} payments`}       accent={T.accent2} icon="💰" />
           <StatCard T={T} label="This Month"      value={fmt(stats.thisMonth)}     sub="Current month"                   accent={T.accent}  icon="📅" />
           <StatCard T={T} label="Invoices Paid"   value={payments.filter(p=>p.invoiceId).length.toString()} sub="Linked to invoices" accent={T.blue}    icon="✅" />
@@ -1058,9 +1151,9 @@ const PaymentsReceived = () => {
         </div>
 
         {/* Toolbar */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 28px 0", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "16px 14px 0" : "20px 28px 0", flexWrap: "wrap", gap: 12 }}>
           {/* Search */}
-          <div style={{ position: "relative", flex: "0 0 280px" }}>
+          <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 0 280px" }}>
             <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: T.muted, fontSize: 14, pointerEvents: "none" }}>🔍</span>
             <input
               value={search} onChange={e => setSearch(e.target.value)}
@@ -1091,15 +1184,15 @@ const PaymentsReceived = () => {
           <button
             onClick={() => setShowModal(true)}
             style={{
-              marginLeft: "auto", padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700,
+              marginLeft: isMobile ? 0 : "auto", width: isMobile ? "100%" : "auto", padding: "7px 18px", borderRadius: 7, fontSize: 13, fontWeight: 700,
               cursor: "pointer", background: T.accent, color: "#0a0e1a", border: "none",
-              fontFamily: "'DM Sans', sans-serif", transition: ".15s",
+              fontFamily: "'DM Sans', sans-serif", transition: ".15s", whiteSpace: "nowrap",
             }}
           >+ Record Payment</button>
         </div>
 
         {/* Table */}
-        <div style={{ margin: "20px 28px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ margin: isMobile ? "14px" : "20px 28px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, overflowX: "auto", overflowY: "hidden" }}>
           {loading ? (
             <div style={{ padding: 48, textAlign: "center", color: T.muted }}>
               <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
@@ -1119,7 +1212,7 @@ const PaymentsReceived = () => {
               }}>+ Record Payment</button>
             </div>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
                   {["Payment #", "Date", "Customer", "Invoice", "Amount", "Mode", "Reference"].map((h, i) => (
@@ -1164,7 +1257,7 @@ const PaymentsReceived = () => {
 
         {/* Footer */}
         {filtered.length > 0 && (
-          <div style={{ padding: "0 28px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ padding: isMobile ? "0 14px 20px" : "0 28px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
             <div style={{ fontSize: 12, color: T.muted }}>
               Showing {Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} payments
               <span style={{ marginLeft: 16, fontFamily: "'DM Mono', monospace", color: T.accent2 }}>
@@ -1225,7 +1318,7 @@ const PaymentsReceived = () => {
         return (
           <div onClick={e => e.target === e.currentTarget && setDetail(null)}
             style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.55)", backdropFilter: "blur(6px)", padding: 20 }}>
-            <div style={{ background: T.surface, borderRadius: 18, width: 540, maxHeight: "88vh", overflowY: "auto", border: `1.5px solid ${T.border}`, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ background: T.surface, borderRadius: 18, width: drawerWidth(540), maxHeight: "88vh", overflowY: "auto", border: `1.5px solid ${T.border}`, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
               <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, color: T.text }}>💳 {detail.paymentNumber || "Payment"}</div>

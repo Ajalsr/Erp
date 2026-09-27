@@ -3,6 +3,7 @@ import { FaDownload, FaSync, FaChevronDown, FaCheck, FaTrophy, FaCoins, FaReceip
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import { useBaseCurrency, baseCurrency } from "../../helper/currency";
+import useIsMobile from "../../helper/useIsMobile";
 
 const fmtMoney = (n) =>
   `${baseCurrency()} ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -223,6 +224,7 @@ export default function SalesReport() {
   useBaseCurrency();
   const isDark = useThemeStore((s) => s.isDark);
   const T      = getTheme(isDark);
+  const isMobile = useIsMobile();
   const accent = "#6366f1";
 
   const [period,      setPeriod]      = useState("month");
@@ -468,25 +470,25 @@ export default function SalesReport() {
   );
 
   return (
-    <div className="sr-root" style={{ background: T.bg, minHeight: "calc(100vh - 56px)", color: text, padding: "20px 24px 48px" }}>
+    <div className="sr-root" style={{ background: T.bg, minHeight: "calc(100vh - 56px)", color: text, padding: isMobile ? "14px 14px 40px" : "20px 24px 48px", overflowX: "hidden" }}>
       <style>{css}</style>
 
       {/* ── Page header ── */}
       <div className="sr-s0" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10, position: "relative", zIndex: 1000 }}>
         <div>
-          <h1 className="sora" style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>Sales Performance</h1>
+          <h1 className="sora" style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700, margin: 0, letterSpacing: "-0.03em" }}>Sales Performance</h1>
           <p style={{ fontSize: 12.5, color: muted, margin: "3px 0 0" }}>
             {now.toLocaleString("en-AE", { month: "long", year: "numeric" })} · updated just now
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", width: isMobile ? "100%" : "auto" }}>
           {/* Period picker */}
           <div style={{ position: "relative", zIndex: 100 }} ref={periodRef}>
             <button className="sr-btn" onClick={() => { setPeriodOpen(v => !v); setExportOpen(false); }}>
               📅 {PERIOD_LABELS[period]} <FaChevronDown size={10} style={{ opacity: .6 }} />
             </button>
             {periodOpen && (
-              <div className="sr-menu">
+              <div className="sr-menu" style={isMobile ? { left: 0, right: "auto" } : undefined}>
                 <div className="head">Period</div>
                 {Object.entries(PERIOD_LABELS).map(([k, l]) => (
                   <button key={k} onClick={() => { setPeriod(k); setPeriodOpen(false); }}>
@@ -503,7 +505,7 @@ export default function SalesReport() {
               <FaDownload size={11} /> Export <FaChevronDown size={10} style={{ opacity: .8 }} />
             </button>
             {exportOpen && (
-              <div className="sr-menu">
+              <div className="sr-menu" style={isMobile ? { left: 0, right: "auto" } : undefined}>
                 <div className="head">Download</div>
                 <button>🖨 PDF report</button>
                 <button>📊 Excel / CSV</button>
@@ -517,24 +519,24 @@ export default function SalesReport() {
       </div>
 
       {/* ── Hero + leaderboard ── */}
-      <div className="sr-s1" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12, marginBottom: 12 }}>
+      <div className="sr-s1" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.6fr 1fr", gap: 12, marginBottom: 12 }}>
         {/* Hero card */}
         <div className="sr-card" style={{
-          padding: "20px 22px",
+          padding: isMobile ? "18px" : "20px 22px",
           background: isDark
             ? `radial-gradient(800px 180px at 80% 0%, rgba(99,102,241,0.12), transparent 70%), ${T.surface}`
             : `radial-gradient(800px 180px at 80% 0%, rgba(99,102,241,0.07), transparent 70%), ${T.surface}`,
         }}>
-          <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 18, alignItems: isMobile ? "stretch" : "center" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12, color: muted, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 20, height: 20, borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#6366f1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: 700 }}>J</span>
                 Sales · {now.toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" })}
               </div>
-              <div className="sora" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2, letterSpacing: "-0.02em", marginBottom: 8 }}>
+              <div className="sora" style={{ fontSize: isMobile ? 21 : 26, fontWeight: 700, lineHeight: 1.2, letterSpacing: "-0.02em", marginBottom: 8 }}>
                 Closed <span style={{ color: accent }}>{fmtK(totalRevenue)}</span> this period
                 <br />
-                <span style={{ color: muted, fontSize: 16, fontWeight: 600 }}>
+                <span style={{ color: muted, fontSize: isMobile ? 14 : 16, fontWeight: 600 }}>
                   {onPace ? "on pace ✓" : "a touch behind pace"} for {fmtK(TARGET)} target
                 </span>
               </div>
@@ -545,7 +547,7 @@ export default function SalesReport() {
               </div>
             </div>
             {/* Ring */}
-            <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0, justifyContent: isMobile ? "flex-start" : "normal", paddingTop: isMobile ? 8 : 0, borderTop: isMobile ? `1px dashed ${border}` : "none" }}>
               <div style={{ position: "relative", width: 100, height: 100 }}>
                 <Ring pct={QUOTA_PCT} size={100} stroke={9} accent={accent}
                   trackColor={isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)"} />
@@ -592,7 +594,7 @@ export default function SalesReport() {
       </div>
 
       {/* ── KPI strip ── */}
-      <div className="sr-s2" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 12 }}>
+      <div className="sr-s2" style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(5,1fr)", gap: 10, marginBottom: 12 }}>
         {[
           { k: "Revenue",         icon: <FaCoins size={12} />,    v: fmtK(totalRevenue),     delta: `${totalOrders} orders`,   up: true,  color: accent          },
           { k: "Net Revenue",     icon: <FaChartLine size={12} />, v: fmtK(netRevenue),       delta: `${fmtKbare(creditsApplied)} credits`, up: netRevenue > 0, color: "#10b981" },
@@ -640,7 +642,7 @@ export default function SalesReport() {
       </div>
 
       {/* ── Top customers + top products ── */}
-      <div className="sr-s3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+      <div className="sr-s3" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
         <div className="sr-card">
           <div className="sr-card-h">Top customers <span style={{ color: muted, fontWeight: 400 }}>· by revenue</span></div>
           <div className="sr-card-b">
@@ -666,7 +668,7 @@ export default function SalesReport() {
       </div>
 
       {/* ── Channel donut + activity feed ── */}
-      <div className="sr-s4" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 12 }}>
+      <div className="sr-s4" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 2fr", gap: 12, marginBottom: 12 }}>
         <div className="sr-card">
           <div className="sr-card-h">By order status</div>
           <div className="sr-card-b" style={{ paddingTop: 8 }}>
@@ -687,7 +689,7 @@ export default function SalesReport() {
       </div>
 
       {/* ── Credit notes band ── */}
-      <div className="sr-s4" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 12 }}>
+      <div className="sr-s4" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3,1fr)", gap: 12, marginBottom: 12 }}>
         {[
           { label: "Net Revenue",      value: fmtK(netRevenue),       sub: creditsApplied > 0 ? `After ${fmtK(creditsApplied)} in credits` : "No credits applied", color: "#10b981", pct: invoicedTotal > 0 ? (netRevenue / invoicedTotal) * 100 : 100 },
           { label: "Credits Applied",  value: fmtK(creditsApplied),   sub: `${cnStats.countByStatus?.applied?.count || 0} credit notes`, color: "#f43f5e", pct: invoicedTotal > 0 ? (creditsApplied / invoicedTotal) * 100 : 0 },
@@ -713,25 +715,27 @@ export default function SalesReport() {
           </div>
           <span className="sora" style={{ fontSize: 14, fontWeight: 800, color: "#ef4444" }}>{fmtMoney(totalAging)}</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderBottom: `1px solid ${border}` }}>
-          {agingRows.map((r, i) => {
-            const amt = agingSum(r.items);
-            const pct = totalAging > 0 ? (amt / totalAging) * 100 : 0;
-            return (
-              <div key={r.label} style={{ padding: "12px 16px", borderRight: i < 4 ? `1px solid ${border}` : "none" }}>
-                <div style={{ fontSize: 9.5, fontWeight: 700, color: muted, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>{r.label}</div>
-                <div className="sora" style={{ fontSize: 15, fontWeight: 800, color: r.color, marginBottom: 3 }}>{fmtK(amt)}</div>
-                <div style={{ fontSize: 10.5, color: muted, marginBottom: 7 }}>{r.items.length} invoice{r.items.length !== 1 ? "s" : ""}</div>
-                <div style={{ height: 3, background: isDark ? "rgba(255,255,255,.06)" : "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${Math.min(100, pct).toFixed(1)}%`, background: r.color, borderRadius: 2 }} />
+        <div style={{ overflowX: isMobile ? "auto" : "visible", borderBottom: `1px solid ${border}` }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", minWidth: isMobile ? 640 : "auto" }}>
+            {agingRows.map((r, i) => {
+              const amt = agingSum(r.items);
+              const pct = totalAging > 0 ? (amt / totalAging) * 100 : 0;
+              return (
+                <div key={r.label} style={{ padding: "12px 16px", borderRight: i < 4 ? `1px solid ${border}` : "none" }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 700, color: muted, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>{r.label}</div>
+                  <div className="sora" style={{ fontSize: 15, fontWeight: 800, color: r.color, marginBottom: 3 }}>{fmtK(amt)}</div>
+                  <div style={{ fontSize: 10.5, color: muted, marginBottom: 7 }}>{r.items.length} invoice{r.items.length !== 1 ? "s" : ""}</div>
+                  <div style={{ height: 3, background: isDark ? "rgba(255,255,255,.06)" : "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, pct).toFixed(1)}%`, background: r.color, borderRadius: 2 }} />
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
         {[...agingBuckets.d30, ...agingBuckets.d60, ...agingBuckets.d90, ...agingBuckets.d90p].length > 0 ? (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: isDark ? "rgba(255,255,255,.03)" : "#f8fafc" }}>
                   {["Invoice #", "Customer", "Invoice Date", "Due Date", "Days Overdue", "Balance Due"].map((h, i) => (

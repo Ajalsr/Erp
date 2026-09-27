@@ -281,11 +281,11 @@ func buildInvoicePDF(inv models.Invoice, ex invoiceExtras) *gofpdf.Fpdf {
 		{"Currency", cur},
 		{"Sale Order Ref", orDash(ex.soRef)},
 		{"Cust PO No", orDash(ex.lpoNumber)},
-		{"Cust PO Date", orDash(ex.lpoDate)},
+		{"Cust PO Dt", orDash(ex.lpoDate)},
 		{"Payment Terms", orDash(inv.PaymentTerms)},
-		{"Sales Division", orDash(ex.orgName)},
-		{"Salesperson", orDash(ex.salesperson)},
-		{"Delivery Ref", orDash(inv.LinkedDNNumber)},
+		{"Sales Divn", orDash(ex.orgName)},
+		{"Sales Emp", orDash(ex.salesperson)},
+		{"Delivery Location", orDash(inv.LinkedDNNumber)},
 	}
 	ry := blockY + 8.5
 	pdf.SetFont("Helvetica", "", 8.5)
@@ -343,7 +343,7 @@ func buildInvoicePDF(inv models.Invoice, ex invoiceExtras) *gofpdf.Fpdf {
 	}{
 		{"Sl.No", 9, "C"}, {"Material Description", 53, "L"}, {"Qty", 11, "C"},
 		{"Unit Price", 19, "R"}, {"Gross Price", 20, "R"}, {"Discount", 16, "R"},
-		{"VAT %", 12, "C"}, {"Net Value", 18, "R"}, {"Total Value", 22, "R"},
+		{"Net Value", 18, "R"}, {"VAT %", 12, "C"}, {"Total Value", 22, "R"},
 	}
 	descX := x0 + cols[0].w
 	afterDescX := descX + cols[1].w
@@ -411,8 +411,8 @@ func buildInvoicePDF(inv models.Invoice, ex invoiceExtras) *gofpdf.Fpdf {
 			}
 			pdf.CellFormat(cols[5].w, rowH, fmtMoney(item.DiscAmt), "", 0, "R", false, 0, "")
 			dark()
-			pdf.CellFormat(cols[6].w, rowH, fmt.Sprintf("%g%%", item.TaxRate), "", 0, "C", false, 0, "")
-			pdf.CellFormat(cols[7].w, rowH, fmtMoney(net), "", 0, "R", false, 0, "")
+			pdf.CellFormat(cols[6].w, rowH, fmtMoney(net), "", 0, "R", false, 0, "")
+			pdf.CellFormat(cols[7].w, rowH, fmt.Sprintf("%g%%", item.TaxRate), "", 0, "C", false, 0, "")
 			pdf.SetFont("Helvetica", "B", 8.5)
 			pdf.CellFormat(cols[8].w, rowH, fmtMoney(item.Total), "", 0, "R", false, 0, "")
 		}
@@ -428,86 +428,103 @@ func buildInvoicePDF(inv models.Invoice, ex invoiceExtras) *gofpdf.Fpdf {
 		drawRow(nil, i)
 	}
 
-	// Totals box
+	// Totals grid — Invoice Value / VAT / Total Value Inc. VAT rows, each split into
+	// Total Value(AED) / Advance Already Taxed / Balance Amt Payable columns,
+	// matching the reference's advance-payment-aware totals box (label column on
+	// the left, unlabeled; a 3-column bordered numeric grid on the right).
 	breakIfNeeded(&y, 30)
-	hline(y, true)
-	rx := 125.0
-	rw := x1 - rx
-	pdf.SetXY(x0+5, y+3)
-	pdf.SetFont("Helvetica", "B", 9)
-	navy()
-	pdf.CellFormat(100, 4, "TOTAL IN WORDS", "", 0, "L", false, 0, "")
-	pdf.SetXY(x0+5, y+8)
-	pdf.SetFont("Helvetica", "B", 9)
-	dark()
-	pdf.MultiCell(rx-x0-8, 4.6, cur+" "+amountInWords(inv.Totals.GrandTotal), "", "L", false)
-
 	grand := inv.Totals.GrandTotal
-	advance := inv.AmountPaid
-	balance := inv.BalanceDue
-	if balance == 0 {
-		balance = grand - advance
-	}
-	type totRow struct {
-		label string
-		val   float64
-		bold  bool
-	}
-	totRows := []totRow{{"Invoice Value (excl. VAT)", prodNet, false}}
-	for _, c := range charges {
-		lbl := c.Desc
-		if strings.TrimSpace(lbl) == "" {
-			lbl = "Charge"
+	taxTotal := inv.Totals.TaxTotal
+	invoiceValueExclVat := round2(prodNet + func() float64 {
+		t := 0.0
+		for _, c := range charges {
+			t += c.Total - c.TaxAmt
 		}
-		totRows = append(totRows, totRow{lbl, c.Total, false})
+		return t
+	}())
+	vatPct := 0.0
+	if invoiceValueExclVat > 0 {
+		vatPct = taxTotal / invoiceValueExclVat * 100
 	}
-	totRows = append(totRows,
-		totRow{"VAT", inv.Totals.TaxTotal, false},
-		totRow{"Total Value (incl. VAT)", grand, true},
-	)
-	if advance > 0 {
-		totRows = append(totRows,
-			totRow{"Advance / Paid", advance, false},
-			totRow{"Balance Payable", balance, false},
-		)
+	advance := inv.AmountPaid
+	splitRatio := 0.0
+	if grand > 0 {
+		splitRatio = advance / grand
 	}
-	rowH := 6.0
-	ty := y
-	for _, r := range totRows {
+	advValueRow := round2(invoiceValueExclVat * splitRatio)
+	advVatRow := round2(taxTotal * splitRatio)
+	balValueRow := round2(invoiceValueExclVat - advValueRow)
+	balVatRow := round2(taxTotal - advVatRow)
+	balGrandRow := inv.BalanceDue
+	if balGrandRow == 0 && advance > 0 {
+		balGrandRow = round2(grand - advance)
+	}
+	if balGrandRow == 0 {
+		balGrandRow = grand
+	}
+
+	type gridRow struct {
+		label                 string
+		total, adv, bal       float64
+		bold                  bool
+	}
+	rows := []gridRow{
+		{"Invoice Value (AED)", invoiceValueExclVat, advValueRow, balValueRow, false},
+		{fmt.Sprintf("(%.0f%%) VAT (AED)", vatPct), taxTotal, advVatRow, balVatRow, false},
+		{"Total Value Inc. of VAT (AED)", grand, advance, balGrandRow, true},
+	}
+
+	rx := x0 + 75.0
+	rw := x1 - rx
+	colW := rw / 3
+	headH := 8.0
+	rowH := 6.5
+	gridTop := y
+
+	hline(gridTop, true)
+	pdf.SetFont("Helvetica", "B", 6.5)
+	navy()
+	hdrs := []string{"Total Value(AED)", "Advance Already Taxed", "Balance Amt Payable"}
+	hx := rx
+	for _, h := range hdrs {
+		pdf.SetXY(hx+1, gridTop+1)
+		pdf.MultiCell(colW-2, 2.8, h, "", "C", false)
+		hx += colW
+	}
+	gy := gridTop + headH
+	hline(gy, false)
+	for _, r := range rows {
 		if r.bold {
 			pdf.SetFillColor(239, 246, 255)
-			pdf.Rect(rx, ty, rw, rowH, "F")
+			pdf.Rect(x0, gy, x1-x0, rowH, "F")
 		}
-		pdf.SetXY(rx+4, ty+rowH/2-2)
 		if r.bold {
 			pdf.SetFont("Helvetica", "B", 9)
 			navy()
 		} else {
 			pdf.SetFont("Helvetica", "", 8.5)
-			muted()
-		}
-		pdf.CellFormat(rw*0.55, 4, tr(r.label), "", 0, "L", false, 0, "")
-		if r.bold {
-			pdf.SetFont("Helvetica", "B", 9.5)
-			navy()
-		} else {
-			pdf.SetFont("Helvetica", "", 8.5)
 			dark()
 		}
-		pdf.SetXY(rx+4, ty+rowH/2-2)
-		pdf.CellFormat(rw-8, 4, cur+" "+fmtMoney(r.val), "", 0, "R", false, 0, "")
-		ty += rowH
-		hline(ty, false)
-	}
-	totalsH := float64(len(totRows)) * rowH
-	if wordsBottom := y + 14; wordsBottom > y+totalsH {
-		totalsH = wordsBottom - y
+		pdf.SetXY(x0+3, gy+rowH/2-2)
+		pdf.CellFormat(rx-x0-6, 4, tr(r.label), "", 0, "L", false, 0, "")
+		vx := rx
+		for _, v := range []float64{r.total, r.adv, r.bal} {
+			pdf.SetXY(vx+2, gy+rowH/2-2)
+			pdf.CellFormat(colW-4, 4, fmtMoney(v), "", 0, "R", false, 0, "")
+			vx += colW
+		}
+		gy += rowH
+		hline(gy, false)
 	}
 	borderPen()
-	pdf.Line(rx, y, rx, y+totalsH)
-	y += totalsH
+	pdf.Line(rx, gridTop, rx, gy)
+	pdf.Line(rx+colW, gridTop, rx+colW, gy)
+	pdf.Line(rx+2*colW, gridTop, rx+2*colW, gy)
+	pdf.Line(x1, gridTop, x1, gy)
+	y = gy
 
-	// Signature block
+	// Signature block — org stamp (if uploaded) overlaps "FOR [company]", matching
+	// the reference's stamped signature area.
 	sigH := 38.0
 	breakIfNeeded(&y, sigH+2)
 	hline(y, true)
@@ -527,6 +544,12 @@ func buildInvoicePDF(inv models.Invoice, ex invoiceExtras) *gofpdf.Fpdf {
 	pdf.SetFont("Helvetica", "", 8.5)
 	body()
 	pdf.CellFormat(85, 4.5, "Prepared By", "", 1, "L", false, 0, "")
+	if stampData, stampType, hasStamp := loadOrgStamp(inv.OrgID); hasStamp {
+		var sOpt gofpdf.ImageOptions
+		sOpt.ImageType = stampType
+		pdf.RegisterImageOptionsReader("inv-stamp", sOpt, bytes.NewReader(stampData))
+		pdf.ImageOptions("inv-stamp", mid+28, sigY+6, 0, 26, false, sOpt, 0, "")
+	}
 	borderPen()
 	pdf.Line(mid, sigY, mid, sigY+sigH)
 	y = sigY + sigH
@@ -554,26 +577,12 @@ func buildInvoicePDF(inv models.Invoice, ex invoiceExtras) *gofpdf.Fpdf {
 	return pdf
 }
 
-// writeInvoicePDF renders an invoice PDF. inline=true → in-browser preview.
-func writeInvoicePDF(c *gin.Context, inline bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	orgID, _ := c.Get("orgId")
-	objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
-		return
-	}
-
-	var inv models.Invoice
-	if err := invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&inv); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
-		return
-	}
-
-	// Enrich related-info from the customer + first linked sales order, mirroring
-	// the on-screen preview. Failures are non-fatal — the PDF just shows "-".
+// renderInvoicePDF enriches related-info from the customer + first linked sales
+// order (mirroring the on-screen preview — failures are non-fatal, the PDF just
+// shows "-"), builds the PDF, and stamps the status watermark. Shared by the
+// authenticated (by id+org) and public (by token) PDF routes so both always
+// render identically.
+func renderInvoicePDF(ctx context.Context, inv models.Invoice) *gofpdf.Fpdf {
 	ex := invoiceExtras{orgName: loadOrgName(inv.OrgID)}
 	if inv.CustomerID != "" {
 		if cid, err := primitive.ObjectIDFromHex(inv.CustomerID); err == nil {
@@ -603,6 +612,28 @@ func writeInvoicePDF(c *gin.Context, inline bool) {
 
 	pdf := buildInvoicePDF(inv, ex)
 	pdfWatermark(pdf, watermarkFor(inv.Status))
+	return pdf
+}
+
+// writeInvoicePDF renders an invoice PDF. inline=true → in-browser preview.
+func writeInvoicePDF(c *gin.Context, inline bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	orgID, _ := c.Get("orgId")
+	objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid invoice ID"})
+		return
+	}
+
+	var inv models.Invoice
+	if err := invoiceCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&inv); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+		return
+	}
+
+	pdf := renderInvoicePDF(ctx, inv)
 
 	disposition := "attachment"
 	if inline {
@@ -624,6 +655,37 @@ func DownloadInvoicePDF() gin.HandlerFunc {
 // PreviewInvoicePDF serves the PDF inline — its /preview route needs only `view`.
 func PreviewInvoicePDF() gin.HandlerFunc {
 	return func(c *gin.Context) { writeInvoicePDF(c, true) }
+}
+
+// PublicInvoicePDF serves the same PDF (letterhead, watermark, everything) for
+// the unauthenticated public share link — keyed by the invoice's random token,
+// not id+org, so no login/permission is needed. Always inline (viewed in a
+// browser tab from the emailed link, not force-downloaded).
+func PublicInvoicePDF() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid token"})
+			return
+		}
+
+		var inv models.Invoice
+		if err := invoiceCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&inv); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Invoice not found"})
+			return
+		}
+
+		pdf := renderInvoicePDF(ctx, inv)
+		filename := "invoice-" + inv.InvoiceNumber + ".pdf"
+		c.Header("Content-Type", "application/pdf")
+		c.Header("Content-Disposition", `inline; filename="`+filename+`"`)
+		if err := pdf.Output(c.Writer); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "PDF generation failed"})
+		}
+	}
 }
 
 // buildGRNPDF renders a goods-receipt note. Same letterhead-per-page machinery as
@@ -1052,6 +1114,11 @@ var lhCache sync.Map // orgID -> lhEntry
 const lhCacheTTL = 10 * time.Minute
 
 // loadOrgLetterhead returns the org letterhead, served from cache when fresh.
+// Only a SUCCESSFUL load is cached — a transient failure (e.g. a network blip
+// fetching the image from Cloudinary) used to get cached as "no letterhead"
+// for the full 10-minute TTL, making every PDF in that window silently lose
+// its letterhead until the cache expired. Not caching failures means the next
+// request just retries fresh instead of being stuck for 10 minutes.
 func loadOrgLetterhead(orgID string) (orgLetterhead, bool) {
 	if v, ok := lhCache.Load(orgID); ok {
 		if e := v.(lhEntry); time.Since(e.at) < lhCacheTTL {
@@ -1059,7 +1126,9 @@ func loadOrgLetterhead(orgID string) (orgLetterhead, bool) {
 		}
 	}
 	lh, ok := loadOrgLetterheadUncached(orgID)
-	lhCache.Store(orgID, lhEntry{lh: lh, ok: ok, at: time.Now()})
+	if ok {
+		lhCache.Store(orgID, lhEntry{lh: lh, ok: ok, at: time.Now()})
+	}
 	return lh, ok
 }
 
@@ -1135,6 +1204,44 @@ func loadOrgLetterheadUncached(orgID string) (orgLetterhead, bool) {
 		topPadMM: imgHmm * float64(top) / 100,
 		botPadMM: imgHmm * float64(bot) / 100,
 	}, true
+}
+
+// loadOrgStamp fetches the org's company seal/stamp image (base64 data-URL
+// only — unlike the letterhead this is always uploaded inline, never hosted)
+// for the closing signature block. ok=false when none is set.
+func loadOrgStamp(orgID string) (data []byte, imgType string, ok bool) {
+	objID, err := primitive.ObjectIDFromHex(orgID)
+	if err != nil {
+		return nil, "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var org models.Organization
+	if err := orgCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&org); err != nil {
+		return nil, "", false
+	}
+	src := strings.TrimSpace(org.StampImage)
+	if src == "" {
+		return nil, "", false
+	}
+	raw := src
+	if i := strings.Index(raw, ","); i >= 0 {
+		raw = raw[i+1:]
+	}
+	data, err = base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, "", false
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width == 0 {
+		return nil, "", false
+	}
+	imgType = "PNG"
+	if format == "jpeg" {
+		imgType = "JPG"
+	}
+	return data, imgType, true
 }
 
 // ── amount-in-words helpers (mirror the print component) ─────────────────────
@@ -1275,9 +1382,11 @@ func buildQuotePDF(q models.Quote) *gofpdf.Fpdf {
 	})
 
 	// Footer — page numbers only when the document spans more than one page.
+	// Sits well above botMargin so it doesn't crowd/overlap the letterhead's
+	// own footer band (the contact-info strip baked into the letterhead image).
 	pdf.AliasNbPages("{nb}")
 	pdf.SetFooterFunc(func() {
-		pdf.SetY(297 - botMargin - 6)
+		pdf.SetY(297 - botMargin - 12)
 		pdf.SetFont("Helvetica", "", 8)
 		muted()
 		pdf.CellFormat(W, 4, fmt.Sprintf("Page %d of {nb}", pdf.PageNo()), "", 0, "C", false, 0, "")
@@ -1331,127 +1440,135 @@ func buildQuotePDF(q models.Quote) *gofpdf.Fpdf {
 	}
 	y = pdf.GetY() + 3
 
-	// Quote number / date strip
-	stripH := 8.0
-	hline(y, false)
-	hline(y+stripH, false)
-	borderPen()
-	pdf.Line(mid, y, mid, y+stripH)
+	// Ref / Date — plain letter-style lines, tight label-to-value gap (not a
+	// fixed tab-stop column), matching a natural typed letter.
 	pdf.SetFont("Helvetica", "B", 9)
-	navy()
-	pdf.SetXY(x0+5, y+2.2)
-	pdf.CellFormat(40, 4, "QUOTE NUMBER", "", 0, "L", false, 0, "")
-	dark()
-	pdf.SetXY(mid-50, y+2.2)
-	pdf.CellFormat(45, 4, tr(q.QuoteNumber), "", 0, "R", false, 0, "")
-	navy()
-	pdf.SetXY(mid+5, y+2.2)
-	pdf.CellFormat(40, 4, "DATE", "", 0, "L", false, 0, "")
-	dark()
-	pdf.SetXY(x1-50, y+2.2)
-	pdf.CellFormat(45, 4, fmtDateDMY(q.QuoteDate), "", 0, "R", false, 0, "")
-	y += stripH
+	gap := pdf.GetStringWidth("M/s.") + 3 // widest label here — others compute their own tight width below
+	writeField := func(label, val string) {
+		pdf.SetX(x0)
+		pdf.SetFont("Helvetica", "B", 9)
+		dark()
+		lw := pdf.GetStringWidth(label) + 3
+		pdf.CellFormat(lw, 5, label, "", 0, "L", false, 0, "")
+		pdf.SetFont("Helvetica", "", 9)
+		pdf.CellFormat(W-lw, 5, tr(val), "", 1, "L", false, 0, "")
+	}
+	pdf.SetXY(x0, y)
+	writeField("Ref:", q.QuoteNumber)
+	writeField("Date:", fmtDateDMY(q.QuoteDate))
+	y = pdf.GetY() + 4
 
-	// TO / DETAILS
-	blockY := y
-	pdf.SetXY(x0+5, blockY+3)
-	pdf.SetFont("Helvetica", "B", 9)
-	navy()
-	pdf.CellFormat(80, 4, "TO", "", 0, "L", false, 0, "")
-	ly := blockY + 8
+	// M/s. — customer name + address, plain (no box), matching a letter's salutation block.
 	toName := q.BillTo.Name
 	if toName == "" {
 		toName = q.CustomerName
 	}
-	pdf.SetXY(x0+5, ly)
+	pdf.SetXY(x0, y)
 	pdf.SetFont("Helvetica", "B", 9)
 	dark()
-	pdf.CellFormat(85, 4.5, tr(toName), "", 0, "L", false, 0, "")
-	ly += 5
-	body()
-	pdf.SetFont("Helvetica", "", 8.5)
-	if q.BillTo.Address != "" {
-		pdf.SetXY(x0+5, ly)
-		pdf.MultiCell(85, 4.2, tr(q.BillTo.Address), "", "L", false)
-		ly = pdf.GetY() + 1
+	pdf.CellFormat(gap, 5, "M/s.", "", 0, "L", false, 0, "")
+	pdf.CellFormat(W-gap, 5, tr(toName), "", 1, "L", false, 0, "")
+	if q.BillTo.POBox != "" {
+		pdf.SetX(x0)
+		pdf.SetFont("Helvetica", "B", 9)
+		dark()
+		poLabel := "P.O. Box: "
+		poLabelW := pdf.GetStringWidth(poLabel)
+		pdf.CellFormat(poLabelW, 4.6, poLabel, "", 0, "L", false, 0, "")
+		pdf.SetFont("Helvetica", "", 9)
+		body()
+		pdf.CellFormat(W-poLabelW, 4.6, tr(q.BillTo.POBox), "", 1, "L", false, 0, "")
 	}
-	if q.CustomerEmail != "" {
-		pdf.SetXY(x0+5, ly)
-		pdf.CellFormat(85, 4.2, tr(q.CustomerEmail), "", 0, "L", false, 0, "")
-		ly += 5
+	if q.BillTo.Address != "" {
+		pdf.SetX(x0)
+		pdf.SetFont("Helvetica", "", 9)
+		body()
+		pdf.MultiCell(W, 4.6, tr(q.BillTo.Address), "", "L", false)
 	}
 	if q.BillTo.TRN != "" {
-		pdf.SetXY(x0+5, ly)
-		pdf.CellFormat(85, 4.2, "TRN: "+tr(q.BillTo.TRN), "", 0, "L", false, 0, "")
-		ly += 5
+		pdf.SetX(x0)
+		pdf.SetFont("Helvetica", "", 9)
+		body()
+		pdf.CellFormat(W, 4.6, "TRN: "+tr(q.BillTo.TRN), "", 1, "L", false, 0, "")
 	}
-	pdf.SetXY(mid+5, blockY+3)
-	pdf.SetFont("Helvetica", "B", 9)
-	navy()
-	pdf.CellFormat(80, 4, "DETAILS", "", 0, "L", false, 0, "")
-	details := [][2]string{
-		{"Currency", cur},
-		{"Quote Date", fmtDateDMY(q.QuoteDate)},
-		{"Valid Until", fmtDateDMY(q.ValidUntil)},
-		{"Payment Terms", orDash(q.PaymentTerms)},
-		{"Attention To", orDash(q.AttentionTo)},
-		{"Subject", orDash(q.Subject)},
-		{"Project", orDash(q.ProjectName)},
+	y = pdf.GetY() + 4
+
+	if q.AttentionTo != "" {
+		pdf.SetXY(x0, y)
+		writeField("Attn:", q.AttentionTo)
+		y = pdf.GetY() + 4
 	}
-	ry := blockY + 8
-	pdf.SetFont("Helvetica", "", 8.5)
-	for _, d := range details {
-		muted()
-		pdf.SetXY(mid+5, ry)
-		pdf.CellFormat(32, 4.4, d[0], "", 0, "L", false, 0, "")
+	if q.Salutation != "" {
+		pdf.SetXY(x0, y)
+		pdf.SetFont("Helvetica", "", 9)
 		dark()
-		pdf.SetXY(mid+37, ry)
-		pdf.CellFormat(48, 4.4, ": "+tr(d[1]), "", 0, "L", false, 0, "")
-		ry += 4.6
+		pdf.CellFormat(W, 5, tr(q.Salutation), "", 1, "L", false, 0, "")
+		y = pdf.GetY() + 4
 	}
-	blockH := ry - blockY + 1
-	if h := ly - blockY + 1; h > blockH {
-		blockH = h
+	if q.Subject != "" {
+		pdf.SetXY(x0, y)
+		writeField("Sub:", q.Subject)
+		y = pdf.GetY() + 4
 	}
-	borderPen()
-	pdf.Line(mid, blockY, mid, blockY+blockH)
-	hline(blockY+blockH, true)
-	y = blockY + blockH
+	if q.ProjectName != "" {
+		pdf.SetXY(x0, y)
+		writeField("Project:", q.ProjectName)
+		y = pdf.GetY() + 4
+	}
 
 	// Intro text
 	if q.IntroText != "" {
-		pdf.SetXY(x0+5, y+2.5)
-		pdf.SetFont("Helvetica", "", 8.5)
+		pdf.SetXY(x0, y)
+		pdf.SetFont("Helvetica", "", 9)
 		body()
-		pdf.MultiCell(W-10, 4.4, tr(q.IntroText), "", "L", false)
-		y = pdf.GetY() + 2.5
-		hline(y, false)
+		pdf.MultiCell(W, 4.6, tr(q.IntroText), "", "L", false)
+		y = pdf.GetY() + 4
 	}
 
-	// Items table
+	// Items table — Sl.No / Part Number / Description / Qty / Unit / Unit Price / Total
+	// only (no per-line discount or VAT% columns — VAT is summarized once below).
 	cols := []struct {
 		label string
 		w     float64
 		align string
 	}{
-		{"Sl.No", 9, "C"}, {"Part No", 20, "L"}, {"Description", 46, "L"},
-		{"Qty", 11, "C"}, {"Unit", 12, "C"}, {"Unit Price", 20, "R"},
-		{"Discount", 16, "R"}, {"VAT %", 13, "C"}, {"Net Value", 16, "R"}, {"Total Value", 17, "R"},
+		{"Sl.No", 10, "C"}, {"Part Number", 24, "L"}, {"Description", 58, "L"},
+		{"Qty", 14, "C"}, {"Unit", 14, "C"}, {"Unit Price " + cur, 30, "R"}, {"Total " + cur, 30, "R"},
 	}
 	descX := x0 + cols[0].w + cols[1].w
 	afterDescX := descX + cols[2].w
 
+	// Full black grid lines (every cell bordered on all sides), matching the
+	// reference — column x-boundaries used to draw verticals per row/header.
+	colX := []float64{x0}
+	for _, c := range cols {
+		colX = append(colX, colX[len(colX)-1]+c.w)
+	}
+	gridPen := func() { pdf.SetDrawColor(0, 0, 0); pdf.SetLineWidth(0.25) }
+	vLines := func(top, bottom float64) {
+		gridPen()
+		for _, x := range colX {
+			pdf.Line(x, top, x, bottom)
+		}
+	}
+	hLine := func(yy float64) {
+		gridPen()
+		pdf.Line(x0, yy, x1, yy)
+	}
+
 	drawItemsHeader := func() {
+		headTop := y
 		pdf.SetXY(x0, y)
-		pdf.SetFillColor(241, 245, 249)
-		pdf.SetFont("Helvetica", "B", 8)
-		navy()
+		pdf.SetFont("Helvetica", "B", 8.5)
+		dark()
 		for _, c := range cols {
-			pdf.CellFormat(c.w, 8, c.label, "", 0, c.align, true, 0, "")
+			pdf.CellFormat(c.w, 8, c.label, "", 0, c.align, false, 0, "")
 		}
 		pdf.Ln(-1)
-		hline(pdf.GetY(), true)
 		y = pdf.GetY()
+		hLine(headTop)
+		hLine(y)
+		vLines(headTop, y)
 	}
 	drawItemsHeader()
 
@@ -1487,11 +1604,6 @@ func buildQuotePDF(q models.Quote) *gofpdf.Fpdf {
 		dark()
 		pdf.MultiCell(cols[2].w, 5, desc, "", "L", false)
 		if item != nil {
-			gross := item.Qty * item.UnitPrice
-			net := item.Subtotal
-			if net == 0 {
-				net = gross - item.DiscAmt
-			}
 			partNo := item.PartNumber
 			if partNo == "" {
 				partNo = "-"
@@ -1505,119 +1617,68 @@ func buildQuotePDF(q models.Quote) *gofpdf.Fpdf {
 			pdf.CellFormat(cols[3].w, rowH, fmt.Sprintf("%g", item.Qty), "", 0, "C", false, 0, "")
 			pdf.CellFormat(cols[4].w, rowH, tr(item.Unit), "", 0, "C", false, 0, "")
 			pdf.CellFormat(cols[5].w, rowH, fmtMoney(item.UnitPrice), "", 0, "R", false, 0, "")
-			if item.DiscAmt > 0 {
-				dark()
-			} else {
-				muted()
-			}
-			pdf.CellFormat(cols[6].w, rowH, fmtMoney(item.DiscAmt), "", 0, "R", false, 0, "")
-			dark()
-			pdf.CellFormat(cols[7].w, rowH, fmt.Sprintf("%g%%", item.TaxRate), "", 0, "C", false, 0, "")
-			pdf.CellFormat(cols[8].w, rowH, fmtMoney(net), "", 0, "R", false, 0, "")
 			pdf.SetFont("Helvetica", "B", 8.5)
-			pdf.CellFormat(cols[9].w, rowH, fmtMoney(item.Total), "", 0, "R", false, 0, "")
+			pdf.CellFormat(cols[6].w, rowH, fmtMoney(item.Total), "", 0, "R", false, 0, "")
 		}
 		by := yy + rowH
-		hline(by, false)
+		hLine(by)
+		vLines(yy, by)
 		y = by
 		pdf.SetXY(x0, by)
 	}
+	// Only real line items — no padding blank rows like the old design used to add.
 	for i := range q.LineItems {
 		drawRow(&q.LineItems[i], i)
 	}
-	for i := len(q.LineItems); i < 3; i++ {
-		drawRow(nil, i)
-	}
 
-	// Totals box
-	breakIfNeeded(&y, 28)
-	hline(y, true)
-	totalsH := 24.0
-	rx := 125.0
-	rw := x1 - rx
-	pdf.SetXY(x0+5, y+3)
-	pdf.SetFont("Helvetica", "B", 9)
-	navy()
-	pdf.CellFormat(100, 4, "TOTAL IN WORDS", "", 0, "L", false, 0, "")
-	pdf.SetXY(x0+5, y+8)
-	pdf.SetFont("Helvetica", "B", 9)
-	dark()
-	pdf.MultiCell(rx-x0-8, 4.6, cur+" "+amountInWords(q.Totals.GrandTotal), "", "L", false)
+	// Totals — trailing rows inside the SAME bordered grid (label spans every
+	// column up to the last, value sits in the Total column), matching the
+	// reference's Sub Total / VAT % / Grand Total rows.
+	vatPct := 0.0
+	if q.Totals.Subtotal > 0 {
+		vatPct = q.Totals.TaxTotal / q.Totals.Subtotal * 100
+	}
 	totRows := []struct {
 		label string
 		val   float64
 		bold  bool
 	}{
-		{"Quote Value (excl. VAT)", q.Totals.Subtotal, false},
-		{"VAT", q.Totals.TaxTotal, false},
-		{"Total Value (incl. VAT)", q.Totals.GrandTotal, true},
+		{"Sub Total " + cur, q.Totals.Subtotal, false},
+		{fmt.Sprintf("VAT %g%%", vatPct), q.Totals.TaxTotal, false},
+		{"Grand Total", q.Totals.GrandTotal, true},
 	}
-	rowH := totalsH / 3
-	ty := y
+	labelX0 := colX[0]
+	labelX1 := colX[len(colX)-2] // start of the last (Total) column
+	valX0 := labelX1
+	valX1 := colX[len(colX)-1]
+	totalsRowH := 6.5
 	for _, r := range totRows {
+		breakIfNeeded(&y, totalsRowH)
+		top := y
 		if r.bold {
-			pdf.SetFillColor(239, 246, 255)
-			pdf.Rect(rx, ty, rw, rowH, "F")
-		}
-		pdf.SetXY(rx+4, ty+rowH/2-2)
-		if r.bold {
-			pdf.SetFont("Helvetica", "B", 9)
-			navy()
-		} else {
-			pdf.SetFont("Helvetica", "", 8.5)
-			muted()
-		}
-		pdf.CellFormat(rw*0.55, 4, r.label, "", 0, "L", false, 0, "")
-		if r.bold {
+			pdf.SetFillColor(241, 245, 249)
+			pdf.Rect(labelX0, top, valX1-labelX0, totalsRowH, "F")
 			pdf.SetFont("Helvetica", "B", 9.5)
-			navy()
 		} else {
-			pdf.SetFont("Helvetica", "", 8.5)
-			dark()
+			pdf.SetFont("Helvetica", "B", 8.5)
 		}
-		pdf.SetXY(rx+4, ty+rowH/2-2)
-		pdf.CellFormat(rw-8, 4, cur+" "+fmtMoney(r.val), "", 0, "R", false, 0, "")
-		ty += rowH
-		hline(ty, false)
+		dark()
+		pdf.SetXY(labelX0, top+1.3)
+		pdf.CellFormat(labelX1-labelX0-3, 4, r.label, "", 0, "R", false, 0, "")
+		pdf.SetXY(valX0, top+1.3)
+		pdf.CellFormat(valX1-valX0-3, 4, fmtMoney(r.val), "", 0, "R", false, 0, "")
+		y = top + totalsRowH
+		hLine(top)
+		hLine(y)
+		gridPen()
+		pdf.Line(labelX0, top, labelX0, y)
+		pdf.Line(valX0, top, valX0, y)
+		pdf.Line(valX1, top, valX1, y)
 	}
-	borderPen()
-	pdf.Line(rx, y, rx, y+totalsH)
-	y += totalsH
+	y += 4
 
-	// Terms & Conditions
-	terms := []string{}
-	for _, t := range q.TermsAndConditions {
-		if strings.TrimSpace(t) != "" {
-			terms = append(terms, t)
-		}
-	}
-	if len(terms) > 0 {
-		breakIfNeeded(&y, 14)
-		hline(y, true)
-		pdf.SetXY(x0+5, y+3)
-		pdf.SetFont("Helvetica", "B", 9)
-		navy()
-		pdf.CellFormat(W, 4, "TERMS & CONDITIONS", "", 1, "L", false, 0, "")
-		y = pdf.GetY() + 1
-		pdf.SetFont("Helvetica", "", 8.5)
-		body()
-		for i, t := range terms {
-			nLines := len(pdf.SplitText(t, W-16))
-			if nLines < 1 {
-				nLines = 1
-			}
-			h := float64(nLines)*4.4 + 1
-			breakIfNeeded(&y, h)
-			pdf.SetXY(x0+5, y)
-			pdf.CellFormat(6, 4.4, fmt.Sprintf("%d", i+1), "", 0, "L", false, 0, "")
-			pdf.SetXY(x0+11, y)
-			pdf.MultiCell(W-16, 4.4, tr(t), "", "L", false)
-			y = pdf.GetY() + 1
-		}
-		y += 2
-	}
-
-	// Notes
+	// Note — plain letter-style block, ➢ bullets, no ruled lines (Note comes
+	// before Terms, matching the reference layout order).
 	noteLines := []string{}
 	for _, n := range splitLines(q.Notes.Customer) {
 		if strings.TrimSpace(n) != "" {
@@ -1626,11 +1687,10 @@ func buildQuotePDF(q models.Quote) *gofpdf.Fpdf {
 	}
 	if len(noteLines) > 0 {
 		breakIfNeeded(&y, 12)
-		hline(y, false)
-		pdf.SetXY(x0+5, y+2.5)
-		pdf.SetFont("Helvetica", "B", 8)
-		muted()
-		pdf.CellFormat(W, 4, "NOTES", "", 1, "L", false, 0, "")
+		pdf.SetXY(x0, y)
+		pdf.SetFont("Helvetica", "BU", 9)
+		dark()
+		pdf.CellFormat(W, 4.4, "Note:", "", 1, "L", false, 0, "")
 		y = pdf.GetY() + 1
 		pdf.SetFont("Helvetica", "", 8.5)
 		body()
@@ -1641,50 +1701,139 @@ func buildQuotePDF(q models.Quote) *gofpdf.Fpdf {
 			}
 			h := float64(nLines)*4.4 + 0.5
 			breakIfNeeded(&y, h)
-			pdf.SetXY(x0+5, y)
-			pdf.CellFormat(4, 4.4, "-", "", 0, "L", false, 0, "")
-			pdf.SetXY(x0+9, y)
-			pdf.MultiCell(W-14, 4.4, tr(n), "", "L", false)
+			pdf.SetXY(x0, y)
+			pdf.CellFormat(6, 4.4, tr("•"), "", 0, "L", false, 0, "")
+			pdf.SetXY(x0+7, y)
+			pdf.MultiCell(W-7, 4.4, tr(n), "", "L", false)
 			y = pdf.GetY() + 0.5
+		}
+		y += 3
+	}
+
+	// Terms and conditions of our offer — numbered list, plain letter style.
+	terms := []string{}
+	for _, t := range q.TermsAndConditions {
+		if strings.TrimSpace(t) != "" {
+			terms = append(terms, t)
+		}
+	}
+	if len(terms) > 0 {
+		breakIfNeeded(&y, 14)
+		pdf.SetXY(x0, y)
+		pdf.SetFont("Helvetica", "BU", 9)
+		dark()
+		pdf.CellFormat(W, 4.4, "Terms and conditions of our offer", "", 1, "L", false, 0, "")
+		y = pdf.GetY() + 1
+		pdf.SetFont("Helvetica", "", 8.5)
+		body()
+		for i, t := range terms {
+			nLines := len(pdf.SplitText(t, W-9))
+			if nLines < 1 {
+				nLines = 1
+			}
+			h := float64(nLines)*4.4 + 1
+			breakIfNeeded(&y, h)
+			pdf.SetXY(x0, y)
+			pdf.CellFormat(7, 4.4, fmt.Sprintf("%d", i+1), "", 0, "L", false, 0, "")
+			pdf.SetXY(x0+9, y)
+			pdf.MultiCell(W-9, 4.4, tr(t), "", "L", false)
+			y = pdf.GetY() + 1
 		}
 		y += 2
 	}
 
-	// Signature block — keep it whole on one page.
-	sigH := 38.0
-	breakIfNeeded(&y, sigH+2)
-	hline(y, true)
-	sigY := y
-	pdf.SetXY(x0+5, sigY+4)
-	pdf.SetFont("Helvetica", "B", 8.5)
-	navy()
-	pdf.CellFormat(85, 4, "CUSTOMER ACCEPTANCE (NAME, SIGNATURE & STAMP)", "", 0, "L", false, 0, "")
-	pdf.SetDrawColor(148, 163, 184)
-	pdf.SetLineWidth(0.2)
-	pdf.Line(x0+5, sigY+26, x0+5+70, sigY+26)
-	pdf.SetXY(mid+5, sigY+4)
-	pdf.SetFont("Helvetica", "B", 8.5)
-	navy()
-	pdf.CellFormat(85, 4, "FOR "+tr(strings.ToUpper(senderName)), "", 0, "L", false, 0, "")
+	// Closing — plain letter-style sign-off (no customer-acceptance box), matching
+	// the reference: a closing line, "Yours Truly", "For [Company]", the org's
+	// stamp/signature image if one's been uploaded, then signatory name/title
+	// and contact details. Kept whole on one page.
+	//
+	// closeH is sized to what's ACTUALLY going to render, not a flat worst-case
+	// guess — a fixed 55mm reservation used to force the whole block onto a
+	// fresh page even when there was easily enough room, leaving a large blank
+	// gap at the bottom of the previous page for no reason.
+	stampData, stampType, hasStamp := loadOrgStamp(q.OrgID)
+	closeH := 25.0 // two closing lines + "Yours Truly" + "For [Company]"
+	if hasStamp {
+		closeH += 28
+	}
 	if q.Signatory.Name != "" {
-		pdf.SetXY(mid+5, sigY+18)
-		pdf.SetFont("Helvetica", "B", 9)
-		dark()
-		pdf.CellFormat(85, 4.5, tr(q.Signatory.Name), "", 1, "L", false, 0, "")
+		closeH += 4.5
 	}
 	if q.Signatory.Title != "" {
-		pdf.SetX(mid + 5)
-		pdf.SetFont("Helvetica", "", 8.5)
-		body()
-		pdf.CellFormat(85, 4.5, tr(q.Signatory.Title), "", 1, "L", false, 0, "")
+		closeH += 4.5
 	}
-	borderPen()
-	pdf.Line(mid, sigY, mid, sigY+sigH)
-	y = sigY + sigH
-	hline(y, true)
+	if company.Phone != "" {
+		closeH += 4.5
+	}
+	if company.Email != "" {
+		closeH += 4.5
+	}
+	breakIfNeeded(&y, closeH)
+	pdf.SetXY(x0, y)
+	pdf.SetFont("Helvetica", "", 9)
+	body()
+	pdf.MultiCell(W, 4.6, "Hope the above meets your requirement. We look forward to serving you at the earliest.", "", "L", false)
+	y = pdf.GetY() + 4
+	pdf.SetX(x0)
+	pdf.CellFormat(W, 4.6, "Thanking you and assuring you of our best services, always.", "", 1, "L", false, 0, "")
+	y = pdf.GetY() + 6
+
+	pdf.SetXY(x0, y)
+	pdf.SetFont("Helvetica", "BI", 9)
+	dark()
+	pdf.CellFormat(W, 4.6, "Yours Truly", "", 1, "L", false, 0, "")
+	pdf.SetX(x0)
+	pdf.SetFont("Helvetica", "BI", 9)
+	pdf.CellFormat(W, 4.6, "For "+tr(senderName), "", 1, "L", false, 0, "")
+	y = pdf.GetY() + 2
+
+	// Stamp/signature image, if the org has one uploaded.
+	if hasStamp {
+		var sOpt gofpdf.ImageOptions
+		sOpt.ImageType = stampType
+		pdf.RegisterImageOptionsReader("quote-stamp", sOpt, bytes.NewReader(stampData))
+		stampH := 26.0
+		breakIfNeeded(&y, stampH+2)
+		pdf.ImageOptions("quote-stamp", x0, y, 0, stampH, false, sOpt, 0, "")
+		y += stampH + 2
+	} else {
+		y += 4
+	}
+
+	breakIfNeeded(&y, 14)
+	if q.Signatory.Name != "" {
+		pdf.SetXY(x0, y)
+		pdf.SetFont("Helvetica", "B", 9)
+		dark()
+		pdf.CellFormat(W, 4.5, tr(q.Signatory.Name), "", 1, "L", false, 0, "")
+		y = pdf.GetY()
+	}
+	if q.Signatory.Title != "" {
+		pdf.SetX(x0)
+		pdf.SetFont("Helvetica", "B", 8.5)
+		body()
+		pdf.CellFormat(W, 4.5, tr(q.Signatory.Title), "", 1, "L", false, 0, "")
+		y = pdf.GetY()
+	}
+	if company.Phone != "" {
+		pdf.SetX(x0)
+		pdf.SetFont("Helvetica", "B", 8.5)
+		body()
+		pdf.CellFormat(W, 4.5, "Tel: "+tr(company.Phone), "", 1, "L", false, 0, "")
+		y = pdf.GetY()
+	}
+	if company.Email != "" {
+		pdf.SetX(x0)
+		pdf.SetFont("Helvetica", "B", 8.5)
+		body()
+		pdf.CellFormat(W, 4.5, "Email: "+tr(company.Email), "", 1, "L", false, 0, "")
+		y = pdf.GetY()
+	}
 
 	// Company contact footer — skip when the letterhead already supplies a footer.
 	if !hasLH && (company.Name != "" || company.Phone != "" || company.Email != "" || company.TRN != "") {
+		y += 4
+		hline(y, false)
 		pdf.SetFillColor(248, 250, 252)
 		footH := 13.0
 		pdf.Rect(x0, y, W, footH, "F")
@@ -1763,6 +1912,37 @@ func PreviewQuotePDF() gin.HandlerFunc {
 	return func(c *gin.Context) { writeQuotePDF(c, true) }
 }
 
+// PublicQuotePDF serves the same PDF for the unauthenticated public share link —
+// keyed by the quote's random token, not id+org. Always inline.
+func PublicQuotePDF() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid token"})
+			return
+		}
+
+		var q models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&q); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Quote not found"})
+			return
+		}
+
+		pdf := buildQuotePDF(q)
+		pdfWatermark(pdf, watermarkFor(q.Status))
+
+		filename := "quote-" + q.QuoteNumber + ".pdf"
+		c.Header("Content-Type", "application/pdf")
+		c.Header("Content-Disposition", `inline; filename="`+filename+`"`)
+		if err := pdf.Output(c.Writer); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "PDF generation failed"})
+		}
+	}
+}
+
 // loadOrgName fetches just the org name (projected — never the heavy letterhead).
 func loadOrgName(orgID string) string {
 	oid, err := primitive.ObjectIDFromHex(orgID)
@@ -1777,6 +1957,24 @@ func loadOrgName(orgID string) string {
 		return ""
 	}
 	return org.Name
+}
+
+// loadOrgTRN returns the org's own Tax Registration Number (Organization Settings →
+// General → TRN), used on documents like the Purchase Order that show "our" TRN
+// alongside the vendor's. Empty when not configured.
+func loadOrgTRN(orgID string) string {
+	oid, err := primitive.ObjectIDFromHex(orgID)
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var org models.Organization
+	opts := options.FindOne().SetProjection(bson.M{"trn": 1})
+	if err := orgCollection.FindOne(ctx, bson.M{"_id": oid}, opts).Decode(&org); err != nil {
+		return ""
+	}
+	return org.TRN
 }
 
 // buildDeliveryNotePDF renders a delivery note. Same letterhead-per-page machinery
@@ -2620,7 +2818,7 @@ func fmtDatePtr(t *time.Time) string {
 // loadVendorInfo enriches a PO/Bill's supplier block from the vendor record —
 // code, composed address, phone, TRN — the same way invoice enriches from the
 // customer record.
-func loadVendorInfo(ctx context.Context, vendorID string) (code, address, phone, trn string) {
+func loadVendorInfo(ctx context.Context, vendorID string) (code, address, phone, trn, email string) {
 	oid, err := primitive.ObjectIDFromHex(vendorID)
 	if err != nil {
 		return
@@ -2643,6 +2841,7 @@ func loadVendorInfo(ctx context.Context, vendorID string) (code, address, phone,
 	address = strings.Join(parts, ", ")
 	phone = v.Phone
 	trn = v.TRN
+	email = v.Email
 	return
 }
 
@@ -2679,53 +2878,469 @@ func loadCustomerInfo(ctx context.Context, customerID string) (code, address, ph
 
 // ── Purchase Order PDF ─────────────────────────────────────────────────────────
 
-type poExtras struct{ vendorCode, vendorAddress, vendorPhone, vendorTRN string }
+type poExtras struct{ vendorCode, vendorAddress, vendorPhone, vendorTRN, vendorEmail string }
 
-func buildPurchaseOrderPDF(po models.PurchaseOrder, ex poExtras) *gofpdf.Fpdf {
-	items := make([]models.InvoiceLineItem, len(po.Items))
-	for i, it := range po.Items {
-		gross := it.Quantity * it.Rate
-		items[i] = models.InvoiceLineItem{
-			Desc: it.Details, Qty: it.Quantity, UnitPrice: it.Rate,
-			DiscAmt: gross - it.BaseAmount, TaxRate: it.TaxRate,
-			Subtotal: it.BaseAmount, Total: it.Amount,
+// loadItemCodes maps each line's itemId to its item-master code (article code) in one query.
+func loadItemCodes(ctx context.Context, orgID string, items []models.PurchaseOrderItem) map[string]string {
+	out := map[string]string{}
+	var ids []primitive.ObjectID
+	for _, it := range items {
+		if oid, err := primitive.ObjectIDFromHex(it.ItemID); err == nil {
+			ids = append(ids, oid)
 		}
 	}
-	var extra []lhDocTotalRow
+	if len(ids) == 0 {
+		return out
+	}
+	cur, err := stockCollection.Find(ctx,
+		bson.M{"_id": bson.M{"$in": ids}, "orgId": orgID},
+		options.Find().SetProjection(bson.M{"item_code": 1}))
+	if err != nil {
+		return out
+	}
+	defer cur.Close(ctx)
+	for cur.Next(ctx) {
+		var st struct {
+			ID       primitive.ObjectID `bson:"_id"`
+			ItemCode string             `bson:"item_code"`
+		}
+		if cur.Decode(&st) == nil && st.ItemCode != "" {
+			out[st.ID.Hex()] = st.ItemCode
+		}
+	}
+	return out
+}
+
+// shipPrefLabel maps the New Purchase Order form's stored option value
+// ("as_scheduled") to its display label ("As Scheduled") for the PDF —
+// falls back to a generic underscore-to-space title-case for anything unmapped.
+func shipPrefLabel(v string) string {
+	switch v {
+	case "immediate":
+		return "Immediate"
+	case "within_3_days":
+		return "Within 3 Days"
+	case "within_7_days":
+		return "Within 7 Days"
+	case "within_15_days":
+		return "Within 15 Days"
+	case "within_30_days":
+		return "Within 30 Days"
+	case "as_scheduled":
+		return "As Scheduled"
+	}
+	if v == "" {
+		return ""
+	}
+	words := strings.Split(strings.ReplaceAll(v, "_", " "), " ")
+	for i, w := range words {
+		if w != "" {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// buildPurchaseOrderPDF is a fully self-contained renderer dedicated to the
+// Purchase Order document only (Bill and Sales Order keep using the shared
+// buildLetterheadDocPDF and are unaffected by this). Layout matches the
+// "Allied Building Materials" LPO reference: a bordered two-column
+// Supplier/LPO-details header box, a full-black-grid items table with a UOM
+// column, and plain right-aligned totals below the table (not inside the
+// grid).
+func buildPurchaseOrderPDF(po models.PurchaseOrder, ex poExtras) *gofpdf.Fpdf {
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	tr := pdf.UnicodeTranslatorFromDescriptor("")
+
+	const x0, x1, mid = 15.0, 195.0, 105.0
+	const W = x1 - x0
+
+	navy := func() { pdf.SetTextColor(30, 58, 95) }
+	dark := func() { pdf.SetTextColor(15, 23, 42) }
+	muted := func() { pdf.SetTextColor(100, 116, 139) }
+	body := func() { pdf.SetTextColor(51, 65, 85) }
+	borderPen := func() { pdf.SetDrawColor(226, 232, 240); pdf.SetLineWidth(0.2) }
+	navyPen := func() { pdf.SetDrawColor(30, 58, 95); pdf.SetLineWidth(0.5) }
+	hline := func(y float64, accent bool) {
+		if accent {
+			navyPen()
+		} else {
+			borderPen()
+		}
+		pdf.Line(x0, y, x1, y)
+	}
+
+	senderName := loadOrgName(po.OrgID)
+	if senderName == "" {
+		senderName = "Company"
+	}
+	// The LPO the vendor receives carries our own PO number (same number before and
+	// after approval), suffixed with the revision once the PO has been amended.
+	lpoNo := po.OrderNumber
+	if po.Revision > 0 {
+		lpoNo = fmt.Sprintf("%s Rev %d", po.OrderNumber, po.Revision)
+	}
+	orderDate := po.OrderDate.Format("02/01/2006")
+	cur := po.Currency
+	if cur == "" {
+		cur = "AED"
+	}
+	vendorEmail := po.VendorEmail
+	if vendorEmail == "" {
+		vendorEmail = ex.vendorEmail
+	}
+	vendorPhone := po.VendorPhone
+	if vendorPhone == "" {
+		vendorPhone = ex.vendorPhone
+	}
+	orgTRN := loadOrgTRN(po.OrgID)
+
+	lh, hasLH := loadOrgLetterhead(po.OrgID)
+	baseTop := 14.0
+	botMargin := 16.0
+	if hasLH {
+		baseTop = lh.topPadMM
+		botMargin = lh.botPadMM
+	}
+	const contBandH = 9.0
+
+	var opt gofpdf.ImageOptions
+	if hasLH {
+		opt = gofpdf.ImageOptions{ImageType: lh.imgType}
+		pdf.RegisterImageOptionsReader("letterhead", opt, bytes.NewReader(lh.data))
+	}
+
+	pdf.SetHeaderFunc(func() {
+		if hasLH {
+			pdf.ImageOptions("letterhead", 0, 0, 210, 297, false, opt, 0, "")
+		}
+		if pdf.PageNo() > 1 {
+			pdf.SetXY(x0, baseTop)
+			pdf.SetFont("Helvetica", "B", 9)
+			navy()
+			pdf.CellFormat(W/2, 5, "LPO: "+tr(lpoNo), "", 0, "L", false, 0, "")
+			pdf.CellFormat(W/2, 5, "Dated: "+orderDate, "", 1, "R", false, 0, "")
+			hline(baseTop+6, false)
+		}
+	})
+
+	pdf.AliasNbPages("{nb}")
+	pdf.SetFooterFunc(func() {
+		pdf.SetY(297 - botMargin - 12)
+		pdf.SetFont("Helvetica", "", 8)
+		muted()
+		pdf.CellFormat(W, 4, fmt.Sprintf("Page %d of {nb}", pdf.PageNo()), "", 0, "C", false, 0, "")
+	})
+
+	contTop := baseTop + contBandH
+	bottomLimit := 297 - botMargin - 10
+	pdf.SetMargins(15, contTop, 15)
+	pdf.SetAutoPageBreak(true, botMargin+10)
+	pdf.AddPage()
+
+	breakIfNeeded := func(yp *float64, need float64) {
+		if *yp+need > bottomLimit {
+			pdf.AddPage()
+			*yp = contTop
+		}
+	}
+
+	var y float64
+	if hasLH {
+		y = lh.topPadMM
+	} else {
+		pdf.SetFillColor(30, 58, 95)
+		pdf.Rect(0, 0, 210, 24, "F")
+		pdf.SetXY(x0, 6)
+		pdf.SetFont("Helvetica", "B", 15)
+		pdf.SetTextColor(255, 255, 255)
+		pdf.CellFormat(120, 8, tr(senderName), "", 1, "L", false, 0, "")
+		y = 28
+	}
+
+	// Title
+	pdf.SetXY(x0, y)
+	pdf.SetFont("Helvetica", "B", 14)
+	navy()
+	pdf.CellFormat(W, 7, "PURCHASE ORDER", "", 1, "C", false, 0, "")
+	y = pdf.GetY() + 3
+
+	// Bordered two-column header box — Supplier details (left) / LPO details (right).
+	gridPen := func() { pdf.SetDrawColor(0, 0, 0); pdf.SetLineWidth(0.25) }
+	blockY := y
+	ly := blockY + 4
+	pdf.SetXY(x0+4, ly)
+	pdf.SetFont("Helvetica", "B", 9)
+	navy()
+	pdf.CellFormat(80, 4, "Supplier:", "", 0, "L", false, 0, "")
+	ly += 5.5
+	supplierName := po.VendorName
+	if supplierName == "" {
+		supplierName = "-"
+	}
+	dark()
+	pdf.SetFont("Helvetica", "B", 9)
+	pdf.SetXY(x0+4, ly)
+	pdf.CellFormat(85, 4.5, tr(supplierName), "", 0, "L", false, 0, "")
+	ly += 5
+	body()
+	pdf.SetFont("Helvetica", "", 8.5)
+	leftRow := func(label, val string) {
+		pdf.SetXY(x0+4, ly)
+		pdf.CellFormat(86, 4.2, tr(label+": "+orDash(val)), "", 0, "L", false, 0, "")
+		ly += 5
+	}
+	leftRow("P.O. Box", po.VendorPOBox)
+	pdf.SetXY(x0+4, ly)
+	pdf.MultiCell(86, 4.2, tr(orDash(ex.vendorAddress)), "", "L", false)
+	ly = pdf.GetY() + 1
+	leftRow("Phone No", vendorPhone)
+	leftRow("Email", vendorEmail)
+	leftRow("Attention", po.AttentionTo)
+	leftRow("TRN", ex.vendorTRN)
+
+	ry := blockY + 4
+	rightRow := func(label, val string) {
+		muted()
+		pdf.SetFont("Helvetica", "B", 8.5)
+		pdf.SetXY(mid+4, ry)
+		pdf.CellFormat(30, 4.4, label, "", 0, "L", false, 0, "")
+		dark()
+		pdf.SetFont("Helvetica", "", 8.5)
+		pdf.SetXY(mid+34, ry)
+		pdf.CellFormat(46, 4.4, ": "+tr(orDash(val)), "", 0, "L", false, 0, "")
+		ry += 4.8
+	}
+	rightRow("LPO No", lpoNo)
+	rightRow("Dated", orderDate)
+	rightRow("Currency", cur)
+	rightRow("Payment", po.PaymentTerms)
+	rightRow("Delivery Terms", shipPrefLabel(po.ShipmentPreference))
+	rightRow("Delivery", fmtDatePtr(po.ExpectedDeliveryDate))
+	rightRow("Supplier Ref", po.ReferenceNo)
+	rightRow("Project", po.Project)
+	rightRow("TRN No", orgTRN)
+
+	blockH := ry - blockY + 2
+	if h := ly - blockY + 2; h > blockH {
+		blockH = h
+	}
+	gridPen()
+	pdf.Rect(x0, blockY, W, blockH, "D")
+	pdf.Line(mid, blockY, mid, blockY+blockH)
+	y = blockY + blockH + 4
+
+	// Items table — full black grid, matching the reference's columns.
+	cols := []struct {
+		label string
+		w     float64
+		align string
+	}{
+		{"Sr No", 10, "C"}, {"Article Code", 22, "C"}, {"Material Description", 38, "L"}, {"Qty", 12, "C"},
+		{"UOM", 12, "C"}, {"Unit Price", 21, "R"}, {"Total Price", 21, "R"},
+		{"VAT 5%", 18, "R"}, {"Total Price Incl. VAT", 26, "R"},
+	}
+	codeX := x0 + cols[0].w
+	descX := codeX + cols[1].w
+	afterDescX := descX + cols[2].w
+
+	colX := []float64{x0}
+	for _, c := range cols {
+		colX = append(colX, colX[len(colX)-1]+c.w)
+	}
+	vLines := func(top, bottom float64) {
+		gridPen()
+		for _, xx := range colX {
+			pdf.Line(xx, top, xx, bottom)
+		}
+	}
+	hLine := func(yy float64) {
+		gridPen()
+		pdf.Line(x0, yy, x1, yy)
+	}
+
+	drawItemsHeader := func() {
+		headTop := y
+		headH := 10.0
+		pdf.SetFont("Helvetica", "B", 7)
+		dark()
+		cx := x0
+		for _, c := range cols {
+			pdf.SetXY(cx, headTop+1.2)
+			pdf.MultiCell(c.w, 3.3, c.label, "", c.align, false)
+			cx += c.w
+		}
+		y = headTop + headH
+		hLine(headTop)
+		hLine(y)
+		vLines(headTop, y)
+	}
+	drawItemsHeader()
+
+	var totalDiscount float64
+	drawRow := func(it *models.PurchaseOrderItem, idx int) {
+		desc := tr(it.Details)
+		pdf.SetFont("Helvetica", "", 8)
+		nLines := len(pdf.SplitText(desc, cols[2].w))
+		if nLines < 1 {
+			nLines = 1
+		}
+		code := tr(orDash(it.ItemCode))
+		pdf.SetFont("Helvetica", "", 7.5)
+		codeLines := len(pdf.SplitText(code, cols[1].w-1))
+		pdf.SetFont("Helvetica", "", 8)
+		if codeLines > nLines {
+			nLines = codeLines
+		}
+		rowH := float64(nLines) * 4.6
+		if rowH < 7 {
+			rowH = 7
+		}
+		if y+rowH > bottomLimit {
+			pdf.AddPage()
+			y = contTop
+			drawItemsHeader()
+		}
+		yy := y
+		descTop := yy + (rowH-float64(nLines)*4.6)/2
+		if descTop < yy {
+			descTop = yy
+		}
+		pdf.SetXY(descX, descTop)
+		dark()
+		pdf.MultiCell(cols[2].w, 4.6, desc, "", "L", false)
+		pdf.SetFont("Helvetica", "", 7.5)
+		pdf.SetXY(codeX, yy+(rowH-float64(codeLines)*4.6)/2)
+		pdf.MultiCell(cols[1].w, 4.6, code, "", "C", false)
+		pdf.SetFont("Helvetica", "", 8)
+
+		vatIncl := it.BaseAmount + it.TaxAmount
+		pdf.SetXY(x0, yy)
+		muted()
+		pdf.SetFont("Helvetica", "", 8)
+		pdf.CellFormat(cols[0].w, rowH, fmt.Sprintf("%d", idx+1), "", 0, "C", false, 0, "")
+		pdf.SetX(afterDescX)
+		dark()
+		pdf.CellFormat(cols[3].w, rowH, fmt.Sprintf("%g", it.Quantity), "", 0, "C", false, 0, "")
+		pdf.CellFormat(cols[4].w, rowH, tr(it.Unit), "", 0, "C", false, 0, "")
+		pdf.CellFormat(cols[5].w, rowH, fmtMoney(it.Rate), "", 0, "R", false, 0, "")
+		pdf.CellFormat(cols[6].w, rowH, fmtMoney(it.BaseAmount), "", 0, "R", false, 0, "")
+		pdf.CellFormat(cols[7].w, rowH, fmtMoney(it.TaxAmount), "", 0, "R", false, 0, "")
+		pdf.CellFormat(cols[8].w, rowH, fmtMoney(vatIncl), "", 0, "R", false, 0, "")
+
+		by := yy + rowH
+		hLine(by)
+		vLines(yy, by)
+		y = by
+		pdf.SetXY(x0, by)
+	}
+	for i := range po.Items {
+		it := &po.Items[i]
+		totalDiscount += it.Quantity*it.Rate - it.BaseAmount
+		drawRow(it, i)
+	}
+	y += 4
+
+	// Totals — plain right-aligned lines below the table (not gridded), matching
+	// the reference's Total/Discount/VAT/Grand Total block.
+	totRows := []struct {
+		label string
+		val   float64
+		bold  bool
+	}{
+		{"Total", po.SubTotal, false},
+	}
+	if totalDiscount > 0.005 {
+		totRows = append(totRows, struct {
+			label string
+			val   float64
+			bold  bool
+		}{"Discount", totalDiscount, false})
+	}
 	if po.ShippingCharges != 0 {
-		extra = append(extra, lhDocTotalRow{"Shipping Charges", po.ShippingCharges})
+		totRows = append(totRows, struct {
+			label string
+			val   float64
+			bold  bool
+		}{"Shipping Charges", po.ShippingCharges, false})
 	}
 	if po.Adjustment != 0 {
-		extra = append(extra, lhDocTotalRow{"Adjustment", po.Adjustment})
+		totRows = append(totRows, struct {
+			label string
+			val   float64
+			bold  bool
+		}{"Adjustment", po.Adjustment, false})
 	}
-	return buildLetterheadDocPDF(lhDocData{
-		OrgID:       po.OrgID,
-		DocLabel:    "PURCHASE ORDER",
-		ValueLabel:  "Purchase Order",
-		RefPrefix:   "PO",
-		NumberLabel: "PO NUMBER",
-		RefNumber:   po.OrderNumber,
-		RefDate:     po.OrderDate.Format("02/01/2006"),
-		Party: lhDocParty{
-			Label: "SUPPLIER", Code: ex.vendorCode, Name: po.VendorName,
-			Address: ex.vendorAddress, Phone: ex.vendorPhone, TRN: ex.vendorTRN,
-		},
-		RelatedInfo: [][2]string{
-			{"Currency", "AED"},
-			{"Expected By", fmtDatePtr(po.ExpectedDeliveryDate)},
-			{"Payment Terms", po.PaymentTerms},
-			{"Reference No", po.ReferenceNo},
-			{"Deliver To", po.DeliveryAddress},
-			{"LPO Number", po.LPONumber},
-		},
-		Items:      items,
-		Currency:   "AED",
-		ProdNet:    po.SubTotal,
-		ExtraRows:  extra,
-		TaxTotal:   po.TotalTax,
-		GrandTotal: po.Total,
-		Notes:      po.CustomerNotes,
-	})
+	totRows = append(totRows,
+		struct {
+			label string
+			val   float64
+			bold  bool
+		}{"VAT 5%", po.TotalTax, false},
+		struct {
+			label string
+			val   float64
+			bold  bool
+		}{"Grand Total", po.Total, true},
+	)
+	labelX0 := x0 + 100
+	valX1 := x1
+	for _, r := range totRows {
+		breakIfNeeded(&y, 6)
+		if r.bold {
+			pdf.SetFont("Helvetica", "B", 9.5)
+		} else {
+			pdf.SetFont("Helvetica", "", 8.5)
+		}
+		dark()
+		pdf.SetXY(labelX0, y)
+		pdf.CellFormat(valX1-labelX0-26, 5, r.label+" :", "", 0, "R", false, 0, "")
+		pdf.CellFormat(26, 5, fmtMoney(r.val), "", 1, "R", false, 0, "")
+		y = pdf.GetY()
+	}
+	y += 6
+
+	// Closing — "For [Company]" with the org's uploaded stamp overlapping it, no
+	// boxed signature block, matching the reference. Sits under the totals block,
+	// roughly centered toward the right (not flush at the left margin).
+	closeX := x0 + 65
+	closeW := x1 - closeX
+	stampData, stampType, hasStamp := loadOrgStamp(po.OrgID)
+	closeH := 6.0
+	if hasStamp {
+		closeH += 28
+	}
+	breakIfNeeded(&y, closeH)
+	pdf.SetXY(closeX, y)
+	pdf.SetFont("Helvetica", "BI", 9)
+	dark()
+	pdf.CellFormat(closeW, 4.6, "For "+tr(senderName), "", 1, "C", false, 0, "")
+	y = pdf.GetY() + 2
+
+	if hasStamp {
+		var sOpt gofpdf.ImageOptions
+		sOpt.ImageType = stampType
+		pdf.RegisterImageOptionsReader("po-stamp", sOpt, bytes.NewReader(stampData))
+		stampH := 26.0
+		breakIfNeeded(&y, stampH+2)
+		pdf.ImageOptions("po-stamp", closeX+(closeW-stampH)/2, y, 0, stampH, false, sOpt, 0, "")
+		y += stampH + 2
+	}
+
+	if po.CustomerNotes != "" {
+		breakIfNeeded(&y, 10)
+		pdf.SetXY(x0, y)
+		pdf.SetFont("Helvetica", "BU", 9)
+		dark()
+		pdf.CellFormat(W, 4.4, "Notes:", "", 1, "L", false, 0, "")
+		y = pdf.GetY() + 1
+		pdf.SetX(x0)
+		pdf.SetFont("Helvetica", "", 8.5)
+		body()
+		pdf.MultiCell(W, 4.4, tr(po.CustomerNotes), "", "L", false)
+	}
+
+	return pdf
 }
 
 func writePurchaseOrderPDF(c *gin.Context, inline bool) {
@@ -2744,8 +3359,9 @@ func writePurchaseOrderPDF(c *gin.Context, inline bool) {
 	}
 	var ex poExtras
 	if po.VendorID != "" {
-		ex.vendorCode, ex.vendorAddress, ex.vendorPhone, ex.vendorTRN = loadVendorInfo(ctx, po.VendorID)
+		ex.vendorCode, ex.vendorAddress, ex.vendorPhone, ex.vendorTRN, ex.vendorEmail = loadVendorInfo(ctx, po.VendorID)
 	}
+	stampItemCodes(ctx, fmt.Sprintf("%v", orgID), po.Items)
 	pdf := buildPurchaseOrderPDF(po, ex)
 	pdfWatermark(pdf, watermarkFor(po.Status))
 	disposition := "attachment"
@@ -2838,7 +3454,7 @@ func writeBillPDF(c *gin.Context, inline bool) {
 	}
 	var ex billExtras
 	if b.VendorID != "" {
-		ex.vendorCode, ex.vendorAddress, ex.vendorPhone, _ = loadVendorInfo(ctx, b.VendorID)
+		ex.vendorCode, ex.vendorAddress, ex.vendorPhone, _, _ = loadVendorInfo(ctx, b.VendorID)
 	}
 	pdf := buildBillPDF(b, ex)
 	pdfWatermark(pdf, watermarkFor(b.Status))
@@ -2858,6 +3474,40 @@ func DownloadBillPDF() gin.HandlerFunc {
 }
 func PreviewBillPDF() gin.HandlerFunc {
 	return func(c *gin.Context) { writeBillPDF(c, true) }
+}
+
+// PublicBillPDF serves the same PDF for the unauthenticated public share link —
+// keyed by the bill's random token, not id+org. Always inline.
+func PublicBillPDF() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid token"})
+			return
+		}
+
+		var b models.Bill
+		if err := billCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&b); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Bill not found"})
+			return
+		}
+
+		var ex billExtras
+		if b.VendorID != "" {
+			ex.vendorCode, ex.vendorAddress, ex.vendorPhone, _, _ = loadVendorInfo(ctx, b.VendorID)
+		}
+		pdf := buildBillPDF(b, ex)
+		pdfWatermark(pdf, watermarkFor(b.Status))
+
+		c.Header("Content-Type", "application/pdf")
+		c.Header("Content-Disposition", `inline; filename="bill-`+b.BillNumber+`.pdf"`)
+		if err := pdf.Output(c.Writer); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "PDF generation failed"})
+		}
+	}
 }
 
 // ── Sales Order PDF ────────────────────────────────────────────────────────────

@@ -43,16 +43,18 @@ func salespersonInitials(s string) string {
 
 // nextQuoteNumber generates a quote number. When the org enables
 // quoteNumberBySalesperson, the format is  <INITIALS>/<MMYY>/<MM><NN>  (NN is a
-// 2-digit counter that resets monthly per salesperson), e.g. "MS/0626/0601".
+// 2-digit counter that resets monthly per signatory), e.g. "MS/0626/0601" for
+// a quote signed "Muhammed Shahid". Initials come from the quote's Signatory
+// Name (the person actually signing it), not the assigned Salesperson field.
 // Otherwise it falls back to the org's configured/default quote format.
-func nextQuoteNumber(ctx context.Context, orgID, salesperson string) string {
+func nextQuoteNumber(ctx context.Context, orgID, signatoryName string) string {
 	var doc struct {
 		QuoteNumberBySalesperson bool `bson:"quoteNumberBySalesperson"`
 	}
 	_ = orgSettingsCollection.FindOne(ctx, bson.M{"orgId": orgID}).Decode(&doc)
 
-	if doc.QuoteNumberBySalesperson && strings.TrimSpace(salesperson) != "" {
-		ini := salespersonInitials(salesperson)
+	if doc.QuoteNumberBySalesperson && strings.TrimSpace(signatoryName) != "" {
+		ini := salespersonInitials(signatoryName)
 		format := utils.NumberFormat{Segments: []utils.NumberSegment{
 			{Type: "literal", Value: ini + "/"},
 			{Type: "month", Digits: 2},
@@ -123,7 +125,7 @@ func CreateQuote() gin.HandlerFunc {
 		}
 
 		q.ID = primitive.NewObjectID()
-		q.QuoteNumber = nextQuoteNumber(ctx, fmt.Sprintf("%v", orgID), q.Salesperson)
+		q.QuoteNumber = nextQuoteNumber(ctx, fmt.Sprintf("%v", orgID), q.Signatory.Name)
 		q.OrgID = orgID.(string)
 		q.CreatedBy = func() string {
 			if userID != nil {
@@ -370,19 +372,28 @@ func UpdateQuote() gin.HandlerFunc {
 		}
 
 		update := bson.M{"$set": bson.M{
-			"status":        payload.Status,
-			"quoteDate":     payload.QuoteDate,
-			"validUntil":    payload.ValidUntil,
-			"currency":      payload.Currency,
-			"paymentTerms":  payload.PaymentTerms,
-			"customerName":  payload.CustomerName,
-			"customerEmail": payload.CustomerEmail,
-			"customerId":    payload.CustomerID,
-			"billTo":        payload.BillTo,
-			"lineItems":     payload.LineItems,
-			"totals":        payload.Totals,
-			"notes":         payload.Notes,
-			"updatedAt":     time.Now(),
+			"status":             payload.Status,
+			"quoteDate":          payload.QuoteDate,
+			"validUntil":         payload.ValidUntil,
+			"currency":           payload.Currency,
+			"paymentTerms":       payload.PaymentTerms,
+			"customerName":       payload.CustomerName,
+			"customerEmail":      payload.CustomerEmail,
+			"customerId":         payload.CustomerID,
+			"billTo":             payload.BillTo,
+			"lineItems":          payload.LineItems,
+			"totals":             payload.Totals,
+			"notes":              payload.Notes,
+			"attentionTo":        payload.AttentionTo,
+			"salutation":         payload.Salutation,
+			"subject":            payload.Subject,
+			"projectName":        payload.ProjectName,
+			"introText":          payload.IntroText,
+			"company":            payload.Company,
+			"signatory":          payload.Signatory,
+			"termsAndConditions": payload.TermsAndConditions,
+			"salesperson":        payload.Salesperson,
+			"updatedAt":          time.Now(),
 		}}
 
 		if _, err := quoteCollection.UpdateOne(ctx, bson.M{"_id": objectID, "orgId": orgID}, update); err != nil {
@@ -710,8 +721,8 @@ func DeleteQuote() gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "You can only delete quotes you created"})
 			return
 		}
-		if existing.Status == "converted" {
-			c.JSON(http.StatusConflict, gin.H{"message": "Converted quotes cannot be deleted"})
+		if existing.Status != "draft" {
+			c.JSON(http.StatusConflict, gin.H{"message": "Only draft quotes can be deleted — this one is " + existing.Status})
 			return
 		}
 
@@ -752,6 +763,12 @@ func mailQuote(ctx context.Context, q models.Quote, recipients []string, message
 	to = resolveQuoteRecipients(ctx, q, recipients)
 	if len(to) == 0 {
 		return nil, fmt.Errorf("no recipient email provided for this quote")
+	}
+	// Public "view online" link is generated once, the first time a quote is
+	// actually emailed — persisted so re-sends and the print/preview page share it.
+	if q.PublicToken == "" {
+		q.PublicToken = generatePublicToken()
+		quoteCollection.UpdateOne(ctx, bson.M{"_id": q.ID}, bson.M{"$set": bson.M{"publicToken": q.PublicToken}})
 	}
 	var pdfBuf bytes.Buffer
 	if perr := buildQuotePDF(q).Output(&pdfBuf); perr != nil {
@@ -804,5 +821,27 @@ func SendQuote() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Quote sent to " + strings.Join(to, ", ")})
+	}
+}
+
+// GetPublicQuote — GET /api/quotes/public/:token — no auth required.
+func GetPublicQuote() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid token"})
+			return
+		}
+
+		var q models.Quote
+		if err := quoteCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&q); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Quote not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": q})
 	}
 }

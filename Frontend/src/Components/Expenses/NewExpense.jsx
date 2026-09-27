@@ -95,13 +95,13 @@ export default function NewExpense() {
         <div style={{ position: 'sticky', top: 0, zIndex: 30, background: isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)', backdropFilter: 'blur(12px)', padding: '12px 0', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button onClick={() => navigate('/Purchase/Expenses')} style={{ width: 36, height: 36, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Expenses'))} style={{ width: 36, height: 36, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
                 <FaChevronLeft size={13} />
               </button>
               <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 17, fontWeight: 800, color: T.textPri, margin: 0 }}>New Expense</h1>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => navigate('/Purchase/Expenses')} style={{ padding: '9px 18px', border: `1.5px solid ${T.border}`, borderRadius: 9, background: 'transparent', color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Expenses'))} style={{ padding: '9px 18px', border: `1.5px solid ${T.border}`, borderRadius: 9, background: 'transparent', color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleSubmit} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 20px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
                 {saving ? <><FaSpinner size={12} style={{ animation: 'spin .7s linear infinite' }} /> Saving…</> : <><FaCheckCircle size={12} /> Save Expense</>}
               </button>

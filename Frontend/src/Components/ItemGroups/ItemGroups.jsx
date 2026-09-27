@@ -4,12 +4,17 @@ import { IoClose } from 'react-icons/io5';
 import axiosInstance from '../../helper/axiosInstance';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import nexusToast from '../../helper/nexusToast';
+import { drawerWidth } from '../../helper/responsive';
+import useIsMobile from '../../helper/useIsMobile';
+import useConfirm from '../common/useConfirm';
 
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
 
 export default function ItemGroups() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
+  const isMobile = useIsMobile();
+  const { confirm, ConfirmModal } = useConfirm();
 
   const [groups, setGroups]           = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -41,6 +46,7 @@ export default function ItemGroups() {
   );
 
   const handleDelete = async (id) => {
+    if (!(await confirm({ title: 'Delete group?', message: 'This will permanently remove the group. Items inside it will not be deleted, but will lose this grouping.', confirmLabel: 'Delete', danger: true }))) return;
     setDeleting(id);
     try {
       await axiosInstance.delete(`/api/item-groups/${id}`);
@@ -106,13 +112,13 @@ export default function ItemGroups() {
       `}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Item Groups</h1>
+      <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 0, marginBottom: 24 }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 19 : 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-0.03em' }}>Item Groups</h1>
           <p style={{ fontSize: 13, color: T.textSec, margin: '4px 0 0' }}>Organise your items into groups and sub-groups</p>
         </div>
         <button onClick={() => setEditingGroup({ _id: null, name: '', description: '', parentId: '', color: '#3b82f6', status: 'active' })}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(59,130,246,.3)' }}>
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 20px', width: isMobile ? '100%' : 'auto', whiteSpace: 'nowrap', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(59,130,246,.3)' }}>
           <FaPlus size={11} /> New Group
         </button>
       </div>
@@ -171,7 +177,7 @@ export default function ItemGroups() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', justifyContent: 'flex-end' }} onClick={() => setDrawer(null)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
           <div onClick={e => e.stopPropagation()}
-            style={{ position: 'relative', width: 340, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
+            style={{ position: 'relative', width: drawerWidth(340), height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri, margin: 0 }}>Group Details</h2>
               <button onClick={() => setDrawer(null)} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
@@ -211,6 +217,7 @@ export default function ItemGroups() {
           </div>
         </div>
       )}
+      {ConfirmModal}
     </div>
   );
 }
@@ -246,7 +253,7 @@ function EditGroupDrawer({ group, groups, T, isDark, COLORS, onClose, onSaved })
     <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
       <div onClick={e => e.stopPropagation()}
-        style={{ position: 'relative', width: 380, height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
+        style={{ position: 'relative', width: drawerWidth(380), height: '100%', background: T.surface, borderLeft: `1.5px solid ${T.border}`, padding: 24, overflowY: 'auto', zIndex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <h2 style={{ fontFamily: "'Sora',sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri, margin: 0 }}>{group._id ? 'Edit Group' : 'New Group'}</h2>
           <button onClick={onClose} style={{ width: 30, height: 30, border: `1px solid ${T.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}><IoClose size={14} /></button>

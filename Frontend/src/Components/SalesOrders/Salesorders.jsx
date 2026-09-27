@@ -17,6 +17,8 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useAuthStore from "../../store/useAuthStore";
 import { usePermissions } from "../../helper/permissions";
 import axiosInstance from "../../helper/axiosInstance";
+import useConfirm from "../common/useConfirm";
+import useIsMobile from "../../helper/useIsMobile";
 
 // ── CustomSelect (portal dropdown, unchanged logic) ──────────────
 const CustomSelect = ({ value, onChange, options, placeholder = "Select", minWidth = 120 }) => {
@@ -227,6 +229,8 @@ const Salesorders = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
+  const { confirm, ConfirmModal } = useConfirm();
   const activeOrg = useAuthStore((s) => s.activeOrg);
   const myUserId = useAuthStore((s) => s.user?.userId || s.activeOrg?.userId || "");
   const isAdminOrOwner = ["owner", "admin"].includes((activeOrg?.role || "").toLowerCase());
@@ -335,13 +339,13 @@ const Salesorders = () => {
 
   const submitCreatePO = async () => {
     const chosen = poLines.filter(l => l.check && l.qty > 0 && l.vendorId);
-    if (!chosen.length) { alert("Select at least one line, set a quantity, and pick a vendor."); return; }
+    if (!chosen.length) { await confirm({ title: "Missing selection", message: "Select at least one line, set a quantity, and pick a vendor.", hideCancel: true }); return; }
     // Group selected lines by vendor → one PO per vendor (multi-vendor split).
     const byVendor = {};
     chosen.forEach(l => { (byVendor[l.vendorId] ||= []).push(l); });
     setPoSaving(true);
     try {
-      const results = [];
+      const results = [], held = [];
       for (const [vendorId, lines] of Object.entries(byVendor)) {
         const v = poVendors.find(x => (x._id || x.id) === vendorId);
         const res = await axiosInstance.post(`/api/sales-orders/${poModalSO.id}/create-po`, {
@@ -362,13 +366,18 @@ const Salesorders = () => {
             freightTaxRate: Number(l.freightTaxRate) || 0,
           })),
         });
-        results.push(res.data?.data?.orderNumber || "PO");
+        // 202 = held by the Purchase Orders approval policy; it's created once approved.
+        if (res.__pendingApproval) held.push(v?.displayName || v?.name || v?.companyName || "vendor");
+        else results.push(res.data?.data?.orderNumber || "PO");
       }
       setPoModalSO(null);
       await handleGetSalesorder();
-      alert(`Created ${results.length} purchase order(s): ${results.join(", ")}`);
+      const parts = [];
+      if (results.length) parts.push(`Created ${results.length} purchase order(s): ${results.join(", ")}`);
+      if (held.length) parts.push(`Sent ${held.length} for approval (${held.join(", ")}) — created once approved`);
+      await confirm({ title: held.length && !results.length ? "Sent for approval" : "Purchase orders created", message: parts.join(". "), hideCancel: true });
     } catch (e) {
-      alert(e.response?.data?.message || "Failed to create purchase order.");
+      await confirm({ title: "Couldn't create purchase order", message: e.response?.data?.message || "Failed to create purchase order.", hideCancel: true });
     } finally {
       setPoSaving(false);
     }
@@ -383,7 +392,7 @@ const Salesorders = () => {
       await handleGetSalesorder();
       if (selected?.id === id) setSelected(prev => prev ? { ...prev, rawStatus: status, status: formatStatus(status), ...(extra.rejectionReason ? { rejectionReason: extra.rejectionReason } : {}) } : null);
     } catch (e) {
-      alert(e.response?.data?.message || "Failed to update status.");
+      await confirm({ title: "Couldn't update order", message: e.response?.data?.message || "Failed to update status.", hideCancel: true });
     } finally {
       approvingRef.current = null;
       setApprovingId(null);
@@ -439,33 +448,42 @@ const Salesorders = () => {
       await handleGetSalesorder();
       setSelectedRows(new Set());
     } catch (e) {
-      alert(e.response?.data?.message || `Failed to bulk ${status}`);
+      await confirm({ title: "Couldn't update orders", message: e.response?.data?.message || `Failed to bulk ${status}`, hideCancel: true });
+    }
+  };
+
+  // Bulk-cancel reason prompt (replaces window.prompt for admin/owner bulk cancel).
+  const [bulkCancelPrompt, setBulkCancelPrompt] = useState(false);
+  const [bulkCancelReason, setBulkCancelReason] = useState("");
+  const [bulkCancelBusy, setBulkCancelBusy]     = useState(false);
+  const confirmBulkCancel = async () => {
+    const ids = [...selectedRows];
+    setBulkCancelBusy(true);
+    try {
+      await Promise.all(
+        ids.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, {
+          status: "cancelled",
+          cancelReason: bulkCancelReason.trim(),
+        }))
+      );
+      await handleGetSalesorder();
+      setSelectedRows(new Set());
+      setBulkCancelPrompt(false);
+      setBulkCancelReason("");
+    } catch (e) {
+      await confirm({ title: "Couldn't cancel orders", message: e.response?.data?.message || "Failed to cancel orders.", hideCancel: true });
+    } finally {
+      setBulkCancelBusy(false);
     }
   };
 
   const handleBulkCancel = async () => {
     if (!selectedRows.size) return;
     if (isAdminOrOwner) {
-      const reason = window.prompt(
-        `Cancel ${selectedRows.size} order(s)?\n\nOptional reason (leave blank to skip):`,
-        ""
-      );
-      if (reason === null) return; // user hit Cancel on prompt
-      const ids = [...selectedRows];
-      try {
-        await Promise.all(
-          ids.map(id => axiosInstance.patch(`/api/sales-orders/${id}/status`, {
-            status: "cancelled",
-            cancelReason: reason || "",
-          }))
-        );
-        await handleGetSalesorder();
-        setSelectedRows(new Set());
-      } catch (e) {
-        alert(e.response?.data?.message || "Failed to cancel orders.");
-      }
+      setBulkCancelReason("");
+      setBulkCancelPrompt(true);
     } else {
-      if (!window.confirm(`Submit cancellation request for ${selectedRows.size} order(s)?`)) return;
+      if (!(await confirm({ title: "Submit cancellation request", message: `Submit cancellation request for ${selectedRows.size} order(s)?`, confirmLabel: "Submit" }))) return;
       const ids = [...selectedRows];
       try {
         await Promise.all(
@@ -477,7 +495,7 @@ const Salesorders = () => {
         await handleGetSalesorder();
         setSelectedRows(new Set());
       } catch (e) {
-        alert(e.response?.data?.message || "Failed to submit cancel requests.");
+        await confirm({ title: "Couldn't submit cancellation", message: e.response?.data?.message || "Failed to submit cancel requests.", hideCancel: true });
       }
     }
   };
@@ -675,32 +693,32 @@ const Salesorders = () => {
       <div className="so" style={{ background: C.bg, minHeight: "100vh", color: C.textPri }}>
 
         {/* ── PAGE HEADER ─────────────────────────────────────── */}
-        <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 28px", boxShadow: isDark ? "0 1px 0 rgba(255,255,255,0.04)" : "0 1px 4px rgba(0,0,0,0.04)" }}>
-          <div className="anim-up" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "60px" }}>
+        <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: isMobile ? "10px 14px" : "0 28px", boxShadow: isDark ? "0 1px 0 rgba(255,255,255,0.04)" : "0 1px 4px rgba(0,0,0,0.04)" }}>
+          <div className="anim-up" style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", justifyContent: "space-between", alignItems: "center", gap: isMobile ? 10 : 0, height: isMobile ? "auto" : "60px" }}>
             {/* Breadcrumb + title */}
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "12px", color: C.textMuted }}>Sales</span>
-              <span style={{ color: C.textMuted, fontSize: "12px" }}>/</span>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ width: "28px", height: "28px", borderRadius: "7px", background: C.blueDim, color: C.blueLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+              {!isMobile && <><span style={{ fontSize: "12px", color: C.textMuted }}>Sales</span>
+              <span style={{ color: C.textMuted, fontSize: "12px" }}>/</span></>}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                <div style={{ width: "28px", height: "28px", flexShrink: 0, borderRadius: "7px", background: C.blueDim, color: C.blueLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
                   <FaShoppingCart />
                 </div>
-                <h1 className="so-heading" style={{ fontSize: "15px", fontWeight: "700", color: C.textPri, margin: 0, letterSpacing: "-0.01em" }}>Sales Orders</h1>
-                <span style={{ fontSize: "11px", fontWeight: "600", background: C.blueDim, color: C.blueLight, padding: "2px 7px", borderRadius: "5px" }}>{allOrders.length}</span>
+                <h1 className="so-heading" style={{ fontSize: "15px", fontWeight: "700", color: C.textPri, margin: 0, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Sales Orders</h1>
+                <span style={{ fontSize: "11px", fontWeight: "600", background: C.blueDim, color: C.blueLight, padding: "2px 7px", borderRadius: "5px", flexShrink: 0 }}>{allOrders.length}</span>
               </div>
             </div>
 
             {/* Actions */}
-            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", width: isMobile ? "100%" : "auto" }}>
               {canExport && (
               <button className="so-ghost-btn so-icon-btn"
                 onClick={() => exportOrdersCSV(filtered)}
-                style={{ height: "32px", padding: "0 12px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit", background: "transparent", color: C.textSec, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "5px" }}>
-                <FaDownload size={11} /> Export CSV
+                style={{ height: "32px", padding: isMobile ? "0 10px" : "0 12px", borderRadius: "7px", fontSize: "12px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit", background: "transparent", color: C.textSec, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", whiteSpace: "nowrap", flex: isMobile ? 1 : "initial" }}>
+                <FaDownload size={11} /> {isMobile ? "Export" : "Export CSV"}
               </button>
               )}
               <button className="so-primary-btn" onClick={() => navigate("/Sales/Salesorders/Newsalesorders")}
-                style={{ height: "32px", padding: "0 14px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", background: C.blue, color: "white", border: "none", display: "flex", alignItems: "center", gap: "5px" }}>
+                style={{ height: "32px", padding: isMobile ? "0 12px" : "0 14px", borderRadius: "7px", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", background: C.blue, color: "white", border: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", whiteSpace: "nowrap", flex: isMobile ? 1 : "initial" }}>
                 <FaPlus size={10} /> New Order
               </button>
             </div>
@@ -708,10 +726,10 @@ const Salesorders = () => {
         </div>
 
         {/* ── MAIN CONTENT ────────────────────────────────────── */}
-        <div style={{ padding: "20px 28px" }}>
+        <div style={{ padding: isMobile ? "14px" : "20px 28px" }}>
 
           {/* ── STAT CARDS ──────────────────────────────────── */}
-          <div className="anim-up1" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: "12px", marginBottom: "18px" }}>
+          <div className="anim-up1" style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(5,1fr)", gap: "12px", marginBottom: "18px" }}>
             {[
               { label: "Total Orders",   value: stats.total,                       icon: <FaShoppingCart />, color: C.blue,   dim: C.blueDim,   sub: `${stats.open} active`      },
               { label: "Active",         value: stats.open,                        icon: <FaBolt />,         color: C.green,  dim: C.greenDim,  sub: "open + confirmed"          },
@@ -783,8 +801,8 @@ const Salesorders = () => {
             </div>
 
             {/* Search + sort row */}
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", padding: "10px 14px" }}>
-              <div style={{ position: "relative", flex: 1, minWidth: "200px", maxWidth: "360px" }}>
+            <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", gap: "8px", alignItems: "center", padding: "10px 14px" }}>
+              <div style={{ position: "relative", flex: 1, minWidth: isMobile ? "100%" : "200px", maxWidth: isMobile ? "none" : "360px" }}>
                 <FaSearch style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)", color: C.textMuted, fontSize: "11px", pointerEvents: "none" }} />
                 <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
                   placeholder="Search orders, customers, LPO…"
@@ -1570,6 +1588,31 @@ const Salesorders = () => {
         document.body
       )}
 
+      {bulkCancelPrompt && createPortal(
+        <div onClick={() => !bulkCancelBusy && setBulkCancelPrompt(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100000, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 440, background: isDark ? C.surface : "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 22, fontFamily: "inherit" }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.textPri }}>Cancel {selectedRows.size} order(s)?</h3>
+            <p style={{ margin: "6px 0 14px", fontSize: 12.5, color: C.textSec }}>Optional reason (leave blank to skip):</p>
+            <textarea autoFocus value={bulkCancelReason} onChange={e => setBulkCancelReason(e.target.value)}
+              placeholder="Reason…" rows={3}
+              style={{ width: "100%", boxSizing: "border-box", resize: "vertical", padding: "10px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: isDark ? "rgba(255,255,255,0.04)" : "#f8fafc", color: C.textPri, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button onClick={() => setBulkCancelPrompt(false)} disabled={bulkCancelBusy}
+                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+              <button onClick={confirmBulkCancel} disabled={bulkCancelBusy}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: bulkCancelBusy ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: bulkCancelBusy ? 0.5 : 1 }}>
+                {bulkCancelBusy ? "Cancelling…" : "Cancel Orders"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {poModalSO && createPortal(
         <div onClick={() => !poSaving && setPoModalSO(null)}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100000, padding: 20 }}>
@@ -1679,6 +1722,7 @@ const Salesorders = () => {
         </div>,
         document.body
       )}
+      {ConfirmModal}
     </>
   );
 };

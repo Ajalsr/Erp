@@ -1,11 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { FaChevronLeft, FaPlus, FaTrash, FaCheckCircle, FaSpinner, FaChevronDown } from 'react-icons/fa';
+import cc from 'currency-codes';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
 import axiosInstance from '../../helper/axiosInstance';
+import { usePermissions } from '../../helper/permissions';
+import QuickCreateModal from '../common/QuickCreateModal';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import nexusToast from '../../helper/nexusToast';
 import AppDatePicker from '../common/AppDatePicker';
+import useIsMobile from '../../helper/useIsMobile';
 
 // Normalise vendor origin variants → canonical form for RCM logic
 const normOrigin = (o) => {
@@ -22,32 +26,52 @@ const rcmForOrigin = (o) => {
 };
 
 // ── Custom dropdown — replaces native <select> ───────────────────────────────
-function CustomSelect({ value, onChange, options, placeholder = 'Select…', T, isDark, style = {} }) {
+function CustomSelect({ value, onChange, options, placeholder = 'Select…', T, isDark, style = {}, searchable, onCreateNew, createLabel }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const ref = useRef(null);
+  const searchRef = useRef(null);
   useEffect(() => {
+    if (open && searchable) searchRef.current?.focus();
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, []);
+  }, [open, searchable]);
   const opts = options.map(o => typeof o === 'string' ? { value: o, label: o } : o);
   const selected = opts.find(o => o.value === value);
+  const filtered = query ? opts.filter(o => String(o.label).toLowerCase().includes(query.toLowerCase())) : opts;
   return (
     <div ref={ref} style={{ position: 'relative', ...style }}>
-      <button type="button" onClick={() => setOpen(v => !v)}
+      <button type="button" onClick={() => setOpen(v => { if (!v) setQuery(''); return !v; })}
         style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${open ? '#3b82f6' : T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: selected ? T.textPri : T.textSec, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, textAlign: 'left', boxShadow: open ? '0 0 0 3px rgba(59,130,246,.12)' : 'none', transition: 'border-color .15s, box-shadow .15s' }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected?.label || placeholder}</span>
         <FaChevronDown size={10} style={{ flexShrink: 0, color: T.textSec, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden', maxHeight: 220, overflowY: 'auto' }}>
-          {opts.map(o => (
-            <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
-              style={{ width: '100%', padding: '9px 14px', fontSize: 13, background: o.value === value ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : 'transparent', color: o.value === value ? '#3b82f6' : T.textPri, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', fontWeight: o.value === value ? 700 : 400, display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background .1s' }}>
-              {o.label}
-              {o.value === value && <span style={{ fontSize: 10, color: '#3b82f6' }}>✓</span>}
-            </button>
-          ))}
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 10, boxShadow: isDark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden' }}>
+          {searchable && (
+            <div style={{ padding: 6, borderBottom: `1px solid ${T.border}` }}>
+              <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search…"
+                style={{ width: '100%', height: 32, padding: '0 10px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5, background: T.bg, color: T.textPri, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            </div>
+          )}
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {filtered.length === 0
+              ? <div style={{ padding: '10px 14px', fontSize: 12.5, color: T.textSec, textAlign: 'center' }}>No matches</div>
+              : filtered.map(o => (
+                <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                  style={{ width: '100%', padding: '9px 14px', fontSize: 13, background: o.value === value ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : 'transparent', color: o.value === value ? '#3b82f6' : T.textPri, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', fontWeight: o.value === value ? 700 : 400, display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background .1s' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+                  {o.value === value && <span style={{ fontSize: 10, color: '#3b82f6' }}>✓</span>}
+                </button>
+              ))}
+          </div>
+          {onCreateNew && (
+            <div onMouseDown={() => { setOpen(false); onCreateNew(); }}
+              style={{ padding: '10px 14px', borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || 'Create new'}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -57,6 +81,15 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…', T, 
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 const PAYMENT_TERMS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 90', 'End of Month', 'Cash on Delivery', 'Custom'];
+
+// Full ISO currency list (searchable). AED/USD/EUR/GBP/SAR floated to top.
+const _TOP_CUR = ['AED', 'USD', 'EUR', 'GBP', 'SAR'];
+const CURRENCY_OPTS = (() => {
+  const all = cc.codes().map(code => { const d = cc.code(code); return d ? { value: code, label: `${code} — ${d.currency}` } : null; }).filter(Boolean);
+  const top = _TOP_CUR.map(c => all.find(o => o.value === c)).filter(Boolean);
+  const rest = all.filter(o => !_TOP_CUR.includes(o.value));
+  return [...top, ...rest];
+})();
 const UAE_EMIRATES  = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'];
 const RCM_TYPES     = [
   { value: 'import',          label: 'Import (Overseas Vendor)' },
@@ -84,12 +117,14 @@ function calcLine(line) {
 }
 
 export default function NewBill() {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const navigate = useNavigate();
   const location = useLocation();
   const { id }   = useParams();
   const isEdit   = !!id;
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const [saving, setSaving] = useState(false);
 
   const pre = location.state || {};
@@ -105,6 +140,23 @@ export default function NewBill() {
   const [accountingDate, setAccountingDate] = useState(today);
   const [dueDate,        setDueDate]        = useState('');
   const [payTerms,       setPayTerms]       = useState('Net 30');
+  // Payment Terms from the org's Payment Terms module (+ create shortcut).
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [quickCreateTerm, setQuickCreateTerm] = useState(false);
+  const fetchPaymentTerms = useCallback(() => axiosInstance.get('/api/payment-terms/?status=active')
+    .then(r => setPaymentTermList(r.data?.data?.paymentTerms || [])).catch(() => {}), []);
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+  const handleCreatePaymentTerm = async (f) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: f.name, days: Number(f.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setPayTerms(res.data.data.name);
+  };
+  const paymentTermsOptions = (() => {
+    const opts = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+    if (opts.length === 0) PAYMENT_TERMS.forEach(n => opts.push({ value: n, label: n }));
+    if (payTerms && !opts.some(o => o.value === payTerms)) opts.unshift({ value: payTerms, label: payTerms });
+    return opts;
+  })();
   const [placeOfSupply,  setPlaceOfSupply]  = useState('Dubai');
   const [rcmApplicable,  setRcmApplicable]  = useState(pre.rcmApplicable || false);
   const [rcmType,        setRcmType]        = useState(pre.rcmType || '');
@@ -333,30 +385,30 @@ export default function NewBill() {
 
   const inp = { width: '100%', padding: '9px 12px', border: `1.5px solid ${T.border}`, borderRadius: 9, fontSize: 13, background: T.surface, color: T.textPri, fontFamily: 'inherit', outline: 'none' };
   const lbl = { display: 'block', fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 };
-  const sec = { background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: '20px 22px', marginBottom: 16, boxShadow: isDark ? '0 2px 10px rgba(0,0,0,.25)' : '0 1px 4px rgba(0,0,0,.05)' };
+  const sec = { background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: isMobile ? '16px' : '20px 22px', marginBottom: 16, boxShadow: isDark ? '0 2px 10px rgba(0,0,0,.25)' : '0 1px 4px rgba(0,0,0,.05)' };
 
   const guard = useUnsavedGuard({ hasDraft: false });
 
   return (
-    <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px', color: T.textPri, fontFamily: "'DM Sans', sans-serif" }}>
+    <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: isMobile ? '14px 14px 70px' : '20px 20px 90px', color: T.textPri, fontFamily: "'DM Sans', sans-serif", overflowX: 'hidden' }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');`}</style>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
 
         {/* Top bar */}
-        <div style={{ position: 'sticky', top: 0, zIndex: 30, background: isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)', backdropFilter: 'blur(12px)', padding: '12px 0', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button onClick={() => navigate('/Purchase/Bills')} style={{ width: 36, height: 36, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+        <div style={{ position: isMobile ? 'static' : 'sticky', top: 0, zIndex: 30, background: isMobile ? T.bg : (isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)'), backdropFilter: isMobile ? 'none' : 'blur(12px)', padding: isMobile ? '0' : '12px 0', marginBottom: 20 }}>
+          <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0 }}>
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Bills'))} style={{ width: 36, height: 36, flexShrink: 0, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
                 <FaChevronLeft size={13} />
               </button>
-              <div>
-                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 17, fontWeight: 800, color: T.textPri, margin: 0 }}>{isEdit ? 'Edit Vendor Bill' : 'New Vendor Bill'}</h1>
-                {pre.fromGRN && <p style={{ fontSize: 11, color: T.blue, margin: '2px 0 0' }}>Created from GRN: {pre.grnNumber}</p>}
+              <div style={{ minWidth: 0 }}>
+                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 15 : 17, fontWeight: 800, color: T.textPri, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isEdit ? 'Edit Vendor Bill' : 'New Vendor Bill'}</h1>
+                {pre.fromGRN && !isMobile && <p style={{ fontSize: 11, color: T.blue, margin: '2px 0 0' }}>Created from GRN: {pre.grnNumber}</p>}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => navigate('/Purchase/Bills')} style={{ padding: '9px 18px', border: `1.5px solid ${T.border}`, borderRadius: 9, background: 'transparent', color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleSubmit} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 20px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+            <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Bills'))} style={{ padding: '9px 18px', border: `1.5px solid ${T.border}`, borderRadius: 9, background: 'transparent', color: T.textSec, fontSize: 13, fontWeight: 600, cursor: 'pointer', flex: isMobile ? 1 : 'none' }}>Cancel</button>
+              <button onClick={handleSubmit} disabled={saving} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 20px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, flex: isMobile ? 1 : 'none' }}>
                 {saving ? <><FaSpinner size={12} style={{ animation: 'spin .7s linear infinite' }} /> Saving…</> : <><FaCheckCircle size={12} /> {isEdit ? 'Update Bill' : 'Save Bill'}</>}
               </button>
             </div>
@@ -385,7 +437,7 @@ export default function NewBill() {
         {/* Vendor + header */}
         <div style={sec}>
           <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 700, color: T.textPri, margin: '0 0 16px' }}>Bill Details</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 12 : 16, marginBottom: 16 }}>
             <div style={{ position: 'relative' }}>
               <label style={lbl}>Vendor <span style={{ color: '#ef4444' }}>*</span></label>
               <input value={vendorSearch} onChange={(e) => { setVendorSearch(e.target.value); setVendorId(''); setVendorName(''); }}
@@ -415,7 +467,8 @@ export default function NewBill() {
             </div>
             <div>
               <label style={lbl}>Payment Terms</label>
-              <CustomSelect value={payTerms} onChange={setPayTerms} options={PAYMENT_TERMS} T={T} isDark={isDark} />
+              <CustomSelect value={payTerms} onChange={setPayTerms} options={paymentTermsOptions} T={T} isDark={isDark}
+                searchable onCreateNew={canPerm('payment_terms', 'add') ? () => setQuickCreateTerm(true) : undefined} createLabel="Create payment term" />
             </div>
             <div>
               <label style={lbl}>Bill Date</label>
@@ -431,13 +484,8 @@ export default function NewBill() {
             </div>
             <div>
               <label style={lbl}>Currency</label>
-              <input
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
-                maxLength={3}
-                placeholder={baseCurrency}
-                style={{ ...inp, textTransform: 'uppercase' }}
-              />
+              <CustomSelect value={currency} onChange={(v) => setCurrency(v)} options={CURRENCY_OPTS}
+                placeholder={baseCurrency} T={T} isDark={isDark} searchable />
               {currency && currency !== baseCurrency && (
                 <span style={{ display: 'block', fontSize: 11, color: T.textSec, marginTop: 4 }}>
                   1 {currency} = {Number(exchangeRate).toLocaleString('en-AE', { maximumFractionDigits: 6 })} {baseCurrency} · books in {baseCurrency}
@@ -473,7 +521,7 @@ export default function NewBill() {
           </div>
 
           {/* RCM */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, padding: '12px 0', borderTop: `1px solid ${T.border}` }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginTop: 8, padding: '12px 0', borderTop: `1px solid ${T.border}` }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: T.textPri }}>
               <input type="checkbox" checked={rcmApplicable} onChange={(e) => { setRcmApplicable(e.target.checked); if (!e.target.checked) setRcmType(''); }}
                 style={{ width: 16, height: 16, cursor: 'pointer' }} />
@@ -577,7 +625,7 @@ export default function NewBill() {
         </div>
 
         {/* Totals */}
-        <div style={{ ...sec, maxWidth: 380, marginLeft: 'auto' }}>
+        <div style={{ ...sec, maxWidth: isMobile ? '100%' : 380, marginLeft: isMobile ? 0 : 'auto' }}>
           {discountTotal > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
               <span style={{ fontSize: 13, color: T.textSec }}>Gross Total</span>
@@ -644,13 +692,15 @@ export default function NewBill() {
         {!grnId && !fromGRN && (
           <div style={sec}>
             <label style={lbl}>Expense Account</label>
-            <select value={expenseAccount} onChange={(e) => setExpenseAccount(e.target.value)}
-              style={{ ...inp, cursor: 'pointer' }}>
-              <option value="">Cost of Goods Sold (default)</option>
-              {expAccounts.map(a => (
-                <option key={a._id} value={a._id}>[{a.accountCode}] {a.accountName}</option>
-              ))}
-            </select>
+            <CustomSelect
+              value={expenseAccount}
+              onChange={setExpenseAccount}
+              options={[
+                { value: '', label: 'Cost of Goods Sold (default)' },
+                ...expAccounts.map(a => ({ value: a._id, label: `[${a.accountCode}] ${a.accountName}` })),
+              ]}
+              T={T} isDark={isDark}
+            />
             <p style={{ fontSize: 11, color: T.textSec, margin: '6px 0 0' }}>
               Which account this bill is booked to (rent, utilities, services…).
             </p>
@@ -665,6 +715,15 @@ export default function NewBill() {
             style={{ ...inp, resize: 'vertical' }} />
         </div>
       </div>
+
+      {quickCreateTerm && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreateTerm(false)} onSubmit={handleCreatePaymentTerm} />
+      )}
     </div>
   );
 }

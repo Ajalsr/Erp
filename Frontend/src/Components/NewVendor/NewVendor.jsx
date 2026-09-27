@@ -4,9 +4,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import PhoneInput, { getCountryCallingCode } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useIsMobile from '../../helper/useIsMobile';
 import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
+import { drawerWidth } from '../../helper/responsive';
 import axiosInstance from '../../helper/axiosInstance/';
+import { usePermissions } from '../../helper/permissions';
+import cc from 'currency-codes';
+import QuickCreateModal from '../common/QuickCreateModal';
 
 /* ══════════════════════════════════════════════════════════════════════
    SHARED PRIMITIVES  (identical API to New.jsx so patterns stay consistent)
@@ -76,7 +81,7 @@ function Input({ prefix, suffix, mono, T, error, ...props }) {
 }
 
 /* ── CustomSelect — portal-based, searchable ───────────────────── */
-function CustomSelect({ value, onChange, options, placeholder = 'Select', name, T, isDark, error }) {
+function CustomSelect({ value, onChange, options, placeholder = 'Select', name, T, isDark, error, onCreateNew, createLabel }) {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
@@ -187,6 +192,18 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', name, 
             })
         }
       </div>
+      {onCreateNew && (
+        <div onClick={() => { onCreateNew(); setOpen(false); setReady(false); setQuery(''); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px',
+            borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#3b82f6' }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          {createLabel || 'Create new'}
+        </div>
+      )}
     </div>
   );
 
@@ -430,7 +447,7 @@ function DiscardModal({ onConfirm, onCancel, T }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(8px)' }}>
       <div style={{
-        background: T.surface, borderRadius: 20, padding: '32px 36px', width: 360,
+        background: T.surface, borderRadius: 20, padding: '32px 36px', width: drawerWidth(360),
         textAlign: 'center', boxShadow: '0 40px 100px rgba(0,0,0,.35)',
         border: `1.5px solid ${T.border}`,
       }}>
@@ -476,12 +493,11 @@ const COUNTRIES = [
   'Singapore','Malaysia','Australia','Canada','South Africa',
 ];
 
-const CURRENCIES = ['AED','USD','EUR','GBP','INR','SAR','QAR','KWD','BHD','OMR','EGP'];
-
-const PAYMENT_TERMS = [
-  'Due on Receipt','Net 15','Net 30','Net 45','Net 60','Net 90',
-  'End of Month','Cash on Delivery','Custom',
-];
+// All ISO 4217 currencies: { label: "UAE Dirham (AED)", value: "AED" }
+const CURRENCY_OPTIONS = cc.codes().map(code => {
+  const d = cc.code(code);
+  return d ? { label: `${d.currency} (${code})`, value: code } : null;
+}).filter(Boolean);
 
 const VENDOR_TYPES = ['Individual','Business / Company','Manufacturer','Distributor','Service Provider'];
 
@@ -498,12 +514,14 @@ const normaliseOrigin = (o) => {
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════ */
 export default function NewVendor() {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const guard     = useUnsavedGuard({ hasDraft: false });
   const navigate  = useNavigate();
   const { id }    = useParams();
   const isEdit    = !!id;
   const isDark    = useThemeStore(s => s.isDark);
   const T         = { ...getTheme(isDark), isDark };
+  const isMobile  = useIsMobile();
 
   /* ── State ── */
   const [saving,       setSaving]       = useState(false);
@@ -511,6 +529,41 @@ export default function NewVendor() {
   const [activeSection,setActiveSection] = useState('sec-identity');
   const [errors,       setErrors]       = useState({});
   const [contacts,     setContacts]     = useState([{ id: Date.now(), name: '', email: '', phone: '', position: '', isPrimary: true }]);
+
+  const [paymentTerms, setPaymentTerms] = useState([]);
+  const [quickCreate,  setQuickCreate]  = useState(null); // 'paymentTerm' | 'vendorType' | null
+  const fetchPaymentTerms = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(res => setPaymentTerms(res.data?.data?.paymentTerms || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+
+  // Vendor types are org-configurable (Vendor Types module). Load them; the
+  // backend seeds the classic defaults (Individual, Manufacturer, …) on org
+  // creation, so this is never empty. Fall back to the built-in list if the
+  // fetch fails, so the dropdown still works offline.
+  const [vendorTypes, setVendorTypes] = useState([]);
+  const fetchVendorTypes = useCallback(() => {
+    return axiosInstance.get('/api/vendor-types/?status=active')
+      .then(res => setVendorTypes(res.data?.data?.vendorTypes || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchVendorTypes(); }, [fetchVendorTypes]);
+  const handleCreateVendorType = async (fields) => {
+    const res = await axiosInstance.post('/api/vendor-types/', { name: fields.name, description: fields.description || '' });
+    await fetchVendorTypes();
+    if (res.data?.data?.name) setForm(p => ({ ...p, vendorType: res.data.data.name }));
+  };
+  const paymentTermOptions = [
+    ...paymentTerms.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` })),
+    { value: 'Custom', label: 'Custom — specify No. of Days' },
+  ];
+  const handleCreatePaymentTerm = async (fields) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: fields.name, days: Number(fields.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setForm(p => ({ ...p, paymentTerms: res.data.data.name }));
+  };
 
   const [form, setForm] = useState({
     // Identity
@@ -528,6 +581,15 @@ export default function NewVendor() {
     // Notes
     notes: '', remarks: '', tags: '',
   });
+
+  // Vendor-type dropdown options: module values (or the built-in fallback), and
+  // keep the current value visible even if it's no longer a configured type.
+  const vendorTypeOptions = (() => {
+    const base = vendorTypes.length ? vendorTypes.map(t => t.name) : VENDOR_TYPES;
+    const opts = base.map(n => ({ value: n, label: n }));
+    if (form.vendorType && !opts.some(o => o.value === form.vendorType)) opts.unshift({ value: form.vendorType, label: form.vendorType });
+    return opts;
+  })();
 
   /* ── Pre-fill on edit ── */
   useEffect(() => {
@@ -692,8 +754,8 @@ export default function NewVendor() {
     border: `1.5px solid ${borderColor}`,
     ...extra,
   });
-  const grid2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 };
-  const grid3 = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 };
+  const grid2 = { display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 };
+  const grid3 = { display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 16 };
 
   const saveBtn = {
     display: 'flex', alignItems: 'center', gap: 8,
@@ -746,52 +808,70 @@ export default function NewVendor() {
         />
       )}
 
+      {quickCreate === 'paymentTerm' && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
+      )}
+
+      {quickCreate === 'vendorType' && (
+        <QuickCreateModal title="New Vendor Type" T={T}
+          fields={[
+            { name: 'name', label: 'Type Name', placeholder: 'e.g. Freelancer', required: true, autoFocus: true },
+            { name: 'description', label: 'Description', placeholder: 'Optional' },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateVendorType} />
+      )}
+
       <div onInput={guard.markDirty} onChange={guard.markDirty} style={{
-        minHeight: '100vh', background: T.bg, paddingBottom: 100,
-        animation: 'nvFadeUp .3s ease both',
+        minHeight: '100vh', background: T.bg, paddingBottom: isMobile ? 90 : 100,
+        animation: 'nvFadeUp .3s ease both', overflowX: 'hidden',
       }}>
 
         {/* ── Top bar ── */}
         <div style={{
-          position: 'sticky', top: 0, zIndex: 100,
-          background: isDark ? 'rgba(8,13,26,.92)' : 'rgba(241,245,249,.92)',
-          backdropFilter: 'blur(16px)', borderBottom: `1px solid ${borderColor}`,
-          padding: '0 28px', height: 58,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          position: isMobile ? 'static' : 'sticky', top: 0, zIndex: 100,
+          background: isMobile ? T.bg : (isDark ? 'rgba(8,13,26,.92)' : 'rgba(241,245,249,.92)'),
+          backdropFilter: isMobile ? 'none' : 'blur(16px)', borderBottom: `1px solid ${borderColor}`,
+          padding: isMobile ? '8px 14px' : '0 28px', height: isMobile ? 'auto' : 58,
+          display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 8 : 0,
         }}>
           {/* Left */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0 }}>
             <button onClick={() => setShowDiscard(true)} style={{
-              display: 'flex', alignItems: 'center', gap: 7,
+              display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0,
               background: 'none', border: `1.5px solid ${borderColor}`,
               borderRadius: 10, padding: '7px 14px', color: T.textSec,
               fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             }}>
               <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-              Back
+              {!isMobile && 'Back'}
             </button>
-            <div style={{ width: 1, height: 24, background: borderColor }} />
-            <div>
-              <p style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>
+            {!isMobile && <div style={{ width: 1, height: 24, background: borderColor }} />}
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontFamily: "'Sora', sans-serif", fontSize: isMobile ? 13 : 15, fontWeight: 700, color: T.textPri, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {isEdit ? 'Edit Vendor' : 'New Vendor'}
               </p>
-              <p style={{ fontSize: 11, color: T.textSec, margin: 0 }}>
+              {!isMobile && <p style={{ fontSize: 11, color: T.textSec, margin: 0 }}>
                 Purchase → Vendors
-              </p>
+              </p>}
             </div>
           </div>
 
           {/* Right */}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
             <button onClick={() => setShowDiscard(true)} style={{
-              padding: '9px 18px', background: 'none',
+              padding: isMobile ? '9px 14px' : '9px 18px', background: 'none',
               border: `1.5px solid ${borderColor}`, borderRadius: 12,
               color: T.textSec, fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'inherit',
+              cursor: 'pointer', fontFamily: 'inherit', flex: isMobile ? 1 : 'initial', whiteSpace: 'nowrap',
             }}>
               Cancel
             </button>
-            <button style={saveBtn} onClick={handleSubmit} disabled={saving}>
+            <button style={{ ...saveBtn, flex: isMobile ? 1 : 'initial', justifyContent: 'center', whiteSpace: 'nowrap' }} onClick={handleSubmit} disabled={saving}>
               {saving
                 ? <><svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ animation: 'spin 1s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Saving…</>
                 : <><svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.8} strokeLinecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Vendor</>
@@ -801,10 +881,10 @@ export default function NewVendor() {
         </div>
 
         {/* ── Body ── */}
-        <div style={{ maxWidth: 1060, margin: '0 auto', padding: '24px 28px', display: 'grid', gridTemplateColumns: '180px 1fr', gap: 20, alignItems: 'start' }}>
+        <div style={{ maxWidth: 1060, margin: '0 auto', padding: isMobile ? '14px' : '24px 28px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '180px 1fr', gap: isMobile ? 14 : 20, alignItems: 'start' }}>
 
           {/* ── Left nav ── */}
-          <div style={{ position: 'sticky', top: 78 }}>
+          <div style={isMobile ? { minWidth: 0 } : { position: 'sticky', top: 78, minWidth: 0 }}>
             {/* Avatar card */}
             <div style={{ ...card({ padding: '22px 16px', textAlign: 'center', marginBottom: 12 }) }}>
               <div style={{
@@ -836,12 +916,12 @@ export default function NewVendor() {
             </div>
 
             {/* Nav pills */}
-            <div style={{ ...card({ padding: '8px' }) }}>
+            <div style={{ ...card({ padding: '8px' }), display: isMobile ? 'flex' : 'block', gap: isMobile ? 6 : 0, overflowX: isMobile ? 'auto' : 'visible' }}>
               {NAV.map(n => (
                 <button key={n.id} className="nv-nav-pill"
                   onClick={() => document.getElementById(n.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                   style={{
-                    width: '100%', padding: '8px 12px', textAlign: 'left',
+                    width: isMobile ? 'auto' : '100%', flexShrink: 0, padding: '8px 12px', textAlign: 'left', whiteSpace: 'nowrap',
                     background: activeSection === n.id ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : 'none',
                     border: 'none', borderRadius: 9,
                     color: activeSection === n.id ? '#3b82f6' : T.textSec,
@@ -859,7 +939,7 @@ export default function NewVendor() {
           </div>
 
           {/* ── Right form ── */}
-          <div>
+          <div style={{ minWidth: 0 }}>
 
             {/* ── IDENTITY ── */}
             <Section id="sec-identity" title="Vendor Identity" accent="#3b82f6" T={T}
@@ -868,8 +948,9 @@ export default function NewVendor() {
               <div style={{ ...grid2, marginBottom: 16 }}>
                 <F label="Vendor Type" req T={T}>
                   <CustomSelect name="vendorType" value={form.vendorType} onChange={handleChange}
-                    options={VENDOR_TYPES} placeholder="Select type"
-                    T={T} isDark={isDark} error={errors.vendorType} />
+                    options={vendorTypeOptions} placeholder="Select type"
+                    T={T} isDark={isDark} error={errors.vendorType}
+                    onCreateNew={() => setQuickCreate('vendorType')} createLabel="Create new vendor type" />
                 </F>
                 <F label="Origin" T={T}>
                   <CustomSelect name="origin" value={form.origin} onChange={handleChange}
@@ -972,7 +1053,7 @@ export default function NewVendor() {
               <div style={{ ...grid3, marginBottom: 16 }}>
                 <F label="Currency" T={T}>
                   <CustomSelect name="currency" value={form.currency} onChange={handleChange}
-                    options={CURRENCIES} placeholder="Select currency" T={T} isDark={isDark} />
+                    options={CURRENCY_OPTIONS} placeholder="Select currency" T={T} isDark={isDark} />
                 </F>
                 <F label="Payment Terms" T={T}>
                   <CustomSelect name="paymentTerms" value={form.paymentTerms}
@@ -980,7 +1061,8 @@ export default function NewVendor() {
                       handleChange(e);
                       if (e.target.value !== 'Custom') setForm(p => ({ ...p, noOfDays: '' }));
                     }}
-                    options={PAYMENT_TERMS} placeholder="Select terms" T={T} isDark={isDark} />
+                    options={paymentTermOptions} placeholder="Select terms" T={T} isDark={isDark}
+                    onCreateNew={canPerm('payment_terms', 'add') ? () => setQuickCreate('paymentTerm') : undefined} createLabel="Create new payment term" />
                 </F>
                 {form.paymentTerms === 'Custom' && (
                   <F label="No. of Days" T={T}>
@@ -1122,12 +1204,12 @@ export default function NewVendor() {
 
         {/* ── Sticky bottom save bar ── */}
         <div style={{
-          position: 'fixed', bottom: 0, left: 220, right: 0, zIndex: 90,
-          background: isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)',
-          backdropFilter: 'blur(12px)', borderTop: `1px solid ${borderColor}`,
-          padding: '12px 28px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10,
+          position: 'fixed', bottom: 0, left: isMobile ? 0 : 220, right: 0, zIndex: 90,
+          background: isMobile ? T.bg : (isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)'),
+          backdropFilter: isMobile ? 'none' : 'blur(12px)', borderTop: `1px solid ${borderColor}`,
+          padding: isMobile ? '10px 14px' : '12px 28px', display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'flex-end', gap: 10,
         }}>
-          <span style={{ fontSize: 12, color: T.textSec, marginRight: 'auto' }}>
+          <span style={{ fontSize: 12, color: T.textSec, marginRight: 'auto', width: isMobile ? '100%' : 'auto' }}>
             {Object.keys(errors).length > 0
               ? <span style={{ color: '#ef4444', fontWeight: 600 }}>⚠ {Object.keys(errors).length} required field{Object.keys(errors).length > 1 ? 's' : ''} missing</span>
               : <span style={{ color: isDark ? 'rgba(255,255,255,.2)' : '#cbd5e1' }}>Fill in the required fields and save</span>
@@ -1137,11 +1219,11 @@ export default function NewVendor() {
             padding: '9px 18px', background: 'none',
             border: `1.5px solid ${borderColor}`, borderRadius: 12,
             color: T.textSec, fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'inherit',
+            cursor: 'pointer', fontFamily: 'inherit', flex: isMobile ? 1 : 'initial', whiteSpace: 'nowrap',
           }}>
             Cancel
           </button>
-          <button style={saveBtn} onClick={handleSubmit} disabled={saving}>
+          <button style={{ ...saveBtn, flex: isMobile ? 1 : 'initial', justifyContent: 'center', whiteSpace: 'nowrap' }} onClick={handleSubmit} disabled={saving}>
             {saving
               ? 'Saving…'
               : <><svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.8} strokeLinecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Vendor</>

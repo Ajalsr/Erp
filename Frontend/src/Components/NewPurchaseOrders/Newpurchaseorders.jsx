@@ -1,19 +1,26 @@
-import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useAuthStore from '../../store/useAuthStore';
+import useIsMobile from '../../helper/useIsMobile';
 import useGetItem from '../../helper/useGetItem';
+import useOrganization from '../../helper/useOrganization';
 import axiosInstance from '../../helper/axiosInstance';
 import nexusToast from '../../helper/nexusToast';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
+import { usePermissions } from '../../helper/permissions';
 import { debounce } from 'lodash';
+import cc from 'currency-codes';
+import QuickCreateModal from '../common/QuickCreateModal';
+import QuickAddItemModal from '../common/QuickAddItemModal';
 import RDatePicker from 'react-datepicker';
 import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
 import 'react-datepicker/dist/react-datepicker.css';
 import {
   FaPlus, FaTrash, FaChevronLeft, FaChevronRight, FaCheck,
   FaBox, FaPercent, FaMoneyBillWave, FaTag,
-  FaCheckCircle, FaFileInvoiceDollar, FaBarcode,
+  FaCheckCircle, FaFileInvoiceDollar,
   FaWarehouse, FaMoneyBill, FaBuilding,
 } from 'react-icons/fa';
 
@@ -85,11 +92,11 @@ const buildCSS = (isDark) => {
   .npo-irow:last-child{border-bottom:none;}
   .npo-irow:hover{background:${isDark?'rgba(59,130,246,0.08)':'#eff6ff'};}
   .npo-bottombar{position:fixed;bottom:0;left:220px;right:0;z-index:20;background:${isDark?'rgba(8,13,26,.97)':'rgba(255,255,255,.97)'};backdrop-filter:blur(14px);border-top:1.5px solid ${border};padding:14px 32px;display:flex;align-items:center;justify-content:space-between;box-shadow:${isDark?'0 -8px 32px rgba(0,0,0,.4)':'0 -8px 32px rgba(0,0,0,.06)'};}
-  .react-datepicker{font-family:'DM Sans',sans-serif!important;border:1.5px solid ${border}!important;border-radius:14px!important;box-shadow:${isDark?'0 20px 40px rgba(0,0,0,.5)':'0 20px 40px rgba(0,0,0,.12)'}!important;background:${surface}!important;}
-  .react-datepicker__header{background:${surface2}!important;border-bottom:1.5px solid ${border}!important;border-radius:14px 14px 0 0!important;padding-top:14px!important;}
-  .react-datepicker__current-month{font-size:14px!important;font-weight:700!important;color:${text}!important;font-family:'Sora',sans-serif!important;}
-  .react-datepicker__day-name{color:${textMuted}!important;font-weight:600!important;font-size:11px!important;}
-  .react-datepicker__day{width:2.2rem!important;height:2.2rem!important;line-height:2.2rem!important;border-radius:8px!important;font-size:13px!important;transition:all .12s!important;color:${text}!important;}
+  .react-datepicker{font-family:'DM Sans',sans-serif!important;border:1.5px solid ${border}!important;border-radius:12px!important;box-shadow:${isDark?'0 20px 40px rgba(0,0,0,.5)':'0 20px 40px rgba(0,0,0,.12)'}!important;background:${surface}!important;font-size:.8rem!important;}
+  .react-datepicker__header{background:${surface2}!important;border-bottom:1.5px solid ${border}!important;border-radius:12px 12px 0 0!important;padding-top:10px!important;}
+  .react-datepicker__current-month{font-size:12px!important;font-weight:700!important;color:${text}!important;font-family:'Sora',sans-serif!important;}
+  .react-datepicker__day-name{color:${textMuted}!important;font-weight:600!important;font-size:10px!important;width:1.7rem!important;line-height:1.7rem!important;margin:.1rem!important;}
+  .react-datepicker__day{width:1.7rem!important;height:1.7rem!important;line-height:1.7rem!important;border-radius:7px!important;font-size:11px!important;margin:.1rem!important;transition:all .12s!important;color:${text}!important;}
   .react-datepicker__day:hover{background:${isDark?'rgba(59,130,246,0.2)':'#eff6ff'}!important;color:#3b82f6!important;}
   .react-datepicker__day--selected{background:#3b82f6!important;color:#fff!important;font-weight:700!important;box-shadow:0 2px 8px rgba(59,130,246,.3)!important;}
   .react-datepicker__day--today{background:${isDark?'rgba(59,130,246,0.15)':'#dbeafe'}!important;color:#2563eb!important;font-weight:700!important;}
@@ -111,12 +118,28 @@ const getVendorTaxRate = origin => {
   const o = normaliseOrigin(origin);
   return (o === 'free_zone' || o === 'overseas') ? 0.0 : 0.05;
 };
-const PAYMENT_TERMS_OPTS = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 90', 'End of Month', 'Cash on Delivery', 'Custom'];
-const SHIP_PREFS = [
-  { value: 'standard',  label: 'Standard'  },
-  { value: 'express',   label: 'Express'   },
-  { value: 'overnight', label: 'Overnight' },
+const PAYMENT_TERMS_OPTS = [
+  'Advance Payment', 'Cash Against Delivery (CAD)',
+  'CDC 30 Days', 'CDC 60 Days', 'CDC 90 Days',
+  'Credit 30 Days', 'Credit 60 Days', 'Credit 90 Days',
+  'Due on Receipt',
 ];
+const SHIP_PREFS = [
+  { value: 'immediate',      label: 'Immediate'       },
+  { value: 'within_3_days',  label: 'Within 3 Days'   },
+  { value: 'within_7_days',  label: 'Within 7 Days'   },
+  { value: 'within_15_days', label: 'Within 15 Days'  },
+  { value: 'within_30_days', label: 'Within 30 Days'  },
+  { value: 'as_scheduled',   label: 'As Scheduled'    },
+];
+// Full ISO currency list (searchable dropdown). AED/USD/EUR/GBP/SAR floated to top.
+const _TOP_CUR = ['AED', 'USD', 'EUR', 'GBP', 'SAR'];
+const CURRENCY_OPTS = (() => {
+  const all = cc.codes().map(code => { const d = cc.code(code); return d ? { value: code, label: `${code} — ${d.currency}` } : null; }).filter(Boolean);
+  const top = _TOP_CUR.map(c => all.find(o => o.value === c)).filter(Boolean);
+  const rest = all.filter(o => !_TOP_CUR.includes(o.value));
+  return [...top, ...rest];
+})();
 const AVATAR_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4'];
 
 const calcLineBase = (qty, rate, discount, discountType) => {
@@ -135,7 +158,7 @@ const Field = ({ label, req, children }) => (
 );
 
 /* ─── VendorSelect ────────────────────────────────────────────────── */
-function VendorSelect({ value, onChange, vendors, loading, T, isDark }) {
+function VendorSelect({ value, onChange, vendors, loading, T, isDark, onCreateNew }) {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
@@ -271,6 +294,14 @@ function VendorSelect({ value, onChange, vendors, loading, T, isDark }) {
           );
         })}
       </div>
+      {onCreateNew && (
+        <div onClick={() => { setOpen(false); setReady(false); onCreateNew(); }}
+          style={{ padding: '11px 14px', borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: activeColor, display: 'flex', alignItems: 'center', gap: 7 }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> Create new vendor
+        </div>
+      )}
     </div>
   );
 
@@ -299,18 +330,20 @@ function VendorSelect({ value, onChange, vendors, loading, T, isDark }) {
 }
 
 /* ─── CustomSelect ────────────────────────────────────────────────── */
-function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isDark }) {
+function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isDark, searchable, onCreateNew, createLabel }) {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
+  const [query,   setQuery]   = useState('');
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
   const triggerRef = useRef(null);
   const dropRef    = useRef(null);
+  const searchRef  = useRef(null);
   const rafRef     = useRef(null);
 
   const measurePos = useCallback(() => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    const dropH = Math.min(options.length * 40 + 12, 280);
+    const dropH = Math.min(options.length * 40 + 60, 320);
     const spaceBelow = window.innerHeight - r.bottom;
     const top = spaceBelow > dropH ? r.bottom + 4 : r.top - dropH - 4;
     setDropPos({ top: top + window.scrollY, left: r.left + window.scrollX, width: r.width });
@@ -319,9 +352,9 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isD
 
   const handleOpen = () => {
     if (open) { setOpen(false); setReady(false); return; }
-    setReady(false); setOpen(true);
+    setReady(false); setQuery(''); setOpen(true);
     rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = requestAnimationFrame(() => measurePos());
+      rafRef.current = requestAnimationFrame(() => { measurePos(); if (searchable) searchRef.current?.focus(); });
     });
   };
 
@@ -346,6 +379,7 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isD
   const select = opt => { onChange(opt.value ?? opt); setOpen(false); setReady(false); };
   const selected = options.find(o => (o.value ?? o) === value);
   const display  = selected ? (selected.label ?? selected) : null;
+  const filtered = query ? options.filter(o => String(o.label ?? o).toLowerCase().includes(query.toLowerCase())) : options;
 
   const activeColor = isDark ? '#60a5fa' : '#2563eb';
   const activeBg    = isDark ? 'rgba(59,130,246,.15)' : '#eff6ff';
@@ -353,8 +387,17 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isD
 
   const dropdown = (
     <div ref={dropRef} style={{ position: 'absolute', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 12, fontFamily: "'DM Sans',sans-serif", boxShadow: isDark ? '0 16px 48px rgba(0,0,0,.5)' : '0 16px 48px rgba(0,0,0,.12)', overflow: 'hidden', visibility: ready ? 'visible' : 'hidden', opacity: ready ? 1 : 0, transition: 'opacity .12s ease' }}>
-      <div style={{ maxHeight: 268, overflowY: 'auto', padding: 6 }}>
-        {options.map((opt, i) => {
+      {searchable && (
+        <div style={{ padding: 6, borderBottom: `1px solid ${T.border}` }}>
+          <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onClick={e => e.stopPropagation()}
+            placeholder="Search…"
+            style={{ width: '100%', height: 32, padding: '0 10px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5, background: T.surface2, color: T.textPri, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+        </div>
+      )}
+      <div style={{ maxHeight: 240, overflowY: 'auto', padding: 6 }}>
+        {filtered.length === 0 ? (
+          <div style={{ padding: '12px', textAlign: 'center', fontSize: 12.5, color: T.textSec }}>No matches</div>
+        ) : filtered.map((opt, i) => {
           const val = opt.value ?? opt; const lbl = opt.label ?? opt; const isAct = val === value;
           return (
             <div key={i} onClick={() => select(opt)}
@@ -371,6 +414,14 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select', T, isD
           );
         })}
       </div>
+      {onCreateNew && (
+        <div onClick={() => { setOpen(false); setReady(false); onCreateNew(); }}
+          style={{ padding: '10px 14px', borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: activeColor, display: 'flex', alignItems: 'center', gap: 7 }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || 'Create new'}
+        </div>
+      )}
     </div>
   );
 
@@ -416,7 +467,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
     }
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]);
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]);
 
   useEffect(() => {
     const h = e => {
@@ -432,7 +483,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
     <div ref={portalRef} style={{
       position: 'fixed', zIndex: 9998, top: pos.top + 6, left: pos.left,
       background: T.surface, borderRadius: 16, border: `1.5px solid ${T.border}`,
-      boxShadow: '0 24px 60px rgba(0,0,0,.18)', width: Math.max(pos.width, 340),
+      boxShadow: '0 24px 60px rgba(0,0,0,.18)', width: Math.max(pos.width, 280),
       overflow: 'hidden', fontFamily: "'DM Sans',sans-serif",
     }}>
       <div style={{ display: 'flex', borderBottom: `1.5px solid ${T.border}`, background: T.surface2 }}>
@@ -453,7 +504,7 @@ function DatePicker({ value, onChange, placeholder = 'Select date' }) {
         ))}
       </div>
 
-      <div style={{ padding: '14px 14px 10px' }}>
+      <div style={{ padding: '10px 10px 8px' }}>
         {mode === 'calendar' ? (
           <RDatePicker
             selected={sel}
@@ -550,8 +601,18 @@ export default function Newpurchaseorders() {
   const navigate = useNavigate();
   const { id: editId } = useParams();
   const isEdit = !!editId;
+  // Amend mode (?amend=1): changes an issued PO as a new revision instead of editing a draft.
+  const [searchParams] = useSearchParams();
+  const isAmend = isEdit && searchParams.get('amend') === '1';
+  const [amendReason, setAmendReason] = useState('');
+  const [poMeta, setPoMeta] = useState(null); // { orderNumber, revision }
   const isDark   = useThemeStore(s => s.isDark);
   const T        = getTheme(isDark);
+  const isMobile = useIsMobile();
+  const activeOrg = useAuthStore(s => s.activeOrg);
+  const { getOrganization } = useOrganization();
+  const { can } = usePermissions();
+  const canAddItem = can('items', 'add'); // gates the dropdown's "Create new item"
 
   /* ── Item state ── */
   const [items, setItems] = useState([{
@@ -571,14 +632,105 @@ export default function Newpurchaseorders() {
   const [orderDate,      setOrderDate]      = useState(new Date().toLocaleDateString('en-CA'));
   const [expectedDate,   setExpectedDate]   = useState('');
   const [paymentTerms,   setPaymentTerms]   = useState('Due on Receipt');
-  const [deliveryAddr,   setDeliveryAddr]   = useState('organization');
-  const [shipPref,       setShipPref]       = useState('');
+  const [deliveryAddressLine, setDeliveryAddressLine] = useState('');
+  const [shipPref,       setShipPref]       = useState('immediate');
   const [referenceNo,    setReferenceNo]    = useState('');
+  const [project,        setProject]        = useState('');
+  const [currency,       setCurrency]       = useState('AED');
+  const [vendorEmail,    setVendorEmail]    = useState('');
+  const [vendorPhone,    setVendorPhone]    = useState('');
+  const [vendorPOBox,    setVendorPOBox]    = useState('');
+  const [attentionTo,    setAttentionTo]    = useState('');
+  const [orgProfile,     setOrgProfile]     = useState(null); // { address, trn }
   const [customerNotes,  setCustomerNotes]  = useState('');
   const [terms,          setTerms]          = useState('');
   const [shipping,       setShipping]       = useState('0');
   const [adjustment,     setAdjustment]     = useState('0');
   const [saving,         setSaving]         = useState(false);
+
+  /* ── Org-configurable dropdowns (Payment Terms + Delivery Terms modules) ── */
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [deliveryTermList, setDeliveryTermList] = useState([]);
+  const [vendorTypeList, setVendorTypeList] = useState([]);
+  const [quickCreate, setQuickCreate] = useState(null); // 'paymentTerm' | 'deliveryTerm' | 'vendor' | 'item' | null
+  const fetchPaymentTermList = useCallback(() => axiosInstance.get('/api/payment-terms/?status=active')
+    .then(r => setPaymentTermList(r.data?.data?.paymentTerms || [])).catch(() => {}), []);
+  const fetchDeliveryTermList = useCallback(() => axiosInstance.get('/api/delivery-terms/?status=active')
+    .then(r => setDeliveryTermList(r.data?.data?.deliveryTerms || [])).catch(() => {}), []);
+  const fetchVendorTypeList = useCallback(() => axiosInstance.get('/api/vendor-types/?status=active')
+    .then(r => setVendorTypeList(r.data?.data?.vendorTypes || [])).catch(() => {}), []);
+  useEffect(() => { fetchPaymentTermList(); fetchDeliveryTermList(); fetchVendorTypeList(); }, [fetchPaymentTermList, fetchDeliveryTermList, fetchVendorTypeList]);
+
+  const paymentTermsOptions = (() => {
+    const opts = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+    if (opts.length === 0) PAYMENT_TERMS_OPTS.forEach(n => opts.push({ value: n, label: n }));
+    if (paymentTerms && !opts.some(o => o.value === paymentTerms)) opts.unshift({ value: paymentTerms, label: paymentTerms });
+    return opts;
+  })();
+  const deliveryTermsOptions = (() => {
+    const opts = deliveryTermList.map(t => ({ value: t.name, label: t.name }));
+    if (opts.length === 0) SHIP_PREFS.forEach(o => opts.push({ value: o.value, label: o.label }));
+    if (shipPref && !opts.some(o => o.value === shipPref)) {
+      const legacy = SHIP_PREFS.find(o => o.value === shipPref);
+      opts.unshift({ value: shipPref, label: legacy ? legacy.label : shipPref });
+    }
+    return opts;
+  })();
+  const handleCreatePaymentTerm = async (f) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: f.name, days: Number(f.days) || 0 });
+    await fetchPaymentTermList();
+    if (res.data?.data?.name) setPaymentTerms(res.data.data.name);
+  };
+  const handleCreateDeliveryTerm = async (f) => {
+    const res = await axiosInstance.post('/api/delivery-terms/', { name: f.name, description: f.description || '' });
+    await fetchDeliveryTermList();
+    if (res.data?.data?.name) setShipPref(res.data.data.name);
+  };
+  const handleCreateVendor = async (f) => {
+    const res = await axiosInstance.post('/api/vendors/', {
+      displayName: f.displayName, companyName: f.companyName || f.displayName,
+      email: f.email || '', phone: f.phone || '', vendorType: f.vendorType || '',
+    });
+    const created = res.data?.data;
+    const listRes = await axiosInstance.get('/api/vendors/?limit=200');
+    const list = listRes.data?.data?.vendors || [];
+    setVendors(list);
+    const picked = list.find(v => v._id === (created?._id || created?.id)) || list.find(v => v.displayName === f.displayName);
+    if (picked) setSelectedVendor(picked);
+  };
+  const [itemCreateRow, setItemCreateRow] = useState(null); // row index that opened "create item"
+  // Category groups + units of measure feed the rich QuickAddItemModal.
+  const [groupOptions, setGroupOptions] = useState([]);
+  const [groupMap, setGroupMap] = useState({});
+  const fetchGroupOptions = useCallback(() => axiosInstance.get('/api/item-groups/?status=active')
+    .then(r => {
+      const list = r.data?.data?.groups || [];
+      setGroupOptions(list.map(g => ({ value: g._id, label: g.name })));
+      const map = {}; list.forEach(g => { map[g._id] = { prefix: g.prefix || '' }; }); setGroupMap(map);
+    }).catch(() => {}), []);
+  const [uomOptions, setUomOptions] = useState([]);
+  const fetchUomOptions = useCallback(() => axiosInstance.get('/api/uoms/?status=active')
+    .then(r => setUomOptions((r.data?.data?.uoms || []).map(u => ({ value: u._id, label: u.symbol ? `${u.name} (${u.symbol})` : u.name })))).catch(() => {}), []);
+  useEffect(() => { fetchGroupOptions(); fetchUomOptions(); }, [fetchGroupOptions, fetchUomOptions]);
+  const handleItemCreated = (newItem) => {
+    if (itemCreateRow != null) handleItemSelect(itemCreateRow, newItem);
+    setQuickCreate(null); setItemCreateRow(null);
+    handleGetItem(); // refresh inventory cache so future searches find it too
+  };
+
+  /* ── Org profile (address + TRN, for delivery-address prefill & the TRN row) ── */
+  useEffect(() => {
+    if (!activeOrg?._id) return;
+    getOrganization(activeOrg._id).then(o => setOrgProfile({ address: o?.address || '', trn: o?.trn || '' })).catch(() => {});
+  }, [activeOrg?._id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Prefill delivery address from the org profile when "Organization" is picked
+     and the field is still empty (never overwrite something the user already typed). ── */
+  useEffect(() => {
+    if (!deliveryAddressLine && orgProfile?.address) {
+      setDeliveryAddressLine(orgProfile.address);
+    }
+  }, [orgProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Inventory ── */
   const { handleGetItem, data: inventoryData, loading: inventoryLoading } = useGetItem();
@@ -607,20 +759,28 @@ export default function Newpurchaseorders() {
       if (po.orderDate) setOrderDate(new Date(po.orderDate).toLocaleDateString('en-CA'));
       setExpectedDate(po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('en-CA') : '');
       setPaymentTerms(po.paymentTerms || 'Due on Receipt');
-      setDeliveryAddr(po.deliveryAddress || 'organization');
-      setShipPref(po.shipmentPreference || '');
+      setDeliveryAddressLine(po.deliveryAddressLine || '');
+      setShipPref(po.shipmentPreference || 'immediate');
       setReferenceNo(po.referenceNo || '');
+      setProject(po.project || '');
+      setCurrency(po.currency || 'AED');
+      setVendorEmail(po.vendorEmail || '');
+      setVendorPhone(po.vendorPhone || '');
+      setVendorPOBox(po.vendorPoBox || '');
+      setAttentionTo(po.attentionTo || '');
       setCustomerNotes(po.customerNotes || '');
       setTerms(po.termsAndConditions || '');
       setShipping(String(po.shippingCharges ?? 0));
       setAdjustment(String(po.adjustment ?? 0));
       if (po.items?.length) setItems(po.items.map((it, i) => ({
-        id: i + 1, itemId: it.itemId || '', details: it.details || '', sku: '', quantity: it.quantity || 1,
+        id: i + 1, itemId: it.itemId || '', details: it.details || '', sku: it.itemCode || '', quantity: it.quantity || 1,
         rate: it.rate ?? '', discount: it.discount ?? '', discountType: it.discountType || 'percentage',
         amount: String(it.amount ?? ''), unit: it.unit || '',
         freight: it.freight ?? '', freightTaxRate: it.freightTaxRate ?? '',
+        receivedQty: it.receivedQty || 0, sourceSoItemId: it.sourceSoItemId || '',
       })));
       setLoadedVendorId(po.vendorId || '');
+      setPoMeta({ orderNumber: po.orderNumber, revision: po.revision || 0 });
     }).catch(() => nexusToast.error('Failed to load purchase order'));
   }, [editId]);
   // Resolve the vendor object once both the PO and the vendor list are loaded.
@@ -718,7 +878,7 @@ export default function Newpurchaseorders() {
     const qty  = parseFloat(u[idx].quantity) || 1;
     const disc = parseFloat(u[idx].discount) || 0;
     const base = calcLineBase(qty, rate, disc, u[idx].discountType);
-    u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.sku || sel.item_code || '', rate, unit: sel.unit || sel.Unit || 'pcs', quantity: qty, amount: String(round2(base + base * effectiveTaxRate)) };
+    u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.item_code || sel.sku || '', rate, unit: sel.unit || sel.Unit || 'pcs', quantity: qty, amount: String(round2(base + base * effectiveTaxRate)) };
     setItems(u); setShowItemDropdown(null); setSearchTerm('');
   };
 
@@ -752,33 +912,51 @@ export default function Newpurchaseorders() {
   const handleSubmit = async (status = 'draft') => {
     if (!selectedVendor) { nexusToast.error('Vendor is required'); return; }
     if (!hasItemsAdded)  { nexusToast.error('Add at least one item'); return; }
+    if (isAmend && !amendReason.trim()) { nexusToast.error('Enter a reason for the amendment'); return; }
+    if (isAmend) {
+      const short = items.find(i => i.details && (parseFloat(i.quantity) || 0) < (i.receivedQty || 0));
+      if (short) { nexusToast.error(`${short.details}: quantity can't be less than the ${short.receivedQty} already received`); return; }
+    }
     setSaving(true);
     try {
       const payload = {
         vendorId:   selectedVendor._id,
         vendorName: selectedVendor.displayName || selectedVendor.companyName || '',
+        vendorEmail, vendorPhone, vendorPoBox: vendorPOBox, attentionTo,
         orderDate: new Date(orderDate).toISOString(),
         expectedDeliveryDate: expectedDate ? new Date(expectedDate).toISOString() : null,
-        poType, paymentTerms, deliveryAddress: deliveryAddr, shipmentPreference: shipPref, referenceNo,
+        poType, paymentTerms,
+        deliveryAddressLine,
+        shipmentPreference: shipPref, referenceNo, project, currency,
         items: computedItems.filter(i => i.details && i.quantity > 0).map(i => ({
-          itemId: i.itemId, details: i.details, quantity: parseFloat(i.quantity),
+          itemId: i.itemId, itemCode: (i.sku || '').trim(), details: i.details, quantity: parseFloat(i.quantity),
           rate: parseFloat(i.rate)||0, discount: parseFloat(i.discount)||0, discountType: i.discountType, unit: i.unit,
           freight: parseFloat(i.freight)||0, freightTaxRate: (parseFloat(i.freight)||0) > 0 ? (parseFloat(i.freightTaxRate)||0) : 0,
+          sourceSoItemId: i.sourceSoItemId || undefined,
         })),
         shippingCharges: shipAmt, adjustment: adjAmt, customerNotes, termsAndConditions: terms, status,
       };
-      if (isEdit) {
+      if (isAmend) {
+        const res = await axiosInstance.put(`/api/purchase-orders/${editId}/amend`, { ...payload, amendmentReason: amendReason.trim() });
+        // A held amendment (202) already gets the shared "Submitted for approval" toast.
+        if (!res.__pendingApproval) nexusToast.success(res.data?.message || 'Purchase order amended');
+      } else if (isEdit) {
         const res = await axiosInstance.put(`/api/purchase-orders/${editId}`, payload);
-        nexusToast.success(res.data?.data?.status === 'pending_approval'
-          ? 'Edit submitted for approval' : 'Purchase order updated');
+        if (status === 'draft') {
+          nexusToast.success('Draft updated');
+        } else {
+          // A held submit (202) already gets the shared "Submitted for approval" toast.
+          if (!res.__pendingApproval) nexusToast.success('Purchase order issued');
+        }
       } else {
-        await axiosInstance.post('/api/purchase-orders/', payload);
-        nexusToast.success('Purchase order created successfully!');
+        const res = await axiosInstance.post('/api/purchase-orders/', payload);
+        if (!res.__pendingApproval) nexusToast.success(status === 'draft' ? 'Purchase order saved as draft' : 'Purchase order created successfully!');
       }
       guard.reset();
       setTimeout(() => navigate('/Purchase/Purchaseorders'), 1500);
     } catch (err) {
-      nexusToast.error(err?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} purchase order`);
+      const msg = err?.response?.data?.message || `Failed to ${isAmend ? 'amend' : isEdit ? 'update' : 'create'} purchase order`;
+      nexusToast.error(msg);
     } finally { setSaving(false); }
   };
 
@@ -786,45 +964,71 @@ export default function Newpurchaseorders() {
   const [itemDropPos, setItemDropPos] = useState({ top: 0, left: 0, width: 0 });
   useEffect(() => {
     if (showItemDropdown === null) return;
-    const el = itemInputRefs.current[showItemDropdown];
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setItemDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: Math.max(r.width, 480) });
+    const measure = () => {
+      const el = itemInputRefs.current[showItemDropdown];
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setItemDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: Math.max(r.width, 480) });
+    };
+    measure();
+    // Reposition on scroll/resize so the dropdown stays glued to its input
+    // (fixes the panel detaching from the row while the page scrolls).
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => { window.removeEventListener('scroll', measure, true); window.removeEventListener('resize', measure); };
   }, [showItemDropdown]);
 
   /* ─────────────────────────── RENDER ──────────────────────────── */
   return (
-    <div className="npo-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: '20px 20px 90px' }}>
+    <div className="npo-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ minHeight: '100vh', background: T.bg, padding: isMobile ? '14px 14px 90px' : '20px 20px 90px' }}>
       {/* useMemo: only re-generate the style block when theme changes, not every keystroke */}
       <style>{useMemo(() => buildCSS(isDark), [isDark])}</style>
 
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         {/* ── Top bar ── */}
-        <div style={{ position: 'sticky', top: 0, zIndex: 30, background: isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)', backdropFilter: 'blur(12px)', padding: '12px 0', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button onClick={() => navigate('/Purchase/Purchaseorders')} style={{ width: 36, height: 36, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
+        <div style={{ position: isMobile ? 'static' : 'sticky', top: 0, zIndex: 30, background: isMobile ? T.bg : (isDark ? 'rgba(8,13,26,.95)' : 'rgba(241,245,249,.95)'), backdropFilter: isMobile ? 'none' : 'blur(12px)', padding: isMobile ? '0' : '12px 0', marginBottom: 20 }}>
+          <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0 }}>
+              <button onClick={() => navigate('/Purchase/Purchaseorders')} style={{ width: 36, height: 36, flexShrink: 0, borderRadius: 10, border: `1.5px solid ${T.border}`, background: T.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
                 <FaChevronLeft size={13} />
               </button>
-              <div style={{ width: 1, height: 24, background: T.border }} />
-              <div>
-                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-.02em' }}>{isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}</h1>
-                <p style={{ fontSize: 11, color: T.textSec, margin: '2px 0 0' }}>Purchase → Purchase Orders</p>
+              {!isMobile && <div style={{ width: 1, height: 24, background: T.border }} />}
+              <div style={{ minWidth: 0 }}>
+                <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 15 : 18, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: '-.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isAmend ? `Amend ${poMeta?.orderNumber || 'Purchase Order'} → Rev ${(poMeta?.revision || 0) + 1}` : isEdit ? 'Edit Purchase Order' : 'New Purchase Order'}</h1>
+                {!isMobile && <p style={{ fontSize: 11, color: T.textSec, margin: '2px 0 0' }}>Purchase → Purchase Orders</p>}
               </div>
+              {isMobile && !isEdit && <span style={{ padding: '4px 10px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 10, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>● DRAFT</span>}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {!isEdit && <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>}
-              <button onClick={() => navigate('/Purchase/Purchaseorders')} className="npo-bg">Cancel</button>
-              {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save Draft'}</button>}
-              <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
+              {!isMobile && !isEdit && <span style={{ padding: '5px 12px', borderRadius: 99, background: '#fef9c3', border: '1.5px solid #fef08a', fontSize: 11, fontWeight: 700, color: '#854d0e', letterSpacing: '.04em' }}>● DRAFT</span>}
+              <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg" style={isMobile ? { flex: 1 } : undefined}>Cancel</button>
+              {!isAmend && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700, ...(isMobile ? { flex: 1 } : {}) }}>{saving ? 'Saving…' : (isEdit ? 'Update Draft' : 'Save Draft')}</button>}
+              <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded || (isAmend && !amendReason.trim())} style={isMobile ? { flex: 1, justifyContent: 'center' } : undefined}>
                 {saving
                   ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
-                  : <><FaCheckCircle size={12} />{isEdit ? 'Save Changes' : 'Save & Submit'}</>}
+                  : <><FaCheckCircle size={12} />{isAmend ? 'Submit Amendment' : 'Save & Submit'}</>}
               </button>
             </div>
           </div>
         </div>
+
+        {/* ── Amendment reason ── */}
+        {isAmend && (
+          <div className="npo-section npo-card">
+            <div className="npo-sbar" style={{ background: 'linear-gradient(90deg,#f59e0b,transparent 80%)' }} />
+            <div className="npo-sin">
+              <div className="npo-stitle"><div className="npo-sicon" style={{ background: '#f59e0b18', color: '#f59e0b' }}>✎</div>Amendment</div>
+              <p style={{ fontSize: 12, color: T.textSec, margin: '0 0 12px', lineHeight: 1.6 }}>
+                This PO has already been issued. Your changes are saved as a new revision with the previous version kept in its history.
+                Vendor and PO type can't be changed, and a line can't go below the quantity already received. Depending on your organization's approval settings, the amendment may need approval before it takes effect.
+              </p>
+              <Field label="Reason for amendment" req>
+                <textarea value={amendReason} onChange={e => setAmendReason(e.target.value)} className="npo-inp" placeholder="e.g. Vendor can only supply 80 units; price revised per quotation Q-114" style={{ resize: 'none', height: 72, lineHeight: 1.6 }} />
+              </Field>
+            </div>
+          </div>
+        )}
 
         {/* ── Order Info ── */}
         <div className="npo-section npo-card">
@@ -834,13 +1038,15 @@ export default function Newpurchaseorders() {
               <div className="npo-sicon" style={{ background: '#3b82f618', color: '#3b82f6' }}><FaFileInvoiceDollar /></div>
               Order Details
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-              <div style={{ gridColumn: '1/-1' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 18 }}>
+              <div style={{ gridColumn: '1/-1', ...(isAmend ? { pointerEvents: 'none', opacity: 0.6 } : {}) }}>
                 <Field label="Vendor" req>
                   <VendorSelect value={selectedVendor} onChange={v => {
                     setSelectedVendor(v);
                     if (v?.paymentTerms) setPaymentTerms(v.paymentTerms);
-                  }} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} />
+                    setVendorEmail(v?.email || '');
+                    setVendorPhone(v?.phone || v?.mobile || '');
+                  }} vendors={vendors} loading={vendorsLoading} T={T} isDark={isDark} onCreateNew={can('vendors', 'add') ? () => setQuickCreate('vendor') : undefined} />
                 </Field>
                 {selectedVendor && (
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -865,12 +1071,31 @@ export default function Newpurchaseorders() {
                     })()}
                   </div>
                 )}
+                {selectedVendor && (
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12, marginTop: 12 }}>
+                    <Field label="Vendor Email">
+                      <input className="npo-inp" type="email" value={vendorEmail} onChange={e => setVendorEmail(e.target.value)} placeholder="vendor@example.com" />
+                    </Field>
+                    <Field label="Vendor Phone">
+                      <input className="npo-inp" value={vendorPhone} onChange={e => setVendorPhone(e.target.value)} placeholder="+971 …" style={{ fontFamily: "'DM Mono',monospace" }} />
+                    </Field>
+                    <Field label="Vendor TRN">
+                      <input className="npo-inp" value={selectedVendor.trn || ''} readOnly placeholder="Not set on vendor" style={{ fontFamily: "'DM Mono',monospace", background: T.surface2, color: T.textSec }} />
+                    </Field>
+                    <Field label="Vendor P.O. Box">
+                      <input className="npo-inp" value={vendorPOBox} onChange={e => setVendorPOBox(e.target.value)} placeholder="P.O. Box 8261" />
+                    </Field>
+                    <Field label="Attention">
+                      <input className="npo-inp" value={attentionTo} onChange={e => setAttentionTo(e.target.value)} placeholder="Contact person" />
+                    </Field>
+                  </div>
+                )}
               </div>
               <Field label="Supplier Reference">
                 <input className="npo-inp" value={referenceNo} onChange={e => setReferenceNo(e.target.value)} placeholder="Supplier quotation reference" style={{ fontFamily: "'DM Mono',monospace" }} />
               </Field>
               <Field label="PO Type">
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, ...(isAmend ? { pointerEvents: 'none', opacity: 0.6 } : {}) }}>
                   {[{ v: 'goods', label: 'Goods', hint: 'Requires GRN' }, { v: 'service', label: 'Service', hint: 'Bill directly' }].map(({ v, label, hint }) => (
                     <button key={v} type="button" onClick={() => setPoType(v)}
                       style={{ flex: 1, padding: '9px 0', borderRadius: 10, border: `1.5px solid ${poType === v ? '#3b82f6' : T.border}`, background: poType === v ? (isDark ? 'rgba(59,130,246,.15)' : '#eff6ff') : T.surface2, color: poType === v ? '#3b82f6' : T.textSec, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s' }}>
@@ -887,21 +1112,25 @@ export default function Newpurchaseorders() {
                 <DatePicker value={expectedDate} onChange={setExpectedDate} placeholder="Select expected date" />
               </Field>
               <Field label="Payment Terms">
-                <CustomSelect value={paymentTerms} onChange={setPaymentTerms} options={PAYMENT_TERMS_OPTS} placeholder="Select terms" T={T} isDark={isDark} />
+                <CustomSelect value={paymentTerms} onChange={setPaymentTerms} options={paymentTermsOptions} placeholder="Select terms" T={T} isDark={isDark}
+                  searchable onCreateNew={can('payment_terms', 'add') ? () => setQuickCreate('paymentTerm') : undefined} createLabel="Create payment term" />
               </Field>
-              <Field label="Shipment Preference">
-                <CustomSelect value={shipPref} onChange={setShipPref} options={SHIP_PREFS} placeholder="Choose preference" T={T} isDark={isDark} />
+              <Field label="Delivery Terms">
+                <CustomSelect value={shipPref} onChange={setShipPref} options={deliveryTermsOptions} placeholder="Choose delivery terms" T={T} isDark={isDark}
+                  searchable onCreateNew={() => setQuickCreate('deliveryTerm')} createLabel="Create delivery term" />
+              </Field>
+              <Field label="Currency">
+                <CustomSelect value={currency} onChange={setCurrency} options={CURRENCY_OPTS} placeholder="Select currency" T={T} isDark={isDark} searchable />
+              </Field>
+              <Field label="Project">
+                <input className="npo-inp" value={project} onChange={e => setProject(e.target.value)} placeholder="e.g. Marina Tower Fit-out" />
+              </Field>
+              <Field label="Our TRN">
+                <input className="npo-inp" value={orgProfile?.trn || ''} readOnly placeholder="Set in Organization Settings" style={{ fontFamily: "'DM Mono',monospace", background: T.surface2, color: T.textSec }} />
               </Field>
               <div style={{ gridColumn: '1/-1' }}>
                 <Field label="Delivery Address">
-                  <div style={{ display: 'flex', gap: 20 }}>
-                    {['organization', 'customer'].map(opt => (
-                      <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: T.textPri }}>
-                        <input type="radio" value={opt} checked={deliveryAddr === opt} onChange={e => setDeliveryAddr(e.target.value)} style={{ accentColor: '#3b82f6' }} />
-                        {opt.charAt(0).toUpperCase() + opt.slice(1)}
-                      </label>
-                    ))}
-                  </div>
+                  <textarea className="npo-inp" rows={2} value={deliveryAddressLine} onChange={e => setDeliveryAddressLine(e.target.value)} placeholder="Delivery address" style={{ resize: 'none' }} />
                 </Field>
               </div>
             </div>
@@ -921,10 +1150,11 @@ export default function Newpurchaseorders() {
               <button onClick={addNewRow} className="npo-addrow"><FaPlus style={{ fontSize: 11 }} /> Add Item Row</button>
             </div>
 
-            <div style={{ borderRadius: 12, overflow: 'hidden', border: `1.5px solid ${T.border}` }}>
-              <table className="npo-table">
+            <div style={{ borderRadius: 12, overflowX: 'auto', overflowY: 'hidden', border: `1.5px solid ${T.border}` }}>
+              <table className="npo-table" style={{ minWidth: isMobile ? 760 : 'auto' }}>
                 <thead><tr>
-                  <th style={{ width: '35%' }}>Item Details</th>
+                  <th style={{ width: '32%' }}>Item Details</th>
+                  <th>Article Code</th>
                   <th>Quantity</th>
                   <th>Rate (AED)</th>
                   <th>Discount</th>
@@ -950,14 +1180,23 @@ export default function Newpurchaseorders() {
                               onFocus={() => { setShowItemDropdown(index); if (!item.details) setSearchTerm(''); }}
                             />
                             <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: T.textSec, height: 14 }}>
-                              {item.sku && <><FaBarcode style={{ fontSize: 9, flexShrink: 0 }} /><span style={{ fontFamily: "'DM Mono',monospace" }}>{item.sku}</span>{item.unit && <span>· {item.unit}</span>}</>}
+                              {item.unit && <span>{item.unit}</span>}
                               {!showFreight && (
                                 <button type="button" onClick={() => { setF('showFreight', true); if (item.freightTaxRate == null) setF('freightTaxRate', 5); }}
-                                  style={{ marginLeft: item.sku ? 8 : 0, background: 'none', border: 'none', cursor: 'pointer', color: '#f59e0b', fontSize: 10, fontWeight: 700, padding: 0 }}>
+                                  style={{ marginLeft: item.unit ? 8 : 0, background: 'none', border: 'none', cursor: 'pointer', color: '#f59e0b', fontSize: 10, fontWeight: 700, padding: 0 }}>
                                   + freight
                                 </button>
                               )}
                             </div>
+                          </div>
+                        </td>
+                        {/* Article code — defaults to the item's code on pick; editable per line
+                            (a supplier's own article number often differs from ours). */}
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: 52 }}>
+                            <input className="npo-tinp" value={item.sku || ''} placeholder="Article code"
+                              onChange={e => { const u = [...items]; u[index] = { ...u[index], sku: e.target.value }; setItems(u); }}
+                              style={{ fontFamily: "'DM Mono',monospace", width: 120 }} />
                           </div>
                         </td>
                         {/* Quantity — wrapped to vertically center within taller cell */}
@@ -968,6 +1207,9 @@ export default function Newpurchaseorders() {
                               <input type="number" className="npo-qnum" value={item.quantity} onChange={e => handleQuantityChange(index, e.target.value)} min="1" />
                               <button className="npo-qbtn" onClick={() => handleQuantityChange(index, (parseFloat(item.quantity)||1) + 1)}>+</button>
                             </div>
+                            {item.receivedQty > 0 && (
+                              <div style={{ fontSize: 10, marginTop: 3, color: (parseFloat(item.quantity) || 0) < item.receivedQty ? '#ef4444' : T.textSec }}>Received: {item.receivedQty}</div>
+                            )}
                           </div>
                         </td>
                         <td>
@@ -1006,7 +1248,7 @@ export default function Newpurchaseorders() {
                       </tr>
                       {showFreight && (
                         <tr style={{ background: isDark ? 'rgba(245,158,11,.05)' : '#fffdf7' }}>
-                          <td colSpan={6} style={{ padding: '8px 12px 12px' }}>
+                          <td colSpan={7} style={{ padding: '8px 12px 12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                               <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b' }}>🚚 Freight for this item</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, fontFamily: "'DM Mono',monospace" }}>AED</span>
@@ -1024,7 +1266,7 @@ export default function Newpurchaseorders() {
                     );
                   })}
                   {!hasItemsAdded && (
-                    <tr><td colSpan={6} style={{ padding: 32, textAlign: 'center' }}>
+                    <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, color: T.textSec }}>
                         <div style={{ width: 44, height: 44, borderRadius: 14, background: T.surface2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📦</div>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>No items added yet</div>
@@ -1083,6 +1325,12 @@ export default function Newpurchaseorders() {
                     ))}
                   </>
                 )}
+                {canAddItem && <div onClick={() => { const row = showItemDropdown; setShowItemDropdown(null); setItemCreateRow(row); setQuickCreate('item'); }}
+                  style={{ padding: '11px 14px', borderTop: `1.5px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: T.blue, display: 'flex', alignItems: 'center', gap: 7 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,.05)' : '#f8fafc'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                  <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> Create new item
+                </div>}
               </div>,
               document.body
             )}
@@ -1090,7 +1338,7 @@ export default function Newpurchaseorders() {
         </div>
 
         {/* ── Summary + Notes ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 14 : 16, marginBottom: 16 }}>
 
           {/* Tax Breakdown */}
           <div className="npo-section npo-card" style={{ marginBottom: 0 }}>
@@ -1157,26 +1405,61 @@ export default function Newpurchaseorders() {
         </div>
 
         {/* ── Bottom bar ── */}
-        <div className="npo-bottombar">
+        <div className="npo-bottombar" style={isMobile ? { left: 0, padding: '10px 14px', flexWrap: 'wrap', gap: 8 } : undefined}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: T.textPri }}>
               {items.filter(i => i.details).length} item{items.filter(i => i.details).length !== 1 ? 's' : ''}&nbsp;·&nbsp;
               <span style={{ fontFamily: "'DM Mono',monospace", color: T.blue }}>{fmtAED(grandTotal)}</span>
             </div>
-            <div style={{ fontSize: 11, color: T.textSec, marginTop: 2 }}>Fields marked with <span style={{ color: '#ef4444' }}>*</span> are required</div>
+            {!isMobile && <div style={{ fontSize: 11, color: T.textSec, marginTop: 2 }}>Fields marked with <span style={{ color: '#ef4444' }}>*</span> are required</div>}
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => navigate('/Purchase/Purchaseorders')} className="npo-bg">Cancel</button>
-            {!isEdit && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : 'Save as Draft'}</button>}
-            <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded}>
+          <div style={{ display: 'flex', gap: isMobile ? 6 : 10, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
+            <button onClick={() => guard.leave(() => navigate('/Purchase/Purchaseorders'))} className="npo-bg">Cancel</button>
+            {!isAmend && <button onClick={() => handleSubmit('draft')} className="npo-bg" disabled={saving || !hasItemsAdded} style={{ fontWeight: 700 }}>{saving ? 'Saving…' : (isEdit ? 'Update Draft' : 'Save as Draft')}</button>}
+            <button onClick={() => handleSubmit('open')} className="npo-bp" disabled={saving || !selectedVendor || !hasItemsAdded || (isAmend && !amendReason.trim())}>
               {saving
                 ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'npoSpin .7s linear infinite' }} />Processing…</>
-                : <><FaCheckCircle size={12} />{isEdit ? 'Save Changes' : 'Save & Submit'}</>}
+                : <><FaCheckCircle size={12} />{isAmend ? 'Submit Amendment' : 'Save & Submit'}</>}
             </button>
           </div>
         </div>
 
       </div>
+
+      {quickCreate === 'paymentTerm' && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
+      )}
+      {quickCreate === 'deliveryTerm' && (
+        <QuickCreateModal title="New Delivery Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Within 10 Days', required: true, autoFocus: true },
+            { name: 'description', label: 'Description', placeholder: 'Optional' },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateDeliveryTerm} />
+      )}
+      {quickCreate === 'vendor' && (
+        <QuickCreateModal title="New Vendor" T={T}
+          fields={[
+            { name: 'displayName', label: 'Display Name', placeholder: 'e.g. Acme Trading LLC', required: true, autoFocus: true },
+            { name: 'companyName', label: 'Company Name', placeholder: 'Optional' },
+            { name: 'vendorType', label: 'Vendor Type', type: 'select', placeholder: 'Select type…',
+              options: vendorTypeList.map(t => ({ value: t.name, label: t.name })) },
+            { name: 'email', label: 'Email', placeholder: 'vendor@example.com', type: 'email' },
+            { name: 'phone', label: 'Phone', placeholder: 'Optional' },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateVendor} />
+      )}
+      {quickCreate === 'item' && (
+        <QuickAddItemModal T={T} isDark={isDark}
+          uomOptions={uomOptions} fetchUomOptions={fetchUomOptions}
+          groupOptions={groupOptions} groupMap={groupMap} fetchGroupOptions={fetchGroupOptions}
+          onClose={() => { setQuickCreate(null); setItemCreateRow(null); }} onCreated={handleItemCreated} />
+      )}
     </div>
   );
 }

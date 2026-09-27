@@ -4,9 +4,13 @@ import { IoMdClose } from "react-icons/io";
 import { useNavigate, useParams } from 'react-router-dom';
 import useAdditem from '../../helper/useAddItem';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import { usePermissions } from '../../helper/permissions';
 import nexusToast from '../../helper/nexusToast';
 import axiosInstance from '../../helper/axiosInstance';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
+import { drawerWidth, BREAKPOINT_TABLET } from '../../helper/responsive';
+import useIsMobile from '../../helper/useIsMobile';
+import QuickCreateModal from '../common/QuickCreateModal';
 
 /* ─── Colour palette derived from item name ─────────────────────────── */
 const PALETTE = [
@@ -85,7 +89,7 @@ function Input({ prefix, suffix, mono, T, error, ...props }) {
 
 
 /* ─── PortalSelect — modern themed dropdown ─────────────────────────── */
-function PortalSelect({ T, isDark, name, value, onChange, options = [], placeholder = 'Select…', error }) {
+function PortalSelect({ T, isDark, name, value, onChange, options = [], placeholder = 'Select…', error, onCreateNew, createLabel }) {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [query,   setQuery]   = useState('');
@@ -219,12 +223,35 @@ function PortalSelect({ T, isDark, name, value, onChange, options = [], placehol
                   );
                 })}
           </div>
+          {onCreateNew && (
+            <div onClick={() => { onCreateNew(); setOpen(false); setReady(false); setQuery(''); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '10px 11px',
+                borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#3b82f6',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              {createLabel || 'Create new'}
+            </div>
+          )}
         </div>,
         document.body
       )}
     </div>
   );
 }
+
+const QUICK_GROUP_FIELDS = [
+  { name: 'name',   label: 'Group Name',        placeholder: 'e.g. Electronics',      required: true, autoFocus: true },
+  { name: 'prefix', label: 'Item Code Prefix',   placeholder: 'e.g. ELEC (optional)',  mono: true },
+];
+const QUICK_UNIT_FIELDS = [
+  { name: 'name',   label: 'Unit Name',   placeholder: 'e.g. Kilogram',      required: true, autoFocus: true },
+  { name: 'symbol', label: 'Symbol',      placeholder: 'e.g. kg (optional)', mono: true },
+];
 
 /* ─── Textarea ───────────────────────────────────────────────────────── */
 function Textarea({ T, disabled, ...props }) {
@@ -314,7 +341,7 @@ function DiscardModal({ onConfirm, onCancel, T }) {
       background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(8px)',
     }}>
       <div style={{
-        background: T.surface, borderRadius: 20, padding: '32px 36px', width: 360,
+        background: T.surface, borderRadius: 20, padding: '32px 36px', width: drawerWidth(360),
         textAlign: 'center', boxShadow: '0 40px 100px rgba(0,0,0,.35)',
         border: `1.5px solid ${T.border}`,
         animation: 'nwModalIn .2s cubic-bezier(.34,1.56,.64,1) both',
@@ -351,7 +378,7 @@ const NAV_SECTIONS = [
 /* ══════════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════ */
-const New = () => {
+const NewItemForm = () => {
   const { handleAdditem } = useAdditem();
   const navigate = useNavigate();
   const { id: editId } = useParams();
@@ -362,6 +389,8 @@ const New = () => {
   // ── Theme ──
   const isDark = useThemeStore((s) => s.isDark);
   const T = { ...getTheme(isDark), isDark };
+  const isMobile = useIsMobile();
+  const { can } = usePermissions();
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
@@ -376,6 +405,8 @@ const New = () => {
   const [allAccounts, setAllAccounts]       = useState([]);
   const [groupOptions, setGroupOptions]     = useState([]);
   const [groupMap, setGroupMap]             = useState({});  // id → { prefix }
+  const [uomOptions, setUomOptions]         = useState([]);
+  const [quickCreate, setQuickCreate]       = useState(null); // 'group' | 'unit' | null
 
   const showInventorySection = salesEnabled && purchaseEnabled;
 
@@ -388,6 +419,7 @@ const New = () => {
     selling_price: '', sales_account: '', sales_description: '',
     cost_price: '', cost_account: '', cost_description: '', preferred_vendor: '',
     inventory_account: '', opening_stock: '', opening_stock_rate: '',
+    image: '',
   });
 
   const handleChange = useCallback((e) => {
@@ -410,6 +442,53 @@ const New = () => {
     setErrors(prev => { const n = { ...prev }; delete n[name]; return n; });
   }, [groupMap]);
 
+  /* ── Item groups + UOM (fetched separately so quick-create can refresh just one) ── */
+  const fetchGroupOptions = useCallback(() => {
+    return axiosInstance.get('/api/item-groups/?status=active')
+      .then(res => {
+        const list = res.data?.data?.groups || [];
+        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
+        const map = {};
+        list.forEach(g => { map[g._id] = { prefix: g.prefix || '' }; });
+        setGroupMap(map);
+        return list;
+      })
+      .catch(() => []);
+  }, []);
+
+  const fetchUomOptions = useCallback(() => {
+    return axiosInstance.get('/api/uoms/?status=active')
+      .then(res => {
+        const list = res.data?.data?.uoms || [];
+        setUomOptions(list.map(u => ({ label: u.symbol ? `${u.name} (${u.symbol})` : u.name, value: u._id })));
+        return list;
+      })
+      .catch(() => []);
+  }, []);
+
+  const handleCreateGroup = useCallback(async (form) => {
+    const res = await axiosInstance.post('/api/item-groups/', { name: form.name, prefix: form.prefix });
+    const newId = res.data?.data?.id;
+    await fetchGroupOptions();
+    if (newId) {
+      const prefixStem = form.prefix ? form.prefix.toUpperCase().replace(/\s/g, '') + '-' : '';
+      setFormData(prev => {
+        const next = { ...prev, category: newId };
+        if (prefixStem && (!prev.item_code || /^[A-Z]+-$/.test(prev.item_code))) next.item_code = prefixStem;
+        return next;
+      });
+    }
+    nexusToast.success('Group created');
+  }, [fetchGroupOptions]);
+
+  const handleCreateUnit = useCallback(async (form) => {
+    const res = await axiosInstance.post('/api/uoms/', { name: form.name, symbol: form.symbol });
+    const newId = res.data?.data?.id;
+    await fetchUomOptions();
+    if (newId) setFormData(prev => ({ ...prev, unit: newId }));
+    nexusToast.success('Unit created');
+  }, [fetchUomOptions]);
+
   /* ── Vendor + Account lists ── */
   useEffect(() => {
     axiosInstance.get('/api/vendors/?limit=500')
@@ -429,16 +508,9 @@ const New = () => {
       })
       .catch(() => {});
 
-    axiosInstance.get('/api/item-groups/?status=active')
-      .then(res => {
-        const list = res.data?.data?.groups || [];
-        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
-        const map = {};
-        list.forEach(g => { map[g._id] = { prefix: g.prefix || '' }; });
-        setGroupMap(map);
-      })
-      .catch(() => {});
-  }, []);
+    fetchGroupOptions();
+    fetchUomOptions();
+  }, [fetchGroupOptions, fetchUomOptions]);
 
   /* ── Load item when editing ── */
   useEffect(() => {
@@ -458,10 +530,12 @@ const New = () => {
           selling_price: it.selling_price || '', sales_account: it.sales_account || '', sales_description: it.sales_description || '',
           cost_price: it.cost_price || '', cost_account: it.cost_account || '', cost_description: it.cost_description || '', preferred_vendor: it.preferred_vendor || '',
           inventory_account: it.inventory_account || '', opening_stock: it.opening_stock || '', opening_stock_rate: it.opening_stock_rate || '',
+          image: it.image || '',
         }));
         setSalesEnabled(!!(it.selling_price || it.sales_account));
         setPurchaseEnabled(!!(it.cost_price || it.cost_account));
         setTrackInventory(!!(it.inventory_account || it.opening_stock || it.reorder_point));
+        setImagePreview(it.image || null);
       })
       .catch(() => nexusToast.error('Failed to load item'));
   }, [editId]);
@@ -480,8 +554,17 @@ const New = () => {
   const handleImageFile = (file) => {
     if (!file?.type.startsWith('image/')) return;
     const r = new FileReader();
-    r.onload = e => setImagePreview(e.target.result);
+    r.onload = e => {
+      setImagePreview(e.target.result);
+      setFormData(prev => ({ ...prev, image: e.target.result }));
+    };
     r.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = (e) => {
+    e.stopPropagation();
+    setImagePreview(null);
+    setFormData(prev => ({ ...prev, image: '' }));
   };
 
   // Derived: prefix string from the selected item group, e.g. "ITM-"
@@ -496,7 +579,7 @@ const New = () => {
     if (!formData.name.trim()) newErrors.name = 'Item name is required';
     const codeSuffix = groupPrefix ? formData.item_code.slice(groupPrefix.length).trim() : formData.item_code.trim();
     if (!codeSuffix) newErrors.item_code = groupPrefix ? `Enter a code after the "${groupPrefix}" prefix` : 'Item code is required';
-    if (!formData.unit) newErrors.unit = 'Unit of measure is required';
+    if (formData.type !== 'service' && !formData.unit) newErrors.unit = 'Unit of measure is required';
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -606,75 +689,90 @@ const New = () => {
         />
       )}
 
+      {/* ── Quick-create shortcuts for Category/Group and Unit of Measure ── */}
+      {quickCreate === 'group' && (
+        <QuickCreateModal title="New Item Group" fields={QUICK_GROUP_FIELDS} T={T} isDark={isDark}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateGroup} />
+      )}
+      {quickCreate === 'unit' && (
+        <QuickCreateModal title="New Unit of Measure" fields={QUICK_UNIT_FIELDS} T={T} isDark={isDark}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateUnit} />
+      )}
+
       {/* ══ TOP BAR ═════════════════════════════════════════════════ */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 40,
         background: isDark ? 'rgba(13,21,38,.92)' : 'rgba(255,255,255,.92)',
         backdropFilter: 'blur(14px)',
         borderBottom: `1.5px solid ${T.border}`, height: 60,
-        display: 'flex', alignItems: 'center', padding: '0 28px',
+        display: 'flex', alignItems: 'center', padding: isMobile ? '0 12px' : '0 28px',
         justifyContent: 'space-between', boxShadow: isDark ? '0 1px 0 rgba(0,0,0,.3)' : '0 1px 0 rgba(0,0,0,.05)',
+        gap: 8,
       }}>
         {/* Left — close + title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0, flex: isMobile ? 1 : 'initial' }}>
           <button onClick={() => setShowDiscard(true)} className="nw2-close-btn" style={{
-            width: 34, height: 34, borderRadius: 10, border: `1.5px solid ${T.border}`,
+            width: 34, height: 34, flexShrink: 0, borderRadius: 10, border: `1.5px solid ${T.border}`,
             background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center',
             justifyContent: 'center', color: T.textSec, transition: 'all .15s',
           }}>
             <IoMdClose size={16} />
           </button>
-          <div style={{ width: 1, height: 22, background: T.border }} />
-          <div>
-            <p style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+          {!isMobile && <div style={{ width: 1, height: 22, background: T.border }} />}
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontFamily: "'Sora',sans-serif", fontSize: isMobile ? 13 : 15, fontWeight: 700, color: T.textPri, margin: 0, lineHeight: 1.1, letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {formData.name || <span style={{ color: T.textSec, fontStyle: 'italic' }}>{isEdit ? 'Edit Item' : 'New Item'}</span>}
             </p>
-            <p style={{ fontSize: 10, color: T.textSec, margin: '3px 0 0', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              {formData.item_code
-                ? <span style={{ fontFamily: "'DM Mono',monospace" }}>{formData.item_code}</span>
-                : 'Item Details Form'}
-            </p>
+            {!isMobile && (
+              <p style={{ fontSize: 10, color: T.textSec, margin: '3px 0 0', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                {formData.item_code
+                  ? <span style={{ fontFamily: "'DM Mono',monospace" }}>{formData.item_code}</span>
+                  : 'Item Details Form'}
+              </p>
+            )}
           </div>
         </div>
 
         {/* Centre — scroll spy dots */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {NAV_SECTIONS.map(s => (
-            <div key={s.id} title={s.label}
-              className={`nw2-navdot${activeSection === s.id ? ' active' : ''}`}
-              style={{ background: activeSection === s.id ? '#3b82f6' : T.border }}
-              onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-            />
-          ))}
-        </div>
+        {!isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {NAV_SECTIONS.map(s => (
+              <div key={s.id} title={s.label}
+                className={`nw2-navdot${activeSection === s.id ? ' active' : ''}`}
+                style={{ background: activeSection === s.id ? '#3b82f6' : T.border }}
+                onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Right — actions */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: isMobile ? 6 : 8, flexShrink: 0 }}>
           <button onClick={() => setShowDiscard(true)} className="nw2-cancel-btn" style={{
-            padding: '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`,
+            padding: isMobile ? '8px 12px' : '8px 18px', borderRadius: 10, border: `1.5px solid ${T.border}`,
             background: T.surface2, color: T.textSec, fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s',
+            cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s', whiteSpace: 'nowrap',
           }}>Cancel</button>
           <button className="nw2-save-btn" onClick={handleSubmit} disabled={saving} style={{
-            padding: '8px 22px', borderRadius: 10, border: 'none',
+            padding: isMobile ? '8px 12px' : '8px 22px', borderRadius: 10, border: 'none',
             background: saving ? '#94a3b8' : '#3b82f6', color: '#fff',
             fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
-            fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 7,
+            fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
             boxShadow: saving ? 'none' : '0 4px 16px rgba(59,130,246,.3)',
           }}>
             {saving
-              ? <><div style={{ width:13,height:13,border:'2px solid rgba(255,255,255,.35)',borderTopColor:'#fff',borderRadius:'50%',animation:'nwSpin .7s linear infinite' }} /> Saving…</>
-              : <><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg> {isEdit ? 'Update Item' : 'Save Item'}</>
+              ? <><div style={{ width:13,height:13,border:'2px solid rgba(255,255,255,.35)',borderTopColor:'#fff',borderRadius:'50%',animation:'nwSpin .7s linear infinite' }} /> {!isMobile && 'Saving…'}</>
+              : <><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg> {isMobile ? (isEdit ? 'Update' : 'Save') : (isEdit ? 'Update Item' : 'Save Item')}</>
             }
           </button>
         </div>
       </div>
 
       {/* ══ BODY ════════════════════════════════════════════════════ */}
-      <div style={{ display: 'flex', maxWidth: 1160, margin: '0 auto', padding: '28px 24px 80px', gap: 22 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', maxWidth: 1160, margin: '0 auto', padding: isMobile ? '16px 14px 80px' : '28px 24px 80px', gap: isMobile ? 16 : 22 }}>
 
         {/* ── FORM COLUMN ────────────────────────────────────────── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, order: isMobile ? 2 : 1 }}>
 
           {/* SECTION 1: Identity */}
           <div className="nw2-sec">
@@ -700,7 +798,7 @@ const New = () => {
                 ))}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
                 <F label="Item Name" req T={T}><Input name="name" value={formData.name} onChange={handleChange} placeholder="e.g. Ergonomic Office Chair" autoFocus T={T} error={errors.name} /></F>
                 <F label="Item Code" req T={T}>
                   <Input
@@ -722,34 +820,18 @@ const New = () => {
                 {/* <F label="SKU" T={T}><Input name="sku" value={formData.sku} onChange={handleChange} placeholder="Stock keeping unit" mono T={T} /></F> */}
                 <F label="Category / Group" T={T}>
                   <PortalSelect T={T} isDark={isDark} name="category" value={formData.category} onChange={handleChange}
-                    placeholder={groupOptions.length ? 'Select group…' : 'No groups yet — add in Item Groups'}
-                    options={groupOptions} />
+                    placeholder={groupOptions.length ? 'Select group…' : 'No groups yet…'}
+                    options={groupOptions}
+                    onCreateNew={can('item_groups', 'add') ? () => setQuickCreate('group') : undefined} createLabel="Create new group" />
                 </F>
-                <F label="Unit of Measure" req T={T}>
-                  <PortalSelect T={T} isDark={isDark} name="unit" value={formData.unit} onChange={handleChange} placeholder="Select unit…" error={errors.unit}
-                    options={[
-                      { label: 'Piece (pcs)',        value: 'piece'   },
-                      { label: 'Box',                value: 'box'     },
-                      { label: 'Carton (ctn)',       value: 'carton'  },
-                      { label: 'Pallet',             value: 'pallet'  },
-                      { label: 'Set',                value: 'set'     },
-                      { label: 'Pair',               value: 'pair'    },
-                      { label: 'Dozen (dz)',         value: 'dozen'   },
-                      { label: 'Kilogram (kg)',      value: 'kg'      },
-                      { label: 'Gram (g)',           value: 'g'       },
-                      { label: 'Ton (t)',            value: 'ton'     },
-                      { label: 'Liter (L)',          value: 'liter'   },
-                      { label: 'Milliliter (mL)',    value: 'ml'      },
-                      { label: 'Meter (m)',          value: 'meter'   },
-                      { label: 'Centimeter (cm)',    value: 'cm'      },
-                      { label: 'Square Meter (m²)',  value: 'sqm'     },
-                      { label: 'Cubic Meter (m³)',   value: 'cbm'     },
-                      { label: 'Roll',               value: 'roll'    },
-                      { label: 'Sheet',              value: 'sheet'   },
-                      { label: 'Bundle',             value: 'bundle'  },
-                      { label: 'Unit',               value: 'unit'    },
-                    ]} />
-                </F>
+                {formData.type !== 'service' && (
+                  <F label="Unit of Measure" req T={T}>
+                    <PortalSelect T={T} isDark={isDark} name="unit" value={formData.unit} onChange={handleChange}
+                      placeholder={uomOptions.length ? 'Select unit…' : 'No units yet…'} error={errors.unit}
+                      options={uomOptions}
+                      onCreateNew={can('uom', 'add') ? () => setQuickCreate('unit') : undefined} createLabel="Create new unit" />
+                  </F>
+                )}
                 <F label="Brand" T={T}>
                   <input className="nw2-inp" name="brand" value={formData.brand} onChange={handleChange} placeholder="e.g. Samsung, Bosch…"
                     style={{ width: '100%', height: 42, padding: '0 13px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: "'DM Sans',sans-serif", transition: 'border-color .15s, box-shadow .15s', boxSizing: 'border-box' }} />
@@ -779,7 +861,7 @@ const New = () => {
                 </div>
               </F>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginTop: 16, marginBottom: 16 }}>
                 <F label="Weight" T={T}><Input name="weight" value={formData.weight} onChange={handleChange} placeholder="0.00" suffix="kg" mono T={T} /></F>
                 <F label="Manufacturer" T={T}>
                   <input className="nw2-inp" name="manufacturer" value={formData.manufacturer} onChange={handleChange} placeholder="e.g. Sony, 3M, Honeywell…"
@@ -789,7 +871,7 @@ const New = () => {
 
               <div style={{ padding: '14px 16px', background: T.surface2, borderRadius: 12, border: `1.5px solid ${T.border}` }}>
                 <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, margin: '0 0 14px' }}>Barcode Identifiers</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
                   {[['upc','UPC'],['mpn','MPN'],['ean','EAN'],['isbn','ISBN']].map(([n,l]) => (
                     <F key={n} label={l} T={T}><Input name={n} value={formData[n]} onChange={handleChange} placeholder="—" mono T={T} /></F>
                   ))}
@@ -801,7 +883,7 @@ const New = () => {
           {/* SECTION 3: Pricing */}
           <div className="nw2-sec" style={{ animationDelay: '.12s' }}>
             <Section id="sec-pricing" title="Pricing & Accounts" icon="💰" accent="#10b981" T={T}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
                 {/* Sales panel */}
                 <div style={{
                   padding: 16, borderRadius: 12,
@@ -860,31 +942,32 @@ const New = () => {
                 const marg = ((profit / sell) * 100).toFixed(1);
                 const markup = ((profit / cost) * 100).toFixed(1);
                 return (
-                  <div style={{ marginTop: 14, padding: '14px 18px', background: T.surface2, borderRadius: 12, border: `1.5px solid ${T.border}`, display: 'flex', gap: 0, alignItems: 'center', animation: 'nwUp .2s ease both' }}>
+                  <div style={{ marginTop: 14, padding: isMobile ? '14px' : '14px 18px', background: T.surface2, borderRadius: 12, border: `1.5px solid ${T.border}`, display: 'flex', flexWrap: 'wrap', gap: isMobile ? 12 : 0, alignItems: 'center', animation: 'nwUp .2s ease both' }}>
                     {[
                       { label: 'Gross Profit', val: `AED ${profit.toFixed(2)}`, color: profit >= 0 ? '#10b981' : '#ef4444' },
                       { label: 'Margin',       val: `${marg}%`,                 color: marg >= 20 ? '#10b981' : marg >= 0 ? '#f59e0b' : '#ef4444' },
                       { label: 'Markup',       val: `${markup}%`,               color: '#3b82f6' },
                     ].map((m, i) => (
                       <React.Fragment key={m.label}>
-                        {i > 0 && <div style={{ width:1,background:T.border,alignSelf:'stretch',margin:'0 20px' }} />}
+                        {i > 0 && !isMobile && <div style={{ width:1,background:T.border,alignSelf:'stretch',margin:'0 20px' }} />}
                         <div>
                           <p style={{ fontSize:10,color:T.textSec,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',margin:'0 0 3px' }}>{m.label}</p>
                           <p style={{ fontFamily:"'DM Mono',monospace",fontSize:17,fontWeight:700,color:m.color,margin:0 }}>{m.val}</p>
                         </div>
                       </React.Fragment>
                     ))}
-                    <div style={{ marginLeft: 'auto', fontSize: 11, color: T.textSec }}>📊 profitability</div>
+                    {!isMobile && <div style={{ marginLeft: 'auto', fontSize: 11, color: T.textSec }}>📊 profitability</div>}
                   </div>
                 );
               })()}
             </Section>
           </div>
 
-          {/* SECTION 4: Stock */}
+          {/* SECTION 4: Stock — not applicable to services (nothing to hold/reorder) */}
+          {formData.type !== 'service' && (
           <div className="nw2-sec" style={{ animationDelay: '.18s' }}>
             <Section id="sec-stock" title="Inventory & Stock" icon="📦" accent="#f59e0b" T={T}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 16 }}>
                 <F label="Opening Quantity" req T={T}><Input type="number" name="quantity" value={formData.quantity} onChange={handleChange} placeholder="0" T={T} /></F>
                 <F label="Reorder Point" hint="alert threshold" T={T}><Input type="number" name="reorder_point" value={formData.reorder_point} onChange={handleChange} placeholder="0" T={T} /></F>
               </div>
@@ -919,7 +1002,7 @@ const New = () => {
                       sub="Cannot be changed after transactions are recorded" T={T} />
                   </div>
                   {trackInventory && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, animation: 'nwUp .2s ease both' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14, animation: 'nwUp .2s ease both' }}>
                       <F label="Inventory Account" req T={T}>
                         <PortalSelect T={T} isDark={isDark} name="inventory_account" value={formData.inventory_account} onChange={handleChange}
                           placeholder={allAccounts.length ? 'Select account…' : 'No accounts yet — add in Finance'}
@@ -941,6 +1024,7 @@ const New = () => {
               )}
             </Section>
           </div>
+          )}
 
           {/* SECTION 5: Media */}
           <div className="nw2-sec" style={{ animationDelay: '.24s' }}>
@@ -956,7 +1040,10 @@ const New = () => {
                 {imagePreview ? (
                   <>
                     <img src={imagePreview} alt="preview" style={{ maxHeight: 160, maxWidth: '100%', borderRadius: 10, marginBottom: 10, objectFit: 'contain' }} />
-                    <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>Click to replace</p>
+                    <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>
+                      Click to replace ·{' '}
+                      <span onClick={handleRemoveImage} style={{ color: '#ef4444', fontWeight: 700, cursor: 'pointer' }}>Remove</span>
+                    </p>
                   </>
                 ) : (
                   <>
@@ -977,8 +1064,8 @@ const New = () => {
         </div>
 
         {/* ── STICKY PREVIEW SIDEBAR ─────────────────────────────── */}
-        <div style={{ width: 288, flexShrink: 0 }}>
-          <div className="nw2-preview" style={{ position: 'sticky', top: 78 }}>
+        <div style={{ width: isMobile ? '100%' : 288, flexShrink: 0, order: isMobile ? 1 : 2 }}>
+          <div className="nw2-preview" style={isMobile ? {} : { position: 'sticky', top: 78 }}>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', animation: 'nwPulse 2s ease infinite' }} />
@@ -1108,6 +1195,28 @@ const New = () => {
       </div>
     </div>
   );
+};
+
+// Route guard: creating needs items → add, editing needs items → edit. Opening the URL
+// directly without it shows a notice instead of a form whose save would 403 anyway.
+const New = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { can, ready } = usePermissions();
+  const isDark = useThemeStore((s) => s.isDark);
+  const T = getTheme(isDark);
+  if (ready && !can('items', id ? 'edit' : 'add')) {
+    return (
+      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ textAlign: 'center', maxWidth: 360 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: T.textPri }}>You don't have permission to {id ? 'edit' : 'add'} items</div>
+          <p style={{ fontSize: 12.5, color: T.textSec, margin: '8px 0 16px' }}>Ask an admin to grant it under Settings → Roles & Permissions.</p>
+          <button onClick={() => navigate('/Items/Items')} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface2, color: T.textPri, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Back to items</button>
+        </div>
+      </div>
+    );
+  }
+  return <NewItemForm />;
 };
 
 export default New;

@@ -1,44 +1,42 @@
 import { useCallback } from 'react'
-import axios from 'axios'
+import api from './axiosInstance'
 import useAuthStore from '../store/useAuthStore'
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-
+// Uses the shared axios instance so requests carry the token AND the X-Org-ID header —
+// the notification routes are org-scoped (RequireOrg) and reject calls without it.
 const useNotifications = () => {
-  const token = useAuthStore((s) => s.token)
   const setNotifications = useAuthStore((s) => s.setNotifications)
   const markAllNotificationsRead = useAuthStore((s) => s.markAllNotificationsRead)
   const removeNotification = useAuthStore((s) => s.removeNotification)
 
-  const headers = () => ({ headers: { Authorization: `Bearer ${token}` } })
-
   const fetchNotifications = useCallback(async () => {
-    if (!token) return
+    const { token, activeOrg } = useAuthStore.getState()
+    if (!token || !activeOrg?._id) return
     try {
-      const res = await axios.get(`${BASE_URL}/api/notifications`, headers())
+      const res = await api.get('/api/notifications')
       setNotifications(res.data.data || [])
     } catch {
       // silent — bell will just show 0
     }
-  }, [token])
+  }, [setNotifications])
 
   const markAllRead = useCallback(async () => {
     try {
-      await axios.put(`${BASE_URL}/api/notifications/read-all`, {}, headers())
+      await api.put('/api/notifications/read-all', {})
       markAllNotificationsRead()
     } catch {
       // silent
     }
-  }, [token])
+  }, [markAllNotificationsRead])
 
   const deleteNotification = useCallback(async (id) => {
     try {
-      await axios.delete(`${BASE_URL}/api/notifications/${id}`, headers())
+      await api.delete(`/api/notifications/${id}`)
       removeNotification(id)
     } catch {
       // silent
     }
-  }, [token])
+  }, [removeNotification])
 
   return { fetchNotifications, markAllRead, deleteNotification }
 }

@@ -8,6 +8,7 @@ import useOrganization from '../../helper/useOrganization'
 import useNotifications from '../../helper/useNotifications'
 import { clearPermissions } from '../../helper/permissions'
 import axiosInstance from '../../helper/axiosInstance'
+import { BREAKPOINT_TABLET, BREAKPOINT_PHONE } from '../../helper/responsive'
 
 // ── Global search result types → icon, label, and the route to open ──
 // Keys match the backend SearchResult.type (search_controller.go).
@@ -175,7 +176,17 @@ const OrgSwitcher = ({ isDark, D }) => {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const handleSwitch = (org) => { switchOrganization(org); setOpen(false) }
+  // Most pages fetch their data once on mount and never re-run when activeOrg
+  // changes underneath them, so switching orgs while sitting on the same
+  // route left stale data on screen. A full reload forces every component to
+  // remount and refetch under the new org — same pattern Slack/Notion use for
+  // workspace switching.
+  const handleSwitch = (org) => {
+    if (org._id === activeOrg?._id) { setOpen(false); return }
+    switchOrganization(org)
+    setOpen(false)
+    window.location.href = '/Home'
+  }
 
   return (
     <div style={{ position: 'relative' }} ref={ref}>
@@ -199,7 +210,7 @@ const OrgSwitcher = ({ isDark, D }) => {
             {(activeOrg?.name || 'O').charAt(0).toUpperCase()}
           </span>
         </div>
-        <span style={{ color: D.textPri, fontSize: '12px', fontWeight: '500', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span className="nx-org-name" style={{ color: D.textPri, fontSize: '12px', fontWeight: '500', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {activeOrg?.name || 'No org'}
         </span>
         <IoChevronDown size={10} style={{ color: D.textSec, flexShrink: 0 }} />
@@ -245,6 +256,17 @@ const OrgSwitcher = ({ isDark, D }) => {
             )}
           </div>
           <div style={{ borderTop: `1px solid ${D.border}`, padding: '4px 0' }}>
+            {(activeOrg?.role || '').toLowerCase() === 'owner' && (
+              <button
+                className="nx-dropdown-item"
+                onClick={() => { setOpen(false); navigate('/organizations/create') }}
+              >
+                <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 5v14M5 12h14" />
+                </svg>
+                New Organization
+              </button>
+            )}
             {activeOrg && (
               <button
                 className="nx-dropdown-item"
@@ -428,6 +450,20 @@ const Navbar = ({ onToggleSidebar }) => {
         }
         .nx-avatar-btn:hover { border-color: ${isDark ? 'rgba(59,130,246,0.6)' : '#93c5fd'}; }
         .nx-sep { border-top: 1px solid ${D.notifItemBorder}; }
+
+        /* Phone/tablet — the navbar has no room for all of this at once.
+           Keep only what's essential: hamburger, page title, notifications,
+           and the user avatar (menu still reachable via tap). */
+        @media (max-width: ${BREAKPOINT_TABLET}px) {
+          .nx-crumb, .nx-search-wrap, .nx-org-name, .nx-tour-help, .nx-user-text, .nx-divider {
+            display: none;
+          }
+        }
+        @media (max-width: ${BREAKPOINT_PHONE}px) {
+          .nx-theme-wrap, .nx-org-wrap {
+            display: none;
+          }
+        }
       `}</style>
 
       <nav className="nx-navbar" style={{
@@ -453,17 +489,17 @@ const Navbar = ({ onToggleSidebar }) => {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             {parent && (
-              <>
+              <span className="nx-crumb" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '13px', color: isDark ? '#64748b' : '#94a3b8' }}>{parent}</span>
                 <span style={{ fontSize: '13px', color: isDark ? 'rgba(71,85,105,0.55)' : '#cbd5e1' }}>/</span>
-              </>
+              </span>
             )}
             <span className="nx-navbar-title" style={{ fontSize: '13px', fontWeight: '600', color: D.textPri }}>{title}</span>
           </div>
         </div>
 
         {/* ── Center search ── */}
-        <div ref={searchRef} data-tour="navbar-search" style={{ flex: 1, maxWidth: '420px', margin: '0 16px', position: 'relative' }}>
+        <div ref={searchRef} data-tour="navbar-search" className="nx-search-wrap" style={{ flex: 1, maxWidth: '420px', margin: '0 16px', position: 'relative' }}>
           <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"
             style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: D.textSec, pointerEvents: 'none', flexShrink: 0 }}>
             <circle cx="11" cy="11" r="8" strokeWidth="2"/><path strokeLinecap="round" strokeWidth="2" d="M21 21l-4.35-4.35"/>
@@ -475,7 +511,7 @@ const Navbar = ({ onToggleSidebar }) => {
             onFocus={() => { setSearchFocused(true); if (results.length) setSearchOpen(true) }}
             onBlur={() => setSearchFocused(false)}
             onKeyDown={onSearchKeyDown}
-            placeholder="Search across Nexus…   (Ctrl+K)"
+            placeholder="Search across Spifora…   (Ctrl+K)"
             style={{
               width: '100%', height: '32px',
               padding: '0 32px 0 32px',
@@ -548,18 +584,18 @@ const Navbar = ({ onToggleSidebar }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
 
           {/* Theme toggle */}
-          <div data-tour="navbar-theme">
+          <div data-tour="navbar-theme" className="nx-theme-wrap">
             <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
           </div>
 
-          <div style={{ width: '1px', height: '20px', background: D.divider, margin: '0 2px' }} />
+          <div className="nx-divider" style={{ width: '1px', height: '20px', background: D.divider, margin: '0 2px' }} />
 
           {/* Org switcher */}
-          <div data-tour="navbar-org">
+          <div data-tour="navbar-org" className="nx-org-wrap">
             <OrgSwitcher isDark={isDark} D={D} />
           </div>
 
-          <div style={{ width: '1px', height: '20px', background: D.divider, margin: '0 2px' }} />
+          <div className="nx-divider" style={{ width: '1px', height: '20px', background: D.divider, margin: '0 2px' }} />
 
           {/* Notifications */}
           <div data-tour="navbar-notif" style={{ position: 'relative' }} ref={notifRef}>
@@ -694,13 +730,13 @@ const Navbar = ({ onToggleSidebar }) => {
             )}
           </div>
 
-          <div style={{ width: '1px', height: '20px', background: D.divider }} />
+          <div className="nx-divider" style={{ width: '1px', height: '20px', background: D.divider }} />
 
           {/* Tour help */}
           <button
             data-tour="tour-help"
             onClick={() => startTour('welcome')}
-            className="nx-icon-btn"
+            className="nx-icon-btn nx-tour-help"
             title="Start guided tour"
             style={{ width: '28px', height: '28px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', color: D.textSec, fontFamily: 'inherit' }}
           >
@@ -715,7 +751,7 @@ const Navbar = ({ onToggleSidebar }) => {
                 <span style={{ color: D.avatarText, fontSize: '12px', fontWeight: '700', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{initials}</span>
               </div>
               {user && (
-                <div style={{ textAlign: 'left' }}>
+                <div className="nx-user-text" style={{ textAlign: 'left' }}>
                   <p style={{ color: isDark ? '#cbd5e1' : '#374151', fontSize: '12px', fontWeight: '500', margin: 0, lineHeight: 1.3 }}>{user.userId}</p>
                   <p style={{ color: D.subText, fontSize: '11px', margin: 0, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user.companyName || 'Organization'}

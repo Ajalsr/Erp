@@ -583,6 +583,9 @@ func deductStockOnDispatch(dn models.DeliveryNote, orgID string) {
 		if err := stockCollection.FindOne(ctx, bson.M{"_id": itemObjID, "orgId": orgID}).Decode(&stock); err != nil {
 			continue
 		}
+		if stock.Type == "service" {
+			continue // services carry no stock quantity to deduct
+		}
 		unitCost := 0.0
 		fmt.Sscanf(stock.CostPrice, "%f", &unitCost)
 		totalCOGS += item.OutboundQuantity * unitCost

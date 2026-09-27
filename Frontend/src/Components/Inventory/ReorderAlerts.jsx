@@ -25,7 +25,7 @@ export default function ReorderAlerts() {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axiosInstance.get('/api/stocks/getitem');
+      const res = await axiosInstance.get('/api/stocks/reorder-alerts');
       setItems(res.data?.data || []);
     } catch {
       nexusToast.error('Failed to load stock data');

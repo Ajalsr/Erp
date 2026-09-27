@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import ReactDOM from "react-dom";
 import { FaPlus, FaTimes, FaSearch, FaMoneyBillWave, FaChevronLeft, FaChevronRight, FaCheckCircle } from "react-icons/fa";
 import { useSearchParams } from "react-router-dom";
@@ -8,6 +8,7 @@ import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import axiosInstance from "../../helper/axiosInstance";
 import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
+import { drawerWidth } from "../../helper/responsive";
 import "react-datepicker/dist/react-datepicker.css";
 
 const fmtAED  = (n) => `AED ${parseFloat(n || 0).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -251,7 +252,7 @@ const ModeSelect = ({ value, onChange, T, isDark }) => {
     }
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]);
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]);
   useEffect(() => {
     const h = e => {
       if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target))
@@ -335,6 +336,97 @@ const ModeSelect = ({ value, onChange, T, isDark }) => {
   );
 };
 
+/* ── AccountSelect — "Paid Through" custom dropdown, matches ModeSelect ── */
+const AccountSelect = ({ value, onChange, accounts, T, isDark }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const options = accounts.length === 0
+    ? [{ _id: "", label: "Cash on Hand (default)" }]
+    : accounts.map(a => ({ _id: a._id, label: `[${a.accountCode}] ${a.accountName}` }));
+  const sel = options.find(o => o._id === value);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        width: "100%", padding: "10px 13px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        border: `1.5px solid ${open ? T.blue : sel ? T.blue : T.border}`,
+        borderRadius: 9, background: sel ? T.blueDim : isDark ? T.inputBg : T.surface2,
+        cursor: "pointer", fontSize: 13, transition: "all .15s",
+        boxShadow: open ? `0 0 0 3px ${isDark ? "rgba(59,130,246,.18)" : "rgba(59,130,246,.12)"}` : "none",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 8, flexShrink: 0, fontSize: 14,
+            background: sel ? `${T.blue}22` : isDark ? T.surface2 : "#f1f5f9",
+            border: `1.5px solid ${sel ? T.blue + "55" : T.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>🏦</div>
+          <span style={{ color: sel ? T.textPri : T.textSec, fontWeight: sel ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {sel ? sel.label : "Select account…"}
+          </span>
+        </div>
+        <svg style={{ flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: open ? T.blue : T.textSec }}
+          width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
+          background: isDark ? T.surface : "#fff", border: `1.5px solid ${T.border}`, borderRadius: 12,
+          boxShadow: "0 20px 48px rgba(0,0,0,.22)", overflow: "hidden",
+        }}>
+          <div style={{ padding: "8px 13px", borderBottom: `1px solid ${T.border}`, background: isDark ? T.surface2 : "#f8fafc" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: T.textSec }}>
+              {options.length} account{options.length !== 1 ? "s" : ""}
+            </div>
+          </div>
+          <div style={{ maxHeight: 260, overflowY: "auto" }}>
+          {options.map(o => {
+            const active = value === o._id;
+            return (
+              <div key={o._id} onClick={() => { onChange(o._id); setOpen(false); }}
+                style={{
+                  padding: "11px 14px", cursor: "pointer",
+                  borderBottom: `1px solid ${T.border}`,
+                  background: active ? T.blueDim : "transparent",
+                  display: "flex", alignItems: "center", gap: 11,
+                  transition: "background .1s",
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.background = isDark ? T.surface2 : "#f8fafc"; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                  background: active ? `${T.blue}25` : isDark ? T.surface2 : "#f1f5f9",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15,
+                  border: `1.5px solid ${active ? T.blue : T.border}`,
+                }}>🏦</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? T.blue : T.textPri, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</div>
+                </div>
+                {active && (
+                  <div style={{ width: 18, height: 18, borderRadius: 6, background: T.blue, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, flexShrink: 0 }}>✓</div>
+                )}
+              </div>
+            );
+          })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── ModernDatePicker — portal calendar with presets ────────────── */
 const DATE_PRESETS = [
   { label: "Today",      fn: () => new Date() },
@@ -359,7 +451,7 @@ const ModernDatePicker = ({ value, onChange, T, isDark, error }) => {
     }
   };
 
-  useEffect(() => { if (open) updatePos(); }, [open]);
+  useLayoutEffect(() => { if (open) updatePos(); }, [open]);
   useEffect(() => {
     const h = e => {
       if (!triggerRef.current?.contains(e.target) && !portalRef.current?.contains(e.target))
@@ -707,7 +799,7 @@ export const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => 
       `}</style>
 
       <div onClick={e => e.stopPropagation()} style={{
-        background: T.surface, borderRadius: 18, width: 560, maxHeight: "92vh",
+        background: T.surface, borderRadius: 18, width: drawerWidth(560), maxHeight: "92vh",
         overflowY: "auto", boxShadow: "0 40px 80px rgba(0,0,0,.35)",
         border: `1.5px solid ${T.border}`, animation: "pmtIn .2s ease both",
       }}>
@@ -908,19 +1000,12 @@ export const RecordPaymentModal = ({ T, isDark, onClose, onSaved, prefill }) => 
           {/* Paid Through — which cash/bank GL account the money left from */}
           <div>
             <label style={lbl}>Paid Through (Cash / Bank Account)</label>
-            <select
+            <AccountSelect
               value={form.paidThroughAccount}
-              onChange={e => setForm(f => ({ ...f, paidThroughAccount: e.target.value }))}
-              style={{
-                width: "100%", padding: "10px 13px", borderRadius: 9, fontSize: 13, cursor: "pointer",
-                background: isDark ? T.inputBg : T.surface2, border: `1.5px solid ${T.border}`,
-                color: T.textPri, fontFamily: "'DM Sans', sans-serif", outline: "none",
-              }}>
-              {accounts.length === 0 && <option value="">Cash on Hand (default)</option>}
-              {accounts.map(a => (
-                <option key={a._id} value={a._id}>[{a.accountCode}] {a.accountName}</option>
-              ))}
-            </select>
+              onChange={id => setForm(f => ({ ...f, paidThroughAccount: id }))}
+              accounts={accounts}
+              T={T} isDark={isDark}
+            />
           </div>
 
           {/* Mode-specific fields */}
@@ -1232,7 +1317,7 @@ export default function PaymentsMade() {
         return (
           <div onClick={e => e.target === e.currentTarget && setDetail(null)}
             style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.55)", backdropFilter: "blur(6px)", padding: 20 }}>
-            <div style={{ background: T.surface, borderRadius: 18, width: 540, maxHeight: "88vh", overflowY: "auto", border: `1.5px solid ${T.border}`, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ background: T.surface, borderRadius: 18, width: drawerWidth(540), maxHeight: "88vh", overflowY: "auto", border: `1.5px solid ${T.border}`, boxShadow: "0 40px 80px rgba(0,0,0,.4)" }}>
               <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, color: T.textPri }}>💸 {detail.paymentNumber || "Payment"}</div>

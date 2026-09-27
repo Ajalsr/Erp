@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import useUnsavedStore from '../../store/useUnsavedStore'
 import useThemeStore, { getTheme } from '../../store/useThemeStore'
+import { usePermissions } from '../../helper/permissions'
 
 /**
  * Global keyboard shortcuts. Mounted once (in Layout) so it is only active
@@ -19,11 +20,11 @@ import useThemeStore, { getTheme } from '../../store/useThemeStore'
  *   label -> human-readable name for the destination
  */
 const SHORTCUTS = [
-  { key: 's', path: '/Sales/Salesorders/Newsalesorders',          label: 'New Sales Order' },
-  { key: 'p', path: '/Purchase/Purchaseorders/Newpurchaseorders', label: 'New Purchase Order' },
-  { key: 'i', path: '/Items/Items/New',                           label: 'New Item' },
-  { key: 'c', path: '/Sales/Customers/Newcustomers',              label: 'New Customer' },
-  { key: 'v', path: '/Purchase/Vendors/NewVendor',                label: 'New Vendor' },
+  { key: 's', path: '/Sales/Salesorders/Newsalesorders',          label: 'New Sales Order',    perm: 'sales_orders' },
+  { key: 'p', path: '/Purchase/Purchaseorders/Newpurchaseorders', label: 'New Purchase Order', perm: 'purchase_orders' },
+  { key: 'i', path: '/Items/Items/New',                           label: 'New Item',           perm: 'items' },
+  { key: 'c', path: '/Sales/Customers/Newcustomers',              label: 'New Customer',       perm: 'customers' },
+  { key: 'v', path: '/Purchase/Vendors/NewVendor',                label: 'New Vendor',         perm: 'vendors' },
   { key: 'h', path: '/Home',                                      label: 'Home' },
 ]
 
@@ -32,6 +33,11 @@ export default function KeyboardShortcuts() {
   const isDark = useThemeStore((s) => s.isDark)
   const T = getTheme(isDark)
   const [showHelp, setShowHelp] = useState(false)
+  // "New X" shortcuts need add permission on their module (perm-less ones always work).
+  const { can } = usePermissions()
+  const allowed = (sc) => !sc.perm || can(sc.perm, 'add')
+  const allowedRef = useRef(allowed)
+  allowedRef.current = allowed
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -48,7 +54,7 @@ export default function KeyboardShortcuts() {
       }
 
       const match = SHORTCUTS.find((s) => s.key === key)
-      if (!match) return
+      if (!match || !allowedRef.current(match)) return
 
       e.preventDefault()
       setShowHelp(false)
@@ -102,7 +108,7 @@ export default function KeyboardShortcuts() {
           >×</span>
         </div>
         <div style={{ padding: '8px 12px' }}>
-          {SHORTCUTS.map((s) => (
+          {SHORTCUTS.filter(allowed).map((s) => (
             <div key={s.key} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '9px 8px', fontSize: 13,

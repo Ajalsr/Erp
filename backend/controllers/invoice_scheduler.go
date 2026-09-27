@@ -44,12 +44,17 @@ func runDueDateChecks() {
 	// Generate invoices for recurring profiles whose next run date has arrived
 	processRecurringInvoices(ctx, todayStr)
 
+	// Create draft pay runs for payroll schedules whose next run date has arrived
+	processPayrollSchedules(ctx, todayStr)
+
 	// Enquiries whose follow-up date is today — remind the team
 	processEnquiryFollowUps(ctx, todayStr)
 }
 
-// processEnquiryFollowUps notifies org admins/owners about enquiries due for follow-up
-// today (or overdue and not yet reminded). Fires at most once per follow-up date.
+// processEnquiryFollowUps notifies org admins/owners, AND the enquiry's assigned rep
+// (if any — they're usually not an admin, so this is normally a distinct recipient),
+// about enquiries due for follow-up today (or overdue and not yet reminded). Fires at
+// most once per follow-up date.
 func processEnquiryFollowUps(ctx context.Context, todayStr string) {
 	cursor, err := enquiryCollection.Find(ctx, bson.M{
 		"followUpDate": bson.M{"$lte": todayStr, "$gt": ""},
@@ -79,8 +84,15 @@ func processEnquiryFollowUps(ctx context.Context, todayStr string) {
 		if e.AssignedTo != "" {
 			msg += " · assigned to " + e.AssignedTo
 		}
-		notifyOrgAdmins(ctx, e.OrgID, "enquiry_followup", title, msg,
-			map[string]string{"enquiryId": e.ID.Hex(), "enquiryNumber": e.EnquiryNumber})
+		meta := map[string]string{"enquiryId": e.ID.Hex(), "enquiryNumber": e.EnquiryNumber}
+		notifyOrgAdmins(ctx, e.OrgID, "enquiry_followup", title, msg, meta)
+		// Also notify the assigned rep directly — notifyOrgAdmins only reaches
+		// owner/admin, and the person actually meant to make the call is usually
+		// neither (a plain "sales rep" or custom role). Duplicate push to an
+		// admin who happens to be self-assigned is a harmless rare edge case.
+		if e.AssignedTo != "" {
+			go pushNotificationWithMeta(e.AssignedTo, "enquiry_followup", title, msg, e.OrgID, "", meta)
+		}
 
 		enquiryCollection.UpdateOne(ctx, bson.M{"_id": e.ID},
 			bson.M{"$set": bson.M{"followUpReminderDate": todayStr}})

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useIsMobile from '../../helper/useIsMobile';
 import useAuthStore from '../../store/useAuthStore';
 import useGetItem from '../../helper/useGetItem';
 import useGetCustomers from '../../helper/useGetCustomers';
@@ -8,6 +9,11 @@ import useAddSalesOrder from '../../helper/useAddSalesOrder';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import axiosInstance from '../../helper/axiosInstance';
 import { matchItem } from '../../helper/itemSearch';
+import { resolveItemPrice, getRateToBase } from '../../helper/priceList';
+import { drawerWidth } from '../../helper/responsive';
+import QuickCreateModal from '../common/QuickCreateModal';
+import QuickAddItemModal from '../common/QuickAddItemModal';
+import { usePermissions } from '../../helper/permissions';
 import { debounce } from 'lodash';
 import DatePicker from 'react-datepicker';
 import { format, addDays, addMonths, addYears, isSameDay } from 'date-fns';
@@ -129,7 +135,7 @@ const Field = ({ label, req, children, hint }) => {
 };
 
 /* ── PortalSelect — matches customer dropdown style ── */
-const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null }) => {
+const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null, onCreateNew, createLabel }) => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const [open,setOpen]=useState(false);
@@ -165,7 +171,7 @@ const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null }
   return (
     <div style={{position:'relative'}}>
       {/* Trigger */}
-      <button type="button" ref={triggerRef} onClick={()=>setOpen(!open)}
+      <button type="button" ref={triggerRef} onClick={()=>{ if(!open) updatePos(); setOpen(o=>!o); }}
         style={{
           width:'100%',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,
           border:`1.5px solid ${open?'#3b82f6':selected?'#3b82f6':T.border}`,
@@ -230,6 +236,17 @@ const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null }
             );
           })}
           </div>
+          {onCreateNew && (
+            <div onClick={() => { onCreateNew(); setOpen(false); }}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'10px 14px', borderTop:`1px solid ${T.border}`, cursor:'pointer', fontSize:12.5, fontWeight:700, color:'#3b82f6', flexShrink:0 }}
+              onMouseEnter={e=>{e.currentTarget.style.background=T.surface2;}}
+              onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}>
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              {createLabel || 'Create new'}
+            </div>
+          )}
         </div>,
         document.body
       )}
@@ -259,7 +276,7 @@ const Toaster = ({ message, type='info', onConfirm, onCancel, isVisible }) => {
   const cfg={warning:{icon:'⚠️',btnBg:'#ef4444',btnLabel:'Yes, Cancel Order'},info:{icon:'ℹ️',btnBg:'#3b82f6',btnLabel:'OK'},error:{icon:'❌',btnBg:'#ef4444',btnLabel:'OK'},success:{icon:'✅',btnBg:'#10b981',btnLabel:'OK'}}[type];
   return ReactDOM.createPortal(
     <div style={{position:'fixed',inset:0,zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(15,23,42,.55)',backdropFilter:'blur(8px)'}}>
-      <div style={{background:T.surface,borderRadius:20,padding:'32px 36px',width:380,textAlign:'center',boxShadow:'0 40px 80px rgba(0,0,0,.3)',border:`1.5px solid ${T.border}`,animation:'nsoModal .2s ease both'}}>
+      <div style={{background:T.surface,borderRadius:20,padding:'32px 36px',width:drawerWidth(380),textAlign:'center',boxShadow:'0 40px 80px rgba(0,0,0,.3)',border:`1.5px solid ${T.border}`,animation:'nsoModal .2s ease both'}}>
         <div style={{fontSize:36,marginBottom:14}}>{cfg.icon}</div>
         <h3 style={{fontFamily:"'Sora',sans-serif",fontSize:18,fontWeight:700,color:T.textPri,margin:'0 0 10px'}}>{type==='warning'?'Cancel this order?':'Notification'}</h3>
         <p style={{fontSize:13,color:T.textSec,margin:'0 0 24px',lineHeight:1.6}}>{message}</p>
@@ -445,7 +462,7 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
   return (
     <div>
       <label className="nso-lbl">{label}{required&&<span className="nso-req">*</span>}</label>
-      <button type="button" ref={triggerRef} onClick={()=>setOpen(!open)} style={{
+      <button type="button" ref={triggerRef} onClick={()=>{ if(!open) updatePos(); setOpen(o=>!o); }} style={{
         width:'100%',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',
         border:`1.5px solid ${open?'#3b82f6':sel?'#3b82f6':T.border}`,
         borderRadius:10,background:sel?(isDark?'rgba(59,130,246,0.08)':'#eff6ff'):T.surface,cursor:'pointer',fontSize:13,transition:'all .15s',
@@ -474,6 +491,8 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
 
 /* ════════════════════ MAIN ════════════════════════════════════════ */
 const Newsalesorders = () => {
+  const { can: canPerm } = usePermissions();
+  const canAddItem = canPerm('items', 'add'); // gates the dropdown's "Create new item"
   const [items,setItems]=useState([{id:1,itemId:'',details:'',sku:'',quantity:1,rate:'',discount:'',discountType:'percentage',amount:'',unit:''}]);
   const [showItemDropdown,setShowItemDropdown]=useState(null);
   const [searchTerm,setSearchTerm]=useState('');
@@ -510,13 +529,13 @@ const Newsalesorders = () => {
   const activeOrg=useAuthStore(s=>s.activeOrg);
   const isAdminOrOwner=['owner','admin'].includes((activeOrg?.role||'').toLowerCase());
 
-  // Salesperson dropdown — org members (active, non owner/admin), same as the enquiry list.
+  // Salesperson dropdown — active org members (sales reps + owner; admins excluded).
   const [salesReps,setSalesReps]=useState([]);
   useEffect(()=>{
     const orgId=activeOrg?._id;
     if(!orgId)return;
     axiosInstance.get(`/api/organizations/${orgId}/members`)
-      .then(r=>setSalesReps((r.data?.data||[]).filter(m=>m.status==='active'&&m.role!=='owner'&&m.role!=='admin').map(m=>m.userId)))
+      .then(r=>setSalesReps((r.data?.data||[]).filter(m=>m.status==='active'&&m.role!=='admin').map(m=>m.userId)))
       .catch(()=>setSalesReps([]));
   },[activeOrg]);
   // Include the saved salesperson (e.g. an old free-text name) so it still shows when editing.
@@ -536,36 +555,37 @@ const Newsalesorders = () => {
   const isEditMode = !!editId;
   const fromQuoteLock = !isEditMode && !!location.state?.fromQuote;
 
-  const salesTypeOptions=[{value:'SO',label:'SO — Standard Sale Order'},{value:'MOA',label:'MOA — Material on Approval'},{value:'MOA_COLLECT',label:'MOA Collect — Material on Approval Collect'},{value:'FREE_DELIVERY',label:'Free Delivery'}];
-  const CUST_TO_SO_TERMS = {
-    'Due on Receipt':  'due_on_receipt',
-    'Net 7':           'net_7',
-    'Net 15':          'net_15',
-    'Net 30':          'net_30',
-    'Net 45':          'net_45',
-    'Net 60':          'net_60',
-    'Net 90':          'net_90',
-    '50% Advance':     'prepaid',
-    '100% Advance':    'prepaid',
+  // Sales Type + Payment Terms — both org-configurable modules (Finance/Sales settings),
+  // fetched below. Value = the record's name, same convention as Item Groups/UOM.
+  const [salesTypeList, setSalesTypeList]     = useState([]);
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [quickCreate, setQuickCreate]         = useState(null); // 'salesType' | 'paymentTerm' | null
+
+  const salesTypeOptions = salesTypeList.map(t => ({ value: t.name, label: t.name, sub: t.description || undefined }));
+  const paymentTermsOptions = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+
+  const fetchSalesTypes = useCallback(() => {
+    return axiosInstance.get('/api/sales-types/?status=active')
+      .then(r => setSalesTypeList(r.data?.data?.salesTypes || []))
+      .catch(() => {});
+  }, []);
+  const fetchPaymentTermList = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(r => setPaymentTermList(r.data?.data?.paymentTerms || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchSalesTypes(); fetchPaymentTermList(); }, [fetchSalesTypes, fetchPaymentTermList]);
+
+  const handleCreateSalesType = async (form) => {
+    const res = await axiosInstance.post('/api/sales-types/', { name: form.name, description: form.description });
+    await fetchSalesTypes();
+    if (res.data?.data?.name) setSalesType(res.data.data.name);
   };
-  const paymentTermsOptions=[
-    {value:'due_on_receipt',   label:'Due on Receipt'},
-    {value:'prepaid',          label:'Prepaid / Advance'},
-    {value:'cod',              label:'Cash on Delivery (COD)'},
-    {value:'net_7',            label:'Net 7'},
-    {value:'net_10',           label:'Net 10'},
-    {value:'net_15',           label:'Net 15'},
-    {value:'net_30',           label:'Net 30'},
-    {value:'net_45',           label:'Net 45'},
-    {value:'net_60',           label:'Net 60'},
-    {value:'net_90',           label:'Net 90'},
-    {value:'2_10_net_30',      label:'2/10 Net 30'},
-    {value:'eom',              label:'End of Month (EOM)'},
-    {value:'15_eom',           label:'15 Days after End of Month'},
-    {value:'30_eom',           label:'30 Days after End of Month'},
-    {value:'letter_of_credit', label:'Letter of Credit (LC)'},
-    {value:'bank_transfer',    label:'Bank Transfer on Delivery'},
-  ];
+  const handleCreatePaymentTerm = async (form) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: form.name, days: Number(form.days) || 0 });
+    await fetchPaymentTermList();
+    if (res.data?.data?.name) setPaymentTerms(res.data.data.name);
+  };
 
   // Calculate final line amount after discount
   const calcAmt=(q,r,d=0,dt='percentage')=>{
@@ -643,6 +663,9 @@ const Newsalesorders = () => {
         setCustomerNotes(o.customerNotes||'');
         setTermsAndConditions(o.termsAndConditions||'');
         setApproverNote(o.approverNote||'');
+        if(o.attachments?.length){
+          setAttachedFiles(o.attachments.map(a=>({id:a._id||Date.now()+Math.random(),name:a.name,size:a.size?(a.size/1024/1024).toFixed(2):'0.00',type:a.type||'',url:a.url,status:'uploaded'})));
+        }
         if(o.items?.length){
           setItems(o.items.map((it,idx)=>({
             id: idx+1,
@@ -662,7 +685,7 @@ const Newsalesorders = () => {
         // Resolve the customer object so the credit-status banner works
         if(o.customerId && customersData){
           const found=customersData.find(c=>c._id===o.customerId||c.id===o.customerId);
-          if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+          if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');loadPriceListForCustomer(found);}
         }
       })
       .catch(()=>{ import('react-hot-toast').then(m=>m.toast.error('Failed to load order')); });
@@ -690,13 +713,13 @@ const Newsalesorders = () => {
     if(!fq||isEditMode||!customersData||!inventoryData)return;
     if(quotePrefillDone.current)return;
     quotePrefillDone.current=true;
-    if(fq.paymentTerms){const pt=fq.paymentTerms.toLowerCase().replace(' ','_');setPaymentTerms(pt);}
+    if(fq.paymentTerms){setPaymentTerms(fq.paymentTerms);}
     if(fq.salesperson){setSalesperson(fq.salesperson);}
     // Build notes deterministically so a re-run can't duplicate the Ref Quote line.
     {const parts=[];if(fq.notes)parts.push(fq.notes);if(fq.quoteNumber)parts.push('Ref Quote: '+fq.quoteNumber);if(parts.length)setCustomerNotes(parts.join('\n'));}
     if(fq.customerId){
       const found=customersData.find(c=>c._id===fq.customerId);
-      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');loadPriceListForCustomer(found);}
       else if(fq.customerName){setCustomerSearch(fq.customerName);}
     } else if(fq.customerName){
       setCustomerSearch(fq.customerName);
@@ -729,7 +752,7 @@ const Newsalesorders = () => {
     {const parts=[];if(fe.notes)parts.push(fe.notes);if(fe.enquiryNumber)parts.push('Ref Enquiry: '+fe.enquiryNumber);if(parts.length)setCustomerNotes(parts.join('\n'));}
     if(fe.customerId){
       const found=customersData.find(c=>c._id===fe.customerId);
-      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');}
+      if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');loadPriceListForCustomer(found);}
     } else if(fe.customerName){
       setCustomerSearch(fe.customerName);
     }
@@ -792,15 +815,29 @@ const Newsalesorders = () => {
   },[showCustomerDropdown]);
 
 
+  // Customer's assigned Price List (if any) — resolved per line item on selection below.
+  // A sales order has no currency field of its own (always the org's base currency),
+  // so the FX leg here is just "price list currency → base."
+  const [activePriceList,setActivePriceList]=useState(null);
+  const [priceListFxRate,setPriceListFxRate]=useState(1);
+  const loadPriceListForCustomer=(c)=>{
+    if(c?.price_list_id){
+      axiosInstance.get(`/api/price-lists/${c.price_list_id}`).then(r=>{
+        const pl=r.data?.data||null;
+        setActivePriceList(pl);
+        if(pl?.currency)getRateToBase(pl.currency).then(setPriceListFxRate);else setPriceListFxRate(1);
+      }).catch(()=>{setActivePriceList(null);setPriceListFxRate(1);});
+    }else{
+      setActivePriceList(null);setPriceListFxRate(1);
+    }
+  };
   const handleCustomerSelect=c=>{
     setSelectedCustomer(c);
     setCustomerSearch(`${c.customerCode} - ${c.customerDisplayName}${c.companyName?` (${c.companyName})`:''}`);
     setShowCustomerDropdown(false);
     const custTerms = c.payment_terms || c.paymentTerms;
-    if (custTerms) {
-      const soTerms = CUST_TO_SO_TERMS[custTerms] || custTerms.toLowerCase().replace(/ /g,'_');
-      setPaymentTerms(soTerms);
-    }
+    if (custTerms) setPaymentTerms(custTerms);
+    loadPriceListForCustomer(c);
   };
 
   useEffect(()=>{
@@ -823,16 +860,63 @@ const Newsalesorders = () => {
     setItems(items.filter((_,i)=>i!==idx));if(showItemDropdown===idx)setShowItemDropdown(null);
   };
   const handleItemSelect=(idx,sel)=>{
-    const u=[...items],rate=sel.selling_price||sel.price||0,qty=1,itemId=sel._id||sel.itemId;
+    const u=[...items],rate=resolveItemPrice(sel,activePriceList,priceListFxRate),qty=1,itemId=sel._id||sel.itemId;
     u[idx]={...u[idx],itemId,details:sel.name||sel.itemName||'No name',sku:sel.sku||'No SKU',rate,unit:sel.unit||sel.Unit||'pcs',quantity:qty,amount:calcAmt(qty,rate,u[idx].discount,u[idx].discountType)};
     setItems(u);setShowItemDropdown(null);setSearchTerm('');
     fetchStockAvailability(itemId);
   };
+
+  // Item groups + UOM, for the line-item "+ Create new item" shortcut's fields.
+  const [groupOptions,setGroupOptions]=useState([]);
+  const [groupMap,setGroupMap]=useState({});
+  const fetchGroupOptions=useCallback(()=>{
+    return axiosInstance.get('/api/item-groups/?status=active')
+      .then(r=>{
+        const list=r.data?.data?.groups||[];
+        setGroupOptions(list.map(g=>({value:g._id,label:g.name})));
+        const map={};list.forEach(g=>{map[g._id]={prefix:g.prefix||''};});setGroupMap(map);
+      }).catch(()=>{});
+  },[]);
+  const [uomOptions,setUomOptions]=useState([]);
+  const fetchUomOptions=useCallback(()=>{
+    return axiosInstance.get('/api/uoms/?status=active')
+      .then(r=>setUomOptions((r.data?.data?.uoms||[]).map(u=>({value:u._id,label:u.symbol?`${u.name} (${u.symbol})`:u.name}))))
+      .catch(()=>{});
+  },[]);
+  useEffect(()=>{fetchGroupOptions();fetchUomOptions();},[fetchGroupOptions,fetchUomOptions]);
+
+  const [quickAddItem,setQuickAddItem]=useState(null); // null | { idx }
+  const openQuickAddItem=(idx)=>setQuickAddItem({idx});
+  const handleItemCreated=(newItem)=>{
+    if(quickAddItem)handleItemSelect(quickAddItem.idx,newItem);
+    setQuickAddItem(null);
+    handleGetItem(); // refresh the inventory cache so future searches find it too
+  };
   const handleQuantityChange=(idx,val)=>{const u=[...items],qty=parseFloat(val)||1;u[idx].quantity=qty;if(u[idx].rate)u[idx].amount=calcAmt(qty,u[idx].rate,u[idx].discount,u[idx].discountType);setItems(u);};
-  const handleRateChange=(idx,val)=>{const u=[...items],rate=parseFloat(val)||0;u[idx].rate=rate;if(u[idx].quantity)u[idx].amount=calcAmt(u[idx].quantity,rate,u[idx].discount,u[idx].discountType);setItems(u);};
+  const handleRateChange=(idx,val)=>{const u=[...items];u[idx].rate=val;if(u[idx].quantity)u[idx].amount=calcAmt(u[idx].quantity,val,u[idx].discount,u[idx].discountType);setItems(u);};
   const handleDiscountChange=(idx,val)=>{const u=[...items];u[idx].discount=val;if(u[idx].quantity&&u[idx].rate)u[idx].amount=calcAmt(u[idx].quantity,u[idx].rate,val,u[idx].discountType);setItems(u);};
   const handleDiscountTypeChange=(idx,type)=>{const u=[...items];u[idx].discountType=type;if(u[idx].quantity&&u[idx].rate&&u[idx].discount)u[idx].amount=calcAmt(u[idx].quantity,u[idx].rate,u[idx].discount,type);setItems(u);};
-  const handleFileUpload=e=>{const files=Array.from(e.target.files);if(attachedFiles.length+files.length>10){setSuccessMessage('Maximum 10 files allowed');setShowSuccessToaster(true);return;}setAttachedFiles([...attachedFiles,...files.map(f=>({id:Date.now()+Math.random(),name:f.name,size:(f.size/1024/1024).toFixed(2),type:f.type,file:f}))]);};
+  const handleFileUpload=async e=>{
+    const files=Array.from(e.target.files);
+    e.target.value='';
+    if(attachedFiles.length+files.length>10){setSuccessMessage('Maximum 10 files allowed');setShowSuccessToaster(true);return;}
+    for(const f of files){
+      if(f.size>5*1024*1024){setToasterType('error');setSuccessMessage(`${f.name} exceeds 5 MB limit`);setShowSuccessToaster(true);continue;}
+      const localId=Date.now()+Math.random();
+      setAttachedFiles(prev=>[...prev,{id:localId,name:f.name,size:(f.size/1024/1024).toFixed(2),type:f.type,url:null,status:'uploading'}]);
+      try{
+        const fd=new FormData();
+        fd.append('file',f);
+        fd.append('folder','erp/sales-orders');
+        const res=await axiosInstance.post('/api/documents/upload',fd);
+        const {url}=res.data;
+        setAttachedFiles(prev=>prev.map(a=>a.id===localId?{...a,url,status:'uploaded'}:a));
+      }catch{
+        setAttachedFiles(prev=>prev.map(a=>a.id===localId?{...a,status:'error'}:a));
+        setToasterType('error');setSuccessMessage(`Failed to upload ${f.name}`);setShowSuccessToaster(true);
+      }
+    }
+  };
   const handleRemoveFile=id=>setAttachedFiles(attachedFiles.filter(f=>f.id!==id));
   const handleCancel=()=>setShowCancelToaster(true);
   const confirmCancel=()=>{setShowCancelToaster(false);navigate('/Sales/Salesorders');};
@@ -840,7 +924,7 @@ const Newsalesorders = () => {
 
   const prepareSalesOrderData=(status,opts={})=>{
     const sub=calcSub(),vat=calcVAT(),ship=parseFloat(shippingCharges)||0,adj=parseFloat(adjustment)||0,total=sub+vat+ship+adj;
-    const apiItems=items.filter(i=>i.details&&i.quantity>0).map(i=>{
+    const apiItems=items.filter(i=>i.details&&i.itemId&&i.quantity>0).map(i=>{
       const qty=parseFloat(i.quantity)||0;
       const rate=parseFloat(i.rate)||0;
       const discVal=parseFloat(i.discount)||0;
@@ -872,15 +956,14 @@ const Newsalesorders = () => {
         throw new Error(`LPO value (AED ${lpoVal.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}) does not match the line items amount (AED ${sub.toLocaleString('en-AE',{minimumFractionDigits:2,maximumFractionDigits:2})}). Please reconcile the LPO value with the line items amount.`);
       }
     }
-    return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,approverNote,attachments:attachedFiles.map(f=>({name:f.name,size:f.size,type:f.type,url:URL.createObjectURL(f.file)})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
+    return {orderNumber,customerId:selectedCustomer._id,customerName:selectedCustomer.customerDisplayName,customerCode:selectedCustomer.customerCode,salesType,orderDate:orderDate?new Date(orderDate).toISOString():new Date().toISOString(),lpoNumber,lpoDate:lpoDate?new Date(lpoDate).toISOString():null,lpoValue:parseFloat(lpoValue)||0,expectedShipmentDate:expectedShipmentDate?new Date(expectedShipmentDate).toISOString():null,paymentTerms,salesperson,items:apiItems,shippingCharges:ship,adjustment:adj,customerNotes,termsAndConditions,approverNote,attachments:attachedFiles.filter(f=>f.status==='uploaded'&&f.url).map(f=>({name:f.name,size:f.size,type:f.type,url:f.url})),status,subTotal:sub,vat,total,createdBy:'current_user_id'};
   };
   // isEditMode branches PUT the existing order instead of POSTing a new one — the
   // create endpoint has no id to match against, so calling it while editing an
   // existing order silently spawned a duplicate and left the original untouched.
   const handleSaveAsDraft=async()=>{try{if(isEditMode){const d=prepareSalesOrderData('draft');await axiosInstance.put(`/api/sales-orders/${editId}`,d);guard.reset();setToasterType('success');setSuccessMessage('Draft saved!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);return;}const d=prepareSalesOrderData('draft'),r=await handleAddSalesOrder(d);if(r?.data?.id){setSuccessMessage('Saved as draft!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to save draft');setShowSuccessToaster(true);}};
-  const handleSaveAndSend=async()=>{try{if(isEditMode){const d=prepareSalesOrderData('open');await axiosInstance.put(`/api/sales-orders/${editId}`,d);guard.reset();setToasterType('success');setSuccessMessage('Sales order updated!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);return;}const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){if(r?.sentToApproval){guard.reset();setApprovalInfo({reasons:r.approvalReasons||[]});return;}if(r?.autoApproved){guard.reset();setApprovalInfo({reasons:r.approvalReasons||[],autoApproved:true});return;}handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setToasterType('success');setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
-  const handleSubmitForApproval=async()=>{try{if(isEditMode){const d=prepareSalesOrderData('pending_approval');await axiosInstance.put(`/api/sales-orders/${editId}`,d);guard.reset();setToasterType('success');setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);return;}const d=prepareSalesOrderData('pending_approval'),r=await handleAddSalesOrder(d);if(r?.data?.id){guard.reset();if(r?.sentToApproval){setApprovalInfo({reasons:r.approvalReasons||[]});return;}if(r?.autoApproved){setApprovalInfo({reasons:r.approvalReasons||[],autoApproved:true});return;}setToasterType('success');setSuccessMessage('Submitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
-  const handleResubmit=async()=>{try{const d=prepareSalesOrderData('pending_approval');await axiosInstance.put(`/api/sales-orders/${editId}`,d);setToasterType('success');setSuccessMessage('Order resubmitted for approval!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to resubmit.');setShowSuccessToaster(true);}};
+  const handleSaveAndSend=async()=>{try{if(isEditMode){const d=prepareSalesOrderData('open');const u=(await axiosInstance.put(`/api/sales-orders/${editId}`,d)).data;guard.reset();if(u?.sentToApproval){setApprovalInfo({reasons:u.approvalReasons||[]});return;}if(u?.autoApproved){setApprovalInfo({reasons:u.approvalReasons||[],autoApproved:true});return;}setToasterType('success');setSuccessMessage('Sales order updated!');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);return;}const d=prepareSalesOrderData('open'),r=await handleAddSalesOrder(d);if(r?.data?.id){if(r?.sentToApproval){guard.reset();setApprovalInfo({reasons:r.approvalReasons||[]});return;}if(r?.autoApproved){guard.reset();setApprovalInfo({reasons:r.approvalReasons||[],autoApproved:true});return;}handleGetItem();const msg=r?.creditWarning?'Sales order created — note: customer credit limit exceeded.':'Sales order created!';setToasterType('success');setSuccessMessage(msg);setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed. Check required fields.');setShowSuccessToaster(true);}};
+  const handleResubmit=async()=>{try{const d=prepareSalesOrderData('pending_approval');const u=(await axiosInstance.put(`/api/sales-orders/${editId}`,d)).data;guard.reset();if(u?.sentToApproval){setApprovalInfo({reasons:u.approvalReasons||[]});return;}setToasterType('success');setSuccessMessage(u?.data?.status==='pending_approval'?'Order resubmitted for approval!':'Order resubmitted and opened.');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to resubmit.');setShowSuccessToaster(true);}};
   // Approver edits an order still held for approval: save the changes (status stays
   // pending_approval) and attach the note for the requester. LPO isn't forced here.
   const handleApproverSave=async()=>{try{const d=prepareSalesOrderData(editStatus||'pending_approval',{skipLpo:true});await axiosInstance.put(`/api/sales-orders/${editId}`,d);guard.reset();setToasterType('success');setSuccessMessage(approverNote.trim()?'Changes saved — note added for requester.':'Changes saved.');setShowSuccessToaster(true);setTimeout(()=>navigate('/Sales/Salesorders'),1500);}catch(e){if(e.response?.status===409){const m=e.response.data?.message||'LPO number already in use by an active order';setLpoError(m);setToasterType('warn');setSuccessMessage(m);setShowSuccessToaster(true);return;}setToasterType('error');setSuccessMessage(e.response?.data?.message||e.message||'Failed to save changes.');setShowSuccessToaster(true);}};
@@ -891,7 +974,8 @@ const Newsalesorders = () => {
   const debouncedSearch=useCallback(debounce(t=>setSearchTerm(t),300),[]);
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
-  const hasItemsAdded=items.some(i=>i.details&&i.quantity>0);
+  const isMobile = useIsMobile();
+  const hasItemsAdded=items.some(i=>i.details&&i.itemId&&i.quantity>0);
   // A credit-limit "block" stops normal users at submit. Approvers (admin/owner) aren't
   // blocked — their order self-clears on the backend, so let them submit straight through.
   const isCreditHardBlocked=!!(creditStatus?.exceeded&&creditStatus?.creditLimitAction==='block')&&!isAdminOrOwner;
@@ -899,7 +983,7 @@ const Newsalesorders = () => {
   const guard=useUnsavedGuard({saveDraft:async()=>{const d=prepareSalesOrderData('draft');await handleAddSalesOrder(d);},hasDraft:true});
 
   return (
-    <div className="nso-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{minHeight:'100vh',background:T.bg,padding:'20px 20px 90px'}}>
+    <div className="nso-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{minHeight:'100vh',background:T.bg,padding:isMobile?'14px 14px 90px':'20px 20px 90px'}}>
       {/* useMemo: only re-generate the style block when the theme changes, not on every keystroke */}
       <style>{useMemo(()=>buildCSS(isDark),[isDark])}</style>
       <Toaster message="Are you sure you want to cancel? All unsaved changes will be lost." type="warning" isVisible={showCancelToaster} onConfirm={confirmCancel} onCancel={cancelCancel}/>
@@ -937,25 +1021,23 @@ const Newsalesorders = () => {
 
         {/* Top bar */}
         <div className="nso-sticky">
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <div style={{display:'flex',alignItems:'center',gap:14}}>
-              <button onClick={handleCancel} style={{width:36,height:36,borderRadius:10,border:`1.5px solid ${T.border}`,background:T.surface,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:T.textSec}}>
+          <div style={{display:'flex',flexWrap:isMobile?'wrap':'nowrap',alignItems:'center',justifyContent:'space-between',gap:isMobile?10:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:isMobile?8:14,minWidth:0}}>
+              <button onClick={handleCancel} style={{width:36,height:36,flexShrink:0,borderRadius:10,border:`1.5px solid ${T.border}`,background:T.surface,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:T.textSec}}>
                 <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
-              <div style={{width:1,height:24,background:T.border}}/>
-              <div>
-                <h1 style={{fontFamily:"'Sora',sans-serif",fontSize:18,fontWeight:800,color:T.textPri,margin:0,letterSpacing:'-.02em'}}>New Sales Order</h1>
+              {!isMobile && <div style={{width:1,height:24,background:T.border}}/>}
+              <div style={{minWidth:0}}>
+                <h1 style={{fontFamily:"'Sora',sans-serif",fontSize:isMobile?15:18,fontWeight:800,color:T.textPri,margin:0,letterSpacing:'-.02em',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>New Sales Order</h1>
                 <p style={{fontSize:11,color:T.textSec,margin:'2px 0 0',fontFamily:"'DM Mono',monospace"}}>{orderNumber}</p>
               </div>
             </div>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',width:isMobile?'100%':'auto'}}>
               {editStatus==='rejected'
                 ? <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(239,68,68,0.1)',border:'1.5px solid rgba(239,68,68,0.3)',fontSize:11,fontWeight:700,color:'#ef4444',letterSpacing:'.04em'}}>✕ REJECTED</span>
                 : isEditMode&&editStatus==='pending_approval'
                   ? <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(251,191,36,0.12)',border:'1.5px solid rgba(251,191,36,0.3)',fontSize:11,fontWeight:700,color:'#d97706',letterSpacing:'.04em'}}>⏳ PENDING APPROVAL</span>
-                : isAdminOrOwner
-                  ? <span style={{padding:'5px 12px',borderRadius:99,background:'#fef9c3',border:'1.5px solid #fef08a',fontSize:11,fontWeight:700,color:'#854d0e',letterSpacing:'.04em'}}>● DRAFT</span>
-                  : <span style={{padding:'5px 12px',borderRadius:99,background:'rgba(251,191,36,0.12)',border:'1.5px solid rgba(251,191,36,0.3)',fontSize:11,fontWeight:700,color:'#d97706',letterSpacing:'.04em'}}>⏳ PENDING APPROVAL</span>
+                : <span style={{padding:'5px 12px',borderRadius:99,background:'#fef9c3',border:'1.5px solid #fef08a',fontSize:11,fontWeight:700,color:'#854d0e',letterSpacing:'.04em'}}>● DRAFT</span>
               }
               <button onClick={handleCancel} className="nso-bg">Cancel</button>
               <button onClick={handleSaveAsDraft} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save Draft'}</button>
@@ -975,12 +1057,8 @@ const Newsalesorders = () => {
                   ? <button onClick={handleApproverSave} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
                       {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Saving…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save Changes</>}
                     </button>
-                : isAdminOrOwner
-                  ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
+                : <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||(isAdminOrOwner&&!lpoNumber.trim())||isCreditHardBlocked}>
                       {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
-                    </button>
-                  : <button onClick={handleSubmitForApproval} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
-                      {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Submit for Approval</>}
                     </button>
               }
             </div>
@@ -989,7 +1067,7 @@ const Newsalesorders = () => {
 
         {/* Section 1 — Order Info */}
         <Section title="Order Information" icon="📋" accent="#3b82f6">
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginBottom:18}}>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:18,marginBottom:18}}>
             {/* Customer — portal dropdown */}
             <div>
               <Field label="Customer Name" req>
@@ -1000,6 +1078,11 @@ const Newsalesorders = () => {
                       readOnly={fromQuoteLock}
                       onChange={fromQuoteLock?undefined:e=>{setCustomerSearch(e.target.value);setShowCustomerDropdown(true);}}
                       onFocus={fromQuoteLock?undefined:()=>{
+                        const r=customerDropdownRef.current?.getBoundingClientRect();
+                        if(r) setCustDropPos({top:r.bottom+4,left:r.left,width:Math.max(r.width,360)});
+                        setShowCustomerDropdown(true);
+                      }}
+                      onClick={fromQuoteLock?undefined:()=>{
                         const r=customerDropdownRef.current?.getBoundingClientRect();
                         if(r) setCustDropPos({top:r.bottom+4,left:r.left,width:Math.max(r.width,360)});
                         setShowCustomerDropdown(true);
@@ -1099,7 +1182,7 @@ const Newsalesorders = () => {
 
                           {/* Add new footer */}
                           <div
-                            onClick={()=>{navigate('/sales/customers/newcustomers');setShowCustomerDropdown(false);}}
+                            onClick={()=>{navigate('/sales/customers/newcustomers',{state:{returnTo:location.pathname+location.search}});setShowCustomerDropdown(false);}}
                             style={{padding:'11px 14px',cursor:'pointer',borderTop:`1.5px solid ${T.border}`,display:'flex',alignItems:'center',gap:10,background:T.surface2,transition:'background .15s',flexShrink:0}}
                             onMouseEnter={e=>e.currentTarget.style.background=isDark?'rgba(59,130,246,0.1)':'#eff6ff'}
                             onMouseLeave={e=>e.currentTarget.style.background=T.surface2}>
@@ -1165,26 +1248,26 @@ const Newsalesorders = () => {
               <p style={{fontSize:11,color:T.textSec,marginTop:5}}>Auto-generated — read only</p>
             </Field>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginBottom:18}}>
-            <Field label="Sales Type" req><Sel value={salesType} onChange={e=>setSalesType(e.target.value)} required options={salesTypeOptions} placeholder="Select sales type…" icon="📦"/></Field>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:18,marginBottom:18}}>
+            <Field label="Sales Type" req><Sel value={salesType} onChange={e=>setSalesType(e.target.value)} required options={salesTypeOptions} placeholder="Select sales type…" icon="📦" onCreateNew={canPerm('sales_types','add')?()=>setQuickCreate('salesType'):undefined} createLabel="Create new sales type"/></Field>
             <ModernDatePicker value={orderDate} onChange={setOrderDate} label="Sales Order Date" required placeholder="Select order date"/>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>
-            <Field label="Payment Terms" req><Sel value={paymentTerms} onChange={e=>setPaymentTerms(e.target.value)} required options={paymentTermsOptions} placeholder="Select payment terms…" icon="💳"/></Field>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:18}}>
+            <Field label="Payment Terms" req><Sel value={paymentTerms} onChange={e=>setPaymentTerms(e.target.value)} required options={paymentTermsOptions} placeholder="Select payment terms…" icon="💳" onCreateNew={canPerm('payment_terms','add')?()=>setQuickCreate('paymentTerm'):undefined} createLabel="Create new payment term"/></Field>
             <Field label="Salesperson" req><Sel value={salesperson} onChange={e=>setSalesperson(e.target.value)} options={salespersonOptions} placeholder={salespersonOptions.length?'Select salesperson…':'No sales reps yet'} icon="🧑‍💼"/></Field>
           </div>
         </Section>
 
         {/* Section 2 — LPO */}
         <Section title="LPO Details" icon="📄" accent="#8b5cf6">
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginBottom:18}}>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:18,marginBottom:18}}>
             <Field label="LPO Number" req={isAdminOrOwner}>
               <input type="text" value={lpoNumber} onChange={e=>{setLpoNumber(e.target.value);setLpoError('');}} className="nso-inp" placeholder="LPO-2024-001" style={{fontFamily:"'DM Mono',monospace",borderColor:lpoError?'#ef4444':undefined}}/>
               {lpoError&&<div style={{color:'#ef4444',fontSize:12,marginTop:5,display:'flex',alignItems:'center',gap:5}}><span>⚠</span>{lpoError}</div>}
             </Field>
             <ModernDatePicker value={lpoDate} onChange={setLpoDate} label="LPO Date" placeholder="Select LPO date"/>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:18}}>
             <Field label="LPO Value (AED)" req={isAdminOrOwner}>
               {fromQuoteLock ? (
                 <>
@@ -1217,16 +1300,16 @@ const Newsalesorders = () => {
         <div className="nso-section nso-card" style={{marginBottom:16}}>
           <div className="nso-sbar" style={{background:'linear-gradient(90deg,#10b981,transparent 80%)'}}/>
           <div className="nso-sin">
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18}}>
+            <div style={{display:'flex',flexWrap:'wrap',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:18}}>
               <div className="nso-stitle" style={{margin:0}}>
                 <div className="nso-sicon" style={{background:'#10b98118',color:'#10b981'}}>🛒</div>
                 Line Items
-                <span style={{fontSize:11,fontWeight:700,color:'#10b981',background:'#d1fae5',padding:'2px 9px',borderRadius:99,marginLeft:4}}>{items.filter(i=>i.details).length} added</span>
+                <span style={{fontSize:11,fontWeight:700,color:'#10b981',background:'#d1fae5',padding:'2px 9px',borderRadius:99,marginLeft:4}}>{items.filter(i=>i.details&&i.itemId).length} added</span>
               </div>
               <button onClick={addNewRow} className="nso-addrow"><FaPlus style={{fontSize:11}}/> Add Item Row</button>
             </div>
-            <div style={{borderRadius:12,overflow:'hidden',border:`1.5px solid ${T.border}`}}>
-              <table className="nso-table">
+            <div style={{borderRadius:12,overflowX:'auto',overflowY:'hidden',border:`1.5px solid ${T.border}`}}>
+              <table className="nso-table" style={{minWidth:isMobile?900:'auto'}}>
                 <thead><tr>
                   <th style={{width:'28%'}}>Item Details</th>
                   <th>Req. Qty</th>
@@ -1243,9 +1326,11 @@ const Newsalesorders = () => {
                     <tr key={item.id}>
                       <td>
                         <div style={{position:'relative'}} ref={el=>itemInputRefs.current[index]=el}>
-                          <input className="nso-tinp" placeholder="Search or type item name…" value={item.details}
+                          <input className="nso-tinp" placeholder="Search item…" value={item.details}
                             onChange={e=>{const u=[...items];u[index].details=e.target.value;setItems(u);debouncedSearch(e.target.value);setShowItemDropdown(index);}}
                             onFocus={()=>{setShowItemDropdown(index);if(!item.details)setSearchTerm('');handleGetItem();}}
+                            onClick={()=>{setShowItemDropdown(index);if(!item.details)setSearchTerm('');}}
+                            onBlur={()=>{if(!item.itemId&&item.details){const u=[...items];u[index]={...u[index],details:''};setItems(u);}}}
                           />
                           {item.sku&&<div style={{marginTop:5,display:'flex',alignItems:'center',gap:6,fontSize:10,color:T.textSec}}><FaBarcode style={{fontSize:9}}/><span style={{fontFamily:"'DM Mono',monospace"}}>{item.sku}</span>{item.unit&&<span>· {item.unit}</span>}</div>}
                         </div>
@@ -1335,11 +1420,11 @@ const Newsalesorders = () => {
               <div className="item-dropdown-container nso-idd nso-dd">
                 {inventoryLoading?(
                   <div style={{padding:20,textAlign:'center',color:T.textSec,fontSize:13}}><div style={{width:16,height:16,border:`2px solid ${T.border}`,borderTopColor:'#3b82f6',borderRadius:'50%',animation:'nsoSpin .7s linear infinite',margin:'0 auto 8px'}}/>Loading items…</div>
-                ):filteredItems.length===0?(
-                  <div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>{searchTerm?'No items match your search':'Start typing to search items'}</div>
                 ):(
                   <>
-                    <div style={{padding:'8px 14px',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',color:T.textSec,borderBottom:'1.5px solid #f1f5f9',display:'flex',justifyContent:'space-between'}}><span>{filteredItems.length} item{filteredItems.length!==1?'s':''}</span><span>Click to select</span></div>
+                    {filteredItems.length===0
+                      ?<div style={{padding:'16px 14px',textAlign:'center',color:T.textSec,fontSize:13}}>{searchTerm?`No items match "${searchTerm}"`:'Start typing to search items'}</div>
+                      :<div style={{padding:'8px 14px',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',color:T.textSec,borderBottom:'1.5px solid #f1f5f9',display:'flex',justifyContent:'space-between'}}><span>{filteredItems.length} item{filteredItems.length!==1?'s':''}</span><span>Click to select</span></div>}
                     {filteredItems.map(inv=>(
                       <div key={inv._id||inv.itemId} className="nso-irow" onMouseDown={e=>{e.preventDefault();e.nativeEvent?.stopImmediatePropagation();handleItemSelect(showItemDropdown,inv)}}>
                         <div style={{width:38,height:38,borderRadius:10,background:isDark?'rgba(59,130,246,0.15)':'linear-gradient(135deg,#eff6ff,#dbeafe)',color:T.blue,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:16}}><FaBox/></div>
@@ -1363,6 +1448,12 @@ const Newsalesorders = () => {
                         </div>
                       </div>
                     ))}
+                    {canAddItem&&<div className="nso-irow"
+                      onMouseDown={e=>{e.preventDefault();e.nativeEvent?.stopImmediatePropagation();openQuickAddItem(showItemDropdown);}}
+                      style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',borderTop:`1.5px solid ${T.border}`,cursor:'pointer'}}>
+                      <div style={{width:28,height:28,borderRadius:8,background:'#3b82f6',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,flexShrink:0}}>+</div>
+                      <div style={{fontSize:13,fontWeight:700,color:'#2563eb'}}>Create new item</div>
+                    </div>}
                   </>
                 )}
               </div>
@@ -1371,7 +1462,7 @@ const Newsalesorders = () => {
         </div>
 
         {/* Section 4 — Summary + Notes */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:16,marginBottom:16}}>
           {/* Summary */}
           <div className="nso-section nso-card" style={{marginBottom:0}}>
             <div className="nso-sbar" style={{background:'linear-gradient(90deg,#f59e0b,transparent 80%)'}}/>
@@ -1441,7 +1532,7 @@ const Newsalesorders = () => {
               {attachedFiles.map(f=>(
                 <div key={f.id} className="nso-fchip">
                   <div style={{width:32,height:32,borderRadius:8,background:isDark?'rgba(59,130,246,0.15)':'#eff6ff',color:T.blue,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0}}>📄</div>
-                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.textPri,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.name}</div><div style={{fontSize:11,color:T.textSec}}>{f.size} MB</div></div>
+                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.textPri,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.name}</div><div style={{fontSize:11,color:f.status==='error'?'#ef4444':f.status==='uploading'?T.blue:T.textSec}}>{f.status==='uploading'?'Uploading…':f.status==='error'?'Upload failed':`${f.size} MB`}</div></div>
                   <button onClick={()=>handleRemoveFile(f.id)} style={{color:'#94a3b8',background:'none',border:'none',cursor:'pointer',padding:4,fontSize:13,transition:'color .12s'}} onMouseEnter={e=>e.currentTarget.style.color='#ef4444'} onMouseLeave={e=>e.currentTarget.style.color=T.textSec}><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                 </div>
               ))}
@@ -1450,12 +1541,12 @@ const Newsalesorders = () => {
         </Section>
 
         {/* Bottom bar */}
-        <div className="nso-bottombar">
+        <div className="nso-bottombar" style={isMobile?{left:0,padding:'10px 14px',flexWrap:'wrap',gap:8}:undefined}>
           <div>
             <div style={{fontSize:13,fontWeight:700,color:T.textPri}}>{items.filter(i=>i.details).length} item{items.filter(i=>i.details).length!==1?'s':''}&nbsp;·&nbsp;<span style={{fontFamily:"'DM Mono',monospace",color:T.blue}}>AED {calcTotal().toFixed(2)}</span></div>
-            <div style={{fontSize:11,color:T.textSec,marginTop:2}}>Fields marked with <span style={{color:T.red}}>*</span> are required</div>
+            {!isMobile && <div style={{fontSize:11,color:T.textSec,marginTop:2}}>Fields marked with <span style={{color:T.red}}>*</span> are required</div>}
           </div>
-          <div style={{display:'flex',gap:10}}>
+          <div style={{display:'flex',gap:isMobile?6:10,flexWrap:'wrap',width:isMobile?'100%':'auto'}}>
             <button onClick={handleCancel} className="nso-bg">Cancel</button>
             <button onClick={handleSaveAsDraft} className="nso-bd" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded}>{addSalesOrderLoading?'Saving…':'Save as Draft'}</button>
             {isEditMode&&editStatus==='rejected'
@@ -1466,18 +1557,37 @@ const Newsalesorders = () => {
                 ? <button onClick={handleApproverSave} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
                     {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Saving…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save Changes</>}
                   </button>
-              : isAdminOrOwner
-                ? <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||!lpoNumber.trim()||isCreditHardBlocked}>
+              : <button onClick={handleSaveAndSend} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||(isAdminOrOwner&&!lpoNumber.trim())||isCreditHardBlocked}>
                     {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Processing…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Save & Send</>}
-                  </button>
-                : <button onClick={handleSubmitForApproval} className="nso-bp" disabled={addSalesOrderLoading||!selectedCustomer||!hasItemsAdded||isCreditHardBlocked}>
-                    {addSalesOrderLoading?<><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'nsoSpin .7s linear infinite'}}/>Submitting…</>:<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>Submit for Approval</>}
                   </button>
             }
           </div>
         </div>
 
       </div>
+
+      {quickAddItem && (
+        <QuickAddItemModal T={T} isDark={isDark}
+          uomOptions={uomOptions} fetchUomOptions={fetchUomOptions}
+          groupOptions={groupOptions} groupMap={groupMap} fetchGroupOptions={fetchGroupOptions}
+          onClose={() => setQuickAddItem(null)} onCreated={handleItemCreated} />
+      )}
+      {quickCreate === 'salesType' && (
+        <QuickCreateModal title="New Sales Type" T={T}
+          fields={[
+            { name: 'name', label: 'Name', placeholder: 'e.g. Standard Sale Order', required: true, autoFocus: true },
+            { name: 'description', label: 'Description', placeholder: 'Optional (shown under the name)' },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateSalesType} />
+      )}
+      {quickCreate === 'paymentTerm' && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
+      )}
     </div>
   );
 };

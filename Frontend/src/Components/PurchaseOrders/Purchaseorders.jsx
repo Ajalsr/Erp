@@ -10,10 +10,12 @@ import {
 import { MdMoveToInbox } from 'react-icons/md';
 import { useNavigate } from 'react-router-dom';
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useIsMobile from '../../helper/useIsMobile';
 import useAuthStore from '../../store/useAuthStore';
 import axiosInstance from '../../helper/axiosInstance';
 import useRealtime from '../../helper/useRealtime';
 import nexusToast from '../../helper/nexusToast';
+import useConfirm from '../common/useConfirm';
 
 const STATUS_CFG = {
   draft:            { label: 'Draft',            color: '#64748b', dimKey: 'surface2'  },
@@ -66,6 +68,8 @@ export default function Purchaseorders() {
   const navigate = useNavigate();
   const isDark   = useThemeStore(s => s.isDark);
   const T        = { ...getTheme(isDark), isDark };
+  const isMobile = useIsMobile();
+  const { confirm, ConfirmModal } = useConfirm();
   const activeOrg = useAuthStore(s => s.activeOrg);
   const isAdmin   = ['owner','admin'].includes(activeOrg?.role);
 
@@ -164,7 +168,7 @@ export default function Purchaseorders() {
   const bulkCancel = async () => {
     const ids = selectedOrders().filter(o => !['cancelled','received'].includes(o.status)).map(rowId);
     if (!ids.length) { nexusToast.error('No cancellable POs selected'); return; }
-    if (!window.confirm(`Cancel ${ids.length} PO(s)?`)) return;
+    if (!(await confirm({ title: 'Cancel purchase orders', message: `Cancel ${ids.length} PO(s)?`, confirmLabel: 'Cancel PO(s)', danger: true }))) return;
     setBulkBusy(true);
     try {
       await Promise.all(ids.map(id => axiosInstance.patch(`/api/purchase-orders/${id}/cancel`)));
@@ -214,25 +218,25 @@ export default function Purchaseorders() {
         .po-overlay { animation:poOverlay .2s ease forwards; }
       `}</style>
 
-      <div style={{ minHeight:'100vh', background:T.bg, padding:'24px 24px 80px', animation:'poFadeUp .3s ease both' }}>
+      <div style={{ minHeight:'100vh', background:T.bg, padding:isMobile?'14px 14px 70px':'24px 24px 80px', animation:'poFadeUp .3s ease both' }}>
 
         {/* Header */}
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:22 }}>
+        <div style={{ display:'flex', flexWrap:isMobile?'wrap':'nowrap', alignItems:'flex-start', justifyContent:'space-between', gap:isMobile?10:0, marginBottom:22 }}>
           <div>
-            <h1 style={{ fontFamily:"'Sora',sans-serif", fontSize:20, fontWeight:800, color:T.textPri, margin:'0 0 3px', letterSpacing:'-0.02em' }}>Purchase Orders</h1>
+            <h1 style={{ fontFamily:"'Sora',sans-serif", fontSize:isMobile?18:20, fontWeight:800, color:T.textPri, margin:'0 0 3px', letterSpacing:'-0.02em' }}>Purchase Orders</h1>
             <p style={{ fontSize:12, color:T.textSec, margin:0 }}>Manage and track all procurement orders</p>
           </div>
-          <div style={{ display:'flex', gap:8 }}>
+          <div style={{ display:'flex', gap:8, width:isMobile?'100%':'auto' }}>
             <button className="po-icon-btn" title="Export"><FaDownload size={12}/></button>
             <button className="po-icon-btn" title="More"><FaEllipsisV size={12}/></button>
-            <button onClick={() => navigate('/Purchase/Purchaseorders/Newpurchaseorders')} style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 14px rgba(59,130,246,.35)' }}>
+            <button onClick={() => navigate('/Purchase/Purchaseorders/Newpurchaseorders')} style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'9px 18px', flex:isMobile?1:'initial', background:'linear-gradient(135deg,#3b82f6,#2563eb)', color:'#fff', border:'none', borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 14px rgba(59,130,246,.35)', whiteSpace:'nowrap' }}>
               <FaPlus size={10}/> New Order
             </button>
           </div>
         </div>
 
         {/* Stat cards */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:22 }}>
+        <div style={{ display:'grid', gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(5,1fr)', gap:12, marginBottom:22 }}>
           <StatCard T={T} label="Total Orders" value={stats.total}    accent={T.blue}   dimBg={T.blueDim}   icon={<FaFileInvoiceDollar/>}/>
           <StatCard T={T} label="Pending"      value={stats.pending}  accent={T.amber}  dimBg={T.amberDim}  icon={<FaClock/>}/>
           <StatCard T={T} label="Ordered"      value={stats.ordered}  accent={T.purple} dimBg={T.purpleDim} icon={<FaTruck/>}/>
@@ -245,7 +249,7 @@ export default function Purchaseorders() {
 
           {/* Toolbar */}
           <div style={{ padding:'14px 18px', borderBottom:`1px solid ${border}`, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:9, background:T.surface2, border:`1.5px solid ${border}`, borderRadius:10, padding:'8px 13px', flex:'1 1 260px', maxWidth:380 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:9, background:T.surface2, border:`1.5px solid ${border}`, borderRadius:10, padding:'8px 13px', flex:'1 1 260px', maxWidth:isMobile?'100%':380 }}>
               <FaSearch size={12} style={{ color:T.textSec, flexShrink:0 }}/>
               <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Search order no., vendor…" style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:13, color:T.textPri, fontFamily:"'DM Sans',sans-serif" }}/>
               {search && <button onClick={()=>{setSearch('');setPage(1);}} style={{ background:'none', border:'none', cursor:'pointer', color:T.textSec, padding:0, display:'flex', lineHeight:1 }}><FaTimes size={11}/></button>}
@@ -295,7 +299,7 @@ export default function Purchaseorders() {
             <Empty T={T} onNew={()=>navigate('/Purchase/Purchaseorders/Newpurchaseorders')}/>
           ) : (
             <div style={{ overflowX:'auto' }}>
-              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+              <table style={{ width:'100%', minWidth:isMobile?860:'auto', borderCollapse:'collapse' }}>
                 <thead>
                   <tr>
                     <th style={{ ...thS(), width:40, textAlign:'center' }}><input type="checkbox" style={{ accentColor:T.blue, cursor:'pointer' }} checked={displayed.length>0 && selectedRows.size===displayed.length} onChange={toggleAll}/></th>
@@ -371,6 +375,8 @@ export default function Purchaseorders() {
                   <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
                     <p style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color:T.blue, margin:0 }}>{selected.orderNumber||'PO-DRAFT'}</p>
                     <Badge status={selected.status||'draft'} T={T}/>
+                    {selected.revision > 0 && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:999, background:T.blueDim, color:T.blue }}>Rev {selected.revision}</span>}
+                    {selected.amendmentStatus === 'pending_approval' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:999, background:'rgba(245,158,11,.12)', color:'#d97706' }}>Amendment pending</span>}
                   </div>
                   <p style={{ fontFamily:"'Sora',sans-serif", fontSize:16, fontWeight:800, color:T.textPri, margin:0 }}>{selected.vendorName||'Unknown Vendor'}</p>
                   <p style={{ fontSize:11, color:T.textSec, margin:'3px 0 0' }}>{fmtDate(selected.orderDate)}</p>
@@ -386,10 +392,14 @@ export default function Purchaseorders() {
                         a.href = url; a.download = `po-${selected.orderNumber || selected._id}.pdf`;
                         document.body.appendChild(a); a.click(); a.remove();
                         URL.revokeObjectURL(url);
-                      } catch (e) { console.error('Download PO PDF failed', e); }
+                        nexusToast.success('Purchase order PDF downloaded');
+                      } catch (e) {
+                        console.error('Download PO PDF failed', e);
+                        nexusToast.error('Failed to download purchase order PDF');
+                      }
                     }}
                     className="po-icon-btn" title="Download PDF" style={{ padding:8 }}><FaDownload size={13}/></button>
-                  {!['cancelled','received'].includes(selected.status) && (
+                  {selected.status === 'draft' && (
                     <button onClick={() => navigate(`/Purchase/Purchaseorders/Newpurchaseorders/${selected._id}`)} className="po-icon-btn" title="Edit" style={{ padding:8, color:T.blue }}><FaEdit size={13}/></button>
                   )}
                   <button onClick={closeDrawer} className="po-icon-btn" style={{ padding:8 }}><FaTimes size={14}/></button>
@@ -452,11 +462,10 @@ export default function Purchaseorders() {
                     </div>
                   )}
 
-                  <DRow label="Order Number"  value={selected.orderNumber} T={T}/>
+                  <DRow label="Order Number"  value={selected.revision > 0 ? `${selected.orderNumber} (Rev ${selected.revision})` : selected.orderNumber} T={T}/>
                   <DRow label="Order Date"    value={fmtDate(selected.orderDate)} T={T}/>
                   <DRow label="Expected By"   value={fmtDate(selected.expectedDeliveryDate||selected.expectedDate)} T={T}/>
                   <DRow label="Payment Terms" value={selected.paymentTerms} T={T}/>
-                  <DRow label="Delivery To"   value={selected.deliveryAddress||selected.warehouse} T={T}/>
                   <DRow label="Supplier Reference" value={selected.referenceNo||selected.lpoNumber} T={T}/>
                   <DRow label="Created By"    value={selected.createdBy} T={T}/>
                   <DRow label="Sub Total"     value={fmtAmt(selected.subTotal)} T={T}/>
@@ -487,6 +496,7 @@ export default function Purchaseorders() {
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                             <div>
                               <p style={{ margin:0, fontSize:13, fontWeight:700, color:T.textPri }}>{item.details||item.itemName||item.name||'—'}</p>
+                              {item.itemCode && <p style={{ margin:'2px 0 0', fontSize:11, color:T.blue, fontFamily:"'DM Mono',monospace" }}>Article Code: {item.itemCode}</p>}
                               <p style={{ margin:'2px 0 0', fontSize:11, color:T.textSec, fontFamily:"'DM Mono',monospace" }}>base {fmtAmt(item.baseAmount)} + VAT {fmtAmt(item.taxAmount)}</p>
                             </div>
                             <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, color:T.textPri }}>{fmtAmt(item.amount)}</span>
@@ -621,8 +631,35 @@ export default function Purchaseorders() {
                 }
                 events.sort((a,b) => new Date(a.ts) - new Date(b.ts));
 
+                const revs = [...(selected.revisions||[])].reverse();
+                const revColor = { approved:'#10b981', pending_approval:'#f59e0b', rejected:'#ef4444' };
+                const revLabel = { approved:'Approved', pending_approval:'Pending approval', rejected:'Rejected' };
                 return (
                   <div>
+                    {revs.length > 0 && (
+                      <div style={{ marginBottom:22 }}>
+                        <p style={{ fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, color:T.textPri, margin:'0 0 10px' }}>Revision History</p>
+                        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                          {revs.map(r => (
+                            <div key={r._id} style={{ background:T.surface2, border:`1.5px solid ${T.border}`, borderLeft:`3px solid ${revColor[r.status]||T.border}`, borderRadius:12, padding:'11px 14px' }}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                                <span style={{ fontSize:12, fontWeight:700, color:T.textPri }}>{r.status === 'approved' ? `Rev ${r.revision}` : 'Amendment request'}</span>
+                                <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:999, background:`${revColor[r.status]||'#64748b'}18`, color:revColor[r.status]||'#64748b' }}>{revLabel[r.status]||r.status}</span>
+                              </div>
+                              <p style={{ margin:'4px 0 0', fontSize:11.5, color:T.textSec }}>{fmtAmt(r.previousTotal)} → {fmtAmt(r.newTotal)}{r.reason ? ` · ${r.reason}` : ''}</p>
+                              <ul style={{ margin:'6px 0 0', paddingLeft:16, fontSize:11.5, color:T.textPri, lineHeight:1.6 }}>
+                                {(r.changes||[]).map((c,i) => <li key={i}>{c}</li>)}
+                              </ul>
+                              {r.rejectReason && <p style={{ margin:'4px 0 0', fontSize:11.5, color:'#ef4444' }}>Rejected: {r.rejectReason}</p>}
+                              <p style={{ margin:'6px 0 0', fontSize:10, color:T.textMuted, fontFamily:"'DM Mono',monospace" }}>
+                                Requested {fmtTs(r.requestedAt)}{r.requestedBy ? ` by ${r.requestedBy}` : ''}
+                                {r.reviewedAt ? ` · ${r.status === 'rejected' ? 'rejected' : 'approved'} ${fmtTs(r.reviewedAt)}` : ''}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {/* Header */}
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
                       <div>
@@ -722,6 +759,35 @@ export default function Purchaseorders() {
                     </div>
                   )}
                 </>
+              )}
+
+              {/* ── AMENDMENT: pending review, or start a new one ───────────────── */}
+              {selected.amendmentStatus === 'pending_approval' && (() => {
+                const pend = [...(selected.revisions||[])].reverse().find(r => r.status === 'pending_approval');
+                if (!pend) return null;
+                return (
+                  <div style={{ padding:'12px 14px', background:isDark?'rgba(245,158,11,.08)':'#fffbeb', border:`1px solid ${isDark?'rgba(245,158,11,.25)':'#fde68a'}`, borderRadius:11 }}>
+                    <p style={{ margin:0, fontSize:12, fontWeight:700, color:'#d97706' }}>Amendment awaiting approval · {fmtAmt(pend.previousTotal)} → {fmtAmt(pend.newTotal)}</p>
+                    {pend.reason && <p style={{ margin:'4px 0 0', fontSize:11.5, color:T.textSec }}>Reason: {pend.reason}</p>}
+                    <ul style={{ margin:'6px 0 0', paddingLeft:16, fontSize:11.5, color:T.textPri, lineHeight:1.6, maxHeight:120, overflowY:'auto' }}>
+                      {(pend.changes||[]).map((c,i) => <li key={i}>{c}</li>)}
+                    </ul>
+                    {pend.approvalRequestId ? (
+                      <button onClick={() => { closeDrawer(); navigate(`/Approvals?id=${pend.approvalRequestId}`); }}
+                        style={{ marginTop:10, width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'9px 12px', background:'transparent', color:'#d97706', border:'1px solid rgba(245,158,11,.4)', borderRadius:10, fontSize:12.5, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                        <FaClock size={10}/> In approval workflow — open in Approvals
+                      </button>
+                    ) : (
+                      <p style={{ margin:'8px 0 0', fontSize:11.5, color:'#d97706', display:'flex', alignItems:'center', gap:6 }}><FaClock size={10}/> The current version stays in force until it's approved.</p>
+                    )}
+                  </div>
+                );
+              })()}
+              {['issued','partial'].includes(selected.status) && selected.amendmentStatus !== 'pending_approval' && (
+                <button onClick={() => { closeDrawer(); navigate(`/Purchase/Purchaseorders/Newpurchaseorders/${selected._id}?amend=1`); }}
+                  style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'10px 14px', background:T.surface2, color:T.blue, border:`1.5px solid ${border}`, borderRadius:11, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                  <FaEdit size={11}/> Amend PO
+                </button>
               )}
 
               {/* ── GOODS PO FLOW ─────────────────────────────────────────────── */}
@@ -835,7 +901,7 @@ export default function Purchaseorders() {
                 <button
                   disabled={cancelling}
                   onClick={async () => {
-                    if (!window.confirm(`Cancel PO ${selected.orderNumber}?`)) return;
+                    if (!(await confirm({ title: 'Cancel purchase order', message: `Cancel PO ${selected.orderNumber}?`, confirmLabel: 'Cancel PO', danger: true }))) return;
                     setCancelling(true);
                     try {
                       await axiosInstance.patch(`/api/purchase-orders/${selected._id}/cancel`);
@@ -852,6 +918,7 @@ export default function Purchaseorders() {
           </div>
         </div>
       )}
+      {ConfirmModal}
     </>
   );
 }

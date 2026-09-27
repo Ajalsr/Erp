@@ -316,6 +316,8 @@ var defaultAccountSeeds = []seedDef{
 	{"5600", "Bank Charges",           "expense",   "operating_expense", "debit",  false, false},
 	{"5700", "Discount Given",         "expense",   "operating_expense", "debit",  false, false},
 	{"5800", "Foreign Exchange Loss",  "expense",   "operating_expense", "debit",  true,  false},
+	{"2500", "Payroll Payable",            "liability", "current_liability", "credit", true,  false},
+	{"2510", "Payroll Deductions Payable", "liability", "current_liability", "credit", true,  false},
 }
 
 // seedDefaultAccountsForOrg is the reusable core — called on org creation and from the HTTP handler.
@@ -395,6 +397,55 @@ func EnsureFXAccounts(ctx context.Context) {
 	}
 	if added > 0 {
 		log.Printf("EnsureFXAccounts: added %d FX gain/loss accounts across %d orgs", added, len(orgIDs))
+	}
+}
+
+// EnsurePayrollAccounts backfills the payroll liability accounts (2500/2510)
+// into orgs whose chart of accounts already existed before the Payroll module
+// shipped. Same shape as EnsureFXAccounts. Idempotent.
+func EnsurePayrollAccounts(ctx context.Context) {
+	orgIDs, err := accountCollection.Distinct(ctx, "orgId", bson.M{})
+	if err != nil {
+		log.Printf("EnsurePayrollAccounts: distinct orgIds failed: %v", err)
+		return
+	}
+
+	payrollCodes := map[string]bool{"2500": true, "2510": true}
+	added := 0
+	for _, oid := range orgIDs {
+		orgID, ok := oid.(string)
+		if !ok || orgID == "" {
+			continue
+		}
+		for _, d := range defaultAccountSeeds {
+			if !payrollCodes[d.Code] {
+				continue
+			}
+			if accountCollection.FindOne(ctx, bson.M{"orgId": orgID, "accountCode": d.Code}).Err() == nil {
+				continue // already present
+			}
+			a := models.Account{
+				ID:            primitive.NewObjectID(),
+				OrgID:         orgID,
+				AccountCode:   d.Code,
+				AccountName:   d.Name,
+				AccountType:   d.Type,
+				SubType:       d.SubType,
+				NormalBalance: d.NormalBalance,
+				IsSystem:      d.IsSystem,
+				IsBankAccount: d.IsBankAccount,
+				Status:        "active",
+				CreatedBy:     "system",
+				CreatedAt:     time.Now(),
+				UpdatedAt:     time.Now(),
+			}
+			if _, err := accountCollection.InsertOne(ctx, a); err == nil {
+				added++
+			}
+		}
+	}
+	if added > 0 {
+		log.Printf("EnsurePayrollAccounts: added %d payroll accounts across %d orgs", added, len(orgIDs))
 	}
 }
 

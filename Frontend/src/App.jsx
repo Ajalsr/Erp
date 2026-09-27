@@ -1,9 +1,12 @@
-import { lazy, Suspense } from "react"
-import { Route, Routes } from "react-router-dom"
+import { lazy, Suspense, useEffect, useRef } from "react"
+import { Route, Routes, useNavigate } from "react-router-dom"
 import { Toaster } from "react-hot-toast";
+import { onOpenUrl, getCurrent } from "@tauri-apps/plugin-deep-link"
 
 // Eager: app shell + auth landing. These paint first, so no lazy/Suspense flash.
 import Login from "./Components/Login/Login"
+import UpdatePrompt from "./Components/common/UpdatePrompt"
+import InstallHint from "./Components/common/InstallHint"
 import Layout from "./Components/Layout"
 import ProtectedRoute from "./Components/ProtectedRoute/ProtectedRoute"
 import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
@@ -12,6 +15,7 @@ import ErrorBoundary from "./Components/ErrorBoundary/ErrorBoundary"
 // its route is first visited. Keeps the initial bundle small → faster first load.
 const Home = lazy(() => import("./Components/Home/Home"))
 const Signup = lazy(() => import("./Components/Signup/Signup"))
+const ForgotPassword = lazy(() => import("./Components/Login/ForgotPassword"))
 const Item = lazy(() => import("./Components/Item/Item"))
 const New = lazy(() => import("./Components/NewItem/New"))
 const Customers = lazy(() => import("./Components/Customers/Customers"))
@@ -49,6 +53,7 @@ const Approvals = lazy(() => import("./Components/Approvals/Approvals"))
 const TransactionExport = lazy(() => import("./Components/Export/TransactionExport"))
 const Backups = lazy(() => import("./Components/Backups/Backups"))
 const Letters = lazy(() => import("./Components/Letters/Letters"))
+const Projects = lazy(() => import("./Components/Projects/Projects"))
 const LetterPrint = lazy(() => import("./Components/Letters/LetterPrint"))
 const LetterEditor = lazy(() => import("./Components/Letters/LetterEditor"))
 const VendorCredits = lazy(() => import("./Components/VendorCredits/VendorCredits"))
@@ -70,14 +75,30 @@ const JournalEntries = lazy(() => import("./Components/Finance/JournalEntries"))
 const BankReconciliation = lazy(() => import("./Components/Finance/BankReconciliation"))
 const ExchangeRates = lazy(() => import("./Components/Finance/ExchangeRates"))
 const ItemGroups = lazy(() => import("./Components/ItemGroups/ItemGroups"))
+const UOM = lazy(() => import("./Components/UOM/UOM"))
+const PaymentTerms = lazy(() => import("./Components/PaymentTerms/PaymentTerms"))
+const SalesTypes = lazy(() => import("./Components/SalesTypes/SalesTypes"))
+const VendorTypes = lazy(() => import("./Components/VendorTypes/VendorTypes"))
 const PriceLists = lazy(() => import("./Components/PriceLists/PriceLists"))
 const NewPriceList = lazy(() => import("./Components/NewPriceList/NewPriceList"))
 const StockSummary = lazy(() => import("./Components/Inventory/StockSummary"))
 const Warehouses = lazy(() => import("./Components/Inventory/Warehouses"))
 const Adjustments = lazy(() => import("./Components/Inventory/Adjustments"))
+const Employees = lazy(() => import("./Components/HR/Employees"))
+const OrgChart = lazy(() => import("./Components/HR/OrgChart"))
+const Payroll = lazy(() => import("./Components/HR/Payroll"))
+const PayRunDetail = lazy(() => import("./Components/HR/PayRunDetail"))
+const SalaryStructures = lazy(() => import("./Components/HR/SalaryStructures"))
+const PayrollSchedules = lazy(() => import("./Components/HR/PayrollSchedules"))
+const LeaveRequests = lazy(() => import("./Components/HR/LeaveRequests"))
+const LeaveTypes = lazy(() => import("./Components/HR/LeaveTypes"))
+const LeaveBalances = lazy(() => import("./Components/HR/LeaveBalances"))
 const Enquiries = lazy(() => import("./Components/Enquiries/Enquiries"))
 const CreditNotes = lazy(() => import("./Components/CreditNotes/CreditNotes"))
 const PublicInvoice = lazy(() => import("./Components/Invoices/PublicInvoice"))
+const PublicQuote = lazy(() => import("./Components/Quotes/PublicQuote"))
+const PublicLetter = lazy(() => import("./Components/Letters/PublicLetter"))
+const PublicBill = lazy(() => import("./Components/Bills/PublicBill"))
 const Quotes = lazy(() => import("./Components/Quotes/Quotes"))
 const CreateQuote = lazy(() => import("./Components/Quotes/CreateQuote"))
 const QuotePrint = lazy(() => import("./Components/Quotes/QuotePrint"))
@@ -97,6 +118,40 @@ const RouteFallback = () => (
 )
 
 function App() {
+  const navigate = useNavigate()
+
+  // Desktop only — a spifora:// link (e.g. from an invitation email's "Open
+  // in Desktop App" fallback) lands here two ways: on_open_url fires while
+  // the app is already running (macOS natively, Windows/Linux forwarded via
+  // the single-instance "deep-link" feature — see src-tauri/src/lib.rs), and
+  // getCurrent() covers the case where THIS launch of the app was the one
+  // the OS spawned for the link. Both just strip the custom scheme down to
+  // the path/query the app's own router already understands.
+  // Windows/Linux redeliver the same launch URL several times in quick
+  // succession (single-instance forwarding + getCurrent() both resolving for
+  // one real click) — each delivery used to call navigate() unconditionally,
+  // so the 2nd/3rd redelivery would yank the user back to the invite screen
+  // right after they'd already navigated away from it. Track the last URL
+  // actually handled and skip repeats of it.
+  const lastDeepLinkRef = useRef(null)
+
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return // plain web build — no desktop bridge to talk to
+
+    const routeToDeepLink = (urls) => {
+      const raw = urls?.[0]
+      if (!raw || raw === lastDeepLinkRef.current) return
+      lastDeepLinkRef.current = raw
+      navigate(raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '/'))
+    }
+
+    let unlisten
+    onOpenUrl(routeToDeepLink).then((fn) => { unlisten = fn })
+    getCurrent().then((urls) => { if (urls) routeToDeepLink(urls) })
+
+    return () => { unlisten?.() }
+  }, [navigate])
+
   return (
     <>
       {/*
@@ -118,11 +173,14 @@ function App() {
           },
         }}
       />
+      <UpdatePrompt />
+      <InstallHint />
       <ErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/Signup" element={<Signup />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
 
             {/* Invitation accept — accessible when logged in, before org is set */}
             <Route path="/invitations/accept" element={<AcceptInvitation />} />
@@ -132,6 +190,10 @@ function App() {
               path="/organizations/create"
               element={<ProtectedRoute><CreateOrganization /></ProtectedRoute>}
             />
+
+            {/* Internal ops tool — gated by ADMIN_SECRET itself (own unlock
+                screen), deliberately NOT wrapped in ProtectedRoute (no normal
+                login required) and NOT linked from the Sidebar. */}
 
             {/* All protected routes inside main layout */}
             <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -145,6 +207,8 @@ function App() {
               <Route path="/sales/customers/edit/:id" element={<Newcustomers />} />
               <Route path="/Sales/Enquiries" element={<Enquiries />} />
               <Route path="/Sales/Salesorders" element={<Salesorders />} />
+              <Route path="/Sales/sales-types" element={<SalesTypes />} />
+              <Route path="/Purchase/vendor-types" element={<VendorTypes />} />
               <Route path="/Sales/Outbound" element={<Outbound />} />
               <Route path="/Sales/Deliverynote" element={<DeliveryNoteList />} />
               <Route path="/Sales/Deliverynote/:id" element={<DeliveryNote />} />
@@ -184,9 +248,17 @@ function App() {
               <Route path="/Reports/export-transactions" element={<TransactionExport />} />
               <Route path="/Backups" element={<Backups />} />
               <Route path="/Letters" element={<Letters />} />
+              <Route path="/Projects" element={<Projects />} />
               <Route path="/Letters/new" element={<LetterEditor />} />
               <Route path="/Letters/:id/edit" element={<LetterEditor />} />
               <Route path="/Letters/:id/print" element={<LetterPrint />} />
+              {/* Same components, mounted under /HR — they read the pathname to
+                  scope themselves to employee-addressed letters only, and stay
+                  inside the HR nav section (see Letters.jsx/LetterEditor.jsx isHR). */}
+              <Route path="/HR/Letters" element={<Letters />} />
+              <Route path="/HR/Letters/new" element={<LetterEditor />} />
+              <Route path="/HR/Letters/:id/edit" element={<LetterEditor />} />
+              <Route path="/HR/Letters/:id/print" element={<LetterPrint />} />
               <Route path="/Reports/sales"                element={<SalesReport />} />
               <Route path="/Reports/sales-by-emirate"     element={<SalesByEmirate />} />
               <Route path="/Reports/purchases"            element={<PurchaseReport />} />
@@ -200,16 +272,27 @@ function App() {
               <Route path="/Reports/cash-flow"            element={<CashFlow />} />
               <Route path="/Reports/vendor-aging"         element={<VendorAging />} />
               <Route path="/Finance/Accounts"        element={<Accounts />} />
+              <Route path="/Finance/PaymentTerms"    element={<PaymentTerms />} />
               <Route path="/Finance/Accounts/New"    element={<NewAccount />} />
               <Route path="/Finance/Accounts/:id/edit" element={<NewAccount />} />
               <Route path="/Finance/JournalEntries"  element={<JournalEntries />} />
               <Route path="/Finance/BankReconciliation" element={<BankReconciliation />} />
               <Route path="/Finance/ExchangeRates" element={<ExchangeRates />} />
               <Route path="/Items/item-groups"        element={<ItemGroups />} />
+              <Route path="/Items/uom"                element={<UOM />} />
               <Route path="/Items/price-lists"        element={<PriceLists />} />
               <Route path="/Items/price-lists/new"    element={<NewPriceList />} />
               <Route path="/Inventory/stock-summary"  element={<StockSummary />} />
               <Route path="/Inventory/warehouses"     element={<Warehouses />} />
+              <Route path="/HR/Employees"             element={<Employees />} />
+              <Route path="/HR/OrgChart"              element={<OrgChart />} />
+              <Route path="/HR/Payroll"               element={<Payroll />} />
+              <Route path="/HR/Payroll/SalaryStructures" element={<SalaryStructures />} />
+              <Route path="/HR/Payroll/Schedules"        element={<PayrollSchedules />} />
+              <Route path="/HR/Payroll/:id"           element={<PayRunDetail />} />
+              <Route path="/HR/TimeOff"               element={<LeaveRequests />} />
+              <Route path="/HR/TimeOff/LeaveTypes"    element={<LeaveTypes />} />
+              <Route path="/HR/TimeOff/Balances"      element={<LeaveBalances />} />
               <Route path="/Inventory/adjustments"    element={<Adjustments />} />
               <Route path="/Sales/CreditNotes"        element={<CreditNotes />} />
               <Route path="/Sales/Quotes"             element={<Quotes />} />
@@ -218,8 +301,11 @@ function App() {
               <Route path="/Sales/Quotes/:id"         element={<CreateQuote />} />
             </Route>
 
-            {/* Public invoice — no layout, no auth */}
+            {/* Public invoice/quote — no layout, no auth */}
             <Route path="/invoice/public/:token" element={<PublicInvoice />} />
+            <Route path="/quote/public/:token" element={<PublicQuote />} />
+            <Route path="/letter/public/:token" element={<PublicLetter />} />
+            <Route path="/bill/public/:token" element={<PublicBill />} />
           </Routes>
         </Suspense>
       </ErrorBoundary>

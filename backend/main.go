@@ -23,6 +23,8 @@ import (
 var allowedOrigins = map[string]bool{
 	"http://localhost:5175":   true, // Vite dev server
 	"http://localhost:5173":   true, // Vite alt port
+	"http://localhost:5500":   true, // VSCode Live Server (spifora.html local test)
+	"http://127.0.0.1:5500":   true, // Live Server, alt host form
 	"tauri://localhost":       true, // Tauri macOS / Linux
 	"http://tauri.localhost":  true, // Tauri Windows
 	"https://tauri.localhost": true, // Tauri Windows (https mode)
@@ -61,7 +63,7 @@ func CORSMiddleware() gin.HandlerFunc {
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Org-ID")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Org-ID, X-Admin-Secret")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {
@@ -101,6 +103,13 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		controllers.EnsureFXAccounts(ctx)
+		controllers.EnsurePayrollAccounts(ctx)
+		controllers.EnsureEmployeeRecordsForMembers(ctx)
+		controllers.EnsureDefaultPaymentTerms(ctx)
+		controllers.EnsureDefaultUOMs(ctx)
+		controllers.EnsureDefaultSalesTypes(ctx)
+		controllers.EnsureDefaultVendorTypes(ctx)
+		controllers.EnsureDefaultDeliveryTerms(ctx)
 	}()
 
 	router := gin.Default()
@@ -112,6 +121,8 @@ func main() {
 	router.Use(middlewares.BroadcastMutations())
 
 	routes.StockRoutes(router)
+	routes.ReorderAlertRoutes(router)
+	routes.ItemPickerRoutes(router)
 	routes.AuthRoutes(router)
 	routes.CustomerRoutes(router)
 	routes.SaleOrderRoutes(router)
@@ -127,13 +138,20 @@ func main() {
 	routes.VendorPaymentRoutes(router)
 	routes.VendorCreditRoutes(router)
 	routes.GRNRoutes(router)
+	routes.BatchExpiryRoutes(router)
 	routes.AccountRoutes(router)
+	routes.TrialBalanceRoutes(router)
 	routes.JournalEntryRoutes(router)
 	routes.BankReconciliationRoutes(router)
 	routes.AdvancePaymentRoutes(router)
 	routes.WarehouseRoutes(router)
 	routes.AdjustmentRoutes(router)
 	routes.ItemGroupRoutes(router)
+	routes.UOMRoutes(router)
+	routes.PaymentTermRoutes(router)
+	routes.SalesTypeRoutes(router)
+	routes.VendorTypeRoutes(router)
+	routes.DeliveryTermRoutes(router)
 	routes.PriceListRoutes(router)
 	routes.EnquiryRoutes(router)
 	routes.QuoteRoutes(router)
@@ -149,6 +167,11 @@ func main() {
 	routes.BackupRoutes(router)
 	routes.ExportRoutes(router)
 	routes.LetterRoutes(router)
+	routes.ProjectRoutes(router)
+	routes.EmployeeRoutes(router)
+	routes.OrgChartRoutes(router)
+	routes.PayrollRoutes(router)
+	routes.TimeOffRoutes(router)
 
 	// WebSocket endpoint — no auth required (only broadcasts, no sensitive data)
 	router.GET("/ws", ws.ServeWs(ws.GlobalHub))

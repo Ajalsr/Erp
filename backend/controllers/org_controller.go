@@ -166,27 +166,83 @@ func CreateOrganization() gin.HandlerFunc {
 		userID, _ := c.Get("userId")
 		userIDStr := userID.(string)
 
-		// Each user may only belong to one organization.
-		existingCount, _ := orgMemberCollection.CountDocuments(ctx, bson.M{
-			"userId": userIDStr,
-			"status": "active",
-		})
-		if existingCount > 0 {
-			c.JSON(http.StatusForbidden, gin.H{
-				"status":  http.StatusForbidden,
-				"message": "You are already part of an organization. Each user can only belong to one organization.",
-				"error":   "forbidden",
-			})
-			return
-		}
-
 		var input struct {
-			Name        string `json:"name" binding:"required"`
-			Description string `json:"description"`
+			Name           string   `json:"name" binding:"required"`
+			Description    string   `json:"description"`
+			LicenseKey     string   `json:"licenseKey" binding:"required"`
+			ModulesEnabled []string `json:"modulesEnabled" binding:"required"`
+			MaxUsers       int      `json:"maxUsers"`
 		}
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "error", "error": err.Error()})
 			return
+		}
+
+		// A license key is required to create an organization at all — otherwise
+		// anyone who downloads the app can spin up unlimited orgs for free. See
+		// models.LicenseKey / VerifyLicenseKey for how a customer gets a key.
+		var key models.LicenseKey
+		if err := licenseCollection.FindOne(ctx, bson.M{"code": strings.TrimSpace(input.LicenseKey)}).Decode(&key); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid license key"})
+			return
+		}
+		if key.Status != "active" {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "This license key is " + key.Status})
+			return
+		}
+		if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
+			c.JSON(http.StatusForbidden, gin.H{"status": http.StatusForbidden, "message": "This license key has expired"})
+			return
+		}
+
+		// Cap check — same CountDocuments-then-reject shape as the one-org-per-user
+		// check above, just keyed on the license instead of the user.
+		orgsUsed, _ := orgCollection.CountDocuments(ctx, bson.M{"licenseKeyId": key.ID.Hex()})
+		if int(orgsUsed) >= key.MaxOrganizations {
+			c.JSON(http.StatusForbidden, gin.H{
+				"status":  http.StatusForbidden,
+				"message": fmt.Sprintf("This license key's organization limit (%d) has been reached", key.MaxOrganizations),
+			})
+			return
+		}
+
+		// Modules chosen at creation must be a subset of what the key allows.
+		allowed := make(map[string]bool, len(key.AllowedModules))
+		for _, m := range key.AllowedModules {
+			allowed[m] = true
+		}
+		var invalidModules []string
+		for _, m := range input.ModulesEnabled {
+			if !allowed[m] {
+				invalidModules = append(invalidModules, m)
+			}
+		}
+		if len(input.ModulesEnabled) == 0 || len(invalidModules) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  http.StatusBadRequest,
+				"message": "Select at least one module your license includes",
+				"invalid": invalidModules,
+			})
+			return
+		}
+
+		// Seat cap for this org: like modules, must be ≤ the key's ceiling
+		// (0 on the key = unlimited, no ceiling to enforce). Unset/invalid
+		// input falls back to the key's ceiling — matches ModulesEnabled
+		// defaulting behavior nowhere, but mirrors AdminApproveLicense's
+		// "fall back to the request's own value" pattern.
+		maxUsers := input.MaxUsers
+		if key.MaxUsersPerOrg > 0 && (maxUsers <= 0 || maxUsers > key.MaxUsersPerOrg) {
+			maxUsers = key.MaxUsersPerOrg
+		}
+
+		// This backend always runs as the Tauri sidecar ON the customer's own
+		// machine, so its own network interfaces genuinely identify that device.
+		var fingerprint string
+		if fp, fpErr := utils.MachineFingerprint(); fpErr == nil {
+			fingerprint = fp
+		} else {
+			log.Printf("[org] machine fingerprint unavailable: %v", fpErr)
 		}
 
 		org := models.Organization{
@@ -194,16 +250,29 @@ func CreateOrganization() gin.HandlerFunc {
 			Name:        input.Name,
 			Description: input.Description,
 			// Built-in assignable roles: owner + admin (implicit) plus Sales Rep.
-			CustomRoles: []string{"sales_rep"},
-			CreatedBy:   userIDStr,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
+			CustomRoles:        []string{"sales_rep"},
+			LicenseKeyID:       key.ID.Hex(),
+			License:            models.OrgLicense{Modules: input.ModulesEnabled, ExpiresAt: key.ExpiresAt},
+			MaxUsers:           maxUsers,
+			MachineFingerprint: fingerprint,
+			CreatedBy:          userIDStr,
+			CreatedAt:          time.Now(),
+			UpdatedAt:          time.Now(),
 		}
 
 		_, err := orgCollection.InsertOne(ctx, org)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to create organization"})
 			return
+		}
+
+		if fingerprint != "" {
+			// Best-effort audit trail — org creation already succeeded above, so a
+			// failure here shouldn't fail the request, just the "which machines
+			// used this key" audit view stays incomplete for this one row.
+			if _, err := licenseCollection.UpdateOne(ctx, bson.M{"_id": key.ID}, bson.M{"$addToSet": bson.M{"activatedMachines": fingerprint}}); err != nil {
+				log.Printf("[org] failed to record machine fingerprint on license %s: %v", key.ID.Hex(), err)
+			}
 		}
 
 		// Creator becomes owner
@@ -221,6 +290,7 @@ func CreateOrganization() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Failed to add owner member"})
 			return
 		}
+		go syncEmployeeFromMember(org.ID, member.UserID, member.Role, member.JoinedAt)
 
 		// Stamp the user's primary orgId so signin can return it
 		usersCollection.UpdateOne(ctx,
@@ -228,11 +298,17 @@ func CreateOrganization() gin.HandlerFunc {
 			bson.M{"$set": bson.M{"orgId": org.ID}},
 		)
 
-		// Auto-seed default chart of accounts for the new org
+		// Auto-seed default chart of accounts, payment terms, units of measure, and
+		// sales types for the new org — so dropdowns aren't empty on day one.
 		go func() {
 			seedCtx, seedCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer seedCancel()
 			seedDefaultAccountsForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultPaymentTermsForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultUOMsForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultSalesTypesForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultVendorTypesForOrg(seedCtx, org.ID.Hex(), userIDStr)
+			seedDefaultDeliveryTermsForOrg(seedCtx, org.ID.Hex(), userIDStr)
 		}()
 
 		c.JSON(http.StatusCreated, gin.H{
@@ -288,13 +364,14 @@ func buildUserOrganizations(ctx context.Context, userIDStr string) []gin.H {
 
 	for _, org := range orgs {
 		out = append(out, gin.H{
-			"_id":             org.ID,
-			"name":            org.Name,
-			"description":     org.Description,
-			"role":            roleMap[org.ID],
-			"rolePermissions": org.RolePermissions,
+			"_id":              org.ID,
+			"name":             org.Name,
+			"description":      org.Description,
+			"role":             roleMap[org.ID],
+			"rolePermissions":  org.RolePermissions,
 			"approvalSettings": org.ApprovalSettings,
-			"customRoles":     effectiveCustomRoles(org),
+			"customRoles":      effectiveCustomRoles(org),
+			"license":          org.License,
 		})
 	}
 	return out
@@ -417,6 +494,7 @@ func GetOrganization() gin.HandlerFunc {
 			"name":                org.Name,
 			"description":         org.Description,
 			"address":             org.Address,
+			"trn":                 org.TRN,
 			"baseCurrency":        org.BaseCurrency,
 			"letterheadImage":     org.LetterheadImage,
 			"letterheadTopPad":    org.LetterheadTopPad,
@@ -426,6 +504,7 @@ func GetOrganization() gin.HandlerFunc {
 			"approvalSettings":    org.ApprovalSettings,
 			"approvalPolicies":    org.ApprovalPolicies,
 			"customRoles":         effectiveCustomRoles(org),
+			"license":             org.License,
 			"createdBy":           org.CreatedBy,
 			"createdAt":           org.CreatedAt,
 			"role":                role,
@@ -455,6 +534,7 @@ func UpdateOrganization() gin.HandlerFunc {
 			Name         string `json:"name"`
 			Description  string `json:"description"`
 			Address      string `json:"address"`
+			TRN          string `json:"trn"`
 			BaseCurrency string `json:"baseCurrency"`
 		}
 		c.ShouldBindJSON(&input)
@@ -463,6 +543,7 @@ func UpdateOrganization() gin.HandlerFunc {
 			"name":        input.Name,
 			"description": input.Description,
 			"address":     strings.TrimSpace(input.Address),
+			"trn":         strings.TrimSpace(input.TRN),
 			"updatedAt":   time.Now(),
 		}
 		// Only touch baseCurrency when supplied, so name/description-only saves don't
@@ -610,7 +691,7 @@ func InviteMember() gin.HandlerFunc {
 
 		// Already a pending invite to this email in this org? (case-insensitive)
 		pendingCount, _ := invitationCollection.CountDocuments(ctx, bson.M{
-			"orgId": orgID,
+			"orgId":  orgID,
 			"userId": bson.M{"$regex": "^" + regexp.QuoteMeta(input.UserId) + "$", "$options": "i"},
 			"status": "pending",
 		})
@@ -627,6 +708,23 @@ func InviteMember() gin.HandlerFunc {
 
 		var org models.Organization
 		orgCollection.FindOne(ctx, bson.M{"_id": orgID}).Decode(&org)
+
+		// Seat cap — "Option B": the owner occupies one seat like everyone else,
+		// so activeMembers already includes them. Pending invites count too,
+		// otherwise sending 10 invites on a 5-seat plan would let all 10 land
+		// the moment they're accepted instead of being blocked up front.
+		if org.MaxUsers > 0 {
+			activeMembers, _ := orgMemberCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "active"})
+			pendingInvites, _ := invitationCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "status": "pending"})
+			seatsUsed := int(activeMembers) + int(pendingInvites)
+			if seatsUsed >= org.MaxUsers {
+				c.JSON(http.StatusForbidden, gin.H{
+					"status":  http.StatusForbidden,
+					"message": fmt.Sprintf("Seat limit reached (%d/%d) — upgrade your plan for more seats", seatsUsed, org.MaxUsers),
+				})
+				return
+			}
+		}
 
 		// Generate unique token
 		tokenBytes := make([]byte, 16)
@@ -873,6 +971,7 @@ func AcceptInvitation() gin.HandlerFunc {
 			CreatedAt: time.Now(),
 		}
 		orgMemberCollection.InsertOne(ctx, member)
+		go syncEmployeeFromMember(member.OrgID, member.UserID, member.Role, member.JoinedAt)
 		// Record which user accepted and mark as accepted
 		invitationCollection.UpdateOne(ctx, bson.M{"_id": invitation.ID}, bson.M{"$set": bson.M{
 			"status": "accepted",

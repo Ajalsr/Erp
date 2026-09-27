@@ -91,6 +91,10 @@ type Bill struct {
 
 	Notes string `json:"notes,omitempty" bson:"notes,omitempty"`
 
+	// PublicToken powers the unauthenticated "view online" link emailed to the
+	// vendor — generated the first time the bill is sent (see SendBill).
+	PublicToken string `json:"publicToken,omitempty" bson:"publicToken,omitempty"`
+
 	// Org + Audit
 	OrgID     string    `json:"orgId,omitempty" bson:"orgId,omitempty"`
 	CreatedAt time.Time `json:"createdAt"       bson:"createdAt"`

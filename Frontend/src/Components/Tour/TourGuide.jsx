@@ -8,7 +8,7 @@ const TOURS = {
   welcome: [
     {
       target: null,
-      title: 'Welcome to Nexus ERP 👋',
+      title: 'Welcome to Spifora 👋',
       content: 'This quick tour covers every key area of the system. Use the → ← arrow keys or buttons to navigate, Esc to exit. You can replay it any time from the ? button.',
       icon: '🏠',
     },
@@ -99,7 +99,7 @@ const TOURS = {
     {
       target: null,
       title: "You're all set! 🎉",
-      content: "That covers the full Nexus ERP overview. Head to the Dashboard to see your live metrics, or jump straight into any module from the sidebar. Good luck!",
+      content: "That covers the full Spifora overview. Head to the Dashboard to see your live metrics, or jump straight into any module from the sidebar. Good luck!",
       icon: '🚀',
     },
   ],

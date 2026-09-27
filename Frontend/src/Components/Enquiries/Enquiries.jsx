@@ -13,6 +13,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import CountrySelect from "../common/CountrySelect";
+import QuickAddItemModal from "../common/QuickAddItemModal";
 import useThemeStore, { getTheme } from "../../store/useThemeStore";
 import useAuthStore from "../../store/useAuthStore";
 import axiosInstance from "../../helper/axiosInstance";
@@ -20,6 +21,8 @@ import useRealtime from "../../helper/useRealtime";
 import nexusToast from "../../helper/nexusToast";
 import useGetCustomers from "../../helper/useGetCustomers";
 import { usePermissions } from "../../helper/permissions";
+import useIsMobile from "../../helper/useIsMobile";
+import useConfirm from "../common/useConfirm";
 
 const STATUSES = [
   { key: "all",       label: "All" },
@@ -80,7 +83,7 @@ const EMPTY_FORM = {
   followUpDate: "", notes: "", date: new Date().toISOString().slice(0, 10),
 };
 
-function ItemSearch({ value, onSelect, onType, allItems, T }) {
+function ItemSearch({ value, selectedId, onSelect, onType, allItems, T, onCreateNew }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos]   = useState({ top: 0, left: 0, width: 0 });
   const wrapRef = useRef(null);
@@ -111,31 +114,43 @@ function ItemSearch({ value, onSelect, onType, allItems, T }) {
     return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", measure); };
   }, [open]);
 
+  // Only an actual item from the catalog may be entered here — typing that never
+  // resolves to a selection (no click, so selectedId stays empty) is reverted on blur.
+  const handleBlur = () => {
+    if (!selectedId && value) onType("");
+  };
+
   return (
     <div ref={wrapRef}>
       <input
         value={value}
         onChange={e => { onType(e.target.value); setOpen(true); }}
         onFocus={() => { measure(); setOpen(true); }}
+        onBlur={handleBlur}
         placeholder="Search item…"
         style={{ width: "100%", padding: "7px 10px", border: `1.5px solid ${T.border}`,
           borderRadius: 7, fontSize: 12, background: T.surface, color: T.textPri,
           outline: "none", fontFamily: "inherit", boxSizing: "border-box",
-          borderColor: value ? T.blue : T.border }}
+          borderColor: selectedId ? T.blue : T.border }}
       />
-      {open && filtered.length > 0 && createPortal(
+      {open && createPortal(
         <div ref={dropRef} style={{
           position: "fixed", top: pos.top, left: pos.left, width: Math.max(pos.width, 220),
           zIndex: 99999, background: T.surface, border: `1.5px solid ${T.border}`,
           borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.32)",
-          maxHeight: 220, overflowY: "auto",
+          maxHeight: 260, overflowY: "auto",
         }}>
+          {filtered.length === 0 && (
+            <div style={{ padding: "10px 13px", fontSize: 12, color: T.textSec }}>
+              No items match{value ? ` "${value}"` : ""}
+            </div>
+          )}
           {filtered.map((item, i) => (
             <div key={item._id || i}
               onMouseDown={e => e.preventDefault()}
               onClick={() => { onSelect(item); setOpen(false); }}
               style={{ padding: "9px 13px", cursor: "pointer", fontSize: 12,
-                borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : "none",
+                borderBottom: i < filtered.length - 1 || onCreateNew ? `1px solid ${T.border}` : "none",
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 transition: "background .1s" }}
               onMouseEnter={e => e.currentTarget.style.background = T.surface2}
@@ -149,6 +164,20 @@ function ItemSearch({ value, onSelect, onType, allItems, T }) {
               </span>
             </div>
           ))}
+          {onCreateNew && (
+            <div
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onCreateNew(onSelect); setOpen(false); }}
+              style={{ padding: "9px 13px", cursor: "pointer", fontSize: 12, fontWeight: 700, color: T.blue,
+                display: "flex", alignItems: "center", gap: 6 }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Create new item
+            </div>
+          )}
         </div>,
         document.body
       )}
@@ -161,9 +190,18 @@ function EnqDatePicker({ value, onChange, placeholder = "Select date", T }) {
   const [open, setOpen]     = useState(false);
   const [mode, setMode]     = useState("calendar");
   const [pos, setPos]       = useState({ top: 0, left: 0, width: 0 });
+  const [pickingY, setPickingY] = useState(false);
   const trigRef = useRef(null);
   const dropRef = useRef(null);
+  const changeYearRef = useRef(null); // captured from renderCustomHeader — only exposed while it's mounted
+  const viewDateRef = useRef(new Date());
+  const activeYearBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (pickingY) activeYearBtnRef.current?.scrollIntoView({ block: "center" });
+  }, [pickingY]);
   const sel = value ? new Date(value) : null;
+  const yearRange = Array.from({ length: 111 }, (_, i) => new Date().getFullYear() - 100 + i);
 
   const presets = [
     { label: "Today",      v: new Date() },
@@ -176,7 +214,11 @@ function EnqDatePicker({ value, onChange, placeholder = "Select date", T }) {
 
   const measure = () => {
     const r = trigRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    if (!r) return;
+    const dropH = 380; // approx height of the calendar+tabs panel below
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow > dropH ? r.bottom + 4 : Math.max(8, r.top - dropH + 40);
+    setPos({ top, left: r.left, width: r.width });
   };
 
   useEffect(() => {
@@ -271,26 +313,55 @@ function EnqDatePicker({ value, onChange, placeholder = "Select date", T }) {
           </div>
 
           {mode === "calendar" ? (
-            <div style={{ padding: "8px 6px 6px" }}>
+            <div style={{ padding: "8px 6px 6px", position: "relative" }}>
               <DatePicker selected={sel} onChange={pick} inline
-                renderCustomHeader={({ date, decreaseMonth, increaseMonth }) => (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 8px" }}>
-                    <button onClick={decreaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
-                      border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
-                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <FaChevronLeft style={{ fontSize: 9 }}/>
-                    </button>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: T.textPri }}>
-                      {format(date, "MMMM yyyy")}
-                    </span>
-                    <button onClick={increaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
-                      border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
-                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <FaChevronRight style={{ fontSize: 9 }}/>
-                    </button>
-                  </div>
-                )}
+                renderCustomHeader={({ date, decreaseMonth, increaseMonth, changeYear }) => {
+                  changeYearRef.current = changeYear;
+                  viewDateRef.current = date;
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 8px" }}>
+                      <button onClick={decreaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
+                        border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <FaChevronLeft style={{ fontSize: 9 }}/>
+                      </button>
+                      <button type="button" onClick={() => setPickingY(p => !p)}
+                        style={{ display: "flex", alignItems: "center", gap: 5, background: pickingY ? (isDark ? "rgba(59,130,246,0.15)" : "#eff6ff") : "transparent",
+                          border: "none", borderRadius: 7, padding: "3px 8px", cursor: "pointer",
+                          fontWeight: 700, fontSize: 13, color: T.textPri, fontFamily: "inherit" }}>
+                        {format(date, "MMMM yyyy")}
+                        <svg width={9} height={9} viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth={2.5}>
+                          <polyline points={pickingY ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}/>
+                        </svg>
+                      </button>
+                      <button onClick={increaseMonth} style={{ width: 26, height: 26, borderRadius: 7,
+                        border: `1px solid ${T.border}`, background: T.surface2, color: T.textSec,
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <FaChevronRight style={{ fontSize: 9 }}/>
+                      </button>
+                    </div>
+                  );
+                }}
               />
+              {pickingY && (
+                <div style={{ position: "absolute", top: 34, left: 0, right: 0, bottom: 0,
+                  background: T.surface, zIndex: 5, display: "grid", gridTemplateColumns: "repeat(4,1fr)",
+                  gap: 4, overflowY: "auto", padding: "4px 6px" }}>
+                  {yearRange.map(y => {
+                    const active = y === viewDateRef.current.getFullYear();
+                    return (
+                      <button key={y} type="button" ref={active ? activeYearBtnRef : null}
+                        onClick={() => { changeYearRef.current?.(y); setPickingY(false); }}
+                        style={{ padding: "7px 2px", borderRadius: 7, fontSize: 12,
+                          fontWeight: active ? 700 : 400, border: "none", cursor: "pointer",
+                          background: active ? T.blue : "transparent",
+                          color: active ? "#fff" : T.textPri, fontFamily: "inherit" }}>
+                        {y}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ padding: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
@@ -506,11 +577,72 @@ function CustomerPicker({ value, valueLabel, onSelect, onClear, customers, T, bo
   );
 }
 
+// ── Follow-ups — a dated, commented log (multiple entries; past ones stay editable) ──
+// Append-only, like the app's other activity/history logs (e.g. customer history):
+// a saved entry is permanent — no editing a past follow-up, only adding a new one.
+function FollowUpsPanel({ enquiry, onAdd, T, border }) {
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-AE", { day: "numeric", month: "short", year: "numeric" }) : "—";
+  const [adding, setAdding]       = useState(false);
+  const [date, setDate]           = useState("");
+  const [comment, setComment]     = useState("");
+  const [saving, setSaving]       = useState(false);
+
+  const entries = [...(enquiry.followUps || [])].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  const startAdd = () => { setAdding(true); setDate(new Date().toISOString().slice(0, 10)); setComment(""); };
+  const cancel = () => setAdding(false);
+
+  const save = async () => {
+    if (!date) { nexusToast.error("Follow-up date is required"); return; }
+    setSaving(true);
+    try {
+      await onAdd(date, comment);
+      cancel();
+    } finally { setSaving(false); }
+  };
+
+  const textareaStyle = { width: "100%", minHeight: 54, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${T.border}`, background: T.surface, color: T.textPri, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" };
+
+  return (
+    <div style={{ background: T.surface2, border: `1px solid ${border}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.07em" }}>Follow-ups</span>
+        {!adding && (
+          <button onClick={startAdd} style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", background: "none", border: "none", cursor: "pointer" }}>+ Add follow-up</button>
+        )}
+      </div>
+
+      {entries.length === 0 && !adding && (
+        <p style={{ fontSize: 12, color: T.textSec, margin: 0 }}>No follow-ups logged yet.</p>
+      )}
+
+      {entries.map(f => (
+        <div key={f.id} style={{ padding: "8px 0", borderBottom: `1px solid ${border}` }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: f.date && new Date(f.date) < new Date() ? T.red : T.textPri }}>{fmtDate(f.date)}</div>
+          {f.comment && <div style={{ fontSize: 12, color: T.textSec, marginTop: 2, wordBreak: "break-word", overflowWrap: "anywhere" }}>{f.comment}</div>}
+        </div>
+      ))}
+
+      {adding && (
+        <div style={{ padding: "10px 0" }}>
+          <EnqDatePicker value={date} onChange={setDate} T={T} placeholder="Select date" />
+          <textarea style={{ ...textareaStyle, marginTop: 8 }} placeholder="Comment (optional) — e.g. Called client, will decide next week" value={comment} onChange={e => setComment(e.target.value)} />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={save} disabled={saving} style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 7, border: "none", background: "#3b82f6", color: "#fff", cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "Saving…" : "Add"}</button>
+            <button onClick={cancel} disabled={saving} style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const LIMIT = 15;
 
 export default function Enquiries() {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const focusId = searchParams.get("id");
@@ -543,6 +675,13 @@ export default function Enquiries() {
   const [modalOpen,    setModalOpen]    = useState(false);
   const [form,         setForm]         = useState(EMPTY_FORM);
   const [submitting,   setSubmitting]   = useState(false);
+  const { confirm, ConfirmModal } = useConfirm();
+  const closeCreateModal = async () => {
+    if (JSON.stringify(form) !== JSON.stringify(EMPTY_FORM)) {
+      if (!(await confirm({ title: "Discard enquiry?", message: "Unsaved changes will be lost.", confirmLabel: "Discard", danger: true }))) return;
+    }
+    setModalOpen(false);
+  };
 
   // Status update in drawer
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -554,10 +693,44 @@ export default function Enquiries() {
   // Stock items for line item picker
   const [allItems, setAllItems] = useState([]);
   useEffect(() => {
-    axiosInstance.get("/api/stocks/getitem")
+    axiosInstance.get("/api/stocks/lookup")
       .then(r => setAllItems(r.data?.data || []))
       .catch(() => {});
   }, []);
+
+  // Units of measure + item groups, for the "quick add item" shortcut's fields
+  const [uomOptions, setUomOptions] = useState([]);
+  const fetchUomOptions = useCallback(() => {
+    return axiosInstance.get("/api/uoms/?status=active")
+      .then(r => setUomOptions((r.data?.data?.uoms || []).map(u => ({ label: u.symbol ? `${u.name} (${u.symbol})` : u.name, value: u._id }))))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchUomOptions(); }, [fetchUomOptions]);
+
+  const [groupOptions, setGroupOptions] = useState([]);
+  const [groupMap, setGroupMap]         = useState({}); // id → { prefix }
+  const fetchGroupOptions = useCallback(() => {
+    return axiosInstance.get("/api/item-groups/?status=active")
+      .then(r => {
+        const list = r.data?.data?.groups || [];
+        setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
+        const map = {};
+        list.forEach(g => { map[g._id] = { prefix: g.prefix || "" }; });
+        setGroupMap(map);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchGroupOptions(); }, [fetchGroupOptions]);
+
+  // Line-item "+ Create new item" shortcut — a single shared modal instance; opening it
+  // stores which line's onSelect callback should receive the newly created item.
+  const [quickAddItem, setQuickAddItem] = useState(null); // null | { onSelect: fn }
+  const openQuickAddItem = useCallback((onSelect) => setQuickAddItem({ onSelect }), []);
+  const handleItemCreated = useCallback(async (newItem) => {
+    setAllItems(prev => [newItem, ...prev]);
+    quickAddItem?.onSelect(newItem);
+    setQuickAddItem(null);
+  }, [quickAddItem]);
 
   // Sales reps in this org — populate the "Assigned To" dropdown.
   const activeOrgId = useAuthStore((s) => s.activeOrg?._id || s.user?.orgId || "");
@@ -629,6 +802,9 @@ export default function Enquiries() {
   useEffect(() => { loadStats(); }, [loadStats]);
 
   const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [convertModalOpen, setConvertModalOpen] = useState(false);
+  const EMPTY_CONVERT_FORM = { customerType: "individual", trnNumber: "", tradeLicenseNumber: "", registrationDate: "", licenseExpiryDate: "" };
+  const [convertForm, setConvertForm] = useState(EMPTY_CONVERT_FORM);
 
   const openDrawer = (enq) => { if (!canOpenDetail(enq)) return; setSelected(enq); setDrawerOpen(true); setDrawerTab("overview"); setEditing(false); };
   const closeDrawer = () => { setDrawerOpen(false); setSelected(null); setEditing(false); };
@@ -648,6 +824,12 @@ export default function Enquiries() {
 
   const handleCreateCustomer = async () => {
     if (!selected) return;
+    if (!convertForm.trnNumber.trim()) { nexusToast.error("TRN Number is required"); return; }
+    if (convertForm.customerType === "business") {
+      if (!convertForm.tradeLicenseNumber.trim()) { nexusToast.error("Trade License Number is required"); return; }
+      if (!convertForm.registrationDate)           { nexusToast.error("Registration Date is required"); return; }
+      if (!convertForm.licenseExpiryDate)           { nexusToast.error("License Expiry Date is required"); return; }
+    }
     setCreatingCustomer(true);
     try {
       const nameParts = (selected.customerName || "").trim().split(" ");
@@ -657,10 +839,18 @@ export default function Enquiries() {
         lastName:            nameParts.slice(1).join(" ") || "",
         customerEmail:       selected.email || "",
         customerPhone:       selected.phone || "",
-        customerType:        "business",
+        customerType:        convertForm.customerType,
+        trnNumber:           convertForm.trnNumber.trim(),
+        customFields: convertForm.customerType === "business" ? {
+          tradeLicenseNumber: convertForm.tradeLicenseNumber.trim(),
+          registrationDate:   convertForm.registrationDate,
+          licenseExpiryDate:  convertForm.licenseExpiryDate,
+        } : undefined,
       });
       const newId = res.data?.data?._id || res.data?._id;
       nexusToast.success("Customer created successfully");
+      setConvertModalOpen(false);
+      setConvertForm(EMPTY_CONVERT_FORM);
       // Link enquiry to new customer
       if (newId) {
         await axiosInstance.put(`/api/enquiries/${selected._id}`, { customerId: newId });
@@ -681,7 +871,7 @@ export default function Enquiries() {
     if (form.contactPhone && !isValidPhoneNumber(form.contactPhone)) { nexusToast.error("Enter a valid contact phone number"); return; }
     setSubmitting(true);
     try {
-      const lineItems = (form.lineItems || []).filter(li => li.itemName.trim());
+      const lineItems = (form.lineItems || []).filter(li => li.itemId && li.itemName.trim());
       const estimatedValue = lineItems.reduce((s, li) =>
         s + lineTot(li), 0);
       await axiosInstance.post("/api/enquiries/", {
@@ -714,11 +904,33 @@ export default function Enquiries() {
     } finally { setUpdatingStatus(false); }
   };
 
+  // Refetch the enquiry after a follow-up add/edit rather than trust a locally-built
+  // merge — guarantees the list shown (and the IDs "Edit" targets) always match what's
+  // actually persisted, instead of a client-guessed shape.
+  const refreshSelectedEnquiry = async () => {
+    const res = await axiosInstance.get(`/api/enquiries/${selected._id}`);
+    const fresh = res.data?.data;
+    if (!fresh) return;
+    setSelected(fresh);
+    setEnquiries(prev => prev.map(e => e._id === fresh._id ? fresh : e));
+  };
+
+  const handleAddFollowUp = async (date, comment) => {
+    try {
+      await axiosInstance.post(`/api/enquiries/${selected._id}/followups`, { date, comment });
+      await refreshSelectedEnquiry();
+      nexusToast.success("Follow-up added");
+    } catch (e) {
+      nexusToast.error(e.response?.data?.message || "Failed to add follow-up");
+      throw e;
+    }
+  };
+
   const handleSaveEdit = async () => {
     if (editForm.contactPhone && !isValidPhoneNumber(editForm.contactPhone)) { nexusToast.error("Enter a valid contact phone number"); return; }
     setSaving(true);
     try {
-      const lineItems = (editForm.lineItems || []).filter(li => li.itemName?.trim());
+      const lineItems = (editForm.lineItems || []).filter(li => li.itemId && li.itemName?.trim());
       const estimatedValue = lineItems.reduce((s, li) =>
         s + lineTot(li), 0);
       await axiosInstance.put(`/api/enquiries/${selected._id}`, {
@@ -786,19 +998,19 @@ export default function Enquiries() {
         .enq-phone .PhoneInputCountryIcon { box-shadow:none; }
       `}</style>
 
-      <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", padding: "24px 28px" }}>
+      <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", padding: isMobile ? "14px" : "24px 28px", overflowX: "hidden" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em" }}>Enquiries</h1>
+        <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", alignItems: "center", justifyContent: "space-between", gap: isMobile ? 10 : 0, marginBottom: 24 }}>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: isMobile ? 19 : 22, fontWeight: 800, color: T.textPri, margin: 0, letterSpacing: "-0.02em" }}>Enquiries</h1>
             <p style={{ fontSize: 13, color: T.textSec, margin: "4px 0 0" }}>Track and manage customer enquiries &amp; leads</p>
           </div>
           <button
             onClick={() => { setForm(EMPTY_FORM); setModalOpen(true); }}
-            style={{ display: "flex", alignItems: "center", gap: 7, padding: "10px 18px",
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 18px", width: isMobile ? "100%" : "auto",
               background: T.blue, color: "#fff", border: "none", borderRadius: 10,
-              fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
             <FaPlus size={11}/> New Enquiry
           </button>
         </div>
@@ -870,7 +1082,7 @@ export default function Enquiries() {
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table style={{ width: "100%", minWidth: isMobile ? 860 : "auto", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     {["Enquiry #", "Customer", "Project", "Subject", "Source", "Priority", "Follow Up", "Status", "Value"].map(h => (
@@ -1017,12 +1229,10 @@ export default function Enquiries() {
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                           <span style={{ fontSize: 11, color: T.textSec }}>Not linked to a customer record</span>
                           <button
-                            disabled={creatingCustomer}
-                            onClick={handleCreateCustomer}
+                            onClick={() => { setConvertForm(EMPTY_CONVERT_FORM); setConvertModalOpen(true); }}
                             style={{ padding: "5px 12px", background: T.blue, color: "#fff", border: "none",
-                              borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: creatingCustomer ? "not-allowed" : "pointer",
-                              opacity: creatingCustomer ? 0.6 : 1, fontFamily: "inherit" }}>
-                            {creatingCustomer ? "Creating…" : "+ Add to Customers"}
+                              borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                            + Add to Customers
                           </button>
                         </div>
                       </div>
@@ -1051,6 +1261,8 @@ export default function Enquiries() {
                       </div>
                     ))}
                   </div>
+
+                  <FollowUpsPanel enquiry={selected} onAdd={handleAddFollowUp} T={T} border={border} />
 
                   {/* Description */}
                   {selected.description && (
@@ -1236,15 +1448,14 @@ export default function Enquiries() {
                     { key: "contactPhone",  label: "Contact Phone" },
                     { key: "subject",       label: "Subject *" },
                     { key: "assignedTo",    label: "Assigned To" },
-                    { key: "followUpDate",  label: "Follow Up Date", type: "date" },
                   ].map(({ key, label, type }) => (
                     <div key={key}>
                       <label style={labelStyle}>{label}</label>
-                      {key === "contactPhone" ? (
+                      {key === "contactPhone" || key === "phone" ? (
                         <div className="enq-phone">
                           <PhoneInput international countryCallingCodeEditable={false} defaultCountry="AE"
                             countrySelectComponent={CountrySelect}
-                            value={editForm.contactPhone || ""} onChange={v => setEditForm(f => ({ ...f, contactPhone: v || "" }))} />
+                            value={editForm[key] || ""} onChange={v => setEditForm(f => ({ ...f, [key]: v || "" }))} />
                         </div>
                       ) : key === "assignedTo" ? (
                         <EnqSelect T={T} value={editForm.assignedTo || ""} options={assigneeOptions}
@@ -1268,7 +1479,8 @@ export default function Enquiries() {
                         + Add Item
                       </button>
                     </div>
-                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflowX: "auto", overflowY: "hidden" }}>
+                     <div style={{ minWidth: isMobile ? 420 : "auto" }}>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 52px 72px 50px 72px 20px", gap: 0,
                         background: T.surface2, padding: "5px 8px", fontSize: 10, fontWeight: 700,
                         letterSpacing: "0.06em", textTransform: "uppercase", color: T.textSec }}>
@@ -1284,8 +1496,10 @@ export default function Enquiries() {
                             gap: 0, padding: "5px 8px", borderTop: `1px solid ${T.border}`, alignItems: "center" }}>
                             <ItemSearch
                               value={li.itemName || ""}
+                              selectedId={li.itemId}
                               allItems={allItems}
                               T={T}
+                              onCreateNew={can('items', 'add') ? openQuickAddItem : undefined}
                               onType={v => setEditForm(f => {
                                 const items = [...(f.lineItems || [])];
                                 items[idx] = { ...items[idx], itemName: v, itemId: "" };
@@ -1351,6 +1565,7 @@ export default function Enquiries() {
                           AED {(editForm.lineItems || []).reduce((s, li) => s + (lineTot(li)), 0).toFixed(2)}
                         </span>
                       </div>
+                     </div>
                     </div>
                   </div>
 
@@ -1423,10 +1638,100 @@ export default function Enquiries() {
         </>
       )}
 
+      {/* ── Convert to Customer Modal ─────────────────────────────────────
+          The backend requires TRN Number (and, for business customers, trade
+          license + registration/expiry dates) on every customer record —
+          this used to be silently missing here, so every conversion failed
+          with "TRN Number is required" until these were collected first. */}
+      {convertModalOpen && (
+        <>
+          <div onClick={() => setConvertModalOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 60, animation: "enqOverlay .2s ease" }}/>
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+            width: 440, maxWidth: "95vw", maxHeight: "90vh", background: T.surface,
+            border: `1px solid ${border}`, borderRadius: 16, zIndex: 61,
+            display: "flex", flexDirection: "column", animation: "enqModalIn .2s cubic-bezier(0.16,1,0.3,1)" }}>
+
+            <div style={{ padding: "18px 22px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.textPri }}>Add to Customers</div>
+                <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>A couple more details are required to create the customer record</div>
+              </div>
+              <button onClick={() => setConvertModalOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec }}>
+                <FaTimes size={16}/>
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Customer Type *</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {["individual", "business"].map(t => (
+                    <button key={t} type="button"
+                      onClick={() => setConvertForm(f => ({ ...f, customerType: t }))}
+                      style={{ flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, textTransform: "capitalize",
+                        cursor: "pointer", fontFamily: "inherit",
+                        border: convertForm.customerType === t ? `1.5px solid ${T.blue}` : `1.5px solid ${border}`,
+                        background: convertForm.customerType === t ? T.blueDim : "transparent",
+                        color: convertForm.customerType === t ? T.blue : T.textSec }}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label style={labelStyle}>TRN Number *</label>
+                <input className="enq-input" style={inputStyle} placeholder="100XXXXXXXXXXXX"
+                  value={convertForm.trnNumber}
+                  onChange={e => setConvertForm(f => ({ ...f, trnNumber: e.target.value }))} />
+              </div>
+
+              {convertForm.customerType === "business" && (
+                <>
+                  <div>
+                    <label style={labelStyle}>Trade License Number *</label>
+                    <input className="enq-input" style={inputStyle} placeholder="TL-XXXXXXXX"
+                      value={convertForm.tradeLicenseNumber}
+                      onChange={e => setConvertForm(f => ({ ...f, tradeLicenseNumber: e.target.value }))} />
+                  </div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Registration Date *</label>
+                      <EnqDatePicker value={convertForm.registrationDate} T={T} placeholder="Select date"
+                        onChange={v => setConvertForm(f => ({ ...f, registrationDate: v }))} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>License Expiry Date *</label>
+                      <EnqDatePicker value={convertForm.licenseExpiryDate} T={T} placeholder="Select date"
+                        onChange={v => setConvertForm(f => ({ ...f, licenseExpiryDate: v }))} />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ padding: "14px 20px", borderTop: `1px solid ${border}`, flexShrink: 0, display: "flex", gap: 10 }}>
+              <button onClick={handleCreateCustomer} disabled={creatingCustomer}
+                style={{ flex: 1, padding: 10, background: T.blue, color: "#fff", border: "none",
+                  borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: creatingCustomer ? "not-allowed" : "pointer",
+                  opacity: creatingCustomer ? 0.6 : 1, fontFamily: "inherit" }}>
+                {creatingCustomer ? "Creating…" : "Create Customer"}
+              </button>
+              <button onClick={() => setConvertModalOpen(false)}
+                style={{ padding: "10px 16px", background: T.surface2, color: T.textSec,
+                  border: `1.5px solid ${border}`, borderRadius: 10, fontSize: 13,
+                  fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ── Create Modal ───────────────────────────────────────────────── */}
       {modalOpen && (
         <>
-          <div onClick={() => setModalOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, animation: "enqOverlay .2s ease" }}/>
+          <div onClick={closeCreateModal} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 50, animation: "enqOverlay .2s ease" }}/>
           <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
             width: 560, maxWidth: "95vw", maxHeight: "90vh", background: T.surface,
             border: `1px solid ${border}`, borderRadius: 16, zIndex: 51,
@@ -1438,14 +1743,14 @@ export default function Enquiries() {
                 <div style={{ fontSize: 16, fontWeight: 800, color: T.textPri }}>New Enquiry</div>
                 <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>Add a new customer enquiry or lead</div>
               </div>
-              <button onClick={() => setModalOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec }}>
+              <button onClick={closeCreateModal} style={{ background: "none", border: "none", cursor: "pointer", color: T.textSec }}>
                 <FaTimes size={16}/>
               </button>
             </div>
 
             {/* Modal body */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "20px 22px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
 
                 {/* Link existing customer (optional) */}
                 <div style={{ gridColumn: "1 / -1" }}>
@@ -1483,11 +1788,11 @@ export default function Enquiries() {
                 ].map(({ key, label, full }) => (
                   <div key={key} style={{ gridColumn: full ? "1 / -1" : undefined }}>
                     <label style={labelStyle}>{label}</label>
-                    {key === "contactPhone" ? (
+                    {key === "contactPhone" || key === "phone" ? (
                       <div className="enq-phone">
                         <PhoneInput international countryCallingCodeEditable={false} defaultCountry="AE"
                           countrySelectComponent={CountrySelect}
-                          value={form.contactPhone || ""} onChange={v => setForm(f => ({ ...f, contactPhone: v || "" }))} />
+                          value={form[key] || ""} onChange={v => setForm(f => ({ ...f, [key]: v || "" }))} />
                       </div>
                     ) : key === "assignedTo" ? (
                       <EnqSelect T={T} value={form.assignedTo || ""} options={assigneeOptions}
@@ -1522,7 +1827,8 @@ export default function Enquiries() {
                       + Add Item
                     </button>
                   </div>
-                  <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflowX: "auto", overflowY: "hidden" }}>
+                   <div style={{ minWidth: isMobile ? 480 : "auto" }}>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 56px 82px 54px 78px 24px", gap: 0,
                       background: T.surface2, padding: "5px 10px", fontSize: 10, fontWeight: 700,
                       letterSpacing: "0.06em", textTransform: "uppercase", color: T.textSec }}>
@@ -1538,8 +1844,10 @@ export default function Enquiries() {
                           gap: 0, padding: "6px 10px", borderTop: `1px solid ${T.border}`, alignItems: "center" }}>
                           <ItemSearch
                             value={li.itemName}
+                            selectedId={li.itemId}
                             allItems={allItems}
                             T={T}
+                            onCreateNew={can('items', 'add') ? openQuickAddItem : undefined}
                             onType={v => setForm(f => {
                               const items = [...f.lineItems];
                               items[idx] = { ...items[idx], itemName: v, itemId: "" };
@@ -1605,6 +1913,7 @@ export default function Enquiries() {
                         AED {form.lineItems.reduce((s, li) => s + (lineTot(li)), 0).toFixed(2)}
                       </span>
                     </div>
+                   </div>
                   </div>
                 </div>
 
@@ -1654,7 +1963,7 @@ export default function Enquiries() {
                   cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.6 : 1, fontFamily: "inherit" }}>
                 {submitting ? "Creating…" : "Create Enquiry"}
               </button>
-              <button onClick={() => setModalOpen(false)}
+              <button onClick={closeCreateModal}
                 style={{ padding: "11px 18px", background: T.surface2, color: T.textSec,
                   border: `1.5px solid ${border}`, borderRadius: 10, fontSize: 13,
                   fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
@@ -1663,6 +1972,16 @@ export default function Enquiries() {
             </div>
           </div>
         </>
+      )}
+
+      {ConfirmModal}
+
+      {quickAddItem && (
+        <QuickAddItemModal T={T} isDark={isDark}
+          uomOptions={uomOptions} fetchUomOptions={fetchUomOptions}
+          groupOptions={groupOptions} groupMap={groupMap} fetchGroupOptions={fetchGroupOptions}
+          onClose={() => setQuickAddItem(null)}
+          onCreated={handleItemCreated} />
       )}
     </>
   );

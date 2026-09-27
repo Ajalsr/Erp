@@ -1,14 +1,18 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import useAddCustomer from '../../helper/useAddCustomer';
 import useUpdateCustomer from '../../helper/useUpdateCustomer';
 import axiosInstance from '../../helper/axiosInstance';
+import { usePermissions } from '../../helper/permissions';
 import toast from "../../helper/nexusToast";
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
-import PhoneInput from 'react-phone-number-input';
+import { drawerWidth } from '../../helper/responsive';
+import PhoneInput, { getCountries } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
+import countryNames from 'react-phone-number-input/locale/en.json';
 import CountrySelect from '../common/CountrySelect';
+import QuickCreateModal from '../common/QuickCreateModal';
 import { AiOutlineFileAdd, AiOutlineDelete } from "react-icons/ai";
 import {
   FaFilePdf, FaFileImage, FaFileWord, FaFileExcel, FaFile,
@@ -17,6 +21,8 @@ import {
   FaPlus, FaTimes, FaCheckCircle
 } from "react-icons/fa";
 import useThemeStore, { getTheme } from '../../store/useThemeStore';
+import useAuthStore from '../../store/useAuthStore';
+import useIsMobile from '../../helper/useIsMobile';
 import cc from 'currency-codes';
 
 // All ISO 4217 currencies: { label: "UAE Dirham (AED)", value: "AED" }
@@ -25,18 +31,17 @@ const CURRENCY_OPTIONS = cc.codes().map(code => {
   return d ? { label: `${d.currency} (${code})`, value: code } : null;
 }).filter(Boolean);
 
-const PAYMENT_TERMS_OPTIONS = [
-  { value: 'Due on Receipt', label: 'Due on Receipt' },
-  { value: 'Net 7',          label: 'Net 7 — due in 7 days' },
-  { value: 'Net 15',         label: 'Net 15 — due in 15 days' },
-  { value: 'Net 30',         label: 'Net 30 — due in 30 days' },
-  { value: 'Net 45',         label: 'Net 45 — due in 45 days' },
-  { value: 'Net 60',         label: 'Net 60 — due in 60 days' },
-  { value: 'Net 90',         label: 'Net 90 — due in 90 days' },
-  { value: '50% Advance',    label: '50% Advance — balance on delivery' },
-  { value: '100% Advance',   label: '100% Advance — full payment upfront' },
-  { value: 'Custom',         label: 'Custom — specify No. of Days' },
-];
+// Built-in sentinel — always available regardless of configured payment terms,
+// since the "No. of Days" field's enabled state is wired to this exact value.
+const CUSTOM_PAYMENT_TERM = { value: 'Custom', label: 'Custom — specify No. of Days' };
+
+// Full country list, sourced from react-phone-number-input's own ISO-3166 set
+// (avoids a second country-name dependency + keeps it in sync with the phone field).
+const COUNTRY_OPTIONS = getCountries()
+  .map(code => countryNames[code])
+  .filter(Boolean)
+  .sort((a, b) => a.localeCompare(b))
+  .map(name => ({ value: name, label: name }));
 
 // ── Dynamic CSS (theme-aware) ──────────────────────────────────────
 const makeStyles = (T, isDark) => `
@@ -154,10 +159,10 @@ const DOCUMENT_TYPES = [
 ];
 
 // ── Tab panel components ───────────────────────────────────────────
-const FinanceTab = ({ formData, handleChange, T, isDark }) => (
+const FinanceTab = ({ formData, handleChange, T, isDark, isMobile, paymentTermOptions, onCreatePaymentTerm, priceListOptions }) => (
   <div>
     <SectionHeader icon={<FaWallet />} title="Finance Details" subtitle="Set credit limits and payment terms" T={T} isDark={isDark} />
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
       <div>
         <Label T={T}>Credit Limit</Label>
         <input className="nc-input" name="credit_limit" value={formData.credit_limit || ''} onChange={handleChange} placeholder="e.g. 50,000" />
@@ -177,10 +182,12 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
           name="paymentTerms"
           value={formData.paymentTerms || 'Due on Receipt'}
           onChange={handleChange}
-          options={PAYMENT_TERMS_OPTIONS}
+          options={paymentTermOptions}
           placeholder="Select payment terms"
           T={T}
           isDark={isDark}
+          onCreateNew={onCreatePaymentTerm}
+          createLabel="Create new payment term"
         />
       </div>
       <div>
@@ -203,11 +210,23 @@ const FinanceTab = ({ formData, handleChange, T, isDark }) => (
           isDark={isDark}
         />
       </div>
+      <div>
+        <Label T={T}>Price List<span style={{ fontSize: 10, fontWeight: 400, marginLeft: 6, opacity: 0.7 }}>(optional — overrides item prices on quotes/orders/invoices)</span></Label>
+        <CustomSelect
+          name="price_list_id"
+          value={formData.price_list_id || ''}
+          onChange={handleChange}
+          options={[{ value: '', label: 'None — use standard item pricing' }, ...priceListOptions]}
+          placeholder="Select price list"
+          T={T}
+          isDark={isDark}
+        />
+      </div>
     </div>
   </div>
 );
 
-const AddressTab = ({ formData, handleChange, T, isDark }) => (
+const AddressTab = ({ formData, handleChange, T, isDark, isMobile }) => (
   <div>
     <SectionHeader icon={<FaMapMarkerAlt />} title="Address" subtitle="Customer's billing and shipping address" T={T} isDark={isDark} />
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -216,7 +235,7 @@ const AddressTab = ({ formData, handleChange, T, isDark }) => (
         <textarea className="nc-textarea" name="streetAddress" value={formData.streetAddress}
           onChange={handleChange} placeholder="Enter full street address" rows={3} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
         <div>
           <Label T={T}>City</Label>
           <input className="nc-input" name="city" value={formData.city} onChange={handleChange} placeholder="Dubai" />
@@ -228,13 +247,14 @@ const AddressTab = ({ formData, handleChange, T, isDark }) => (
       </div>
       <div>
         <Label T={T}>Country</Label>
-        <input className="nc-input" name="country" value={formData.country} onChange={handleChange} placeholder="United Arab Emirates" />
+        <CustomSelect name="country" value={formData.country} onChange={handleChange}
+          options={COUNTRY_OPTIONS} placeholder="Select country" T={T} isDark={isDark} />
       </div>
     </div>
   </div>
 );
 
-const ContactPersonsTab = ({ contactPersons, setContactPersons, T, isDark }) => {
+const ContactPersonsTab = ({ contactPersons, setContactPersons, T, isDark, isMobile }) => {
   const handleAdd = useCallback(() => {
     setContactPersons(prev => [...prev, { id: Date.now(), name: '', email: '', phone: '' }]);
   }, [setContactPersons]);
@@ -283,7 +303,7 @@ const ContactPersonsTab = ({ contactPersons, setContactPersons, T, isDark }) => 
                   <FaTimes size={10} /> Remove
                 </button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '14px' }}>
                 <div>
                   <Label T={T}>Name</Label>
                   <input className="nc-input" type="text" value={contact.name}
@@ -394,7 +414,7 @@ function DiscardModal({ onConfirm, onCancel, T, isDark }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }} onClick={onCancel} />
       <div style={{
-        position: 'relative', zIndex: 1, width: 360, background: T.surface,
+        position: 'relative', zIndex: 1, width: drawerWidth(360), background: T.surface,
         border: `1.5px solid ${T.border}`, borderRadius: 20,
         padding: '32px 28px', textAlign: 'center',
         boxShadow: isDark ? '0 24px 64px rgba(0,0,0,0.6)' : '0 24px 64px rgba(0,0,0,0.14)',
@@ -417,7 +437,7 @@ function DiscardModal({ onConfirm, onCancel, T, isDark }) {
 }
 
 // ── Custom Select — portal-based dropdown ──────────────────────────
-const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select', name, T, isDark }) => {
+const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select', name, T, isDark, onCreateNew, createLabel }) => {
   const [open,    setOpen]    = useState(false);
   const [ready,   setReady]   = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
@@ -537,6 +557,20 @@ const CustomSelect = ({ value, onChange, options, label, placeholder = 'Select',
           );
         })}
       </div>
+      {onCreateNew && (
+        <div onClick={() => { onCreateNew(); setOpen(false); setReady(false); setQuery(''); }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px',
+            borderTop: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#3b82f6',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          {createLabel || 'Create new'}
+        </div>
+      )}
     </div>
   );
 
@@ -582,9 +616,17 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
   const [viewMonth, setViewMonth] = useState(() => value ? new Date(value).getMonth()     : new Date().getMonth());
   const [pickingY,  setPickingY]  = useState(false);
   const [dropPos,   setDropPos]   = useState({ top: 0, left: 0, width: 0 });
-  const triggerRef = useRef(null);
-  const dropRef    = useRef(null);
-  const rafRef     = useRef(null);
+  const triggerRef     = useRef(null);
+  const dropRef        = useRef(null);
+  const rafRef         = useRef(null);
+  const yearGridRef    = useRef(null);
+  const selectedYearRef = useRef(null);
+
+  useEffect(() => {
+    if (pickingY && selectedYearRef.current) {
+      selectedYearRef.current.scrollIntoView({ block: 'center' });
+    }
+  }, [pickingY]);
 
   const measurePos = useCallback(() => {
     if (!triggerRef.current) return;
@@ -629,7 +671,7 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
   const display     = parsed ? `${String(parsed.getDate()).padStart(2,'0')} ${MONTHS[parsed.getMonth()].slice(0,3)} ${parsed.getFullYear()}` : '';
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const firstDay    = new Date(viewYear, viewMonth, 1).getDay();
-  const yearRange   = Array.from({ length: 31 }, (_, i) => new Date().getFullYear() - 10 + i);
+  const yearRange   = Array.from({ length: 111 }, (_, i) => new Date().getFullYear() - 100 + i);
 
   const selectDay = d => {
     const iso = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -676,9 +718,9 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
       </div>
 
       {pickingY ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+        <div ref={yearGridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
           {yearRange.map(y => (
-            <button key={y} type="button"
+            <button key={y} type="button" ref={y === viewYear ? selectedYearRef : null}
               onClick={e => { e.stopPropagation(); setViewYear(y); setPickingY(false); }}
               style={{ padding: '7px 2px', borderRadius: '7px', fontSize: '12px', fontWeight: y === viewYear ? '700' : '400', border: 'none', cursor: 'pointer', background: y === viewYear ? blueC : 'transparent', color: y === viewYear ? 'white' : T.textPri }}>
               {y}
@@ -746,10 +788,10 @@ const DatePicker = ({ value, onChange, label, placeholder = 'Select date' }) => 
   );
 };
 
-const CustomFieldsTab = ({ customFields, setFormData, customerType, T, isDark }) => (
+const CustomFieldsTab = ({ customFields, setFormData, customerType, T, isDark, isMobile }) => (
   <div>
     <SectionHeader icon={<FaBuilding />} title="Custom Fields" subtitle="Additional business registration details" T={T} isDark={isDark} />
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
       {customerType === 'business' && (
         <>
           <div>
@@ -869,7 +911,7 @@ function SalutationInput({ value, onChange, name, T, isDark }) {
       </select>
       {showManage && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
-          <div style={{ background: T.surface, borderRadius: '16px', padding: '24px', width: '340px', border: `1.5px solid ${T.border}`, boxShadow: '0 24px 64px rgba(0,0,0,0.2)' }}>
+          <div style={{ background: T.surface, borderRadius: '16px', padding: '24px', width: drawerWidth(340), border: `1.5px solid ${T.border}`, boxShadow: '0 24px 64px rgba(0,0,0,0.2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <p style={{ fontSize: '15px', fontWeight: '700', color: T.textPri, margin: 0 }}>Manage Salutations</p>
               <button type="button" onClick={() => setShowManage(false)}
@@ -906,14 +948,21 @@ function SalutationInput({ value, onChange, name, T, isDark }) {
 
 // ── Main Component ─────────────────────────────────────────────────
 const Newcustomers = () => {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const guard = useUnsavedGuard({ hasDraft: false });
   const { handleAddcustomer }    = useAddCustomer();
   const { handleUpdateCustomer } = useUpdateCustomer();
   const { id: editId }           = useParams();
   const isEditMode               = !!editId;
   const navigate    = useNavigate();
+  const location    = useLocation();
+  // When launched via a "+ Add new customer" shortcut from another form (e.g. Sales
+  // Order), that caller passes returnTo so Cancel/Discard/Save-and-close land back
+  // there instead of the generic Customers list.
+  const returnTo    = location.state?.returnTo || '/Sales/Customers';
   const isDark      = useThemeStore((s) => s.isDark);
   const T           = getTheme(isDark);
+  const isMobile    = useIsMobile();
 
   const [activeTab,     setActiveTab]     = useState('finance');
   const [isSubmitting,  setIsSubmitting]  = useState(false);
@@ -922,13 +971,56 @@ const Newcustomers = () => {
 
   const [salutations, setSalutations] = useState(['Mr.', 'Mrs.', 'Ms.', 'Miss', 'Dr.']);
 
-  // Load org-configured salutations if available
+  // Who may edit the customer code — owner always; other roles only if the org
+  // added them under Settings (default: owner only).
+  const role = useAuthStore(s => s.activeOrg?.role) || '';
+  const [codeEditRoles, setCodeEditRoles] = useState(['owner']);
+  const canEditCode = role === 'owner' || codeEditRoles.includes(role);
+  const [origCode, setOrigCode] = useState('');           // the code the customer had on load (edit)
+  const [codeStatus, setCodeStatus] = useState(null);     // null | 'checking' | 'available' | 'taken'
+
+  // Load org-configured salutations + customer-code edit roles if available
   useEffect(() => {
     axiosInstance.get('/api/org/settings').then(res => {
       const s = res.data?.data?.salutations;
       if (Array.isArray(s) && s.length > 0) setSalutations(s);
+      const roles = res.data?.data?.customerCodeEditRoles;
+      if (Array.isArray(roles)) setCodeEditRoles(roles);
     }).catch(() => {});
   }, []);
+
+  const [paymentTerms, setPaymentTerms] = useState([]);
+  const [quickCreate, setQuickCreate]   = useState(null); // 'paymentTerm' | null
+
+  const fetchPaymentTerms = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(res => {
+        setPaymentTerms(res.data?.data?.paymentTerms || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+
+  const [priceLists, setPriceLists] = useState([]);
+  useEffect(() => {
+    axiosInstance.get('/api/price-lists/?status=active')
+      .then(res => setPriceLists(res.data?.data?.priceLists || res.data?.data || []))
+      .catch(() => {});
+  }, []);
+  const priceListOptions = priceLists.map(p => ({ value: p._id, label: p.name }));
+
+  const paymentTermOptions = [
+    ...paymentTerms.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` })),
+    CUSTOM_PAYMENT_TERM,
+  ];
+
+  const handleCreatePaymentTerm = useCallback(async (form) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: form.name, days: Number(form.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setFormData(prev => ({ ...prev, paymentTerms: res.data.data.name }));
+    toast.success('Payment term created');
+  }, [fetchPaymentTerms]);
 
   const [formData, setFormData] = useState({
     customerType: 'business', customerCode: '', salutation: '',
@@ -939,6 +1031,7 @@ const Newcustomers = () => {
     customFields: {}, reportingTags: [], remarks: '', documents: [],
     currency: 'AED', paymentTerms: 'Due on Receipt',
     credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
+    price_list_id: '',
   });
 
   // Load existing customer when editing
@@ -947,6 +1040,7 @@ const Newcustomers = () => {
     axiosInstance.get(`/api/customers/${editId}`)
       .then(res => {
         const c = res.data?.data || res.data;
+        setOrigCode(c.customerCode || '');
         setFormData({
           customerType:        c.customerType        || 'business',
           customerCode:        c.customerCode        || '',
@@ -975,11 +1069,26 @@ const Newcustomers = () => {
           credit_limit:        c.credit_limit        != null ? String(c.credit_limit) : '',
           no_of_days:          c.no_of_days          != null ? String(c.no_of_days)   : '',
           credit_limit_action: c.credit_limit_action || 'warn',
+          price_list_id:       c.price_list_id       || '',
         });
         setContactPersons(c.contactPersons || []);
       })
       .catch(() => toast.error('Failed to load customer'));
   }, [isEditMode, editId]);
+
+  // Live "is this customer code already taken?" check (debounced). Skips the
+  // check when the code is blank or unchanged from what the customer already had.
+  useEffect(() => {
+    const code = (formData.customerCode || '').trim();
+    if (!canEditCode || !code || code.toLowerCase() === origCode.toLowerCase()) { setCodeStatus(null); return; }
+    setCodeStatus('checking');
+    const t = setTimeout(() => {
+      axiosInstance.get('/api/customers/code-available', { params: { code, excludeId: editId || '' } })
+        .then(r => setCodeStatus(r.data?.available ? 'available' : 'taken'))
+        .catch(() => setCodeStatus(null));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formData.customerCode, origCode, canEditCode, editId]);
 
   const handleChange = useCallback((e) => {
     const { name, value, type, checked } = e.target;
@@ -1092,6 +1201,7 @@ const Newcustomers = () => {
     e.preventDefault();
     if (!formData.customerDisplayName.trim()) { toast.error("Customer display name is required"); return; }
     if (!formData.trnNumber.trim()) { toast.error("TRN Number is required"); return; }
+    if (canEditCode && codeStatus === 'taken') { toast.error("That customer code already exists — choose another"); return; }
     // Custom Fields are mandatory for business customers.
     if (formData.customerType === 'business') {
       const cf = formData.customFields || {};
@@ -1114,12 +1224,13 @@ const Newcustomers = () => {
           customFields: {}, reportingTags: [], remarks: '', documents: [],
           currency: 'AED', paymentTerms: 'Due on Receipt',
           credit_limit: '', no_of_days: '', credit_limit_action: 'warn',
+          price_list_id: '',
         });
         setContactPersons([]);
         toast.success("Customer created successfully!");
       }
       guard.reset();
-      setTimeout(() => navigate("/Sales/Customers"), 1800);
+      setTimeout(() => navigate(returnTo), 1800);
     } catch {
       // toast already shown by helper
     } finally {
@@ -1145,18 +1256,27 @@ const Newcustomers = () => {
 
   const blueC   = isDark ? '#60a5fa' : '#2563eb';
   const blueDim = isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff';
-  const card    = { background: T.surface, borderRadius: '16px', padding: '24px', border: `1px solid ${T.border}`, boxShadow: isDark ? '0 1px 8px rgba(0,0,0,0.3)' : '0 1px 4px rgba(0,0,0,0.04)' };
+  const card    = { background: T.surface, borderRadius: '16px', padding: isMobile ? '16px' : '24px', border: `1px solid ${T.border}`, boxShadow: isDark ? '0 1px 8px rgba(0,0,0,0.3)' : '0 1px 4px rgba(0,0,0,0.04)' };
 
   return (
-    <div className="nc-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: '100vh', padding: '28px 32px' }}>
+    <div className="nc-root" onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: '100vh', padding: isMobile ? '16px 14px' : '28px 32px', overflowX: 'hidden' }}>
       <style>{makeStyles(T, isDark)}</style>
 
       {showDiscard && (
         <DiscardModal
           T={T} isDark={isDark}
-          onConfirm={() => { setShowDiscard(false); navigate('/Sales/Customers'); }}
+          onConfirm={() => { setShowDiscard(false); navigate(returnTo); }}
           onCancel={() => setShowDiscard(false)}
         />
+      )}
+
+      {quickCreate === 'paymentTerm' && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreatePaymentTerm} />
       )}
 
       {/* Page header */}
@@ -1172,15 +1292,15 @@ const Newcustomers = () => {
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 340px', gap: isMobile ? '14px' : '20px', alignItems: 'start' }}>
 
           {/* ── LEFT: main form ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minWidth: 0 }}>
 
             {/* Customer Type */}
             <div style={card}>
               <p style={{ fontSize: '13px', fontWeight: '700', color: T.textPri, margin: '0 0 14px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Customer Type</p>
-              <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: '12px' }}>
                 {[
                   { value: 'business',   label: 'Business',   icon: <FaBuilding size={18} />, desc: 'Company or organization' },
                   { value: 'individual', label: 'Individual', icon: <FaUser size={18} />,     desc: 'Personal customer'       },
@@ -1190,7 +1310,7 @@ const Newcustomers = () => {
                     <div key={type.value}
                       className={`type-card${active ? ' type-card-active' : ''}`}
                       onClick={() => setFormData(prev => ({ ...prev, customerType: type.value }))}
-                      style={{ flex: 1, border: `1.5px solid ${T.border}`, borderRadius: '12px', padding: '16px', display: 'flex', alignItems: 'center', gap: '14px', background: T.surface }}>
+                      style={{ flex: isMobile ? '1 1 100%' : 1, minWidth: 0, border: `1.5px solid ${T.border}`, borderRadius: '12px', padding: '16px', display: 'flex', alignItems: 'center', gap: '14px', background: T.surface }}>
                       <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: active ? blueDim : T.surface2, color: active ? blueC : T.textSec, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}>
                         {type.icon}
                       </div>
@@ -1214,7 +1334,7 @@ const Newcustomers = () => {
 
                 {/* Individual: salutation + first/last name */}
                 {formData.customerType === 'individual' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: '14px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '160px 1fr 1fr', gap: '14px' }}>
                     <CustomSelect name="salutation" label="Salutation" value={formData.salutation}
                       onChange={handleChange} options={salutations} placeholder="Select" T={T} isDark={isDark} />
                     <div>
@@ -1236,7 +1356,20 @@ const Newcustomers = () => {
                   </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div style={{ marginBottom: '14px' }}>
+                  <Label T={T}>Customer Code{canEditCode ? '' : ' (auto)'}</Label>
+                  <input className="nc-input" name="customerCode" value={formData.customerCode}
+                    onChange={handleChange} readOnly={!canEditCode}
+                    placeholder={isEditMode ? '' : 'Leave blank to auto-generate'}
+                    style={!canEditCode ? { background: T.surface2, color: T.textSec, cursor: 'not-allowed' }
+                      : (codeStatus === 'taken' ? { borderColor: '#ef4444' } : {})} />
+                  {canEditCode && codeStatus === 'checking' && <span style={{ display: 'block', fontSize: 11, color: T.textSec, marginTop: 4 }}>Checking availability…</span>}
+                  {canEditCode && codeStatus === 'available' && <span style={{ display: 'block', fontSize: 11, color: '#10b981', marginTop: 4 }}>✓ Code available</span>}
+                  {canEditCode && codeStatus === 'taken' && <span style={{ display: 'block', fontSize: 11, color: '#ef4444', marginTop: 4 }}>This customer code already exists</span>}
+                  {!canEditCode && <span style={{ display: 'block', fontSize: 11, color: T.textSec, marginTop: 4 }}>Auto-generated. Editing is owner-only (configure roles in Settings).</span>}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
                   <div>
                     <Label required T={T}>Customer Display Name</Label>
                     <input className="nc-input" name="customerDisplayName" value={formData.customerDisplayName}
@@ -1267,7 +1400,7 @@ const Newcustomers = () => {
                       onChange={handleChange} placeholder="customer@company.com" style={{ paddingLeft: '38px' }} />
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
                   <div>
                     <Label T={T}>Customer Phone</Label>
                     <PhoneInput international countryCallingCodeEditable={false} defaultCountry="AE"
@@ -1309,11 +1442,11 @@ const Newcustomers = () => {
                 ))}
               </div>
               <div style={{ padding: '24px' }}>
-                {activeTab === 'finance'         && <FinanceTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} />}
-                {activeTab === 'address'         && <AddressTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} />}
-                {activeTab === 'contact-persons' && <ContactPersonsTab contactPersons={contactPersons} setContactPersons={setContactPersons} T={T} isDark={isDark} />}
+                {activeTab === 'finance'         && <FinanceTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} paymentTermOptions={paymentTermOptions} onCreatePaymentTerm={canPerm('payment_terms', 'add') ? () => setQuickCreate('paymentTerm') : undefined} priceListOptions={priceListOptions} />}
+                {activeTab === 'address'         && <AddressTab formData={formData} handleChange={handleChange} T={T} isDark={isDark} isMobile={isMobile} />}
+                {activeTab === 'contact-persons' && <ContactPersonsTab contactPersons={contactPersons} setContactPersons={setContactPersons} T={T} isDark={isDark} isMobile={isMobile} />}
                 {activeTab === 'documents'       && <DocumentsTab documents={formData.documents} handleFileUpload={handleFileUpload} removeDocument={removeDocument} getFileIcon={getFileIcon} formatFileSize={formatFileSize} T={T} isDark={isDark} />}
-                {activeTab === 'custom-fields'   && <CustomFieldsTab customFields={formData.customFields} customerType={formData.customerType} setFormData={setFormData} T={T} isDark={isDark} />}
+                {activeTab === 'custom-fields'   && <CustomFieldsTab customFields={formData.customFields} customerType={formData.customerType} setFormData={setFormData} T={T} isDark={isDark} isMobile={isMobile} />}
                 {activeTab === 'reporting-tags'  && <ReportingTagsTab reportingTags={formData.reportingTags} setFormData={setFormData} T={T} isDark={isDark} />}
                 {activeTab === 'remarks'         && <RemarksTab remarks={formData.remarks} handleChange={handleChange} T={T} isDark={isDark} />}
               </div>
@@ -1321,7 +1454,7 @@ const Newcustomers = () => {
           </div>
 
           {/* ── RIGHT: sticky sidebar ── */}
-          <div style={{ position: 'sticky', top: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ position: isMobile ? 'static' : 'sticky', top: '24px', display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
 
             {/* Live Preview */}
             <div style={{ ...card, padding: '22px' }}>

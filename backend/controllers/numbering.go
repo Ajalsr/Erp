@@ -43,6 +43,9 @@ func GetNextNumberPreview() gin.HandlerFunc {
 			"payment":        {paymentCollection, "paymentNumber"},
 			"grn":            {grnCollection, "grnNumber"},
 			"delivery_note":  {deliveryNotesCollection, "dnNumber"},
+			"employee":       {employeeCollection, "employeeCode"},
+			"pay_run":        {payRunCollection, "runNumber"},
+			"project":        {projectCollection, "projectNo"},
 		}
 		s, ok := sources[key]
 		if !ok {
@@ -88,13 +91,16 @@ var entityDefaultFormats = map[string]utils.NumberFormat{
 	"quote":         fmtSeg("QUO-", segYear4, segDash, seg4),
 	"delivery_note": fmtSeg("DN-", segYear4, segDash, seg4),
 	"letter":        fmtSeg("LTR-", segYear4, segDash, seg4),
+	"project":       fmtSeg("PRJ-", segYear4, segDash, seg4),
 
 	// PREFIX-0001
-	"credit_note": fmtSeg("CN-", seg4),
-	"debit_note":  fmtSeg("DN-", seg4),
-	"grn":         fmtSeg("GRN-", seg4),
-	"vendor":      fmtSeg("VEN-", seg4),
-	"lpo":         fmtSeg("LPO-", seg4),
+	"credit_note":   fmtSeg("CN-", seg4),
+	"debit_note":    fmtSeg("DN-", seg4),
+	"grn":           fmtSeg("GRN-", seg4),
+	"vendor":        fmtSeg("VEN-", seg4),
+	"lpo":           fmtSeg("LPO-", seg4),
+	"employee":      fmtSeg("EMP-", seg4),
+	"leave_request": fmtSeg("LR-", seg4),
 
 	// PREFIX-YYYYMM-0001
 	"bill":           fmtSeg("BILL-", segYear4, segMonth2, segDash, seg4),
@@ -108,6 +114,12 @@ var entityDefaultFormats = map[string]utils.NumberFormat{
 	// PREFIX + MM + YY + 0001 (e.g. SO04260001)
 	"sales_order":    fmtSeg("SO", segMonth2, segYear2, seg4),
 	"purchase_order": fmtSeg("PO", segMonth2, segYear2, seg4),
+
+	// PREFIX-YYYY-0001 — payroll. "PYR-" not "PAY-": that prefix is already used
+	// by payment numbering (below), and reusing it here would make pay-run and
+	// payment references visually indistinguishable on statements.
+	"pay_run": fmtSeg("PYR-", segYear4, segDash, seg4),
+	"payslip": fmtSeg("PS-", segYear4, segDash, seg4),
 }
 
 // loadNumberFormat reads the org's configured format for the given entity key

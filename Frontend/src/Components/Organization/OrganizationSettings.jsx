@@ -7,6 +7,7 @@ import useThemeStore from '../../store/useThemeStore'
 import nexusToast from '../../helper/nexusToast'
 import axiosInstance from '../../helper/axiosInstance'
 import { PERM_MODULES, PERM_CAPS, invalidatePermissions, usePermissions } from '../../helper/permissions'
+import CheckUpdateButton from '../common/CheckUpdateButton'
 
 // Grid template for the module-access matrix: module label + one column per capability.
 const PERM_GRID = `minmax(104px,1.3fr) repeat(${PERM_CAPS.length}, minmax(58px,1fr))`
@@ -48,23 +49,27 @@ const ROLE_TEMPLATES = [
   {
     key: 'accountant', label: 'Accountant', desc: 'Read finance & reports, export — no edits',
     modules: {
-      customers: _VE, invoices: _VE, credit_notes: _VE, payments: _VE, advance_payments: _V,
-      vendors: _VE, bills: _VE, vendor_payments: _V, vendor_credits: _V, accounts: _VE, reports: _VE,
+      customers: _VE, invoices: _VE, recurring_invoices: _VE, credit_notes: _VE, payments: _VE, advance_payments: _V,
+      vendors: _VE, bills: _VE, expenses: _VE, vendor_payments: _V, vendor_credits: _V,
+      accounts: _VE, bank_reconciliation: _VE, exchange_rates: _VE, trial_balance: _VE,
+      vat_report: _VE, ar_aging_report: _VE, vendor_aging_report: _VE, customer_statement_report: _VE,
+      profit_loss_report: _VE, balance_sheet_report: _VE, cash_flow_report: _VE, export_transactions: _VE,
     },
   },
   {
     key: 'sales', label: 'Sales Rep', desc: 'Manage the sales cycle',
     modules: {
       items: _V, customers: _FULL, enquiries: _FULL, quotes: _FULL, sales_orders: _FULL,
-      delivery_notes: ['view', 'add'], invoices: _FULL, credit_notes: _V,
-      payments: ['view', 'add'], advance_payments: ['view', 'add'], reports: _V,
+      delivery_notes: ['view', 'add'], invoices: _FULL, recurring_invoices: _FULL, credit_notes: _V,
+      payments: ['view', 'add'], advance_payments: ['view', 'add'],
+      ar_aging_report: _V, customer_statement_report: _V, sales_by_emirate_report: _V,
     },
   },
   {
     key: 'purchaser', label: 'Purchaser', desc: 'Manage the purchasing cycle',
     modules: {
-      items: _V, vendors: _FULL, purchase_orders: _FULL, grns: _FULL, bills: _FULL,
-      vendor_credits: _V, vendor_payments: ['view', 'add'], reports: _V,
+      items: _V, vendors: _FULL, purchase_orders: _FULL, grns: _FULL, batch_expiry: _FULL, bills: _FULL, expenses: _FULL,
+      vendor_credits: _V, vendor_payments: ['view', 'add'], vendor_aging_report: _V,
     },
   },
   {
@@ -110,6 +115,7 @@ const NUM_ENTITIES = [
   { key: 'credit_note',    label: 'Credit Note' },
   { key: 'debit_note',     label: 'Debit Note' },
   { key: 'journal_entry',  label: 'Journal Entry' },
+  { key: 'project',        label: 'Project No.' },
 ]
 
 // Legacy default formats per entity (mirror backend entityDefaultFormats).
@@ -125,6 +131,7 @@ const ENTITY_DEFAULTS = {
   bill: _litYMS('BILL-'), payment: _litYMS('PAY-'), vendor_payment: _litYMS('VPAY-'),
   advance: _litYMS('ADV-'), vendor_credit: _litYMS('VCR-'), journal_entry: _litYMS('JE-'),
   sales_order: _litMYS('SO'), purchase_order: _litMYS('PO'),
+  project: _litYS('PRJ-'),
 }
 
 const newSegment = (type) => {
@@ -234,6 +241,7 @@ const OrganizationSettings = () => {
   const [orgName, setOrgName] = useState('')
   const [orgDesc, setOrgDesc] = useState('')
   const [orgAddress, setOrgAddress] = useState('')
+  const [orgTRN, setOrgTRN] = useState('')
   const [baseCurrency, setBaseCurrency] = useState('AED')
   const [saving, setSaving] = useState(false)
 
@@ -287,11 +295,21 @@ const OrganizationSettings = () => {
   const [yearlyTarget, setYearlyTarget]   = useState('')
   const [savingTarget, setSavingTarget]   = useState(false)
 
+  // Which roles may edit the customer code (owner always can). Default: owner only.
+  const [codeEditRoles, setCodeEditRoles] = useState(['owner'])
+  const saveCodeEditRoles = async (roles) => {
+    const next = Array.from(new Set(['owner', ...roles]))
+    setCodeEditRoles(next)
+    try { await axiosInstance.put('/api/org/settings', { customerCodeEditRoles: next }); nexusToast.success('Customer-code permissions saved') }
+    catch { nexusToast.error('Failed to save') }
+  }
+
   useEffect(() => {
     axiosInstance.get('/api/org/settings')
       .then(res => {
         const s = res.data?.data?.salutations; if (Array.isArray(s) && s.length) setSalutations(s);
         const t = res.data?.data?.yearlySalesTarget; if (t != null) setYearlyTarget(String(t));
+        const cr = res.data?.data?.customerCodeEditRoles; if (Array.isArray(cr)) setCodeEditRoles(Array.from(new Set(['owner', ...cr])));
       })
       .catch(() => {})
   }, [])
@@ -420,6 +438,7 @@ const OrganizationSettings = () => {
       setOrgName(orgData?.name || '')
       setOrgDesc(orgData?.description || '')
       setOrgAddress(orgData?.address || '')
+      setOrgTRN(orgData?.trn || '')
       setBaseCurrency(orgData?.baseCurrency || 'AED')
       setLetterhead(orgData?.letterheadImage || '')
       setLetterheadTopPad(orgData?.letterheadTopPad || 13)
@@ -450,7 +469,7 @@ const OrganizationSettings = () => {
     if (!orgName.trim()) { nexusToast.error('Name is required'); return }
     setSaving(true)
     try {
-      await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim(), address: orgAddress.trim(), baseCurrency: (baseCurrency || 'AED').trim().toUpperCase() })
+      await updateOrganization(id, { name: orgName.trim(), description: orgDesc.trim(), address: orgAddress.trim(), trn: orgTRN.trim(), baseCurrency: (baseCurrency || 'AED').trim().toUpperCase() })
       if (activeOrg?._id === id) setActiveOrg({ ...activeOrg, name: orgName.trim() })
       nexusToast.success('Organization updated')
       load()
@@ -667,7 +686,7 @@ const OrganizationSettings = () => {
       const res = await inviteMember(id, { userId: inviteUserId.trim(), role: inviteRole })
       const token = res?.data?.token
       if (token) {
-        const link = `${window.location.origin}/invitations/accept?token=${token}`
+        const link = `spifora.com/invitations/accept?token=${token}`
        //const link = `ephemeral-cat-104b46.netlify.app/inviations/accept?token=${token}` // Frontend route only; backend accepts token without origin for flexibility across environments.
         setInviteLink(link)
       }
@@ -1109,6 +1128,15 @@ const OrganizationSettings = () => {
               {(() => {
                 const role = customRoles.includes(selectedRole) ? selectedRole : customRoles[0]
                 if (!role) return null
+                // Only offer modules this org's license actually includes — granting
+                // a capability on a module the license doesn't cover is meaningless
+                // (backend blocks it regardless) and confusing to show as toggleable.
+                // Empty/absent license.modules = unrestricted, same rule the backend
+                // and sidebar already use (see licenseAllows in helper/permissions.js).
+                const licensedKeys = org?.license?.modules
+                const visibleModules = (Array.isArray(licensedKeys) && licensedKeys.length > 0)
+                  ? PERM_MODULES.filter(m => licensedKeys.includes(m.key))
+                  : PERM_MODULES
                 return (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                     {/* Module access — independent View / Add / Edit capabilities */}
@@ -1116,7 +1144,7 @@ const OrganizationSettings = () => {
                       <p style={{ fontSize: 11, fontWeight: 700, color: textSec, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Module Access</p>
                       <p style={{ fontSize: 11, color: textSec, margin: '-4px 0 10px' }}>View = read · Add = create · Edit = change · Delete = remove · Export = download/print. Combine freely; none ticked = no access. <strong style={{ color: textPri }}>All / Own</strong> next to View, Edit and Delete sets whether that action applies to every record or only the user's own. Add has no scope (creating a new record).</p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        {[...new Set(PERM_MODULES.map(m => m.group))].map(group => (
+                        {[...new Set(visibleModules.map(m => m.group))].map(group => (
                           <div key={group}>
                             <p style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: '.08em', margin: '0 0 6px' }}>{group}</p>
                             {/* Column header */}
@@ -1127,7 +1155,7 @@ const OrganizationSettings = () => {
                               ))}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              {PERM_MODULES.filter(m => m.group === group).map(m => (
+                              {visibleModules.filter(m => m.group === group).map(m => (
                                 <div key={m.key} style={{ display: 'grid', gridTemplateColumns: PERM_GRID, gap: 8, alignItems: 'center', padding: '9px 12px', border: `1px solid ${border}`, borderRadius: 10, background: inputBg }}>
                                   <span style={{ fontSize: 13, color: textPri, fontWeight: 500 }}>{m.label}</span>
                                   {PERM_CAPS.map(cap => {
@@ -1194,6 +1222,7 @@ const OrganizationSettings = () => {
 
         {tab === 'settings' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <CheckUpdateButton />
             <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
               <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 18px', fontFamily: 'inherit' }}>
                 General Settings
@@ -1234,6 +1263,21 @@ const OrganizationSettings = () => {
                     onChange={(e) => setOrgAddress(e.target.value)}
                     disabled={!canManage}
                   />
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: textSec, fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
+                    TRN (Tax Registration Number)
+                  </label>
+                  <input
+                    style={{ ...inputStyle, maxWidth: 240 }}
+                    value={orgTRN}
+                    onChange={(e) => setOrgTRN(e.target.value)}
+                    placeholder="100123456700003"
+                    disabled={!canManage}
+                  />
+                  <p style={{ color: textSec, fontSize: '11px', margin: '6px 0 0' }}>
+                    Shown on Purchase Orders and other printed documents.
+                  </p>
                 </div>
                 <div>
                   <label style={{ display: 'block', color: textSec, fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
@@ -1430,6 +1474,31 @@ const OrganizationSettings = () => {
               </div>
             )}
 
+            {/* Customer code editing — which roles may set/change customer codes */}
+            {myRole === 'owner' && (
+              <div style={{ background: bgCard, border: `1px solid ${border}`, borderRadius: '14px', padding: '22px', boxShadow: shadowSm }}>
+                <h3 style={{ color: textPri, fontSize: '14px', fontWeight: '600', margin: '0 0 6px', fontFamily: 'inherit' }}>
+                  Customer Code Editing
+                </h3>
+                <p style={{ color: textSec, fontSize: '12px', margin: '0 0 14px' }}>
+                  Choose which roles can manually set or change a customer's code (instead of it being auto-generated). The owner always can.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {['owner', 'admin', ...customRoles].map(r => {
+                    const on = r === 'owner' || codeEditRoles.includes(r)
+                    const locked = r === 'owner'
+                    return (
+                      <label key={r} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: locked ? 'default' : 'pointer', opacity: locked ? 0.7 : 1 }}>
+                        <input type="checkbox" checked={on} disabled={locked}
+                          onChange={e => { if (locked) return; saveCodeEditRoles(e.target.checked ? [...codeEditRoles, r] : codeEditRoles.filter(x => x !== r)) }} />
+                        <span style={{ color: textPri, fontSize: '13px', textTransform: 'capitalize' }}>{roleLabel(r)}{locked && <span style={{ color: textSec, fontSize: '11px' }}> · always</span>}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Danger zone */}
             {myRole === 'owner' && (
               <div style={{ background: bgCard, border: '1px solid rgba(239,68,68,0.2)', borderRadius: '14px', padding: '22px' }}>
@@ -1465,16 +1534,18 @@ const OrganizationSettings = () => {
                   The counter resets each period when a Month or Year piece comes before it.
                 </p>
 
-                {/* Quote-by-salesperson toggle */}
-                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '11px 14px', borderRadius: 10, background: bgInset, border: `1px solid ${quoteBySalesperson ? accent : border}`, marginBottom: 16, cursor: 'pointer' }}>
-                  <div>
-                    <div style={{ color: textPri, fontSize: 13, fontWeight: 600 }}>Quote number by salesperson</div>
-                    <div style={{ color: textSec, fontSize: 11.5, marginTop: 2 }}>
-                      Overrides the Quote format below. Pattern: <strong style={{ fontFamily: 'ui-monospace, monospace' }}>INITIALS/MMYY/MM##</strong> — e.g. <strong style={{ fontFamily: 'ui-monospace, monospace' }}>MS/0626/0601</strong> (counter resets monthly per salesperson).
+                {/* Quote-by-salesperson toggle — only relevant to the Quote document */}
+                {numEntity === 'quote' && (
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '11px 14px', borderRadius: 10, background: bgInset, border: `1px solid ${quoteBySalesperson ? accent : border}`, marginBottom: 16, cursor: 'pointer' }}>
+                    <div>
+                      <div style={{ color: textPri, fontSize: 13, fontWeight: 600 }}>Quote number by signatory</div>
+                      <div style={{ color: textSec, fontSize: 11.5, marginTop: 2 }}>
+                        Overrides the Quote format below. Pattern: <strong style={{ fontFamily: 'ui-monospace, monospace' }}>INITIALS/MMYY/MM##</strong> — e.g. <strong style={{ fontFamily: 'ui-monospace, monospace' }}>MS/0626/0601</strong> for a quote signed "Muhammed Shahid" (counter resets monthly per signatory).
+                      </div>
                     </div>
-                  </div>
-                  <input type="checkbox" checked={quoteBySalesperson} onChange={toggleQuoteBySalesperson} style={{ width: 18, height: 18, accentColor: accent, cursor: 'pointer', flexShrink: 0 }} />
-                </label>
+                    <input type="checkbox" checked={quoteBySalesperson} onChange={toggleQuoteBySalesperson} style={{ width: 18, height: 18, accentColor: accent, cursor: 'pointer', flexShrink: 0 }} />
+                  </label>
+                )}
 
                 {/* Entity picker */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>

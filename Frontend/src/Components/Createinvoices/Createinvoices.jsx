@@ -1,12 +1,18 @@
-import { useState, useCallback, useMemo, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef, createContext, useContext } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import useGetCustomers from "../../helper/useGetCustomers";
 import axiosInstance from "../../helper/axiosInstance";
+import { usePermissions } from '../../helper/permissions';
 import { useUnsavedGuard } from "../../helper/useUnsavedGuard";
 import AppDatePicker from "../common/AppDatePicker";
 import useThemeStore from "../../store/useThemeStore";
+import useAuthStore from "../../store/useAuthStore";
+import cc from "currency-codes";
+import { resolveItemPrice, getPriceListFxRate } from "../../helper/priceList";
+import useIsMobile from "../../helper/useIsMobile";
 import nexusToast from "../../helper/nexusToast";
+import QuickCreateModal from "../common/QuickCreateModal";
 
 /* ─── Theme ─────────────────────────────────────────────────────────────── */
 const getT = (isDark) => isDark ? {
@@ -107,6 +113,176 @@ const Sel = ({ style, children, ...r }) => {
   const base = { background: T.input, border: `1px solid ${T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", transition: "border-color .15s" };
   return <select style={{ ...base, cursor: "pointer", ...style }} {...r}>{children}</select>;
 };
+/* ─── CurrencySelect — searchable custom dropdown (currency list is long) ─── */
+const CurrencySelect = ({ value, onChange, options }) => {
+  const T = useT();
+  const isDark = useThemeStore((s) => s.isDark);
+  const [open, setOpen]   = useState(false);
+  const [query, setQuery] = useState("");
+  const [pos, setPos]     = useState(null);
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+  const searchRef  = useRef(null);
+
+  const filtered = query
+    ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()) || o.code.toLowerCase().includes(query.toLowerCase()))
+    : options;
+  const selected = options.find(o => o.code === value);
+
+  const measure = () => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4 + window.scrollY, left: r.left + window.scrollX, width: r.width });
+  };
+
+  // Synchronous, before paint — avoids any flash-of-wrong-position or race with the
+  // portal mounting, unlike a requestAnimationFrame/setTimeout chain.
+  useLayoutEffect(() => {
+    if (!open) return;
+    measure();
+    searchRef.current?.focus();
+  }, [open]);
+
+  const handleOpen = () => { setOpen(o => !o); setQuery(""); };
+
+  useEffect(() => {
+    if (!open) return;
+    const h = () => measure();
+    window.addEventListener("scroll", h, true);
+    window.addEventListener("resize", h);
+    return () => { window.removeEventListener("scroll", h, true); window.removeEventListener("resize", h); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => {
+      if (!triggerRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) {
+        setOpen(false); setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const select = (code) => { onChange({ target: { value: code } }); setOpen(false); setQuery(""); };
+  const hoverBg = isDark ? "rgba(255,255,255,.05)" : "#f1f5f9";
+
+  return (
+    <div>
+      <div ref={triggerRef} onClick={handleOpen}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: T.input, border: `1px solid ${open ? T.accent : T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", cursor: "pointer", boxSizing: "border-box" }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : "Select currency…"}</span>
+        <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+          style={{ flexShrink: 0, marginLeft: 8, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }}>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </div>
+      {open && pos && createPortal(
+        <div ref={dropRef} style={{
+          position: "absolute", top: pos.top, left: pos.left, width: Math.max(pos.width, 220), zIndex: 99999,
+          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10,
+          boxShadow: T.shadow, overflow: "hidden", fontFamily: "'DM Sans', sans-serif",
+        }}>
+          <div style={{ padding: "8px 8px 4px", borderBottom: `1px solid ${T.border}` }}>
+            <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onClick={e => e.stopPropagation()}
+              placeholder="Search currency…"
+              style={{ width: "100%", height: 32, padding: "0 10px", border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 12, background: T.surface2, color: T.text, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ maxHeight: 240, overflowY: "auto", padding: 5 }}>
+            {filtered.length === 0
+              ? <div style={{ padding: 14, textAlign: "center", fontSize: 12, color: T.muted }}>No results</div>
+              : filtered.map(o => {
+                  const isAct = o.code === value;
+                  return (
+                    <div key={o.code} onClick={() => select(o.code)}
+                      style={{ padding: "8px 10px", borderRadius: 7, cursor: "pointer", fontSize: 13, fontWeight: isAct ? 600 : 400, color: isAct ? T.accent : T.text, background: isAct ? hoverBg : "transparent" }}
+                      onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+                      onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+                      {o.label}
+                    </div>
+                  );
+                })}
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+/* ─── TermSelect — custom dropdown (no search) matching CurrencySelect's look
+   and size, used for the short Payment Terms list. ─── */
+const TermSelect = ({ value, onChange, options, disabled, onCreateNew, createLabel }) => {
+  const T = useT();
+  const isDark = useThemeStore((s) => s.isDark);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos]   = useState(null);
+  const triggerRef = useRef(null);
+  const dropRef    = useRef(null);
+
+  const opts = options.map(o => (typeof o === "string" ? { value: o, label: o } : o));
+  const selected = opts.find(o => o.value === value);
+
+  const measure = () => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4 + window.scrollY, left: r.left + window.scrollX, width: r.width });
+  };
+  useLayoutEffect(() => { if (open) measure(); }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = () => measure();
+    window.addEventListener("scroll", h, true);
+    window.addEventListener("resize", h);
+    return () => { window.removeEventListener("scroll", h, true); window.removeEventListener("resize", h); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (!triggerRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const select = (v) => { onChange({ target: { value: v } }); setOpen(false); };
+  const hoverBg = isDark ? "rgba(255,255,255,.05)" : "#f1f5f9";
+
+  return (
+    <div>
+      <div ref={triggerRef} onClick={() => { if (disabled) return; setOpen(o => !o); }}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: T.input, border: `1px solid ${open ? T.accent : T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.7 : 1, boxSizing: "border-box" }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : "Select…"}</span>
+        <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+          style={{ flexShrink: 0, marginLeft: 8, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }}>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </div>
+      {open && pos && createPortal(
+        <div ref={dropRef} style={{ position: "absolute", top: pos.top, left: pos.left, width: Math.max(pos.width, 220), zIndex: 99999, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, boxShadow: T.shadow, overflow: "hidden", fontFamily: "'DM Sans', sans-serif" }}>
+          <div style={{ maxHeight: 260, overflowY: "auto", padding: 5 }}>
+            {opts.map(o => {
+              const isAct = o.value === value;
+              return (
+                <div key={o.value} onClick={() => select(o.value)}
+                  style={{ padding: "8px 10px", borderRadius: 7, cursor: "pointer", fontSize: 13, fontWeight: isAct ? 600 : 400, color: isAct ? T.accent : T.text, background: isAct ? hoverBg : "transparent" }}
+                  onMouseEnter={e => { if (!isAct) e.currentTarget.style.background = hoverBg; }}
+                  onMouseLeave={e => { if (!isAct) e.currentTarget.style.background = "transparent"; }}>
+                  {o.label}
+                </div>
+              );
+            })}
+          </div>
+          {onCreateNew && (
+            <div onClick={() => { onCreateNew(); setOpen(false); }}
+              style={{ padding: "10px 12px", borderTop: `1px solid ${T.border}`, cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: T.accent, display: "flex", alignItems: "center", gap: 7 }}
+              onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> {createLabel || "Create new"}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
 const Tex = ({ style, ...r }) => {
   const T = useT(); const f = useFF();
   const base = { background: T.input, border: `1px solid ${T.border}`, color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, padding: "8px 12px", borderRadius: 7, outline: "none", width: "100%", transition: "border-color .15s" };
@@ -264,6 +440,7 @@ const CustomerSelect = ({ value, onChange, options, name, disabled }) => {
 /* ─── Line Items Table ──────────────────────────────────────────────────── */
 const LineItems = ({ items }) => {
   const T = useT();
+  const isMobile = useIsMobile();
 
   const { subtotal: gSub, discAmt: gDisc, taxAmt: gTax, total: gRawTotal } = useMemo(() =>
     items.reduce((acc, item) => {
@@ -289,7 +466,8 @@ const LineItems = ({ items }) => {
 
   return (
     <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}` }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+     <div style={{ overflowX: "auto", overflowY: "hidden" }}>
+      <table style={{ width: "100%", minWidth: isMobile ? 760 : "auto", borderCollapse: "collapse" }}>
         <colgroup>{COLS.map((c, i) => <col key={i} style={{ width: c.w }} />)}</colgroup>
         <thead>
           <tr style={{ background: T.surface2 }}>
@@ -330,39 +508,59 @@ const LineItems = ({ items }) => {
           </tr>
         </tfoot>
       </table>
+     </div>
     </div>
   );
 };
 
 /* ─── Product typeahead — search inventory or free-type a description ─────── */
-const ProductInput = ({ row, stockList, setItems }) => {
+// Portaled to document.body: this renders inside a horizontally-scrollable table
+// wrapper (overflowY: "hidden"), so a plain position:absolute dropdown gets clipped.
+const ProductInput = ({ row, stockList, setItems, priceList, priceListFxRate }) => {
   const T = useT();
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  const wrapRef = useRef(null);
+  const dropRef = useRef(null);
+
+  const measure = () => {
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4 + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 220) });
+  };
+  useLayoutEffect(() => { if (open) measure(); }, [open]);
   useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    if (!open) return;
+    const h = () => measure();
+    window.addEventListener("scroll", h, true);
+    window.addEventListener("resize", h);
+    return () => { window.removeEventListener("scroll", h, true); window.removeEventListener("resize", h); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (!wrapRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
-  }, []);
+  }, [open]);
+
   const q = (row.desc || "").toLowerCase();
   const matches = (q
     ? stockList.filter(s => (s.name || "").toLowerCase().includes(q) || (s.item_code || "").toLowerCase().includes(q))
     : stockList).slice(0, 8);
   const pick = (s) => {
     setItems(prev => prev.map(r => r.id === row.id
-      ? { ...r, desc: s.name || "", stockId: s._id, unitPrice: p(s.selling_price || s.sellingPrice || 0) || r.unitPrice, _stock: true }
+      ? { ...r, desc: s.name || "", stockId: s._id, unitPrice: resolveItemPrice(s, priceList, priceListFxRate) || r.unitPrice, _stock: true }
       : r));
     setOpen(false);
   };
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={wrapRef} style={{ position: "relative" }}>
       <input value={row.desc} placeholder="Search product or type description…"
         onChange={e => { const v = e.target.value; setItems(prev => prev.map(r => r.id === row.id ? { ...r, desc: v, _stock: false, stockId: "" } : r)); setOpen(true); }}
         onFocus={() => setOpen(true)}
         style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: 13, color: T.text, fontFamily: "inherit", padding: "4px 0" }} />
       {row._stock && <span style={{ fontSize: 10, color: T.accent2, display: "block" }}>↗ inventory</span>}
-      {open && matches.length > 0 && (
-        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 60, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.18)", maxHeight: 240, overflowY: "auto", marginTop: 4 }}>
+      {open && matches.length > 0 && pos && createPortal(
+        <div ref={dropRef} style={{ position: "absolute", top: pos.top, left: pos.left, width: pos.width, zIndex: 100000, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.18)", maxHeight: 240, overflowY: "auto" }}>
           {matches.map(s => (
             <button key={s._id} type="button" onClick={() => pick(s)}
               style={{ width: "100%", textAlign: "left", padding: "8px 12px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "inherit", display: "flex", justifyContent: "space-between", gap: 8, color: T.text }}>
@@ -370,15 +568,17 @@ const ProductInput = ({ row, stockList, setItems }) => {
               <span style={{ fontSize: 11, color: T.muted, fontFamily: "'DM Mono', monospace", whiteSpace: "nowrap" }}>{s.item_code || ""} · {p(s.quantity || 0)} in stock</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
 };
 
 /* ─── Editable line items — direct-invoice mode (add/search products) ────── */
-const EditableLineItems = ({ items, setItems, stockList }) => {
+const EditableLineItems = ({ items, setItems, stockList, priceList, priceListFxRate }) => {
   const T = useT();
+  const isMobile = useIsMobile();
   const upd = (id, field, val) => setItems(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
   const remove = (id) => setItems(prev => prev.filter(r => r.id !== id));
   const addRow = () => setItems(prev => [...prev, { id: uid(), desc: "", stockId: "", qty: 1, unitPrice: "", discount: 0, discountType: "fixed", taxRate: VAT_RATE, _stock: false }]);
@@ -386,8 +586,8 @@ const EditableLineItems = ({ items, setItems, stockList }) => {
 
   return (
     <div>
-      <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 12 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <div style={{ borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 12, overflowX: "auto", overflowY: "hidden" }}>
+        <table style={{ width: "100%", minWidth: isMobile ? 780 : "auto", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: T.surface2 }}>
               {["Product / Description", "Qty", "Unit Price", "Disc", "Tax %", "Line Total", ""].map((h, i) => (
@@ -402,7 +602,7 @@ const EditableLineItems = ({ items, setItems, stockList }) => {
               const { total } = calcLine(row);
               return (
                 <tr key={row.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                  <td style={{ padding: "8px", minWidth: 200 }}><ProductInput row={row} stockList={stockList} setItems={setItems} /></td>
+                  <td style={{ padding: "8px", minWidth: 200 }}><ProductInput row={row} stockList={stockList} setItems={setItems} priceList={priceList} priceListFxRate={priceListFxRate} /></td>
                   <td style={{ padding: "8px", width: "8%" }}><input type="number" min="0" value={row.qty} onChange={e => upd(row.id, "qty", e.target.value)} style={inp} /></td>
                   <td style={{ padding: "8px", width: "13%" }}><input type="number" min="0" value={row.unitPrice} onChange={e => upd(row.id, "unitPrice", e.target.value)} style={inp} /></td>
                   <td style={{ padding: "8px", width: "10%" }}><input type="number" min="0" value={row.discount} onChange={e => upd(row.id, "discount", e.target.value)} style={inp} /></td>
@@ -423,13 +623,22 @@ const EditableLineItems = ({ items, setItems, stockList }) => {
   );
 };
 
+// All ISO 4217 currencies: { code: "AED", label: "AED — UAE Dirham" }
+const CURRENCY_OPTIONS = cc.codes().map(code => {
+  const d = cc.code(code);
+  return d ? { code, label: `${code} — ${d.currency}` } : null;
+}).filter(Boolean);
+
 /* ─── Main Page ─────────────────────────────────────────────────────────── */
 const CreateInvoice = () => {
+  const { can: canPerm } = usePermissions(); // "Create new …" shortcuts need add on their module
   const navigate  = useNavigate();
   const location  = useLocation();
   const isDark    = useThemeStore((s) => s.isDark);
   const T         = getT(isDark);
+  const isMobile  = useIsMobile();
   const { handleGetCustomers, data: customersData } = useGetCustomers();
+  const activeOrg = useAuthStore((s) => s.activeOrg);
 
   useEffect(() => { handleGetCustomers(); }, [handleGetCustomers]);
 
@@ -439,8 +648,41 @@ const CreateInvoice = () => {
   const [baseCurrency,  setBaseCurrency]  = useState("AED");
   const [exchangeRate,  setExchangeRate]  = useState(1);
   const [terms,         setTerms]         = useState("Net 30");
+  // Payment Terms are org-configurable (Payment Terms module) — load them so the
+  // dropdown mirrors what's set there, plus a shortcut to create a new one.
+  const [paymentTermList, setPaymentTermList] = useState([]);
+  const [quickCreateTerm, setQuickCreateTerm] = useState(false);
+  const fetchPaymentTerms = useCallback(() => {
+    return axiosInstance.get('/api/payment-terms/?status=active')
+      .then(r => setPaymentTermList(r.data?.data?.paymentTerms || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { fetchPaymentTerms(); }, [fetchPaymentTerms]);
+  const handleCreatePaymentTerm = async (form) => {
+    const res = await axiosInstance.post('/api/payment-terms/', { name: form.name, days: Number(form.days) || 0 });
+    await fetchPaymentTerms();
+    if (res.data?.data?.name) setTerms(res.data.data.name);
+  };
+  // Options from the module; keep the current value visible even if it isn't a
+  // configured term (older invoices / customer defaults may use a free string).
+  const paymentTermsOptions = useMemo(() => {
+    const opts = paymentTermList.map(t => ({ value: t.name, label: t.days === 0 ? `${t.name} — due on receipt` : `${t.name} — due in ${t.days} days` }));
+    if (terms && !opts.some(o => o.value === terms)) opts.unshift({ value: terms, label: terms });
+    return opts;
+  }, [paymentTermList, terms]);
   const [customerId,    setCustomerId]    = useState("");
   const [custName,      setCustName]      = useState("");
+  // Customer's assigned Price List (if any) — resolved per line item in ProductInput.
+  const [activePriceList, setActivePriceList] = useState(null);
+  const [priceListFxRate, setPriceListFxRate] = useState(1);
+  // Recompute whenever the price list or the invoice's own currency changes — the
+  // list's currency may not match what this invoice is actually being billed in.
+  useEffect(() => {
+    if (!activePriceList?.currency) { setPriceListFxRate(1); return; }
+    let live = true;
+    getPriceListFxRate(activePriceList.currency, currency).then(r => { if (live) setPriceListFxRate(r); });
+    return () => { live = false; };
+  }, [activePriceList, currency]);
   const [custAddr,      setCustAddr]      = useState("");
   const [custTrn,       setCustTrn]       = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState(() => `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`);
@@ -460,7 +702,7 @@ const CreateInvoice = () => {
 
   // Load inventory items for the direct-invoice product picker
   useEffect(() => {
-    axiosInstance.get('/api/stocks/getitem')
+    axiosInstance.get('/api/stocks/lookup')
       .then(res => setStockList(res.data?.data || []))
       .catch(() => {});
   }, []);
@@ -473,6 +715,19 @@ const CreateInvoice = () => {
       setCurrency((c) => (c === 'AED' ? base : c));
     }).catch(() => {});
   }, []);
+
+  // Default "From (Your Company)" to the org's own profile — only fills blanks, never
+  // overwrites something already loaded/typed (e.g. a resumed draft).
+  useEffect(() => {
+    if (!activeOrg?._id) return;
+    axiosInstance.get(`/api/organizations/${activeOrg._id}`).then((r) => {
+      const org = r.data?.data;
+      if (!org) return;
+      setFromName((v) => v || org.name || '');
+      setFromAddr((v) => v || org.address || '');
+      setFromTrn((v) => v || org.trn || '');
+    }).catch(() => {});
+  }, [activeOrg?._id]);
 
   // Resolve the txn→base rate whenever currency or issue date changes.
   useEffect(() => {
@@ -643,6 +898,11 @@ const CreateInvoice = () => {
     setCustName(c.customerDisplayName || c.companyName || "");
     setCustAddr(fmtCustAddr(c));
     setCustTrn(c.custom_fields?.trlNumber || c.customFields?.trlNumber || "");
+    if (c.price_list_id) {
+      axiosInstance.get(`/api/price-lists/${c.price_list_id}`).then(r => setActivePriceList(r.data?.data || null)).catch(() => setActivePriceList(null));
+    } else {
+      setActivePriceList(null);
+    }
     if (skipTerms) return;
     const custTerms = c.payment_terms || c.paymentTerms;
     if (custTerms) {
@@ -818,13 +1078,13 @@ const CreateInvoice = () => {
       <div onInput={guard.markDirty} onChange={guard.markDirty} style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'DM Sans', sans-serif", transition: "background 0.25s, color 0.25s" }}>
 
         {/* Topbar */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 24px", borderBottom: `1px solid ${T.border}`, background: T.topbar, transition: "background 0.25s, border-color 0.25s" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <button onClick={() => navigate(-1)} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit" }}>← Invoices</button>
-            <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 600, color: T.text }}>
+        <div style={{ display: "flex", flexWrap: isMobile ? "wrap" : "nowrap", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "10px 14px" : "12px 24px", borderBottom: `1px solid ${T.border}`, background: T.topbar, transition: "background 0.25s, border-color 0.25s", gap: isMobile ? 8 : 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, flexWrap: "wrap", minWidth: 0 }}>
+            <button onClick={() => guard.leave(() => navigate(-1))} style={{ fontSize: 12, color: T.muted, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", fontFamily: "inherit", whiteSpace: "nowrap" }}>← {isMobile ? "" : "Invoices"}</button>
+            <span style={{ fontFamily: "'Sora', sans-serif", fontSize: isMobile ? 13 : 15, fontWeight: 600, color: T.text, whiteSpace: "nowrap" }}>
               {invoiceDocType === "proforma" ? "Create Proforma" : "Create Invoice"}
             </span>
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.accent, background: `${T.accent}1a`, border: `1px solid ${T.accent}44`, padding: "3px 10px", borderRadius: 4 }}>{invoiceNumber}</span>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.accent, background: `${T.accent}1a`, border: `1px solid ${T.accent}44`, padding: "3px 10px", borderRadius: 4, whiteSpace: "nowrap" }}>{invoiceNumber}</span>
 
             {/* Document type toggle */}
             <div style={{ display: "flex", background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 7, overflow: "hidden" }}>
@@ -837,38 +1097,36 @@ const CreateInvoice = () => {
                   });
                 }} style={{
                   padding: "4px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                  fontFamily: "inherit", border: "none", transition: "all 0.15s",
+                  fontFamily: "inherit", border: "none", transition: "all 0.15s", whiteSpace: "nowrap",
                   background: invoiceDocType === val ? (val === "proforma" ? "#7c3aed" : T.accent) : "transparent",
                   color: invoiceDocType === val ? "#fff" : T.muted,
                 }}>{lbl}</button>
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn v="ghost" onClick={() => navigate(-1)}>Discard</Btn>
-            <Btn v="outline" onClick={handleSaveDraft} disabled={submitting}>Save Draft</Btn>
-            <Btn v="primary" onClick={handleSubmit} disabled={submitting} style={{ opacity: submitting ? .7 : 1 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: isMobile ? "100%" : "auto" }}>
+            <Btn v="ghost" onClick={() => guard.leave(() => navigate(-1))} style={isMobile ? { flex: 1 } : undefined}>Discard</Btn>
+            <Btn v="outline" onClick={handleSaveDraft} disabled={submitting} style={isMobile ? { flex: 1 } : undefined}>Save Draft</Btn>
+            <Btn v="primary" onClick={handleSubmit} disabled={submitting} style={{ opacity: submitting ? .7 : 1, ...(isMobile ? { flex: 1 } : {}) }}>
               {submitting ? "Saving…" : invoiceDocType === "proforma" ? "Save Proforma →" : "Issue Invoice →"}
             </Btn>
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", minHeight: "calc(100vh - 57px)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 320px", minHeight: "calc(100vh - 57px)" }}>
 
           {/* ── Main ── */}
-          <div style={{ padding: 24, overflowY: "auto", borderRight: `1px solid ${T.border}` }}>
+          <div style={{ padding: isMobile ? 14 : 24, overflowY: "auto", borderRight: isMobile ? "none" : `1px solid ${T.border}` }}>
 
             <Section title="Invoice Details">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <Field label="Invoice #"><Inp value={invoiceNumber} readOnly style={{ color: T.muted }} /></Field>
                 <Field label="Issue Date"><AppDatePicker value={issueDate} onChange={setIssueDate} /></Field>
                 <Field label="Due Date"><AppDatePicker value={dueDate} onChange={(v) => { if (!isFromDN) setDueDate(v); }} disabled={isFromDN} /></Field>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <Field label="Currency">
-                  <Sel value={currency} onChange={e => setCurrency(e.target.value)}>
-                    {[["AED","AED — UAE Dirham"],["USD","USD — US Dollar"],["EUR","EUR — Euro"],["GBP","GBP — British Pound"],["SAR","SAR — Saudi Riyal"]].map(([code,label]) => <option key={code} value={code}>{label}</option>)}
-                  </Sel>
+                  <CurrencySelect value={currency} onChange={e => setCurrency(e.target.value)} options={CURRENCY_OPTIONS} />
                   {currency && currency !== baseCurrency && (
                     <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>
                       1 {currency} = {Number(exchangeRate).toLocaleString("en-AE", { maximumFractionDigits: 6 })} {baseCurrency} · books in {baseCurrency} ({baseCurrency} {Number(totals.grandTotal * exchangeRate).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
@@ -876,20 +1134,20 @@ const CreateInvoice = () => {
                   )}
                 </Field>
                 <Field label="Payment Terms">
-                  <Sel value={terms} onChange={e => { if (!isFromDN) setTerms(e.target.value); }} disabled={isFromDN} style={isFromDN ? { opacity: 0.7, cursor: "not-allowed" } : {}}>
-                    {["Due on Receipt","Net 7","Net 15","Net 30","Net 45","Net 60","Net 90","50% Advance","100% Advance","Custom"].map(t => <option key={t}>{t}</option>)}
-                  </Sel>
+                  <TermSelect value={terms} onChange={e => { if (!isFromDN) setTerms(e.target.value); }} disabled={isFromDN}
+                    options={paymentTermsOptions}
+                    onCreateNew={isFromDN || !canPerm('payment_terms', 'add') ? undefined : () => setQuickCreateTerm(true)} createLabel="Create payment term" />
                 </Field>
               </div>
             </Section>
 
             <Section title="Parties">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                 {/* From */}
                 <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: 14 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginBottom: 10 }}>From (Your Company)</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <Field label="Company Name"><Inp placeholder="Nexus Technologies LLC" value={fromName} onChange={e => setFromName(e.target.value)} /></Field>
+                    <Field label="Company Name"><Inp placeholder="Spifora Technologies LLC" value={fromName} onChange={e => setFromName(e.target.value)} /></Field>
                     <Field label="Address"><Tex placeholder={"123 Sheikh Zayed Rd\nDubai, UAE"} value={fromAddr} onChange={e => setFromAddr(e.target.value)} /></Field>
                     <Field label="TRN / VAT Number"><Inp placeholder="100123456789012" value={fromTrn} onChange={e => setFromTrn(e.target.value)} /></Field>
                   </div>
@@ -941,14 +1199,14 @@ const CreateInvoice = () => {
                   )
                 ) : (
                   // Direct invoice → add/search products and edit lines.
-                  <EditableLineItems items={items} setItems={setItems} stockList={stockList} />
+                  <EditableLineItems items={items} setItems={setItems} stockList={stockList} priceList={activePriceList} priceListFxRate={priceListFxRate} />
                 )
               )}
 
               {activeTab === 1 && (
                 <div>
-                  <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, marginBottom: 12 }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <div style={{ borderRadius: 8, overflowX: "auto", overflowY: "hidden", border: `1px solid ${T.border}`, marginBottom: 12 }}>
+                    <table style={{ width: "100%", minWidth: isMobile ? 620 : "auto", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ background: T.surface2 }}>
                           {["Description", "Qty", "Unit Price", "Tax %", "Line Total", ""].map((h, i) => (
@@ -1002,7 +1260,7 @@ const CreateInvoice = () => {
             </Section>
 
             <Section title="Notes & Attachments">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <Field label="Customer Note (visible on invoice)"><Tex placeholder="Thank you for your business!" value={custNote} onChange={e => setCustNote(e.target.value)} /></Field>
                 <Field label="Internal Memo (not shown to customer)"><Tex placeholder="Internal reference or approval notes…" value={internalNote} onChange={e => setInternalNote(e.target.value)} /></Field>
               </div>
@@ -1010,7 +1268,7 @@ const CreateInvoice = () => {
           </div>
 
           {/* ── Sidebar ── */}
-          <div style={{ padding: 24, background: T.surface, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 20, overflowY: "auto", transition: "background 0.25s" }}>
+          <div style={{ padding: isMobile ? 14 : 24, background: T.surface, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", display: "flex", flexDirection: "column", gap: 20, overflowY: "auto", transition: "background 0.25s" }}>
 
             {/* Status */}
             <div>
@@ -1098,6 +1356,15 @@ const CreateInvoice = () => {
           </div>
         </div>
       </div>
+
+      {quickCreateTerm && (
+        <QuickCreateModal title="New Payment Term" T={T}
+          fields={[
+            { name: 'name', label: 'Term Name', placeholder: 'e.g. Net 30', required: true, autoFocus: true },
+            { name: 'days', label: 'Days Until Due', placeholder: '0 = due on receipt', type: 'number', mono: true, defaultValue: 0 },
+          ]}
+          onClose={() => setQuickCreateTerm(false)} onSubmit={handleCreatePaymentTerm} />
+      )}
     </ThemeCtx.Provider>
   );
 };

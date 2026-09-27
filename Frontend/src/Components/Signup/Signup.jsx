@@ -124,17 +124,13 @@ const Signup = () => {
 
           {/* Header */}
           <div className="su-fade su-1 flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
-              </svg>
-            </div>
-            <span className="signup-heading text-white font-bold text-lg">NEXUS ERP</span>
+            <img src="/spifora-icon.png" alt="Spifora" style={{ height: 32, width: 32, objectFit: 'contain' }} />
+            <span className="signup-heading text-white font-bold text-lg">SPIFORA</span>
           </div>
 
           <div className="su-fade su-1 mb-8">
             <h1 className="signup-heading text-white text-2xl font-bold">Create your account</h1>
-            <p className="text-slate-400 text-sm mt-1">Join Nexus ERP — your organization will be set up after signup</p>
+            <p className="text-slate-400 text-sm mt-1">Join Spifora — your organization will be set up after signup</p>
           </div>
 
           <div className="space-y-5">

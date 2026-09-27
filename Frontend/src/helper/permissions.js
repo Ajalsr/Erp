@@ -9,34 +9,67 @@ export const PERM_MODULES = [
   // Items & Inventory
   { key: 'items',            label: 'Items',            group: 'Items & Inventory' },
   { key: 'item_groups',      label: 'Item Groups',      group: 'Items & Inventory' },
+  { key: 'uom',              label: 'Unit of Measure',  group: 'Items & Inventory' },
   { key: 'price_lists',      label: 'Price Lists',      group: 'Items & Inventory' },
   { key: 'warehouses',       label: 'Warehouses',       group: 'Items & Inventory' },
   { key: 'adjustments',      label: 'Stock Adjustments',group: 'Items & Inventory' },
-  { key: 'grns',             label: 'GRNs',             group: 'Items & Inventory' },
+  { key: 'reorder_alerts',   label: 'Reorder Alerts',   group: 'Items & Inventory' },
+  { key: 'batch_expiry',     label: 'Batch & Expiry',   group: 'Items & Inventory' },
   // Sales
-  { key: 'customers',        label: 'Customers',        group: 'Sales' },
-  { key: 'enquiries',        label: 'Enquiries',        group: 'Sales' },
-  { key: 'quotes',           label: 'Quotes',           group: 'Sales' },
-  { key: 'sales_orders',     label: 'Sales Orders',     group: 'Sales' },
-  { key: 'delivery_notes',   label: 'Delivery Notes',   group: 'Sales' },
-  { key: 'invoices',         label: 'Invoices',         group: 'Sales' },
-  { key: 'credit_notes',     label: 'Credit Notes',     group: 'Sales' },
+  { key: 'customers',          label: 'Customers',          group: 'Sales' },
+  { key: 'enquiries',          label: 'Enquiries',          group: 'Sales' },
+  { key: 'quotes',             label: 'Quotes',             group: 'Sales' },
+  { key: 'sales_orders',       label: 'Sales Orders',       group: 'Sales' },
+  { key: 'sales_types',        label: 'Sales Types',        group: 'Sales' },
+  { key: 'delivery_notes',     label: 'Delivery Notes / Outbound', group: 'Sales' },
+  { key: 'invoices',           label: 'Invoices',           group: 'Sales' },
+  { key: 'recurring_invoices', label: 'Recurring Invoices', group: 'Sales' },
+  { key: 'credit_notes',       label: 'Credit Notes',       group: 'Sales' },
+  { key: 'payments',           label: 'Payments Received',  group: 'Sales' },
+  { key: 'advance_payments',   label: 'Customer Advances',  group: 'Sales' },
+  { key: 'letters',            label: 'Letters',            group: 'Sales' },
   // Purchases
-  { key: 'vendors',          label: 'Vendors',          group: 'Purchases' },
-  { key: 'purchase_orders',  label: 'Purchase Orders',  group: 'Purchases' },
-  { key: 'bills',            label: 'Bills',            group: 'Purchases' },
-  { key: 'debit_notes',      label: 'Debit Notes',      group: 'Purchases' },
-  { key: 'vendor_credits',   label: 'Vendor Credits',   group: 'Purchases' },
+  { key: 'vendors',          label: 'Vendors',                 group: 'Purchases' },
+  { key: 'purchase_orders',  label: 'Purchase Orders',         group: 'Purchases' },
+  { key: 'grns',             label: 'GRNs / Inbound',          group: 'Purchases' },
+  { key: 'bills',            label: 'Bills',                   group: 'Purchases' },
+  { key: 'expenses',         label: 'Expenses',                group: 'Purchases' },
+  { key: 'debit_notes',      label: 'Debit Notes',             group: 'Purchases' },
+  { key: 'vendor_credits',   label: 'Vendor Credits',          group: 'Purchases' },
+  { key: 'vendor_payments',  label: 'Payments Made',           group: 'Purchases' },
   // Finance
-  { key: 'accounts',         label: 'Accounts',         group: 'Finance' },
-  { key: 'journal_entries',  label: 'Journal Entries',  group: 'Finance' },
-  { key: 'payments',         label: 'Payments Received', group: 'Finance' },
-  { key: 'vendor_payments',  label: 'Payments Made',    group: 'Finance' },
-  { key: 'advance_payments', label: 'Advance Payments', group: 'Finance' },
-  // Reports
-  { key: 'reports',          label: 'Reports',          group: 'Reports' },
-  { key: 'dashboard',        label: 'Dashboard',        group: 'Reports' },
-  { key: 'letters',          label: 'Letters',          group: 'Sales' },
+  { key: 'accounts',             label: 'Accounts',              group: 'Finance' },
+  { key: 'journal_entries',      label: 'Journal Entries',       group: 'Finance' },
+  { key: 'payment_terms',        label: 'Payment Terms',         group: 'Finance' },
+  { key: 'bank_reconciliation',  label: 'Bank Reconciliation',   group: 'Finance' },
+  { key: 'exchange_rates',       label: 'Exchange Rates',        group: 'Finance' },
+  { key: 'trial_balance',        label: 'Trial Balance',         group: 'Finance' },
+  { key: 'profit_loss_report',   label: 'Profit & Loss',         group: 'Finance' },
+  { key: 'balance_sheet_report', label: 'Balance Sheet',         group: 'Finance' },
+  { key: 'cash_flow_report',     label: 'Cash Flow',             group: 'Finance' },
+  // Reports — each independently grantable. Note: Sales Report, Purchase Report and
+  // Inventory Report have no row here on purpose — they're already fully covered by
+  // the underlying modules they read from (sales_orders/invoices/credit_notes,
+  // purchase_orders/bills/vendor_payments/vendors, and items respectively), so a
+  // separate key would either be redundant or, if used to replace those checks,
+  // would loosen access to data those modules already gate.
+  { key: 'vat_report',              label: 'VAT Report',             group: 'Reports' },
+  { key: 'vendor_aging_report',     label: 'Vendor Aging',           group: 'Reports' },
+  { key: 'ar_aging_report',         label: 'AR Aging',               group: 'Reports' },
+  { key: 'customer_statement_report', label: 'Customer Statement',   group: 'Reports' },
+  { key: 'sales_by_emirate_report', label: 'Sales by Emirate',       group: 'Reports' },
+  { key: 'export_transactions',     label: 'Export Transactions',    group: 'Reports' },
+  { key: 'dashboard',               label: 'Dashboard',              group: 'Reports' },
+  // HR
+  { key: 'employees',        label: 'Employees',        group: 'HR' },
+  { key: 'org_chart',        label: 'Org Chart',        group: 'HR' },
+  { key: 'payroll',          label: 'Payroll',          group: 'HR' },
+  { key: 'timeoff',          label: 'Time Off',         group: 'HR' },
+  // Projects
+  { key: 'projects',         label: 'Projects',         group: 'Projects' },
+  // System — whole-org, cross-module operations. No role gets a default grant here
+  // (see defaultCaps): must be explicitly assigned, owner/admin excepted as always.
+  { key: 'backups',          label: 'Backups',          group: 'System' },
 ];
 
 // Module keys grouped by category — used by the sidebar to show a section when the
@@ -53,6 +86,7 @@ export const PERM_APPROVALS = [
   { key: 'bill',    label: 'Approve Bills' },
   { key: 'invoice', label: 'Approve Invoices' },
   { key: 'payment', label: 'Approve Payments' },
+  { key: 'project', label: 'Approve Projects' },
 ];
 
 export const PERM_LEVELS = ['none', 'view', 'edit'];
@@ -68,6 +102,9 @@ export const SALES_REP_EDIT_MODULES = new Set(['enquiries', 'quotes', 'sales_ord
 // middlewares.defaultModuleCaps. Read-only default: mutations need explicit grant.
 const defaultCaps = (role, module) => {
   if (role === 'owner' || role === 'admin') return ['view', 'add', 'edit', 'delete', 'export'];
+  // Backups read/restore the ENTIRE org, across every module — no free default for
+  // anyone; must be explicitly granted per role.
+  if (module === 'backups') return [];
   if (role === 'sales_rep') return SALES_REP_EDIT_MODULES.has(module) ? ['view', 'add', 'edit'] : ['view'];
   if (role === 'member' || role === 'viewer') return ['view'];
   return [];
@@ -79,7 +116,7 @@ const orgId = () => {
 };
 const authUserId = () => useAuthStore.getState().user?.userId || '';
 
-const EMPTY = { orgId: '', role: '', perms: {}, roles: ['sales_rep'] };
+const EMPTY = { orgId: '', role: '', perms: {}, roles: ['sales_rep'], license: null };
 const LS_KEY = 'nexus-perms';
 const loadStore = () => { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} } };
 const saveStore = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(_store)) } catch { /* ignore */ } };
@@ -117,10 +154,11 @@ export async function fetchPermissions(force = false) {
   _inflight = axiosInstance.get(`/api/organizations/${id}`)
     .then(r => {
       _store[id] = {
-        userId: uid,
-        role:  r.data?.data?.role || '',
-        perms: r.data?.data?.rolePermissions || {},
-        roles: r.data?.data?.customRoles || ['sales_rep'],
+        userId:  uid,
+        role:    r.data?.data?.role || '',
+        perms:   r.data?.data?.rolePermissions || {},
+        roles:   r.data?.data?.customRoles || ['sales_rep'],
+        license: r.data?.data?.license?.modules || null,
       };
       saveStore();
       _notify();
@@ -146,9 +184,10 @@ export function seedPermissions(organizations, userId) {
     if (!id || !org.role) continue;
     _store[id] = {
       userId,
-      role:  org.role,
-      perms: org.rolePermissions || {},
-      roles: org.customRoles || ['sales_rep'],
+      role:    org.role,
+      perms:   org.rolePermissions || {},
+      roles:   org.customRoles || ['sales_rep'],
+      license: org.license?.modules || null,
     };
     changed = true;
   }
@@ -170,14 +209,24 @@ function moduleCaps(state, module) {
   return Array.isArray(stored) ? stored : defaultCaps(role, module);
 }
 
+// licenseAllows(module) — does the ORG's plan include this module at all,
+// independent of role? Nil/empty license = unrestricted (every org before
+// this feature shipped, and any org not yet explicitly licensed, keeps full
+// access). Mirrors backend middlewares.RequireLicenseModule — this is a UX
+// hint (hide what you can't reach), the real enforcement is server-side.
+function licenseAllows(state, module) {
+  const m = state.license;
+  return !m || m.length === 0 || m.includes(module);
+}
+
 // can(module, action) — action defaults to 'view'.
 function evalCan(state, module, action = 'view') {
-  return moduleCaps(state, module).includes(action);
+  return licenseAllows(state, module) && moduleCaps(state, module).includes(action);
 }
 
 // canAny(module) — has any access at all (for showing the module).
 function evalCanAny(state, module) {
-  return moduleCaps(state, module).length > 0;
+  return licenseAllows(state, module) && moduleCaps(state, module).length > 0;
 }
 
 function evalApprove(state, key) {

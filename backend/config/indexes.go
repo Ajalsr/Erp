@@ -26,6 +26,7 @@ func EnsureIndexes(client *mongo.Client) {
 		collection string
 		keys       bson.D
 		unique     bool
+		sparse     bool
 		name       string
 	}
 
@@ -89,6 +90,32 @@ func EnsureIndexes(client *mongo.Client) {
 		// a userId-first query; without this index that lookup is a full collection
 		// scan (was the ~10s signin / post-login stall).
 		{collection: "org_members", keys: bson.D{{Key: "userId", Value: 1}, {Key: "status", Value: 1}}, name: "userId_status"},
+
+		// Employees
+		{collection: "employees", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "employeeCode", Value: 1}}, name: "orgId_employeeCode"},
+		{collection: "employees", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_status"},
+		{collection: "employees", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "reportsTo", Value: 1}}, name: "orgId_reportsTo"},
+
+		// Payroll
+		{collection: "salary_structures", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "employeeId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_employeeId_status"},
+		{collection: "pay_runs", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_status"},
+		{collection: "payslips", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "payRunId", Value: 1}}, name: "orgId_payRunId"},
+		{collection: "payslips", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "employeeId", Value: 1}}, name: "orgId_employeeId"},
+		{collection: "payroll_schedules", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_status"},
+		{collection: "payroll_schedules", keys: bson.D{{Key: "status", Value: 1}, {Key: "nextRunDate", Value: 1}}, name: "status_nextRunDate"},
+
+		// License keys — sparse because a pending self-serve request has no Code
+		// yet (RequestLicense); without sparse, a plain unique index treats every
+		// codeless doc as the same "null" value and the second pending request
+		// ever submitted fails insert with a duplicate-key error.
+		{collection: "licenses", keys: bson.D{{Key: "code", Value: 1}}, unique: true, sparse: true, name: "code_unique"},
+		{collection: "organizations", keys: bson.D{{Key: "licenseKeyId", Value: 1}}, name: "licenseKeyId"},
+
+		// Time-off
+		{collection: "leave_types", keys: bson.D{{Key: "orgId", Value: 1}}, name: "orgId"},
+		{collection: "leave_balances", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "employeeId", Value: 1}, {Key: "year", Value: 1}}, name: "orgId_employeeId_year"},
+		{collection: "leave_requests", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "employeeId", Value: 1}}, name: "orgId_employeeId"},
+		{collection: "leave_requests", keys: bson.D{{Key: "orgId", Value: 1}, {Key: "status", Value: 1}}, name: "orgId_status"},
 	}
 
 	for _, idx := range indexes {
@@ -98,7 +125,8 @@ func EnsureIndexes(client *mongo.Client) {
 			Options: options.Index().
 				SetName(idx.name).
 				SetBackground(true).
-				SetUnique(idx.unique),
+				SetUnique(idx.unique).
+				SetSparse(idx.sparse),
 		}
 		name, err := col.Indexes().CreateOne(ctx, model)
 		if err != nil {

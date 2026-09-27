@@ -1,14 +1,17 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/backend/config"
 	"github.com/backend/models"
+	"github.com/backend/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -157,11 +160,12 @@ func createBillCore(ctx context.Context, orgIDStr, userIDStr string, b models.Bi
 
 // generatePayeeChargeBills reads the GRN's landed-cost charges and, for every charge
 // that names a separate payee (customs authority, clearing agent, freight forwarder),
-// creates its own bill addressed to that payee. These bills are created already PAID
-// (the duty/clearing is settled on clearance), so they carry status "paid", zero
-// balance, and post Cr Bank instead of Cr Accounts Payable — unlike the main vendor
-// bill, whose status follows its payment terms. Charges with no payee belong to the
-// main vendor and are billed on the main bill, so they are skipped here.
+// creates its own bill addressed to that payee. Each charge's BillStatus decides
+// whether that bill is created already paid (posts Cr Bank, zero balance) or open
+// (posts Cr Accounts Payable, full balance due) — chosen by the user when the charge
+// was added, defaulting to "paid" for legacy GRNs with no BillStatus set. Charges with
+// no payee belong to the main vendor and are billed on the main bill, so they are
+// skipped here.
 func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, grnObjID primitive.ObjectID, mainBill models.Bill) {
 	var g models.GRN
 	if err := grnCollection.FindOne(ctx, bson.M{"_id": grnObjID, "orgId": orgIDStr}).Decode(&g); err != nil {
@@ -178,6 +182,24 @@ func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, g
 		label := ch.Label
 		if label == "" {
 			label = "Other charge"
+		}
+
+		billStatus := ch.BillStatus
+		if billStatus == "" {
+			billStatus = "paid" // legacy default
+		}
+		isPaid := billStatus != "open"
+
+		amountPaid := 0.0
+		balanceDue := ch.Total
+		if isPaid {
+			amountPaid = ch.Total
+			balanceDue = 0
+		}
+
+		notePrefix := "open (unpaid)"
+		if isPaid {
+			notePrefix = "paid on clearance"
 		}
 
 		bill := models.Bill{
@@ -207,11 +229,10 @@ func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, g
 				TaxTotal:   ch.TaxAmount,
 				GrandTotal: ch.Total,
 			},
-			// Created already settled.
-			Status:     "paid",
-			AmountPaid: ch.Total,
-			BalanceDue: 0,
-			Notes:      fmt.Sprintf("Auto-generated from GRN %s — %s (paid on clearance)", g.GRNNumber, label),
+			Status:     billStatus,
+			AmountPaid: amountPaid,
+			BalanceDue: balanceDue,
+			Notes:      fmt.Sprintf("Auto-generated from GRN %s — %s (%s)", g.GRNNumber, label, notePrefix),
 			OrgID:      orgIDStr,
 			CreatedAt:  time.Now(),
 			UpdatedAt:  time.Now(),
@@ -223,21 +244,27 @@ func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, g
 		}
 
 		// GL: goods/duty leg (capitalise to Inventory or expense), recoverable VAT,
-		// credit Bank since the charge is paid immediately.
+		// credit Bank if settled immediately, else credit Accounts Payable.
 		goodsAccount := "5000"
 		if ch.Capitalise {
 			goodsAccount = "1200"
 		}
-		payAccount := ch.PaymentAccount
-		if payAccount == "" {
-			payAccount = "1002" // Bank
+		creditAccount := "2000" // Accounts Payable
+		jeLabel := "Charge bill (open) - " + bill.BillNumber
+		if isPaid {
+			payAccount := ch.PaymentAccount
+			if payAccount == "" {
+				payAccount = "1002" // Bank
+			}
+			creditAccount = payAccount
+			jeLabel = "Charge bill (paid) - " + bill.BillNumber
 		}
 		go autoJE(orgIDStr, "bill", bill.ID.Hex(), bill.BillNumber, bill.BillDate,
-			"Charge bill (paid) - "+bill.BillNumber,
+			jeLabel,
 			[]jeLineInput{
 				{AccountCode: goodsAccount, Debit: ch.Amount},
 				{AccountCode: "5500", Debit: ch.TaxAmount},
-				{AccountCode: payAccount, Credit: ch.Total},
+				{AccountCode: creditAccount, Credit: ch.Total},
 			})
 
 		// Stamp the charge with its bill id so re-billing the GRN can't duplicate it.
@@ -249,21 +276,26 @@ func generatePayeeChargeBills(ctx context.Context, orgIDStr, userIDStr string, g
 			}},
 		)
 
-		// Reflect the bill on the payee vendor's profile (history). It is already paid,
-		// so outstanding payable is left untouched.
+		// Reflect the bill on the payee vendor's profile (history). If unpaid, also
+		// bump outstanding payable, same as a normal vendor bill.
 		if vObjID, err := primitive.ObjectIDFromHex(ch.PayeeVendorID); err == nil {
-			vendorCollection.UpdateOne(ctx,
-				bson.M{"_id": vObjID, "orgId": orgIDStr},
-				bson.M{
-					"$push": bson.M{"history": bson.M{
-						"action":    "bill_created",
-						"timestamp": time.Now(),
-						"user":      userIDStr,
-						"details":   fmt.Sprintf("Charge bill %s (PAID) created from GRN %s for %s. Amount: AED %.2f", bill.BillNumber, g.GRNNumber, label, ch.Total),
-					}},
-					"$set": bson.M{"updatedAt": time.Now()},
-				},
-			)
+			statusLabel := "OPEN"
+			if isPaid {
+				statusLabel = "PAID"
+			}
+			update := bson.M{
+				"$push": bson.M{"history": bson.M{
+					"action":    "bill_created",
+					"timestamp": time.Now(),
+					"user":      userIDStr,
+					"details":   fmt.Sprintf("Charge bill %s (%s) created from GRN %s for %s. Amount: AED %.2f", bill.BillNumber, statusLabel, g.GRNNumber, label, ch.Total),
+				}},
+				"$set": bson.M{"updatedAt": time.Now()},
+			}
+			if !isPaid {
+				update["$inc"] = bson.M{"outstandingPayable": ch.Total}
+			}
+			vendorCollection.UpdateOne(ctx, bson.M{"_id": vObjID, "orgId": orgIDStr}, update)
 		}
 	}
 }
@@ -920,5 +952,109 @@ func GetBillStats() gin.HandlerFunc {
 				"totalCount":   totalCount,
 			},
 		})
+	}
+}
+
+// resolveBillRecipients de-dupes/trims the given list and falls back to the
+// bill's linked vendor's email on file. Bill has no cached vendor email, so
+// this always looks it up fresh via VendorID.
+func resolveBillRecipients(ctx context.Context, b models.Bill, recipients []string) []string {
+	seen := map[string]bool{}
+	var to []string
+	for _, e := range recipients {
+		e = strings.TrimSpace(e)
+		if e != "" && !seen[strings.ToLower(e)] {
+			seen[strings.ToLower(e)] = true
+			to = append(to, e)
+		}
+	}
+	if len(to) == 0 && b.VendorID != "" {
+		if vid, err := primitive.ObjectIDFromHex(b.VendorID); err == nil {
+			var v models.Vendor
+			if vendorCollection.FindOne(ctx, bson.M{"_id": vid}).Decode(&v) == nil && v.Email != "" {
+				to = append(to, v.Email)
+			}
+		}
+	}
+	return to
+}
+
+// SendBill — POST /api/bills/:id/send. Body: {recipients:[]string, message:string}
+func SendBill() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		orgID, _ := c.Get("orgId")
+		objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid bill ID"})
+			return
+		}
+
+		var b models.Bill
+		if err := billCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&b); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"message": "Bill not found"})
+			return
+		}
+
+		var req struct {
+			Recipients []string `json:"recipients"`
+			Message    string   `json:"message"`
+		}
+		c.ShouldBindJSON(&req)
+
+		to := resolveBillRecipients(ctx, b, req.Recipients)
+		if len(to) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "No recipient email provided for this bill"})
+			return
+		}
+
+		// Public "view online" link is generated once, the first time a bill is
+		// actually emailed — persisted so re-sends and the print/preview page share it.
+		if b.PublicToken == "" {
+			b.PublicToken = generatePublicToken()
+			billCollection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{"publicToken": b.PublicToken}})
+		}
+
+		var ex billExtras
+		if b.VendorID != "" {
+			ex.vendorCode, ex.vendorAddress, ex.vendorPhone, _, _ = loadVendorInfo(ctx, b.VendorID)
+		}
+		var pdfBuf bytes.Buffer
+		pdf := buildBillPDF(b, ex)
+		pdfWatermark(pdf, watermarkFor(b.Status))
+		if perr := pdf.Output(&pdfBuf); perr != nil {
+			pdfBuf.Reset() // fall back to a body-only email rather than failing the send
+		}
+
+		if err := utils.SendBillEmail(to, b, req.Message, pdfBuf.Bytes()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to send bill email", "error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Bill sent to " + strings.Join(to, ", ")})
+	}
+}
+
+// GetPublicBill — GET /api/bills/public/:token — no auth required.
+func GetPublicBill() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		token := c.Param("token")
+		if token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": http.StatusBadRequest, "message": "Invalid token"})
+			return
+		}
+
+		var b models.Bill
+		if err := billCollection.FindOne(ctx, bson.M{"publicToken": token}).Decode(&b); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "Bill not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": b})
 	}
 }
