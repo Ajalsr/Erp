@@ -83,6 +83,28 @@ export default function Item() {
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [availability,  setAvailability]  = useState({});
 
+  // Older stock records (and some current ones — see NewItem/New.jsx) store the
+  // UOM/item-group _id in unit/category instead of its name. Resolve id → name
+  // here so the list/detail views show text instead of a raw Mongo id.
+  const [uomMap,   setUomMap]   = useState({});
+  const [groupMap, setGroupMap] = useState({});
+  useEffect(() => {
+    axiosInstance.get('/api/uoms/?status=active')
+      .then(res => {
+        const map = {};
+        (res.data?.data?.uoms || []).forEach(u => { map[u._id] = u.symbol || u.name; });
+        setUomMap(map);
+      }).catch(() => {});
+    axiosInstance.get('/api/item-groups/?status=active')
+      .then(res => {
+        const map = {};
+        (res.data?.data?.groups || []).forEach(g => { map[g._id] = g.name; });
+        setGroupMap(map);
+      }).catch(() => {});
+  }, []);
+  const resolveUnit     = useCallback(raw => (raw && uomMap[raw]) || raw || '', [uomMap]);
+  const resolveCategory = useCallback(raw => (raw && groupMap[raw]) || raw || '', [groupMap]);
+
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { handleGetItem(); }, [handleGetItem]);
   useRealtime(['stocks_updated','grns_updated','adjustments_updated'], handleGetItem);
@@ -400,10 +422,10 @@ export default function Item() {
               const reoPct = reo>0 ? Math.min(100,(reo/Math.max(reo*3,1))*100) : 0;
               const barColor = state==="out"||state==="critical"?T.red : state==="low"?T.amber : T.green;
               const stockLine = qty===0 ? <span style={{color:T.red}}>Out of stock</span>
-                : state==="critical" ? <span style={{color:T.red}}>{qty} {item.unit||"units"} · critical</span>
-                : state==="low"      ? <span style={{color:T.amber}}>{qty} {item.unit||"units"} · below reorder</span>
-                : state==="over"     ? <span style={{color:muted}}>{qty} {item.unit||"units"} · overstock</span>
-                : <span>{qty} {item.unit||"units"} · in stock</span>;
+                : state==="critical" ? <span style={{color:T.red}}>{qty} {resolveUnit(item.unit)||"units"} · critical</span>
+                : state==="low"      ? <span style={{color:T.amber}}>{qty} {resolveUnit(item.unit)||"units"} · below reorder</span>
+                : state==="over"     ? <span style={{color:muted}}>{qty} {resolveUnit(item.unit)||"units"} · overstock</span>
+                : <span>{qty} {resolveUnit(item.unit)||"units"} · in stock</span>;
               const isSelected = selectedItem?._id===item._id;
               return (
                 <div key={item._id||idx} className={`inv-row${isSelected?" sel":""}`}
@@ -463,6 +485,7 @@ export default function Item() {
               itemAdjustments={itemAdjustments} adjLoading={adjLoading}
               requested={(availability.requested ?? 0) + (availability.committed ?? 0)}
               availability={availability}
+              resolveUnit={resolveUnit} resolveCategory={resolveCategory}
               onClose={closePanel}
               onAdjust={(item)=>{setAdjustItem(item);setAdjustQty(String(item.quantity??0));}}
               onEdit={canEditItem ? (item)=>navigate(`/Items/Items/Edit/${item._id||item.id}`) : undefined}
@@ -529,7 +552,7 @@ function MiniSparkline({ vals, color }) {
 }
 
 /* ─── Detail panel ────────────────────────────────────────────────────── */
-function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, itemAdjustments, adjLoading, requested, availability, onClose, onAdjust, onEdit }) {
+function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, border2, text, muted, bg, activeTab, setActiveTab, itemOrders, ordersLoading, itemAdjustments, adjLoading, requested, availability, resolveUnit, resolveCategory, onClose, onAdjust, onEdit }) {
   const state = stockState(item.quantity, item.reorder_point);
   const qty   = parseFloat(item.quantity || 0);
   const reo   = parseFloat(item.reorder_point || 0);
@@ -601,8 +624,8 @@ function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, bor
             </div>
             <div style={{fontSize:12.5,color:muted,marginTop:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               {item.brand&&<span>{item.brand}</span>}
-              {item.category&&<span>{item.category}</span>}
-              <span>Tracked in {item.unit||"units"}</span>
+              {resolveCategory(item.category)&&<span>{resolveCategory(item.category)}</span>}
+              <span>Tracked in {resolveUnit(item.unit)||"units"}</span>
             </div>
           </div>
           <div style={{display:"flex",gap:6,alignItems:"flex-start",flexShrink:0}}>
@@ -654,11 +677,11 @@ function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, bor
             </div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:12.5,color:text,fontWeight:500,marginBottom:2}}>
-                Reorder <b style={{color:T.blue}}>{suggestQty} {item.unit||"units"}</b> {state==="out"?"immediately":"soon"}.
+                Reorder <b style={{color:T.blue}}>{suggestQty} {resolveUnit(item.unit)||"units"}</b> {state==="out"?"immediately":"soon"}.
               </div>
               <div style={{fontSize:11.5,color:muted,lineHeight:1.45}}>
                 {state==="out"
-                  ? `Stock hit zero. Suggested order of ${suggestQty} ${item.unit||"units"} to restore buffer.`
+                  ? `Stock hit zero. Suggested order of ${suggestQty} ${resolveUnit(item.unit)||"units"} to restore buffer.`
                   : `Below reorder point (${reo}). At current pace you may stock out soon. Lead time ~7 days.`}
               </div>
             </div>
@@ -675,7 +698,7 @@ function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, bor
         <div className="inv-kpi-grid" style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10,padding:isMobile?"12px 14px 4px":"14px 24px 6px"}}>
           <KpiCard
             label="Stock on hand"
-            value={`${qty} ${item.unit||"units"}`}
+            value={`${qty} ${resolveUnit(item.unit)||"units"}`}
             tone={state==="out"||state==="critical"?"bad":state==="low"?"warn":""}
             sub={`Reorder at ${reo||"—"}`}
             icon={<FaBox size={12}/>}
@@ -700,13 +723,13 @@ function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, bor
           <KpiCard
             label="Inventory value"
             value={portfolioVal>0?`AED ${fmtN(portfolioVal)}`:"—"}
-            sub={item.selling_price?`Cost ${fmtAED(item.selling_price)} / ${item.unit||"u"}`:"No price set"}
+            sub={item.selling_price?`Cost ${fmtAED(item.selling_price)} / ${resolveUnit(item.unit)||"u"}`:"No price set"}
             icon={<FaTag size={12}/>}
             T={T} isDark={isDark} muted={muted} text={text}
           />
           <KpiCard
             label="Requested qty"
-            value={requested>0?`${fmtN(requested)} ${item.unit||"units"}`:"—"}
+            value={requested>0?`${fmtN(requested)} ${resolveUnit(item.unit)||"units"}`:"—"}
             tone={requested>0?"warn":""}
             sub={requested>0?"Reserved for orders":"No pending orders"}
             icon={<FaExclamationTriangle size={12}/>}
@@ -714,7 +737,7 @@ function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, bor
           />
           <KpiCard
             label="Free stock"
-            value={`${fmtN(Math.max(0, qty - requested))} ${item.unit||"units"}`}
+            value={`${fmtN(Math.max(0, qty - requested))} ${resolveUnit(item.unit)||"units"}`}
             tone={Math.max(0, qty - requested)>0?"good":"bad"}
             sub="Available to sell"
             icon={<FaBox size={12}/>}
@@ -735,7 +758,7 @@ function DetailPanel({ item, T, isDark, isMobile, surface, surface2, border, bor
 
         {/* Tab body */}
         {activeTab==="overview"&&(
-          <OverviewTab item={item} T={T} isDark={isDark} isMobile={isMobile} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} availability={availability} onEdit={onEdit}/>
+          <OverviewTab item={item} T={T} isDark={isDark} isMobile={isMobile} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} availability={availability} resolveUnit={resolveUnit} resolveCategory={resolveCategory} onEdit={onEdit}/>
         )}
         {(activeTab==="transactions"||activeTab==="history")&&(
           <TxnHistoryTab activeTab={activeTab} item={item} T={T} isDark={isDark} isMobile={isMobile} surface={surface} surface2={surface2} border={border} border2={border2} text={text} muted={muted} itemOrders={itemOrders} ordersLoading={ordersLoading} itemAdjustments={itemAdjustments} adjLoading={adjLoading}/>
@@ -793,7 +816,7 @@ function KpiCard({ label, value, tone, sub, icon, bar, T, isDark, muted, text })
 }
 
 /* ─── Overview tab ────────────────────────────────────────────────────── */
-function OverviewTab({ item, T, isDark, isMobile, surface, border, border2, text, muted, itemOrders }) {
+function OverviewTab({ item, T, isDark, isMobile, surface, border, border2, text, muted, itemOrders, resolveUnit, resolveCategory }) {
   const qty = parseFloat(item.quantity||0);
   const fmtD = (d)=>d?new Date(d).toLocaleDateString("en-AE",{day:"2-digit",month:"short",year:"numeric"}):"—";
   const recentTxns = itemOrders.slice(-5).reverse();
@@ -815,9 +838,9 @@ function OverviewTab({ item, T, isDark, isMobile, surface, border, border2, text
               {[
                 ["SKU / Code", <span className="mono" style={{fontFamily:"'DM Mono',monospace"}}>{item.item_code||"—"}</span>],
                 ["Brand",      <span style={{display:"flex",alignItems:"center",gap:6}}><FaIndustry size={12} style={{color:muted}}/>{item.brand||"—"}</span>],
-                ["Category",   <span style={{display:"flex",alignItems:"center",gap:6}}><FaTag size={12} style={{color:muted}}/>{item.category||"—"}</span>],
+                ["Category",   <span style={{display:"flex",alignItems:"center",gap:6}}><FaTag size={12} style={{color:muted}}/>{resolveCategory(item.category)||"—"}</span>],
                 ["Type",       <span style={{textTransform:"capitalize"}}>{item.type||"goods"}</span>],
-                ["Unit",       item.unit||"—"],
+                ["Unit",       resolveUnit(item.unit)||"—"],
                 ["Reorder pt", item.reorder_point||"—"],
               ].map(([k,v])=>(
                 <>
@@ -844,7 +867,7 @@ function OverviewTab({ item, T, isDark, isMobile, surface, border, border2, text
       <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
         {/* Stock level card */}
         <div style={cardStyle}>
-          <div style={cardH}>Stock level <span style={{fontSize:11.5,fontWeight:500,color:muted}}>{qty} {item.unit||"units"} on hand</span></div>
+          <div style={cardH}>Stock level <span style={{fontSize:11.5,fontWeight:500,color:muted}}>{qty} {resolveUnit(item.unit)||"units"} on hand</span></div>
           <div style={cardB}>
             <div style={{height:8,background:isDark?"rgba(255,255,255,.07)":"rgba(0,0,0,.07)",borderRadius:99,overflow:"hidden",marginBottom:10,position:"relative"}}>
               <div style={{height:"100%",width:`${stockPct(qty,parseFloat(item.reorder_point||0))}%`,background:
@@ -886,7 +909,7 @@ function OverviewTab({ item, T, isDark, isMobile, surface, border, border2, text
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:12.5,fontWeight:600,color:o.type==="purchase"?T.green:T.blue}}>{o.type==="purchase"?"+":"−"}{o.qty} {item.unit||"u"}</div>
+                  <div style={{fontSize:12.5,fontWeight:600,color:o.type==="purchase"?T.green:T.blue}}>{o.type==="purchase"?"+":"−"}{o.qty} {resolveUnit(item.unit)||"u"}</div>
                   <div style={{fontSize:10.5,color:muted}}>{fmtAED(o.total)}</div>
                 </div>
               </div>

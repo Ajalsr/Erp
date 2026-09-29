@@ -712,6 +712,13 @@ export default function Newpurchaseorders() {
   const fetchUomOptions = useCallback(() => axiosInstance.get('/api/uoms/?status=active')
     .then(r => setUomOptions((r.data?.data?.uoms || []).map(u => ({ value: u._id, label: u.symbol ? `${u.name} (${u.symbol})` : u.name })))).catch(() => {}), []);
   useEffect(() => { fetchGroupOptions(); fetchUomOptions(); }, [fetchGroupOptions, fetchUomOptions]);
+  // Older stock records (and any item.unit still holding a raw UOM _id) resolve
+  // to a plain display name here instead of leaking the Mongo id into the UI/PDF.
+  const resolveUnit = useCallback((raw) => {
+    if (!raw) return '';
+    const opt = uomOptions.find(o => o.value === raw);
+    return opt ? opt.label.replace(/\s*\(.*\)$/, '') : raw;
+  }, [uomOptions]);
   const handleItemCreated = (newItem) => {
     if (itemCreateRow != null) handleItemSelect(itemCreateRow, newItem);
     setQuickCreate(null); setItemCreateRow(null);
@@ -878,7 +885,7 @@ export default function Newpurchaseorders() {
     const qty  = parseFloat(u[idx].quantity) || 1;
     const disc = parseFloat(u[idx].discount) || 0;
     const base = calcLineBase(qty, rate, disc, u[idx].discountType);
-    u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.item_code || sel.sku || '', rate, unit: sel.unit || sel.Unit || 'pcs', quantity: qty, amount: String(round2(base + base * effectiveTaxRate)) };
+    u[idx] = { ...u[idx], itemId: sel._id, details: sel.name || 'No name', sku: sel.item_code || sel.sku || '', rate, unit: resolveUnit(sel.unit || sel.Unit) || 'pcs', quantity: qty, amount: String(round2(base + base * effectiveTaxRate)) };
     setItems(u); setShowItemDropdown(null); setSearchTerm('');
   };
 
@@ -1309,7 +1316,7 @@ export default function Newpurchaseorders() {
                             {[
                               { icon: <FaMoneyBill style={{ color: '#10b981' }} />, label: 'Price', val: `AED ${inv.selling_price || 0}`, mono: true },
                               { icon: <FaWarehouse style={{ color: '#f59e0b' }} />, label: 'Stock', val: `${inv.quantity || 0} units`, color: (inv.quantity||0)>10?'#10b981':(inv.quantity||0)>0?'#f59e0b':'#ef4444' },
-                              { icon: <FaTag style={{ color: '#8b5cf6' }} />, label: 'Unit', val: inv.unit || inv.Unit || 'pcs' },
+                              { icon: <FaTag style={{ color: '#8b5cf6' }} />, label: 'Unit', val: resolveUnit(inv.unit || inv.Unit) || 'pcs' },
                             ].map(m => (
                               <div key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <div style={{ fontSize: 11 }}>{m.icon}</div>

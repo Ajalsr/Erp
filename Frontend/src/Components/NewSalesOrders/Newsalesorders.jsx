@@ -861,7 +861,7 @@ const Newsalesorders = () => {
   };
   const handleItemSelect=(idx,sel)=>{
     const u=[...items],rate=resolveItemPrice(sel,activePriceList,priceListFxRate),qty=1,itemId=sel._id||sel.itemId;
-    u[idx]={...u[idx],itemId,details:sel.name||sel.itemName||'No name',sku:sel.sku||'No SKU',rate,unit:sel.unit||sel.Unit||'pcs',quantity:qty,amount:calcAmt(qty,rate,u[idx].discount,u[idx].discountType)};
+    u[idx]={...u[idx],itemId,details:sel.name||sel.itemName||'No name',sku:sel.sku||'No SKU',rate,unit:resolveUnit(sel.unit||sel.Unit)||'pcs',quantity:qty,amount:calcAmt(qty,rate,u[idx].discount,u[idx].discountType)};
     setItems(u);setShowItemDropdown(null);setSearchTerm('');
     fetchStockAvailability(itemId);
   };
@@ -884,6 +884,13 @@ const Newsalesorders = () => {
       .catch(()=>{});
   },[]);
   useEffect(()=>{fetchGroupOptions();fetchUomOptions();},[fetchGroupOptions,fetchUomOptions]);
+  // Older stock records (and any item.unit still holding a raw UOM _id) resolve
+  // to a plain display name here instead of leaking the Mongo id into the UI/PDF.
+  const resolveUnit=useCallback((raw)=>{
+    if(!raw) return '';
+    const opt=uomOptions.find(o=>o.value===raw);
+    return opt?opt.label.replace(/\s*\(.*\)$/,''):raw;
+  },[uomOptions]);
 
   const [quickAddItem,setQuickAddItem]=useState(null); // null | { idx }
   const openQuickAddItem=(idx)=>setQuickAddItem({idx});
@@ -1434,7 +1441,7 @@ const Newsalesorders = () => {
                             <span style={{fontFamily:"'DM Mono',monospace",fontSize:10,padding:'2px 7px',background:isDark?'rgba(59,130,246,0.15)':'#eff6ff',color:T.blue,borderRadius:5,flexShrink:0}}>SKU: {inv.sku||'N/A'}</span>
                           </div>
                           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginTop:8}}>
-                            {[{icon:<FaMoneyBill style={{color:'#10b981'}}/>,label:'Price',val:`AED ${inv.selling_price||inv.price||0}`,mono:true},{icon:<FaWarehouse style={{color:'#f59e0b'}}/>,label:'Stock',val:`${inv.quantity||0} units`,color:(inv.quantity||0)>10?'#10b981':(inv.quantity||0)>0?'#f59e0b':'#ef4444'},{icon:<FaTag style={{color:'#8b5cf6'}}/>,label:'Unit',val:inv.unit||inv.Unit||'pcs'}].map(m=>(
+                            {[{icon:<FaMoneyBill style={{color:'#10b981'}}/>,label:'Price',val:`AED ${inv.selling_price||inv.price||0}`,mono:true},{icon:<FaWarehouse style={{color:'#f59e0b'}}/>,label:'Stock',val:`${inv.quantity||0} units`,color:(inv.quantity||0)>10?'#10b981':(inv.quantity||0)>0?'#f59e0b':'#ef4444'},{icon:<FaTag style={{color:'#8b5cf6'}}/>,label:'Unit',val:resolveUnit(inv.unit||inv.Unit)||'pcs'}].map(m=>(
                               <div key={m.label} style={{display:'flex',alignItems:'center',gap:6}}>
                                 <div style={{fontSize:11}}>{m.icon}</div>
                                 <div>
