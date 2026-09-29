@@ -404,8 +404,9 @@ const NewItemForm = () => {
   const [vendorOptions, setVendorOptions]   = useState([]);
   const [allAccounts, setAllAccounts]       = useState([]);
   const [groupOptions, setGroupOptions]     = useState([]);
-  const [groupMap, setGroupMap]             = useState({});  // id → { prefix }
+  const [groupMap, setGroupMap]             = useState({});  // id → { prefix, name }
   const [uomOptions, setUomOptions]         = useState([]);
+  const [uomMap, setUomMap]                 = useState({});  // id → { name, symbol }
   const [quickCreate, setQuickCreate]       = useState(null); // 'group' | 'unit' | null
 
   const showInventorySection = salesEnabled && purchaseEnabled;
@@ -449,7 +450,7 @@ const NewItemForm = () => {
         const list = res.data?.data?.groups || [];
         setGroupOptions(list.map(g => ({ label: g.name, value: g._id })));
         const map = {};
-        list.forEach(g => { map[g._id] = { prefix: g.prefix || '' }; });
+        list.forEach(g => { map[g._id] = { prefix: g.prefix || '', name: g.name || '' }; });
         setGroupMap(map);
         return list;
       })
@@ -461,6 +462,9 @@ const NewItemForm = () => {
       .then(res => {
         const list = res.data?.data?.uoms || [];
         setUomOptions(list.map(u => ({ label: u.symbol ? `${u.name} (${u.symbol})` : u.name, value: u._id })));
+        const map = {};
+        list.forEach(u => { map[u._id] = { name: u.name || '', symbol: u.symbol || '' }; });
+        setUomMap(map);
         return list;
       })
       .catch(() => []);
@@ -592,11 +596,20 @@ const NewItemForm = () => {
     setErrors({});
     setSaving(true);
     try {
+      // unit/category selects store the UOM/group _id (needed to preselect the
+      // right option when editing); resolve to the human-readable name/symbol
+      // here so the Stock document — and everything reading it later (PO/SO
+      // line items, PDFs, item list) — stores/shows text, not a raw ObjectId.
+      const payload = {
+        ...formData,
+        unit: (uomMap[formData.unit]?.symbol || uomMap[formData.unit]?.name) || formData.unit,
+        category: groupMap[formData.category]?.name || formData.category,
+      };
       if (isEdit) {
-        await axiosInstance.put(`/api/stocks/${editId}`, formData);
+        await axiosInstance.put(`/api/stocks/${editId}`, payload);
         nexusToast.success('Item updated successfully!');
       } else {
-        await handleAdditem(formData);
+        await handleAdditem(payload);
         nexusToast.success('Item created successfully!');
       }
       guard.reset();
@@ -1099,7 +1112,7 @@ const NewItemForm = () => {
                     </p>
                     <div style={{ display:'flex',gap:5,flexWrap:'wrap' }}>
                       {formData.type && <Chip label={formData.type === 'goods' ? '📦 Goods' : '🔧 Service'} color={pal.accent} />}
-                      {formData.unit && <Chip label={formData.unit} color="#94a3b8" />}
+                      {formData.unit && <Chip label={uomMap[formData.unit]?.name || formData.unit} color="#94a3b8" />}
                     </div>
                   </div>
                 </div>

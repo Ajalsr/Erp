@@ -2973,11 +2973,8 @@ func buildPurchaseOrderPDF(po models.PurchaseOrder, ex poExtras) *gofpdf.Fpdf {
 		senderName = "Company"
 	}
 	// The LPO the vendor receives carries our own PO number (same number before and
-	// after approval), suffixed with the revision once the PO has been amended.
+	// after approval/amendment, with no revision suffix).
 	lpoNo := po.OrderNumber
-	if po.Revision > 0 {
-		lpoNo = fmt.Sprintf("%s Rev %d", po.OrderNumber, po.Revision)
-	}
 	orderDate := po.OrderDate.Format("02/01/2006")
 	cur := po.Currency
 	if cur == "" {
