@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import { IoMdClose } from 'react-icons/io';
 import nexusToast from '../../helper/nexusToast';
 
+// Fields may pass `render({ value, onChange })` to supply their own control.
 // Custom searchable dropdown for `type: 'select'` fields — replaces the native
 // <select> so it matches the app's styling and can be filtered.
 function MiniSelect({ value, onChange, options, placeholder, T, autoFocus }) {
@@ -92,7 +93,12 @@ export default function QuickCreateModal({ title, fields, T, onClose, onSubmit }
             <IoMdClose size={13} />
           </button>
         </div>
-        {fields.map(f => (
+        {fields.map(f => f.render ? (
+          // Custom field (e.g. a date picker) — renders its own label and control.
+          <div key={f.name} style={{ marginBottom: 14 }}>
+            {f.render({ value: form[f.name], onChange: val => setForm(p => ({ ...p, [f.name]: val })) })}
+          </div>
+        ) : (
           <div key={f.name} style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>
               {f.label}{f.required && <span style={{ color: '#ef4444' }}> *</span>}

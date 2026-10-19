@@ -766,13 +766,17 @@ export default function Enquiries() {
   // When the open enquiry is already quoted, load its quote so we can link to it and
   // convert to a Sales Order from the (richer) quote data.
   const [linkedQuote, setLinkedQuote] = useState(null);
+  const [quoteChecked, setQuoteChecked] = useState(false);
   useEffect(() => {
     setLinkedQuote(null);
-    if (!selected?._id || selected.status !== "quoted") return;
+    setQuoteChecked(false);
+    if (!selected?._id || !["quoted", "converted"].includes(selected.status)) return;
     axiosInstance.get(`/api/quotes/?sourceEnquiryId=${selected._id}&limit=1`)
-      .then(r => { const qs = r.data?.data?.quotes || []; if (qs.length) setLinkedQuote(qs[0]); })
+      .then(r => { const qs = r.data?.data?.quotes || []; if (qs.length) setLinkedQuote(qs[0]); setQuoteChecked(true); })
       .catch(() => {});
   }, [selected?._id, selected?.status]);
+  // Marked "quoted" but no quote exists (status was set by hand) — treat it as unquoted.
+  const quotedWithoutQuote = ["quoted", "converted"].includes(selected?.status) && quoteChecked && !linkedQuote;
   const linkedQuoteId = linkedQuote?._id || null;
 
   const loadEnquiries = useCallback(async () => {
@@ -1223,18 +1227,10 @@ export default function Enquiries() {
                         <span style={{ fontSize: 13, color: T.textPri, fontWeight: 500 }}>{val}</span>
                       </div>
                     ))}
-                    {/* Add to Customers — shown when no customerId linked */}
+                    {/* Customer record is created later, when the Sales Order is made */}
                     {!selected.customerId && (
                       <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 11, color: T.textSec }}>Not linked to a customer record</span>
-                          <button
-                            onClick={() => { setConvertForm(EMPTY_CONVERT_FORM); setConvertModalOpen(true); }}
-                            style={{ padding: "5px 12px", background: T.blue, color: "#fff", border: "none",
-                              borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                            + Add to Customers
-                          </button>
-                        </div>
+                        <span style={{ fontSize: 11, color: T.textSec }}>New customer — the customer record is created when a Sales Order is made</span>
                       </div>
                     )}
                     {selected.customerId && (
@@ -1285,7 +1281,7 @@ export default function Enquiries() {
               {/* ── Update Status Tab ── */}
               {drawerTab === "update" && (
                 <div style={{ animation: "enqFadeUp .2s ease" }}>
-                  {["converted", "lost", "cancelled"].includes(selected.status) && (
+                  {["converted", "lost", "cancelled"].includes(selected.status) && !quotedWithoutQuote && (
                     <div style={{ marginBottom: 16, padding: "12px 14px", borderRadius: 10, background: isDark ? "rgba(148,163,184,0.1)" : "#f1f5f9", border: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ fontSize: 16 }}>🔒</span>
                       <span style={{ fontSize: 12.5, color: T.textPri }}>This enquiry is <strong style={{ textTransform: "capitalize" }}>{selected.status}</strong> — a final state. Status can no longer change.</span>
@@ -1295,7 +1291,7 @@ export default function Enquiries() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {STATUSES.filter(s => s.key !== "all").map(s => (
                       <button key={s.key}
-                        disabled={updatingStatus || selected.status === s.key || ["converted", "lost", "cancelled"].includes(selected.status) || (selected.status === "quoted" && ["new", "contacted"].includes(s.key))}
+                        disabled={updatingStatus || selected.status === s.key || (["converted", "lost", "cancelled"].includes(selected.status) && !quotedWithoutQuote) || s.key === "quoted" || s.key === "converted" || (selected.status === "quoted" && !quotedWithoutQuote && ["new", "contacted"].includes(s.key))}
                         onClick={() => handleStatusUpdate(s.key)}
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
                           border: `1.5px solid ${selected.status === s.key ? s.color : border}`,
@@ -1307,6 +1303,8 @@ export default function Enquiries() {
                           {s.label}
                         </span>
                         {selected.status === s.key && <span style={{ marginLeft: "auto", fontSize: 11, color: s.color }}>Current</span>}
+                        {s.key === "quoted" && selected.status !== "quoted" && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textSec }}>Set automatically when a quote is created</span>}
+                        {s.key === "converted" && selected.status !== "converted" && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textSec }}>Set automatically when the quote is converted</span>}
                       </button>
                     ))}
                   </div>
@@ -1314,7 +1312,7 @@ export default function Enquiries() {
                   {/* Pipeline actions */}
                   <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 10 }}>
                     {/* Enquiry → Quote */}
-                    {selected.status !== "quoted" && selected.status !== "converted" && selected.status !== "lost" && selected.status !== "cancelled" && (
+                    {(selected.status !== "quoted" || quotedWithoutQuote) && (selected.status !== "converted" || quotedWithoutQuote) && selected.status !== "lost" && selected.status !== "cancelled" && (
                       <div style={{ padding: 14, background: isDark ? "rgba(59,130,246,0.08)" : "#eff6ff", border: `1px solid ${isDark ? "rgba(59,130,246,0.25)" : "#bfdbfe"}`, borderRadius: 10 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#60a5fa" : "#1d4ed8", marginBottom: 5 }}>Create Quote from this Enquiry</div>
                         <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>Open a new Quote pre-filled with this enquiry's data. The enquiry is marked Quoted only once the quote is saved.</p>
@@ -1347,7 +1345,7 @@ export default function Enquiries() {
                     )}
 
                     {/* Already quoted — link to the existing quote instead of creating a new one */}
-                    {selected.status === "quoted" && (
+                    {selected.status === "quoted" && !quotedWithoutQuote && (
                       <div style={{ padding: 14, background: isDark ? "rgba(139,92,246,0.08)" : "#f5f3ff", border: `1px solid ${isDark ? "rgba(139,92,246,0.25)" : "#ddd6fe"}`, borderRadius: 10 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: isDark ? "#a78bfa" : "#6d28d9", marginBottom: 5 }}>Already Quoted</div>
                         <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>A quote already exists for this enquiry. Open it instead of creating a duplicate.</p>
@@ -1362,14 +1360,15 @@ export default function Enquiries() {
                     )}
 
                     {/* Enquiry → Sales Order (direct, for already-quoted or when skipping quote) */}
-                    {selected.status !== "converted" && selected.status !== "lost" && selected.status !== "cancelled" && (
+                    {(selected.status !== "converted" || quotedWithoutQuote) && selected.status !== "lost" && selected.status !== "cancelled" && (
                       <div style={{ padding: 14, background: T.greenDim, border: `1px solid ${T.green}22`, borderRadius: 10 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: T.green, marginBottom: 5 }}>Convert to Sales Order</div>
                         <p style={{ fontSize: 12, color: T.textSec, margin: "0 0 10px" }}>Skip quote and go directly to creating a Sales Order.</p>
                         <button
                           disabled={updatingStatus}
                           onClick={async () => {
-                            await handleStatusUpdate("converted");
+                            // Only flip to converted when a quote backs it; the backend rejects it otherwise.
+                            if (linkedQuote) await handleStatusUpdate("converted");
                             // If a quote already exists, convert from the quote (richer data:
                             // priced line items, payment terms, salesperson). Else from the enquiry.
                             if (linkedQuote) {
@@ -1378,6 +1377,9 @@ export default function Enquiries() {
                                 quoteNumber:  linkedQuote.quoteNumber,
                                 customerId:   linkedQuote.customerId,
                                 customerName: linkedQuote.customerName,
+                                customerEmail: linkedQuote.customerEmail || selected.email || "",
+                                customerPhone: selected.phone || "",
+                                customerTrn:   linkedQuote.billTo?.trn || "",
                                 paymentTerms: linkedQuote.paymentTerms,
                                 currency:     linkedQuote.currency,
                                 grandTotal:   linkedQuote.totals?.grandTotal,

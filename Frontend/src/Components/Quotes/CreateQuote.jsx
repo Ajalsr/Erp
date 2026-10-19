@@ -799,7 +799,7 @@ export default function CreateQuote() {
   const [recipients,  setRecipients]  = useState([""]);
   const [sendMessage, setSendMessage] = useState("");
   const openSendModal = () => {
-    if (!customerId) { nexusToast.error("Please select a customer"); return; }
+    if (!customerId && !customerName.trim()) { nexusToast.error("Please enter a customer name"); return; }
     const err = companySendError();
     if (err) { nexusToast.error(err); return; }
     setRecipients(customerEmail ? [customerEmail] : [""]);
@@ -899,7 +899,7 @@ export default function CreateQuote() {
   };
 
   async function submit(status, recipients) {
-    if (!customerId) { nexusToast.error("Please select a customer"); return; }
+    if (!customerId && !customerName.trim()) { nexusToast.error("Please enter a customer name"); return; }
     // Final gate — openSendModal already checks this before the recipient
     // modal opens, this just guards any other path that could reach "sent".
     if (status === "sent") {
@@ -1078,7 +1078,13 @@ export default function CreateQuote() {
           <Section title="Quote Details">
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}>
               <Field label="Customer *">
-                <CustomerSelect value={customerId} onChange={handleCustomer} options={customerOpts} name="customerId" disabled={!!fromEnquiry} />
+                {/* Existing customers can still be picked; a new customer is just typed in —
+                    the customer record is only created when the Sales Order is made. */}
+                {fromEnquiry && !fromEnquiry.customerId ? (
+                  <Inp value={customerName} onChange={e => { setCustomerName(e.target.value); setBillTo(b => ({ ...b, name: e.target.value })); }} placeholder="Customer / company name" />
+                ) : (
+                  <CustomerSelect value={customerId} onChange={handleCustomer} options={customerOpts} name="customerId" disabled={!!fromEnquiry} />
+                )}
               </Field>
               <Field label="Customer Email">
                 <Inp value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" type="email" />

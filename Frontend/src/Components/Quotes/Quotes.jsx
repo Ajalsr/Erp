@@ -163,6 +163,8 @@ export default function Quotes() {
       quoteNumber:  q.quoteNumber,
       customerId:   q.customerId,
       customerName: q.customerName,
+      customerEmail: q.customerEmail || "",
+      customerTrn:   q.billTo?.trn || "",
       paymentTerms: q.paymentTerms,
       currency:     q.currency,
       grandTotal:   q.totals?.grandTotal,

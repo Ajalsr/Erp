@@ -8,6 +8,7 @@ import useGetCustomers from '../../helper/useGetCustomers';
 import useAddSalesOrder from '../../helper/useAddSalesOrder';
 import { useUnsavedGuard } from '../../helper/useUnsavedGuard';
 import axiosInstance from '../../helper/axiosInstance';
+import nexusToast from '../../helper/nexusToast';
 import { matchItem } from '../../helper/itemSearch';
 import { resolveItemPrice, getRateToBase } from '../../helper/priceList';
 import { drawerWidth } from '../../helper/responsive';
@@ -148,7 +149,11 @@ const Sel = ({ value, onChange, options=[], placeholder='Select…', icon=null, 
   const updatePos=()=>{
     if(triggerRef.current){
       const r=triggerRef.current.getBoundingClientRect();
-      setPos({top:r.bottom,left:r.left,width:r.width});
+      // Panel is ~430px tall — open upwards when there isn't room below the field.
+      const below=window.innerHeight-r.bottom, above=r.top;
+      const up=below<440&&above>below;
+      setPos({top:r.bottom,left:r.left,width:r.width,up,bottom:window.innerHeight-r.top,
+        maxH:Math.max(240,(up?above:below)-16)});
     }
   };
   useEffect(()=>{if(open)updatePos();},[open]);
@@ -333,14 +338,14 @@ const DropdownPortal = ({ children, targetRef, isVisible }) => {
 };
 
 /* ── DatePicker — portal-based so it escapes overflow:hidden ── */
-const ModernDatePicker = ({ value, onChange, label, required=false, placeholder='Select date' }) => {
+const ModernDatePicker = ({ value, onChange, label, required=false, placeholder='Select date', zIndex=9998 }) => {
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const [open,setOpen]=useState(false);
   const [mode,setMode]=useState('calendar');
   const triggerRef=useRef(null);
   const portalRef=useRef(null);
-  const [pos,setPos]=useState({top:0,left:0,width:0});
+  const [pos,setPos]=useState({top:0,left:0,width:0,up:false,bottom:0,maxH:440});
   const presets=[
     {label:'Today',value:new Date()},{label:'Tomorrow',value:addDays(new Date(),1)},
     {label:'Next Week',value:addDays(new Date(),7)},{label:'Next Month',value:addMonths(new Date(),1)},
@@ -375,10 +380,10 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
 
   const pickerPanel = open ? ReactDOM.createPortal(
     <div ref={portalRef} className="nso-dd" style={{
-      position:'fixed',zIndex:9998,top:pos.top+6,left:pos.left,
+      position:'fixed',zIndex,...(pos.up?{bottom:pos.bottom+6}:{top:pos.top+6}),left:pos.left,maxHeight:pos.maxH,overflowY:'auto',
       background:T.surface,borderRadius:16,border:`1.5px solid ${T.border}`,
       boxShadow:'0 24px 60px rgba(0,0,0,.14)',width:280,
-      overflow:'hidden',
+      overflowX:'hidden',
     }}>
       {/* Tab header */}
       <div style={{display:'flex',gap:0,borderBottom:`1.5px solid ${T.border}`,background:T.surface2}}>
@@ -499,6 +504,8 @@ const Newsalesorders = () => {
   const [filteredItems,setFilteredItems]=useState([]);
   const [customerSearch,setCustomerSearch]=useState('');
   const [selectedCustomer,setSelectedCustomer]=useState(null);
+  // Customer typed in on the enquiry/quote that has no record yet — created here, at Sales Order time.
+  const [draftCustomer,setDraftCustomer]=useState(null);
   const [creditStatus,setCreditStatus]=useState(null);
   const [showCustomerDropdown,setShowCustomerDropdown]=useState(false);
   const [custDropPos,setCustDropPos]=useState({top:0,left:0,width:360});
@@ -553,7 +560,7 @@ const Newsalesorders = () => {
   const location=useLocation();
   const { id: editId } = useParams();
   const isEditMode = !!editId;
-  const fromQuoteLock = !isEditMode && !!location.state?.fromQuote;
+  const fromQuoteLock = !isEditMode && !!location.state?.fromQuote?.customerId;
 
   // Sales Type + Payment Terms — both org-configurable modules (Finance/Sales settings),
   // fetched below. Value = the record's name, same convention as Item Groups/UOM.
@@ -575,6 +582,30 @@ const Newsalesorders = () => {
       .catch(() => {});
   }, []);
   useEffect(() => { fetchSalesTypes(); fetchPaymentTermList(); }, [fetchSalesTypes, fetchPaymentTermList]);
+
+  const handleCreateDraftCustomer = async (form) => {
+    const business=form.customerType!=='individual';
+    if(business&&(!form.tradeLicenseNumber.trim()||!form.registrationDate||!form.licenseExpiryDate)){
+      throw {response:{data:{message:'Trade license number, registration date and license expiry date are required for a business customer'}}};
+    }
+    const parts=form.name.trim().split(' ');
+    const res=await axiosInstance.post('/api/customers/addcustomers',{
+      customerDisplayName:form.name.trim(),firstName:parts[0]||'',lastName:parts.slice(1).join(' '),
+      customerEmail:form.email.trim(),customerPhone:form.phone.trim(),
+      customerType:form.customerType||'business',trnNumber:form.trnNumber.trim(),
+      customFields:business?{tradeLicenseNumber:form.tradeLicenseNumber.trim(),registrationDate:form.registrationDate,licenseExpiryDate:form.licenseExpiryDate}:undefined,
+    });
+    const created=res.data?.data;
+    if(!created?._id){ // held for approval — no record yet
+      throw {response:{data:{message:'Customer creation was sent for approval. Select the customer here once it is approved.'}}};
+    }
+    await handleGetCustomers();
+    setSelectedCustomer(created);
+    setCustomerSearch(created.customerDisplayName||form.name);
+    setDraftCustomer(null);
+    loadPriceListForCustomer(created);
+    nexusToast.success('Customer created');
+  };
 
   const handleCreateSalesType = async (form) => {
     const res = await axiosInstance.post('/api/sales-types/', { name: form.name, description: form.description });
@@ -723,6 +754,7 @@ const Newsalesorders = () => {
       else if(fq.customerName){setCustomerSearch(fq.customerName);}
     } else if(fq.customerName){
       setCustomerSearch(fq.customerName);
+      setDraftCustomer({name:fq.customerName,email:fq.customerEmail||'',phone:fq.customerPhone||'',trn:fq.customerTrn||''});
     }
     if(fq.lineItems?.length){
       const mapped=resolveItems(fq.lineItems,(li,idx)=>{
@@ -755,6 +787,7 @@ const Newsalesorders = () => {
       if(found){setSelectedCustomer(found);setCustomerSearch(found.customerDisplayName||'');loadPriceListForCustomer(found);}
     } else if(fe.customerName){
       setCustomerSearch(fe.customerName);
+      setDraftCustomer({name:fe.customerName,email:fe.email||'',phone:fe.phone||'',trn:''});
     }
     if(fe.lineItems?.length){
       const mapped=resolveItems(fe.lineItems,(li,idx)=>{
@@ -1205,6 +1238,12 @@ const Newsalesorders = () => {
                   )}
                 </div>
               </Field>
+              {!selectedCustomer&&draftCustomer&&(
+                <div style={{marginTop:8,padding:'10px 12px',borderRadius:10,background:'rgba(245,158,11,0.10)',border:'1px solid rgba(245,158,11,0.35)',display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                  <span style={{fontSize:12,color:T.textPri}}>“{draftCustomer.name}” is not a customer yet. Create the record to continue.</span>
+                  <button onClick={()=>setQuickCreate('customer')} style={{padding:'6px 12px',background:'#3b82f6',color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>+ Create Customer</button>
+                </div>
+              )}
               {selectedCustomer&&(
                 <div className="nso-chip">
                   <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:10}}>
@@ -1578,6 +1617,20 @@ const Newsalesorders = () => {
           uomOptions={uomOptions} fetchUomOptions={fetchUomOptions}
           groupOptions={groupOptions} groupMap={groupMap} fetchGroupOptions={fetchGroupOptions}
           onClose={() => setQuickAddItem(null)} onCreated={handleItemCreated} />
+      )}
+      {quickCreate === 'customer' && draftCustomer && (
+        <QuickCreateModal title="Create Customer" T={T}
+          fields={[
+            { name: 'name', label: 'Customer Name', defaultValue: draftCustomer.name, required: true },
+            { name: 'email', label: 'Email', defaultValue: draftCustomer.email, type: 'email' },
+            { name: 'phone', label: 'Phone', defaultValue: draftCustomer.phone },
+            { name: 'customerType', label: 'Type', type: 'select', options: [{value:'business',label:'Business'},{value:'individual',label:'Individual'}], defaultValue: 'business' },
+            { name: 'trnNumber', label: 'TRN Number', defaultValue: draftCustomer.trn, required: true, mono: true },
+            { name: 'tradeLicenseNumber', label: 'Trade License No. (business)' },
+            { name: 'registrationDate', label: 'Registration Date (business)', render: ({value,onChange}) => <ModernDatePicker label="REGISTRATION DATE (BUSINESS)" value={value} onChange={onChange} zIndex={100001} /> },
+            { name: 'licenseExpiryDate', label: 'License Expiry (business)', render: ({value,onChange}) => <ModernDatePicker label="LICENSE EXPIRY (BUSINESS)" value={value} onChange={onChange} zIndex={100001} /> },
+          ]}
+          onClose={() => setQuickCreate(null)} onSubmit={handleCreateDraftCustomer} />
       )}
       {quickCreate === 'salesType' && (
         <QuickCreateModal title="New Sales Type" T={T}

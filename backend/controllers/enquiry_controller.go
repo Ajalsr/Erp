@@ -270,14 +270,40 @@ func UpdateEnquiryStatus() gin.HandlerFunc {
 			return
 		}
 
+		// Does a real quote (or one held for approval) exist for this enquiry?
+		hasQuote := func() bool {
+			n, _ := quoteCollection.CountDocuments(ctx, bson.M{"orgId": orgID, "sourceEnquiryId": id,
+				"status": bson.M{"$nin": []string{"cancelled", "declined", "expired"}}})
+			if n == 0 {
+				n, _ = approvalRequestCollection.CountDocuments(ctx, bson.M{
+					"orgId": fmt.Sprintf("%v", orgID), "docType": "quote", "action": "create",
+					"status": "pending", "payload.sourceEnquiryId": id,
+				})
+			}
+			return n > 0
+		}
+
 		// Terminal enquiries can't change state — converted/lost/cancelled are final.
+		// Exception: "converted" with no quote behind it (set by hand) can be reverted.
 		var existing models.Enquiry
 		if enquiryCollection.FindOne(ctx, bson.M{"_id": objectID, "orgId": orgID}).Decode(&existing) == nil {
 			switch existing.Status {
-			case "converted", "lost", "cancelled":
+			case "converted":
+				if hasQuote() {
+					c.JSON(http.StatusConflict, gin.H{"message": "This enquiry is converted and can no longer change status"})
+					return
+				}
+			case "lost", "cancelled":
 				c.JSON(http.StatusConflict, gin.H{"message": "This enquiry is " + existing.Status + " and can no longer change status"})
 				return
 			}
+		}
+
+		// "quoted" / "converted" are only valid once a quote exists. They are set
+		// automatically when the quote is saved / accepted, never by hand.
+		if (req.Status == "quoted" || req.Status == "converted") && !hasQuote() {
+			c.JSON(http.StatusConflict, gin.H{"message": "Create a quote for this enquiry first — it is marked " + req.Status + " automatically through the quote"})
+			return
 		}
 
 		result, err := enquiryCollection.UpdateOne(ctx,
