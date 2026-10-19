@@ -599,7 +599,7 @@ const Newsalesorders = () => {
       customerDisplayName:form.name.trim(),firstName:parts[0]||'',lastName:parts.slice(1).join(' '),
       customerEmail:form.email.trim(),customerPhone:form.phone.trim(),
       customerType:form.customerType||'business',trnNumber:form.trnNumber.trim(),
-      customFields:business?{tradeLicenseNumber:form.tradeLicenseNumber.trim(),registrationDate:form.registrationDate,licenseExpiryDate:form.licenseExpiryDate}:undefined,
+      custom_fields:business?{tradeLicenseNumber:form.tradeLicenseNumber.trim(),registrationDate:form.registrationDate,licenseExpiryDate:form.licenseExpiryDate}:undefined,
     });
     const created=res.data?.data;
     if(!created?._id){ // held for approval — no record yet

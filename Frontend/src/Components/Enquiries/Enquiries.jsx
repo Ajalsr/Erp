@@ -845,7 +845,7 @@ export default function Enquiries() {
         customerPhone:       selected.phone || "",
         customerType:        convertForm.customerType,
         trnNumber:           convertForm.trnNumber.trim(),
-        customFields: convertForm.customerType === "business" ? {
+        custom_fields: convertForm.customerType === "business" ? {
           tradeLicenseNumber: convertForm.tradeLicenseNumber.trim(),
           registrationDate:   convertForm.registrationDate,
           licenseExpiryDate:  convertForm.licenseExpiryDate,

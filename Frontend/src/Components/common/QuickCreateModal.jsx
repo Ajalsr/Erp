@@ -5,7 +5,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { IoMdClose } from 'react-icons/io';
-import nexusToast from '../../helper/nexusToast';
 
 // Fields may pass `render({ value, onChange })` to supply their own control.
 // Custom searchable dropdown for `type: 'select'` fields — replaces the native
@@ -67,16 +66,20 @@ function MiniSelect({ value, onChange, options, placeholder, T, autoFocus }) {
 export default function QuickCreateModal({ title, fields, T, onClose, onSubmit, columns = 1 }) {
   const [form, setForm] = useState(() => Object.fromEntries(fields.map(f => [f.name, f.defaultValue ?? ''])));
   const [saving, setSaving] = useState(false);
+  // Errors are shown inside the modal — a toast would render behind its overlay.
+  const [error, setError] = useState('');
+  const [errField, setErrField] = useState(null);
 
   const handleSave = async () => {
     const missing = fields.find(f => f.required && !String(form[f.name] ?? '').trim());
-    if (missing) { nexusToast.error(`${missing.label} is required`); return; }
+    if (missing) { setError(`${missing.label} is required`); setErrField(missing.name); return; }
+    setError(''); setErrField(null);
     setSaving(true);
     try {
       await onSubmit(form);
       onClose();
     } catch (err) {
-      nexusToast.error(err?.response?.data?.message || 'Failed to save');
+      setError(err?.response?.data?.message || 'Failed to save');
     } finally {
       setSaving(false);
     }
@@ -108,13 +111,16 @@ export default function QuickCreateModal({ title, fields, T, onClose, onSubmit, 
               <MiniSelect value={form[f.name]} onChange={val => setForm(p => ({ ...p, [f.name]: val }))}
                 options={f.options} placeholder={f.placeholder} T={T} autoFocus={f.autoFocus} />
             ) : (
-              <input type={f.type || 'text'} value={form[f.name]} onChange={e => setForm(p => ({ ...p, [f.name]: e.target.value }))}
+              <input type={f.type || 'text'} value={form[f.name]} onChange={e => { setForm(p => ({ ...p, [f.name]: e.target.value })); if (errField === f.name) { setErrField(null); setError(''); } }}
                 placeholder={f.placeholder} autoFocus={f.autoFocus}
-                style={{ width: '100%', height: 40, padding: '0 12px', border: `1.5px solid ${T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: f.mono ? "'DM Mono', monospace" : 'inherit', boxSizing: 'border-box' }} />
+                style={{ width: '100%', height: 40, padding: '0 12px', border: `1.5px solid ${errField === f.name ? '#ef4444' : T.border}`, borderRadius: 10, fontSize: 13, color: T.textPri, background: T.surface, outline: 'none', fontFamily: f.mono ? "'DM Mono', monospace" : 'inherit', boxSizing: 'border-box' }} />
             )}
           </div>
         ))}
         </div>
+        {error && (
+          <div role="alert" style={{ marginTop: 4, marginBottom: 10, padding: '9px 12px', borderRadius: 9, background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.35)', color: '#dc2626', fontSize: 12.5, fontWeight: 600 }}>{error}</div>
+        )}
         <button onClick={handleSave} disabled={saving}
           style={{ width: '100%', padding: 11, background: saving ? '#94a3b8' : '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', marginTop: 4 }}>
           {saving ? 'Saving…' : 'Create'}
