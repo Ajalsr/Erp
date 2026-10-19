@@ -338,7 +338,10 @@ const DropdownPortal = ({ children, targetRef, isVisible }) => {
 };
 
 /* ── DatePicker — portal-based so it escapes overflow:hidden ── */
-const ModernDatePicker = ({ value, onChange, label, required=false, placeholder='Select date', zIndex=9998 }) => {
+const ModernDatePicker = ({ value, onChange, label, required=false, placeholder='Select date', inline=false }) => {
+  const zIndex=9998;
+  // inline: panel is absolutely positioned under its own field (no portal, no layout shift) — used inside modals.
+  const wrapPanel=(node)=>inline?node:ReactDOM.createPortal(node,document.body);
   const isDark = useThemeStore((s) => s.isDark);
   const T = getTheme(isDark);
   const [open,setOpen]=useState(false);
@@ -372,18 +375,22 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
       if(!inTrigger&&!inPortal)setOpen(false);
     };
     // Close on external scroll only
-    const onScroll=(e)=>{if(open&&!portalRef.current?.contains(e.target))setOpen(false);};
+    const onScroll=(e)=>{if(open&&!inline&&!portalRef.current?.contains(e.target))setOpen(false);};
     document.addEventListener('mousedown',h);
     window.addEventListener('scroll',onScroll,true);
     return()=>{document.removeEventListener('mousedown',h);window.removeEventListener('scroll',onScroll,true);};
   },[open]);
 
-  const pickerPanel = open ? ReactDOM.createPortal(
+  // Inside a scrolling modal, bring the opened panel into view.
+  useEffect(()=>{ if(open&&inline) setTimeout(()=>portalRef.current?.scrollIntoView({block:'nearest',behavior:'smooth'}),30); },[open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pickerPanel = open ? wrapPanel(
     <div ref={portalRef} className="nso-dd" style={{
       position:'fixed',zIndex,...(pos.up?{bottom:pos.bottom+6}:{top:pos.top+6}),left:pos.left,maxHeight:pos.maxH,overflowY:'auto',
       background:T.surface,borderRadius:16,border:`1.5px solid ${T.border}`,
       boxShadow:'0 24px 60px rgba(0,0,0,.14)',width:280,
       overflowX:'hidden',
+      ...(inline?{position:'absolute',top:'100%',left:0,width:'100%',marginTop:6,zIndex:5,maxHeight:'none',overflowY:'visible'}:{}),
     }}>
       {/* Tab header */}
       <div style={{display:'flex',gap:0,borderBottom:`1.5px solid ${T.border}`,background:T.surface2}}>
@@ -460,12 +467,11 @@ const ModernDatePicker = ({ value, onChange, label, required=false, placeholder=
           </div>
         )}
       </div>
-    </div>,
-    document.body
+    </div>
   ) : null;
 
   return (
-    <div>
+    <div style={inline?{position:'relative'}:undefined}>
       <label className="nso-lbl">{label}{required&&<span className="nso-req">*</span>}</label>
       <button type="button" ref={triggerRef} onClick={()=>{ if(!open) updatePos(); setOpen(o=>!o); }} style={{
         width:'100%',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',
@@ -1619,16 +1625,16 @@ const Newsalesorders = () => {
           onClose={() => setQuickAddItem(null)} onCreated={handleItemCreated} />
       )}
       {quickCreate === 'customer' && draftCustomer && (
-        <QuickCreateModal title="Create Customer" T={T}
+        <QuickCreateModal title="Create Customer" T={T} columns={isMobile ? 1 : 2}
           fields={[
-            { name: 'name', label: 'Customer Name', defaultValue: draftCustomer.name, required: true },
+            { name: 'name', label: 'Customer Name', defaultValue: draftCustomer.name, required: true, full: true },
             { name: 'email', label: 'Email', defaultValue: draftCustomer.email, type: 'email' },
             { name: 'phone', label: 'Phone', defaultValue: draftCustomer.phone },
             { name: 'customerType', label: 'Type', type: 'select', options: [{value:'business',label:'Business'},{value:'individual',label:'Individual'}], defaultValue: 'business' },
             { name: 'trnNumber', label: 'TRN Number', defaultValue: draftCustomer.trn, required: true, mono: true },
             { name: 'tradeLicenseNumber', label: 'Trade License No. (business)' },
-            { name: 'registrationDate', label: 'Registration Date (business)', render: ({value,onChange}) => <ModernDatePicker label="REGISTRATION DATE (BUSINESS)" value={value} onChange={onChange} zIndex={100001} /> },
-            { name: 'licenseExpiryDate', label: 'License Expiry (business)', render: ({value,onChange}) => <ModernDatePicker label="LICENSE EXPIRY (BUSINESS)" value={value} onChange={onChange} zIndex={100001} /> },
+            { name: 'registrationDate', label: 'Registration Date (business)', render: ({value,onChange}) => <ModernDatePicker label="REGISTRATION DATE (BUSINESS)" value={value} onChange={onChange} inline /> },
+            { name: 'licenseExpiryDate', label: 'License Expiry (business)', render: ({value,onChange}) => <ModernDatePicker label="LICENSE EXPIRY (BUSINESS)" value={value} onChange={onChange} inline /> },
           ]}
           onClose={() => setQuickCreate(null)} onSubmit={handleCreateDraftCustomer} />
       )}

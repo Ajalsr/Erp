@@ -64,7 +64,7 @@ function MiniSelect({ value, onChange, options, placeholder, T, autoFocus }) {
   );
 }
 
-export default function QuickCreateModal({ title, fields, T, onClose, onSubmit }) {
+export default function QuickCreateModal({ title, fields, T, onClose, onSubmit, columns = 1 }) {
   const [form, setForm] = useState(() => Object.fromEntries(fields.map(f => [f.name, f.defaultValue ?? ''])));
   const [saving, setSaving] = useState(false);
 
@@ -86,20 +86,21 @@ export default function QuickCreateModal({ title, fields, T, onClose, onSubmit }
     <div style={{ position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }} />
       <div onClick={e => e.stopPropagation()}
-        style={{ position: 'relative', width: 340, maxWidth: '90vw', background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: 22, zIndex: 1 }}>
+        style={{ position: 'relative', width: columns === 2 ? 640 : 340, maxWidth: '92vw', maxHeight: '92vh', overflowY: 'auto', background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 14, padding: 22, zIndex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <h3 style={{ fontFamily: "'Sora',sans-serif", fontSize: 15, fontWeight: 700, color: T.textPri, margin: 0 }}>{title}</h3>
           <button onClick={onClose} style={{ width: 28, height: 28, border: `1px solid ${T.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.textSec }}>
             <IoMdClose size={13} />
           </button>
         </div>
+        <div style={columns === 2 ? { display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16 } : undefined}>
         {fields.map(f => f.render ? (
           // Custom field (e.g. a date picker) — renders its own label and control.
-          <div key={f.name} style={{ marginBottom: 14 }}>
+          <div key={f.name} style={{ marginBottom: 14, gridColumn: f.full ? '1 / -1' : undefined }}>
             {f.render({ value: form[f.name], onChange: val => setForm(p => ({ ...p, [f.name]: val })) })}
           </div>
         ) : (
-          <div key={f.name} style={{ marginBottom: 14 }}>
+          <div key={f.name} style={{ marginBottom: 14, gridColumn: f.full ? '1 / -1' : undefined }}>
             <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.textSec, display: 'block', marginBottom: 6 }}>
               {f.label}{f.required && <span style={{ color: '#ef4444' }}> *</span>}
             </label>
@@ -113,6 +114,7 @@ export default function QuickCreateModal({ title, fields, T, onClose, onSubmit }
             )}
           </div>
         ))}
+        </div>
         <button onClick={handleSave} disabled={saving}
           style={{ width: '100%', padding: 11, background: saving ? '#94a3b8' : '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', marginTop: 4 }}>
           {saving ? 'Saving…' : 'Create'}
